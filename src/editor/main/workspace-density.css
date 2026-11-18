@@ -8,18 +8,18 @@
   --workspace-muted: #5f6e5e;
 }
 
-/* Keep layout controls in the desktop header and retain the narrow drawer bar. */
-.workspace-unified .asset-header { height: 56px; min-height: 56px; padding: 6px 12px; gap: 12px; }
+/* Share the header with the workspace panel controls. */
+.workspace-unified .asset-header { position: relative; height: 56px; min-height: 56px; padding: 6px 12px; gap: 12px; }
 .workspace-unified .asset-brand > span { font-size: 17px; }
 .workspace-unified .workspace-project-title h1 { font-size: 14px; line-height: 1.4; }
-.workspace-unified .asset-header-actions { overflow: visible; }
+.workspace-unified .asset-header-actions { max-width: none; overflow: visible; }
 .workspace-header-layout:empty { display: none; }
 .workspace-layout-actions[data-compact=true] { min-height: 0; padding: 0 0 0 6px; border: 0; border-left: 1px solid #d9e1d1; background: transparent; gap: 3px; }
 .workspace-layout-actions button, .workspace-layout-settings > summary { display: flex; align-items: center; justify-content: center; gap: 5px; }
 .workspace-layout-actions[data-compact=true] > button, .workspace-layout-actions[data-compact=true] .workspace-layout-settings > summary { min-width: 30px; min-height: 30px; padding: 5px; }
 .workspace-layout-actions[data-compact=true] > button > span, .workspace-layout-actions[data-compact=true] .workspace-layout-settings > summary > span { display: none; }
 .workspace-layout-actions[data-compact=true] .workspace-layout-spacer { display: none; }
-.workspace-layout-actions[data-compact=true] .workspace-layout-storage { position: absolute; top: 58px; right: 12px; padding: 4px 8px; background: #fff9e9; border: 1px solid #d8c7a3; z-index: 32; }
+.workspace-layout-actions[data-compact=true] .workspace-layout-storage { position: absolute; top: calc(100% + 4px); right: 12px; padding: 4px 8px; background: #fff9e9; border: 1px solid #d8c7a3; z-index: 32; }
 .workspace-unified .asset-notice:not(.workspace-save-recovery) { min-height: 32px; padding: 5px 12px; font-size: 12px; line-height: 1.5; gap: 8px; }
 .workspace-unified .asset-notice > button { flex: none; min-width: 28px; min-height: 28px; }
 .workspace-unified .workspace-panel-header { height: 32px; min-height: 32px; padding: 0 10px; }
@@ -194,7 +194,6 @@
 
 @media (max-width: 1079px) {
   .workspace-unified .asset-header { height: auto; min-height: 56px; }
-  .workspace-unified .workspace-header-layout { display: none; }
   .workspace-unified .workspace-panel-body .workspace-field-pair { gap: 10px; }
   .workspace-unified .workspace-inspector :is(.workspace-candidate-review, .workspace-review-panel) { max-height: calc(100dvh - 235px); }
 }
@@ -229,4 +228,138 @@
 @media (max-width: 600px) {
   .workspace-floor-switch { max-width: 100%; }
   .workspace-floor-switch select { max-width: 8rem; }
+}
+
+@media (max-width: 760px) {
+  .workspace-unified .asset-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    min-height: 0;
+    gap: 4px 6px;
+    padding: 5px 8px;
+  }
+  .workspace-unified .asset-brand { min-height: 32px; gap: 5px; padding: 0 4px; }
+  .workspace-unified .asset-brand > span { font-size: 14px; letter-spacing: 0; }
+  .workspace-unified .asset-header-title { min-width: 0; }
+  .workspace-unified .workspace-project-title h1 { margin: 0; font-size: 13px; }
+  .workspace-unified .asset-toolbar { padding: 1px; }
+  .workspace-unified .asset-toolbar button { width: 30px; height: 30px; }
+  .workspace-unified .asset-header-actions {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    width: auto;
+    gap: 4px;
+    padding: 0;
+  }
+  .workspace-unified .asset-header-actions > .asset-save {
+    flex: 1 1 58px;
+    min-width: 0;
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.25;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .workspace-unified .asset-header-actions > .asset-save svg { flex: none; }
+  .workspace-unified .asset-header-actions > :is(.workspace-file-menu, .workspace-help, .workspace-export-menu) { flex: none; }
+  .workspace-unified .asset-header-actions > :is(.workspace-file-menu, .workspace-help, .workspace-export-menu) > summary {
+    box-sizing: border-box;
+    min-height: 32px;
+    gap: 4px;
+    padding: 4px 6px;
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .workspace-unified .workspace-header-layout { flex: none; }
+  .workspace-unified .workspace-header-layout .workspace-layout-actions { gap: 2px; padding-inline-start: 3px; }
+  .workspace-unified .workspace-header-layout .workspace-layout-settings { position: static; }
+  .workspace-unified .workspace-header-layout .workspace-layout-settings > div { right: 8px; top: calc(100% + 4px); }
+  .workspace-unified .workspace-session-feedback { flex-wrap: wrap; align-content: flex-start; gap: 3px 6px; padding: 3px 8px; }
+  .workspace-unified .workspace-session-feedback > button {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 28px;
+    margin: 0;
+    padding: 3px 6px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .workspace-unified .workspace-session-feedback > .asset-muted {
+    order: 1;
+    flex: 1 0 100%;
+    min-width: 0;
+    margin: 0;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .workspace-unified .workspace-session-feedback > .building-sketch-status {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    gap: 3px 5px;
+    margin: 0;
+    padding: 2px 5px;
+  }
+}
+
+.workspace-unified .workspace-layout[data-compact=true] .asset-view-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 6px;
+  padding: 3px 6px;
+}
+.workspace-unified .workspace-layout[data-compact=true] .workspace-floor-switch select { min-height: 26px; }
+.workspace-unified .workspace-layout[data-compact=true] .asset-audience { grid-column: 2; justify-self: end; }
+.workspace-unified .workspace-layout[data-compact=true] .asset-audience button { min-height: 24px; padding: 3px 8px; }
+.workspace-unified .workspace-layout[data-compact=true] .asset-view-actions { grid-column: 1 / -1; gap: 4px; }
+.workspace-unified .workspace-layout[data-compact=true] .asset-view-actions > span {
+  flex: 1 1 92px;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.workspace-unified .workspace-layout[data-compact=true] .asset-view-actions > button { flex: none; min-height: 28px; padding: 3px 6px; }
+
+/* Keep the canvas mounted while its less-used view and selection settings are tucked away. */
+.workspace-unified .workspace-layout[data-compact=true] .asset-viewport-toolbar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 3;
+  gap: 4px;
+  max-height: 100%;
+  padding: 4px 6px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  box-shadow: 0 4px 12px #273f2920;
+}
+.workspace-unified .workspace-layout[data-compact=true][data-map-options-open=false] .asset-viewport-toolbar { display: none; }
+/* Cancelling an active fill is a direct action, including when options are closed. */
+.workspace-unified .workspace-layout[data-compact=true][data-map-options-open=false] .asset-viewport-toolbar:has(> .secondary) {
+  position: static;
+  display: flex;
+  justify-content: flex-end;
+  box-shadow: none;
+}
+.workspace-unified .workspace-layout[data-compact=true][data-map-options-open=false] .asset-viewport-toolbar > :not(.secondary) { display: none; }
+.workspace-unified .workspace-layout[data-compact=true] .asset-selection-notice { padding: 4px 7px; font-size: 11px; line-height: 1.4; }
+.workspace-unified .workspace-layout[data-compact=true] .workspace-canvas-hint { gap: 4px; padding: 4px 7px; line-height: 1.4; }
+.workspace-unified .workspace-layout[data-compact=true] .workspace-canvas-hint > span { flex-basis: 140px; }
+
+.workspace-unified .workspace-layout[data-compact=true] .workspace-footer { gap: 3px 6px; padding-inline: 8px; }
+.workspace-unified .workspace-layout[data-compact=true] .workspace-footer > div:empty { display: none; }
+/* The audience is already visible in the view bar. Use the footer space for mode and selection. */
+.workspace-unified .workspace-layout[data-compact=true]:has(.asset-view-bar .asset-audience) .workspace-footer > span:last-child { display: none; }
+.workspace-unified .workspace-layout[data-compact=true] .workspace-footer .asset-external-view-controls { gap: 1px; }
+.workspace-unified .workspace-layout[data-compact=true] .workspace-footer .asset-external-view-controls button { min-width: 27px; padding-inline: 4px; }
+.workspace-unified .workspace-layout[data-compact=true] .workspace-footer .asset-external-view-controls output { min-width: 34px; }
+.workspace-unified .workspace-layout[data-compact=true] .workspace-display-summary {
+  flex: 0 1 104px;
+  min-width: 0;
+  padding: 2px 4px;
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: normal;
 }

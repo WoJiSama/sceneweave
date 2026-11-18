@@ -1,35 +1,36 @@
-import { useRef } from 'react'
+import { useRef, type KeyboardEvent } from 'react'
 import { CircleHelp } from 'lucide-react'
 
-export default function WorkspaceHelp() {
+export function closeWorkspaceDisclosure(disclosure: HTMLDetailsElement) {
+  disclosure.open = false
+  disclosure.querySelector('summary')?.focus()
+}
+
+export function onWorkspaceDisclosureEscape(event: KeyboardEvent<HTMLDetailsElement>) {
+  if (event.defaultPrevented || event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !event.currentTarget.open) return
+  event.preventDefault()
+  event.stopPropagation()
+  closeWorkspaceDisclosure(event.currentTarget)
+}
+
+export default function WorkspaceHelp({ disclosureGroup }: { disclosureGroup: string }) {
   const disclosure = useRef<HTMLDetailsElement>(null)
-  const close = () => {
-    if (!disclosure.current) return
-    disclosure.current.open = false
-    disclosure.current.querySelector('summary')?.focus()
-  }
-  return <details className="workspace-help" ref={disclosure} onKeyDown={event => {
-    if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
-      event.preventDefault(); event.stopPropagation(); close()
-    }
-  }}>
-    <summary><CircleHelp size={15}/>操作帮助</summary>
-    <section aria-label="制作流程与快捷键" tabIndex={0}>
-      <h2>工作区怎么用</h2>
-      <p>最左侧按制作顺序排列：场景、生成、地形、建筑、素材与布景、氛围。可以跳过生成或随时返回前面的工具；底部的 AI 和历史在整个制作过程中都可使用。</p>
+  return <details className="workspace-help" name={disclosureGroup} ref={disclosure} onKeyDown={onWorkspaceDisclosureEscape}>
+    <summary><CircleHelp aria-hidden="true" size={15}/>操作帮助</summary>
+    <section className="workspace-file-surface" aria-label="制作流程与快捷键" tabIndex={0}>
+      <h2>保存、备份与分享</h2>
       <dl>
-        <div><dt>左侧内容</dt><dd>浏览全图的图层和对象、查找素材、选择创作任务，或查看生成、AI 与历史列表。「场景」集中管理图层和已有对象。</dd></div>
-        <div><dt>右侧当前详情</dt><dd>查看所选对象、调整当前工具参数，或审阅素材来源、历史恢复与待采用修改。先核对面板中的作用对象和范围。</dd></div>
-        <div><dt>画布上方工具条</dt><dd>选择、平移、绘制、放置、注记、遮罩和量尺。浏览左侧模块会保留当前选择、工具草稿与候选。</dd></div>
-        <div><dt>顶部文件菜单</dt><dd>新建空白场景、打开工程文件、从样板开始、重新载入及备份工程；「导出」提供玩家地图、主持人地图和 VTT。</dd></div>
+        <div><dt>浏览器自动保存</dt><dd>已采用的编辑保存在此浏览器、此站点。换浏览器、端口、设备或清除站点数据前，从「文件」下载备份。</dd></div>
+        <div><dt>可编辑 .sceneweave</dt><dd>含实际资源、许可和秘密，供主持人保管。用「文件」→「打开工程文件」恢复编辑。</dd></div>
+        <div><dt>玩家 / 主持人 PNG</dt><dd>「导出」生成当前楼层的图片。玩家 PNG 过滤秘密，可与玩家分享。主持人 PNG 含秘密。</dd></div>
       </dl>
-      <p>窄窗口一次展开一个侧栏。关闭侧栏只收起展示；用「返回当前工具与草稿」或「返回候选审阅」继续操作。素材详情中的返回按钮会回到之前的对象或任务。</p>
-      <h3>从新建到交付</h3>
+      <p>发起下载后，请在浏览器下载列表确认文件。保存失败时，使用页面的恢复选项下载当前工程、重试保存或另存副本。</p>
+      <h3>工作区怎么用</h3>
       <ol>
-        <li>从顶部「文件」新建，或从左侧「生成」选择地图方案。</li>
-        <li>在「地形」「建筑」选择任务，到右侧调整参数；在「素材与布景」挑选内容并放置到画布，再到「氛围」调整效果。</li>
-        <li>出现候选时在右侧核对修改；需要确认范围的候选，勾选确认后再点「采用」。取消预览不会修改工程。</li>
-        <li>已采用的编辑自动保存在此浏览器。用「导出」分享玩家地图，或从「文件」下载可继续编辑的工程备份。</li>
+        <li>从「文件」新建或打开工程，也可在左侧「生成」选择地图方案。</li>
+        <li>从左侧选择制作任务，到右侧调整参数，在画布绘制或放置。切换模块和收起侧栏会保留草稿、候选与选区。</li>
+        <li>在右侧审阅候选并选择采用或取消。用「返回当前工具与草稿」或「返回候选审阅」继续未完成的操作。</li>
+        <li>用顶栏撤销、重做和查看保存状态。工程备份包含已采用的编辑。</li>
       </ol>
       <h3>工程快捷键</h3>
       <dl>
@@ -37,8 +38,9 @@ export default function WorkspaceHelp() {
         <div><dt><kbd>Ctrl / ⌘ + Shift + Z</kbd><br/>或 <kbd>Ctrl / ⌘ + Y</kbd></dt><dd>重做</dd></div>
         <div><dt><kbd>Ctrl / ⌘ + S</kbd></dt><dd>保存到此浏览器</dd></div>
       </dl>
-      <p>输入框保留文本快捷键；有未完成草稿、候选或弹窗时，请先按页面提示完成或取消。保存到浏览器不会下载工程文件。</p>
+      <p>输入框保留文本快捷键。有未完成草稿、候选或弹窗时，请先按页面提示完成或取消。</p>
       <h3>先点击画布，再使用</h3>
+      <p>窄屏可在画布工具栏的「选项」中调整框选、组合成员与子格吸附。</p>
       <dl>
         <div><dt><kbd>空格 + 拖动</kbd></dt><dd>平移视图</dd></div>
         <div><dt><kbd>+</kbd> / <kbd>−</kbd> / <kbd>0</kbd></dt><dd>放大 / 缩小 / 适应全图</dd></div>
@@ -54,9 +56,9 @@ export default function WorkspaceHelp() {
       <p>物件内容只留在本次工程会话，系统剪贴板仅保存引用标记；不能粘贴到其他工程或应用。输入框仍使用普通文本复制粘贴。</p>
       <h3>列表与数值输入</h3>
       <p>最左导航用 ↑↓、Home、End 移动焦点，Enter 或空格打开模块；画布工具条用 ←→、Home、End 移动焦点。对象列表用 ↑↓、Home、End、Page Up / Page Down 浏览，Enter 或空格选择；配合 Shift 增选、Option / Alt 减选。</p>
-      <p>Esc 先关闭当前菜单、弹窗、素材详情或所属侧栏；关闭侧栏后，回到画布再按 Esc 才取消当前画布操作。</p>
+      <p>在菜单或帮助内按 Esc 可关闭当前面板并回到入口。回到画布后，按 Esc 可取消当前画布操作。</p>
       <p>属性数值输入中，Enter 确认当前字段，Esc 恢复原值。绘图取点完成后，将焦点移回画布按 Enter，或点「预览房间」「预览绘制结果」。</p>
-      <button className="secondary" type="button" onClick={close}>关闭操作帮助</button>
+      <button className="secondary" type="button" onClick={() => { if (disclosure.current) closeWorkspaceDisclosure(disclosure.current) }}>关闭操作帮助</button>
     </section>
   </details>
 }

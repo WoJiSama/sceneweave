@@ -5,6 +5,7 @@ import { unzipSync } from 'fflate'
 import { keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel, selectKeyboardProp } from './keyboard-ux-helpers'
 import { mapExportButton, openExportMenu } from './workspace-ux-helpers'
 import { openWorkspaceModule } from './workspace-navigation-helpers'
+import { verifyJourneyPng } from './complete-journey-image-helpers'
 
 async function closeDrawers(page: Page) {
   if (await page.getByTestId('workspace-layout').getAttribute('data-narrow') !== 'true') return
@@ -163,10 +164,11 @@ for (const width of [1512, 390]) test(`production generation, edit, cold open an
     await expect(page.locator('.asset-busy')).toHaveCount(0)
     const bytes = await readFile(output)
     expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
-    expect(bytes.readUInt32BE(16)).toBe(4096)
-    images.push({ audience, sha256: createHash('sha256').update(bytes).digest('hex'), width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) })
+    const pixels = await verifyJourneyPng(page, output, info.outputPath('cold.sceneweave'), cold.document)
+    images.push({ audience, sha256: createHash('sha256').update(bytes).digest('hex'), ...pixels })
     await summary.click()
   }
+  let importedFacts: { sceneId: string; revision: number; propId: string; xMm: number; resourceHashes: Record<string, string> } | undefined
   const imported = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 982 } })
   try {
     const fresh = await imported.newPage()
@@ -188,10 +190,46 @@ for (const width of [1512, 390]) test(`production generation, edit, cold open an
     expect(importedManifest.assetRecords).toEqual(sourceManifest.assetRecords)
     expect(importedManifest.licenseBindings).toEqual(sourceManifest.licenseBindings)
     await screenshot(fresh, info, '07-imported-project')
+
+    // A valid imported archive must remain editable under its fresh scene owner.
+    // Prop and fixed-source identity follow the existing import contract above.
+    const importedProp = copy.document.props[prop.id]
+    await selectKeyboardProp(fresh, importedProp.id)
+    const importedX = (await openKeyboardPanel(fresh, 'inspector')).getByLabel('物件 X', { exact: true })
+    await importedX.fill(String((importedProp.positionMm.x + 1) / 1000)); await importedX.press('Enter')
+    await keyboardWorkspaceSaved(fresh)
+    const changed = await keyboardProjectBackup(fresh, info.outputPath('imported-edited.sceneweave'))
+    expect(changed.document).toEqual({ ...copy.document, revision: copy.document.revision + 1, updatedAt: changed.document.updatedAt,
+      props: { ...copy.document.props, [importedProp.id]: { ...importedProp, positionMm: { ...importedProp.positionMm, x: importedProp.positionMm.x + 1 } } } })
+    expect(changed.identity).toEqual(copy.identity); expect(changed.appearance).toEqual(copy.appearance)
+    expect(keyboardResourceHashes(changed.hashes)).toEqual(keyboardResourceHashes(copy.hashes))
+    await screenshot(fresh, info, '08-imported-edit')
+    await closeDrawers(fresh)
+    await fresh.getByRole('button', { name: '撤销编辑', exact: true }).click()
+    await keyboardWorkspaceSaved(fresh)
+    const importUndone = await keyboardProjectBackup(fresh, info.outputPath('imported-undone.sceneweave'))
+    expect(importUndone.document).toEqual({ ...copy.document, revision: copy.document.revision + 2, updatedAt: importUndone.document.updatedAt })
+    await fresh.getByRole('button', { name: '重做编辑', exact: true }).click()
+    await keyboardWorkspaceSaved(fresh)
+    const importRedone = await keyboardProjectBackup(fresh, info.outputPath('imported-redone.sceneweave'))
+    expect(importRedone.document).toEqual({ ...changed.document, revision: copy.document.revision + 3, updatedAt: importRedone.document.updatedAt })
+    expect(importRedone.identity).toEqual(copy.identity); expect(importRedone.appearance).toEqual(copy.appearance)
+    expect(keyboardResourceHashes(importRedone.hashes)).toEqual(keyboardResourceHashes(copy.hashes))
+    await fresh.reload()
+    await fresh.getByRole('button', { name: '回到首页', exact: true }).click()
+    await fresh.getByTestId('workspace-home').locator(`[data-project-key="native:${copy.document.sceneId}"]`)
+      .getByRole('button', { name: '打开', exact: true }).click()
+    await keyboardWorkspaceSaved(fresh)
+    const importedCold = await keyboardProjectBackup(fresh, info.outputPath('imported-cold.sceneweave'))
+    expect(importedCold.hashes).toEqual(importRedone.hashes)
+    await closeDrawers(fresh)
+    await screenshot(fresh, info, '09-imported-edited-cold')
+    importedFacts = { sceneId: importedCold.document.sceneId, revision: importedCold.document.revision, propId: importedProp.id,
+      xMm: importedCold.document.props[importedProp.id].positionMm.x, resourceHashes: keyboardResourceHashes(importedCold.hashes) }
   } finally { await imported.close() }
   expect(errors).toEqual([])
   expect(generationRequests).toEqual([])
   await writeFile(info.outputPath('journey-facts.json'), JSON.stringify({ width, errors, workers, generationRequests, source: original.document.sceneId,
     generated: generated.document.sceneId, revision: cold.document.revision, rooms: Object.keys(cold.document.rooms).length,
-    props: Object.keys(cold.document.props).length, images, nativeImeOrScreenReaderEvidence: false }, null, 2))
+    props: Object.keys(cold.document.props).length, images, imported: importedFacts, browserVersion: browser.version(), nativeImeOrScreenReaderEvidence: false }, null, 2))
 })

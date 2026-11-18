@@ -225,6 +225,11 @@ for (const size of viewports) test(`production keyboard and narrow acceptance at
   await expect(cancelRoom).toBeFocused()
   await key('Tab', 'room adopt reached after expanded long details')
   await expect(adoptRoom).toBeFocused()
+  await info.attach('room-review-layout.json', { contentType: 'application/json', body: JSON.stringify(await adoptRoom.evaluate(node => {
+    const bounds = (element: Element) => { const { x, y, width, height, bottom } = element.getBoundingClientRect(); return { x, y, width, height, bottom } }
+    const panel = node.closest('.workspace-panel-body')!, review = node.closest('.workspace-candidate-review')!
+    return { button: bounds(node), panel: bounds(panel), review: bounds(review), panelHeight: panel.clientHeight, viewport: { width: innerWidth, height: innerHeight } }
+  }), null, 2) })
   await expect(adoptRoom).toBeInViewport({ ratio: 1 })
   await key('Shift+Tab', 'return to room cancel without adopting')
   await cancelRoom.scrollIntoViewIfNeeded()

@@ -64,7 +64,7 @@ import type { DomainPreviewMap, LocalGenerationPreview } from '../../application
 import { domainOperationView, type DomainOperationLease } from './domain-operation-session'
 import { GENERATION_DOMAINS, useDomainOperations, type GenerationDomain } from './use-domain-operations'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { AlertTriangle, Archive, ArrowLeft, BookOpen, Sparkles, Palette, Shapes, Shield, WandSparkles, CheckCircle2, Clock3, Download, Layers3, PencilRuler, LoaderCircle, Move, Mountain, DoorOpen, Plus, Ruler, StickyNote, Redo2, Undo2, Upload, X } from 'lucide-react'
+import { Archive, ArrowLeft, BookOpen, Sparkles, Palette, Shapes, Shield, WandSparkles, Layers3, PencilRuler, LoaderCircle, Move, Mountain, DoorOpen, Plus, Ruler, StickyNote, Redo2, Undo2, Upload, X } from 'lucide-react'
 import { WorkspaceRepository } from './repository'
 import { Workspace, type CompositionPreview, type RestorePreview, type StructureRestorePreview, type RegionalPreview } from '../../application/workspace/workspace'
 import RegionalPanel from './RegionalPanel'
@@ -144,8 +144,10 @@ import CatalogLibrary, { type CatalogSelectorV1 } from './CatalogLibrary'
 import { createEntityLabeler } from './entity-label'
 import { aggregateReviewMembers } from './aggregate-review'
 import TaskPicker from './TaskPicker'
-import WorkspaceHelp from './WorkspaceHelp'
+import WorkspaceFileActions from './WorkspaceFileActions'
+import WorkspaceBackupFeedback, { type WorkspaceBackupAttempt } from './WorkspaceBackupFeedback'
 import WorkspaceSaveRecovery from './WorkspaceSaveRecovery'
+import { createWorkspaceFileController } from './workspace-file-controller'
 import OpeningPlacementPanel, { type OpeningTool } from './OpeningPlacementPanel'
 import { openingAtPoint } from './opening-placement'
 import { newId } from './runtime'
@@ -224,6 +226,14 @@ const download = (blob: Blob, name: string) => {
   const url = URL.createObjectURL(blob), anchor = document.createElement('a')
   anchor.href = url; anchor.download = name; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
+const fileController = createWorkspaceFileController({
+  workspace: compositionWorkspace,
+  exportArchive: (sceneId, snapshotIds) => repository.exportArchive(sceneId, snapshotIds),
+  exportProject: bundle => exportProject(bundle, validation),
+  exportHistoryArchive: archive => exportHistoryArchive(archive, validation),
+  exportPng,
+  download,
+})
 type Candidate = { project: EditableProject; checkpoint: number; description: string; imageDraftToken?: string }
 type CatalogUse = { selector: CatalogSelectorV1; layerId: string; ids: string[] }
 type StructurePreview = { furnishing?: FurnishingReview; inlayReview?: TerrainInlayReview[]; assetQuality?: readonly AssetQualityAssessment[]; qualityAcknowledgments?: readonly string[]; afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display' | 'path-check' | 'image-enhancement'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
@@ -246,6 +256,8 @@ type WorkbenchProps = {
 }
 export default function Workbench({ onBack, onImportFile, active = true, onController, onSession }: WorkbenchProps) {
   const state = useSyncExternalStore(compositionWorkspace.subscribe, compositionWorkspace.getState), completeProject = state.project
+  const [backupAttempt, setBackupAttempt] = useState<WorkspaceBackupAttempt | null>(null)
+  useEffect(() => { setBackupAttempt(null) }, [completeProject?.document.sceneId])
   const project = useMemo(() => {
     if (!completeProject) return null
     inheritSelectionGeometryForProject(toBundle(completeProject).project)
@@ -1192,25 +1204,8 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   }
   const backup = (snapshotIds?: readonly string[], sceneId = completeProject?.document.sceneId) => {
     if (!completeProject || !sceneId) return
-    const selected = snapshotIds === undefined ? undefined : [...snapshotIds]
-    void action(async () => {
-      const checkpoint = compositionWorkspace.checkpoint()
-      if (compositionWorkspace.getState().project?.document.sceneId !== sceneId) throw new Error('备份所属工程已切换，请重新选择备份范围。')
-      if (selected && !selected.length) throw new Error('请先明确勾选需要携带的历史快照。')
-      // A failed save must still leave a way to preserve the complete memory
-      // branch. Selected-history archives continue to require a saved baseline.
-      if (selected || !['error', 'conflict'].includes(compositionWorkspace.getState().status)) await compositionWorkspace.flush()
-      compositionWorkspace.assertCheckpoint(checkpoint)
-      const current = compositionWorkspace.getState().project!
-      if (current.document.sceneId !== sceneId) throw new Error('备份所属工程已切换，请重新选择备份范围。')
-      const blob = selected
-        ? await exportHistoryArchive(await repository.exportArchive(sceneId, selected), validation)
-        : await exportProject(toBundle(current), validation)
-      compositionWorkspace.assertCheckpoint(checkpoint)
-      if (compositionWorkspace.getState().project?.document.sceneId !== sceneId) throw new Error('备份所属工程已切换，请重新选择备份范围。')
-      download(new Blob([blob.slice().buffer], { type: 'application/octet-stream' }), selected ? 'sceneweave-history.sceneweave' : 'sceneweave-complete.sceneweave')
-      announceSuccess(selected ? `已生成当前完整工程与所选 ${selected.length} 份快照备份。` : '已生成当前完整工程，含全部资源、许可和秘密。')
-    }, '下载工程备份', selected ? '正在生成包含所选历史的工程备份…' : '正在生成完整工程备份…')
+    void action(() => fileController.backup({ project: completeProject, sceneId, snapshotIds }, setBackupAttempt),
+      '下载工程备份', snapshotIds ? '正在生成包含所选历史的工程备份…' : '正在生成完整工程备份…')
   }
   const commit = (run: () => void | Promise<void>) => { if (!guard()) return; void action(async () => { await run() }, '编辑未采用') }
   const preview = (input: CompositionCommand[] | (() => CompositionCommand[]), description: string, scopeIds?: string[], form?: WorkspaceFormDraft) => {
@@ -1757,12 +1752,11 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     setMenu(null); selectionSession.set(found.ids); inspect('selection')
     setMessage(`已选择本层 ${found.ids.length} 个对象；排除锁定 ${found.excludedLocked} 个。`)
   }
-  const exportImage = (targetAudience: 'gm' | 'player') => { if (completeProject) void action(async () => {
-    // Capture the complete immutable project and audience at the click boundary.
-    const blob = await exportPng(toBundle(completeProject), { audience: targetAudience, longEdgePx: 4096, floorId: activeFloorId })
-    download(blob, `sceneweave-${targetAudience}-map.png`)
-    announceSuccess(`${targetAudience === 'gm' ? '主持人' : '玩家'} PNG 已生成 · r${completeProject.document.revision} · ${completeProject.document.floors[activeFloorId].name}固定范围 · 长边 4096 px`)
-  }, '导出地图 PNG', `正在生成${targetAudience === 'gm' ? '主持人' : '玩家'}地图 PNG…`) }
+  const exportImage = (targetAudience: 'gm' | 'player') => {
+    if (!completeProject) return
+    void action(() => fileController.exportImage({ project: completeProject, audience: targetAudience, floorId: activeFloorId }, announceSuccess),
+      '导出地图 PNG', `正在生成${targetAudience === 'gm' ? '主持人' : '玩家'}地图 PNG…`)
+  }
   const canFinishCanvas = (completing: readonly WorkspaceDraft[]) => active && audience === 'gm' && !catalogBusy
     && !document.querySelector('[role="dialog"],[role="menu"],.workspace-help[open],.workspace-export-menu[open]') && guard(completing)
   const buildingWorldTool = sketch && audience === 'gm' ? { ...sketch, snapMm: project?.document.units.snapMm ?? 100, onCancel: () => setSketch(null),
@@ -1844,7 +1838,6 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     onMove: (point: PointMm) => setOutdoorSketch(current => current ? { ...current, cursor: point } : current),
     onClearCursor: () => setOutdoorSketch(current => current ? { ...current, cursor: null } : current),
   } : buildingWorldTool)
-  const saveLabels = { empty: '尚未打开工程', saved: '本地已保存', unsaved: '等待保存', saving: '正在保存', error: '保存失败', conflict: '版本冲突' }
   const transitionReason = workspaceTransitionReason(transient())
   const exportBlockedReason = !completeProject ? '请先新建或打开工程，再导出地图或备份。'
     : busy || editingBlocked ? transitionReason ?? '当前操作尚未结束，请等待完成，或采用/取消候选后再导出。' : null
@@ -1913,6 +1906,16 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (templatePlacement) { enterCanvas(); return }
     if (formDrafts.catalogForm || formDrafts.assetImportForm || formDrafts.roomFurnishingForm || formDrafts.sceneTemplateForm || formDrafts.dressingTemplateForm) { openResources('library'); return }
     inspect(openingTool || placement || prefabPlacement ? 'selection' : formDrafts.visualForm ? 'visual' : formDrafts.displayForm || formDrafts.pathCheckForm || formDrafts.titleForm ? 'settings' : formDrafts.appearanceForm && detailMode === 'layer' ? 'layer' : outdoorSketch || formDrafts.outdoorForm ? detailMode === 'dress' ? 'dress' : detailMode === 'outdoorAggregate' ? 'outdoorAggregate' : 'outdoor' : formDrafts.buildingForm || sketch ? 'building' : 'selection')
+  }
+  const hasCandidate = hasReview || domainSummary.hasCandidate || !!terrainPreview || !!regionalPreview || !!localGenerationPreview || !!terrainEditPreview || aiShown
+  const resumeCandidate = () => {
+    if (hasReview) { inspect('review'); return }
+    if (localGenerationPreview) { setSidebar('outdoor'); setOutdoorTab('regenerate'); inspect('regenerate'); return }
+    if (terrainEditPreview) { setSidebar('outdoor'); setOutdoorTab('edit'); inspect('outdoorEdit'); return }
+    if (aiShown) { openResources('ai'); return }
+    const domain = domainOperations.active()?.domain
+    setGenerationTab(domain ?? (regionalPreview ? 'regional' : terrainPreview?.composition ? 'composition' : 'natural'))
+    openResources('generate')
   }
   const draftControls = <>{(editingBlocked || hasDraft) && <p className="asset-muted" role="status">{openingTool ? '门窗放置尚未结束。请点击墙面继续，或取消门窗工具。' : workspaceTransitionReason({ ...transient(), busy: false, preparing: false })}侧栏浏览保留当前选择、输入和候选。</p>}
           {(placement || prefabPlacement || sketch || outdoorSketch || openingTool) && !editingBlocked && <div className="building-sketch-status" role="group" aria-label="当前工具">
@@ -2070,7 +2073,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       </>}
     </aside> }}</SelectionSubscriber>
   const reviewPanel = <>{structureRestore && <StructureRestoreChangesPanel preview={structureRestore} current={completeProject!}/>} {restore && <RestoreChangesPanel preview={restore} current={completeProject!}/>}          {(terrainLocalPreview || terrainLocalBusy) && <div className="asset-structure-preview" role="status" aria-label="局部地形联动候选"><div><strong>{terrainLocalBusy ? '正在计算局部地形联动' : '局部地形联动候选 · 主工程尚未改变'}</strong><span>{terrainLocalBusy ? '正在读取过渡、素材和依赖闭包。' : `影响 ${terrainLocalPreview?.result.changedIds.length ?? 0} 项；范围外内容已保留。`}</span></div>{terrainLocalPreview && <><button className="primary" disabled={busy} onClick={() => void adoptTerrainLocal()}>保护并采用</button><button className="secondary" disabled={busy} onClick={cancelTerrainLocal}>取消局部地形预览</button></>}</div>}
-          {terrainPreview && <div className="asset-structure-preview" role="status"><div><strong>自然地形候选 · 主工程尚未改变</strong><span>请审阅下方方案，再采用或取消。</span>{terrainPreview.baseMap && <span aria-label="程序底图本次预算">{terrainPreview.baseMap.source === 'server' ? '服务端' : '本机'}程序生成 · {terrainPreview.baseMap.version === 3 && terrainPreview.baseMap.budgetProfile ? `编辑目标 ${terrainPreview.baseMap.initialOperationCost}/${terrainPreview.baseMap.operationLimit} · ${terrainPreview.baseMap.budgetProfile.profileId} 档；轮廓点 ${terrainPreview.baseMap.budgetUsage?.geometryPoints ?? 0}/${terrainPreview.baseMap.budgetProfile.limits.geometryPoints}，计算采样 ${terrainPreview.baseMap.budgetUsage?.fieldEvaluations ?? 0}/${terrainPreview.baseMap.budgetProfile.limits.fieldEvaluations}。` : terrainPreview.baseMap.version === 2 ? baseMapGenerationBudget && 'complexityCost' in baseMapGenerationBudget ? `生成目标 ${baseMapGenerationBudget.semanticCost}/${CONTINUATION_POLICY.generationTargets}，余 ${CONTINUATION_POLICY.generationTargets - baseMapGenerationBudget.semanticCost}；展开复杂度 ${baseMapGenerationBudget.complexityCost}/256。` : `生成目标凭证不可用；已验证展开复杂度 ${terrainPreview.baseMap.initialOperationCost}/256。` : `本次编辑量 ${terrainPreview.baseMap.initialOperationCost}/256，余 ${terrainPreview.baseMap.remainingOperationCost}。`}生成额度独立记录；{Object.keys(terrainPreview.project.document.surfaceRules).length > 0 ? '此规则候选当前仅可直接采用，之后可手工编辑。' : terrainPreview.continuationSource ? '可直接采用底图，或在此底图上继续 AI 修改。' : '可直接采用合法底图。'}</span>}{terrainPreview.continuationError && <span role="alert">此底图仍可独立采用；AI 接续不可用：{terrainPreview.continuationError}</span>}</div>{baseMapPreview && Object.keys(baseMapPreview.project.document.surfaceRules).length === 0 && <button className="primary" disabled={busy || terrainBusy || aiCritical} onClick={() => { if (canPrepareAuthoring()) { setSidebar('ai'); revealPanel('resources') } }}>继续用 AI 修改底图</button>}</div>}{structure && <section className="asset-structure-preview workspace-candidate-review" aria-label="候选审阅">
+          {terrainPreview && <div className="asset-structure-preview" role="status"><div><strong>自然地形候选 · 主工程尚未改变</strong><span>请审阅下方方案，再采用或取消。</span>{terrainPreview.baseMap && <><span>{terrainPreview.baseMap.source === 'server' ? '服务端' : '本机'}程序生成。{Object.keys(terrainPreview.project.document.surfaceRules).length > 0 ? '此规则候选当前仅可直接采用，之后可手工编辑。' : terrainPreview.continuationSource ? '可直接采用底图，或在此底图上继续 AI 修改。' : '可直接采用合法底图。'}</span><details><summary>技术详情 · 本次生成</summary><span aria-label="程序底图本次预算">{terrainPreview.baseMap.source === 'server' ? '服务端' : '本机'}程序生成 · {terrainPreview.baseMap.version === 3 && terrainPreview.baseMap.budgetProfile ? `编辑目标 ${terrainPreview.baseMap.initialOperationCost}/${terrainPreview.baseMap.operationLimit} · ${terrainPreview.baseMap.budgetProfile.profileId} 档；轮廓点 ${terrainPreview.baseMap.budgetUsage?.geometryPoints ?? 0}/${terrainPreview.baseMap.budgetProfile.limits.geometryPoints}，计算采样 ${terrainPreview.baseMap.budgetUsage?.fieldEvaluations ?? 0}/${terrainPreview.baseMap.budgetProfile.limits.fieldEvaluations}。` : terrainPreview.baseMap.version === 2 ? baseMapGenerationBudget && 'complexityCost' in baseMapGenerationBudget ? `生成目标 ${baseMapGenerationBudget.semanticCost}/${CONTINUATION_POLICY.generationTargets}，余 ${CONTINUATION_POLICY.generationTargets - baseMapGenerationBudget.semanticCost}；展开复杂度 ${baseMapGenerationBudget.complexityCost}/256。` : `生成目标凭证不可用；已验证展开复杂度 ${terrainPreview.baseMap.initialOperationCost}/256。` : `本次编辑量 ${terrainPreview.baseMap.initialOperationCost}/256，余 ${terrainPreview.baseMap.remainingOperationCost}。`}生成额度独立记录。</span></details></>}{terrainPreview.continuationError && <span role="alert">此底图仍可独立采用；AI 接续不可用：{terrainPreview.continuationError}</span>}</div>{baseMapPreview && Object.keys(baseMapPreview.project.document.surfaceRules).length === 0 && <button className="primary" disabled={busy || terrainBusy || aiCritical} onClick={() => { if (canPrepareAuthoring()) { setSidebar('ai'); revealPanel('resources') } }}>继续用 AI 修改底图</button>}</div>}{structure && <section className="asset-structure-preview workspace-candidate-review" aria-label="候选审阅">
             <div className="workspace-candidate-body">
               <strong className="workspace-candidate-title">{structure.description} · 候选预览</strong>
               <p className="workspace-confirm-help">尚未写入工程。采用会形成一次编辑，可从顶部撤销；自动保存状态见右上角。</p>
@@ -2153,18 +2156,19 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   return <WorkspacePresentationContext.Provider value={{ ...presentation, aiReviewActive: !!aiPreview }}>
     <div className="asset-shell history-shell composition-shell outdoor-shell workspace-unified" ref={shell} data-testid="outdoor-workbench" data-native-format={`sceneweave-complete-project@${completeProject?.schemaVersion ?? 1}`} data-revision={project?.document.revision}
       data-transaction-revision={state.lastTransaction?.revision} data-transaction-committed-at={state.lastTransaction?.committedAtMs}>
-      <header className="asset-header"><button className="asset-brand" aria-label="回到首页" onClick={onBack}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><div className="workspace-project-title"><small>统一工作区</small><h1>{project?.document.title ?? '织境场景'}</h1></div></div><div className="asset-toolbar"><button aria-label="撤销编辑" title="撤销编辑（Ctrl / ⌘ + Z）" aria-keyshortcuts="Control+Z Meta+Z" disabled={!state.canUndo || editDisabled} onClick={() => commit(() => applyEditHistory('undo'))}><Undo2 size={17}/></button><button aria-label="重做编辑" title="重做编辑（Ctrl / ⌘ + Shift + Z / Y）" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y Meta+Y" disabled={!state.canRedo || editDisabled} onClick={() => commit(() => applyEditHistory('redo'))}><Redo2 size={17}/></button><button aria-label="命名历史快照" title="命名历史快照" disabled={!project || audience === 'player'} onClick={openHistory}><Archive size={17}/></button></div><div className="asset-header-actions"><span role="status" className={`asset-save ${state.status}`} title="已采用的编辑自动保存在此浏览器；下载工程备份请使用「导出」。">{state.status === 'saving' ? <LoaderCircle size={14} className="spin"/> : state.status === 'error' || state.status === 'conflict' ? <AlertTriangle size={14}/> : state.status === 'unsaved' ? <Clock3 size={14}/> : state.status === 'saved' ? <CheckCircle2 size={14}/> : null} {saveLabels[state.status]}{imageImportDraft !== null ? ' · 图片草稿未采用' : ''}</span><details className="workspace-file-menu" onClick={event => { if ((event.target as HTMLElement).closest('button')) event.currentTarget.open = false }} onKeyDown={event => { if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.currentTarget.open) { event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}><summary>文件</summary><div role="group" aria-label="文件操作"><button className="secondary" disabled={editDisabled} onClick={openNewScene}>新建空白场景</button><button className="secondary" disabled={editDisabled} onClick={requestImport}>打开工程文件</button><button className="secondary" disabled={toolDisabled(['imageImport'])} onClick={() => request({ type: 'image-import' })}>从图片新建场景</button><button className="secondary" disabled={editDisabled} onClick={showSamples}>从样板开始</button><button className="secondary" disabled={editDisabled || !project} onClick={() => request({ type: 'reload' })}>重新载入已保存版本</button><button className="secondary" disabled={busy || editingBlocked || !project} onClick={() => backup()}>备份可编辑工程 · 含秘密</button></div></details><WorkspaceHelp/><details className="workspace-export-menu" onKeyDown={event => {
-        if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !event.currentTarget.open) return
-        event.preventDefault(); event.stopPropagation()
-        event.currentTarget.open = false
-        event.currentTarget.querySelector('summary')?.focus()
-      }}><summary><Download size={15}/>导出</summary><div role="group" aria-label="导出选项"><p>玩家地图用于分享；主持人地图包含秘密。工程备份可继续编辑，需下载文件另行保管。</p>{exportBlockedReason && <p role="status">{exportBlockedReason}</p>}{completeProject && audience === 'player' && <p>VTT 导出请先切换到主持人视图。</p>}<button className="primary" disabled={busy || editingBlocked || !project} onClick={() => exportImage('player')}>玩家地图 PNG</button>{audience === 'gm' && <button className="secondary" disabled={busy || editingBlocked || !project} onClick={() => exportImage('gm')}>主持人地图 PNG · 含秘密</button>}<button className="secondary" disabled={busy || editingBlocked || !project} onClick={() => backup()}>备份可编辑工程 · 含秘密</button><button className="secondary" disabled={busy || editingBlocked || !completeProject || audience !== 'gm'} onClick={() => { if (completeProject && guard()) setUvttProject(completeProject) }}>VTT 导出</button><button className="secondary" disabled={!completeProject || audience !== 'gm'} onClick={showSettings}>调整导出范围</button></div></details><div className="workspace-header-layout" ref={setLayoutControlsTarget}/></div></header>
+      <header className="asset-header"><button className="asset-brand" aria-label="回到首页" onClick={onBack}><ArrowLeft size={18}/><span>织境<small>Sceneweave</small></span></button><div className="asset-header-title"><div className="workspace-project-title"><small>统一工作区</small><h1>{project?.document.title ?? '织境场景'}</h1></div></div><div className="asset-toolbar"><button aria-label="撤销编辑" title="撤销编辑（Ctrl / ⌘ + Z）" aria-keyshortcuts="Control+Z Meta+Z" disabled={!state.canUndo || editDisabled} onClick={() => commit(() => applyEditHistory('undo'))}><Undo2 size={17}/></button><button aria-label="重做编辑" title="重做编辑（Ctrl / ⌘ + Shift + Z / Y）" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y Meta+Y" disabled={!state.canRedo || editDisabled} onClick={() => commit(() => applyEditHistory('redo'))}><Redo2 size={17}/></button><button aria-label="命名历史快照" title="命名历史快照" disabled={!project || audience === 'player'} onClick={openHistory}><Archive size={17}/></button></div><div className="asset-header-actions"><WorkspaceFileActions status={state.status} imageDraft={imageImportDraft !== null} hasProject={!!completeProject} audience={audience}
+        fileBlockedReason={editDisabled ? transitionReason ?? '当前操作尚未结束，请等待完成。' : null} imageImportDisabled={toolDisabled(['imageImport'])}
+        backupBlockedReason={exportBlockedReason} pngBlockedReason={exportBlockedReason ?? transitionReason}
+        onNew={openNewScene} onImport={requestImport} onImageImport={() => request({ type: 'image-import' })} onSamples={showSamples}
+        onReload={() => request({ type: 'reload' })} onBackup={() => backup()} onPng={exportImage}
+        onVtt={() => { if (completeProject && guard()) setUvttProject(completeProject) }} onSettings={showSettings}/><div className="workspace-header-layout" ref={setLayoutControlsTarget}/></div></header>
+      <WorkspaceBackupFeedback project={completeProject} attempt={backupAttempt}/>
       <WorkspaceSaveRecovery status={state.status} error={state.error} busy={busy} copyBlockedReason={transitionReason} backupBlockedReason={exportBlockedReason}
         onRetry={() => void action(() => compositionWorkspace.retry(), '重试保存失败')}
         onCopy={() => { if (guard()) void action(async () => { await compositionWorkspace.saveAsCopy() }, '另存副本失败') }}
         onBackup={() => backup()}/>
       {message && <WorkspaceNotice message={message} transient={message === transientMessage} onDismiss={dismissMessage}/>}
-      <div className="workspace-session-feedback">{hasReview && audience === 'gm' && <button className="secondary" onClick={() => inspect('review')}>返回候选审阅</button>}{(hasDraft || sketch || outdoorSketch || openingTool) && <button className="secondary" onClick={resumeDraft}>返回当前工具与草稿</button>}{draftControls}</div>
+      <div className="workspace-session-feedback">{hasCandidate && audience === 'gm' && <button className="secondary" onClick={resumeCandidate}>返回候选审阅</button>}{(hasDraft || sketch || outdoorSketch || openingTool) && <button className="secondary" onClick={resumeDraft}>返回当前工具与草稿</button>}{draftControls}</div>
       <WorkspaceLayout active={active} sessionKey={panelKey} panelRequest={panelRequest} layoutControlsTarget={layoutControlsTarget} modules={[
         { id: 'scene', label: '场景', icon: <Layers3 size={18}/> }, { id: 'generate', label: '生成', icon: <WandSparkles size={18}/>, disabled: audience === 'player' },
         { id: 'outdoor', label: '地形', icon: <Mountain size={18}/>, disabled: !completeProject || audience === 'player' }, { id: 'building', label: '建筑', icon: <PencilRuler size={18}/>, disabled: !completeProject || audience === 'player' },
@@ -2196,7 +2200,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
               }}/> : <p className="asset-muted">从地形模块开始整面高程工具；先选择完整地形面，或从地面取高。</p>}</div>
             <div hidden={detailMode !== 'outdoorEdit' || audience !== 'gm'}>{terrainEditTools}{completeProject && !completeProject.document.generation && <p className="asset-muted">岸线与局部笔刷需要带生成来源的地形。已有手工地形可从场景中选择后调整轮廓与参数。</p>}</div><div hidden={detailMode !== 'regenerate' || audience !== 'gm'}>{localGenerationTools}</div><div hidden={detailMode !== 'dress' || audience !== 'gm'}>{dressingTools}{completeProject && <VegetationCompositionTools key={panelKey + '-' + completeProject.document.revision + '-' + currentLayerId + '-community'} scene={completeProject.document} appearance={completeProject.appearance} layerId={currentLayerId} disabled={toolDisabled(['outdoorForm']) || effectiveHiddenLayers.has(currentLayerId)} onDraftChange={() => markFormDraft('outdoorForm')} onPreview={(commands, label) => previewDecorations(commands, label, 'outdoorForm', true)}/>}<div>{completeProject && <DecorationPanel key={`${panelKey}-${completeProject.document.revision}-${currentLayerId}-${formReset.outdoorForm}-decorations`} scene={completeProject.document} layerId={currentLayerId} disabled={toolDisabled(['outdoorForm']) || effectiveHiddenLayers.has(currentLayerId)} onPrepareSources={previewDecorationSources} onCreate={command => previewDecorations([command], '簇状布景', 'outdoorForm', true)} onCanvasBrushChange={setCanopyBrush} onDraftChange={dirty => dirty ? markFormDraft('outdoorForm') : finishFormDraft('outdoorForm')}   onPreview={(commands, label) => previewDecorations(commands, label)} onSelect={select}/>}</div></div><div hidden={detailMode !== 'outdoorAggregate' || audience !== 'gm'}>            {completeProject && <AggregateNaturalPanel scene={completeProject.document} disabled={toolDisabled(['outdoorForm'])} onPreview={(commands, description) => previewBuilding(commands, description, 'outdoorForm')} onSelect={select} onSelectMany={selectMany}/>}</div>
             <div hidden={detailMode !== 'layer' || audience !== 'gm'}>{completeProject && inspectedLayerId && <SelectionSubscriber session={selectionSession}>{() => <><h2>{completeProject.document.userLayers[inspectedLayerId]?.name}</h2><p className="asset-muted">图层持续规则 · 影响本层现有及后续对象。</p><div onChangeCapture={() => markFormDraft('appearanceForm')}><AppearancePanel key={`${panelKey}-${formReset.appearanceForm}-layer`} project={completeProject} ids={[]} layerId={inspectedLayerId} scopeKind="layer" disabled={toolDisabled(['appearanceForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'appearanceForm')}/></div></>}</SelectionSubscriber>}</div>
-            <div hidden={detailMode !== 'review' || audience !== 'gm'}>{reviewPanel}<div ref={setReviewTarget}/></div>
+            <div className="workspace-review-context" hidden={detailMode !== 'review' || audience !== 'gm'}>{reviewPanel}<div ref={setReviewTarget}/></div>
           </div>
         </>} tools={workspaceTools} footer={workspaceFooter}>{canvasPanel}</WorkspaceLayout>
       {uvttProject && <UvttExportDialog project={uvttProject} onClose={() => setUvttProject(null)}/>}

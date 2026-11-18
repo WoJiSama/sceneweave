@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel, placeKeyboardLamp } from './keyboard-ux-helpers'
-import { openGenerationTask, closeWorkspaceDrawers } from './workspace-navigation-helpers'
+import { openGenerationTask, closeWorkspaceDrawers, openWorkspaceModule } from './workspace-navigation-helpers'
 
 // Normal production UI; only delivery of genuine worker results is delayed.
 
@@ -163,6 +163,11 @@ for (const scenario of [
   await expect(candidate.getByRole('button', { name: composition ? '采用地貌组合' : '采用当前地形方案', exact: true })).toBeEnabled()
   await expect(page.locator('.workspace-unified')).toHaveAttribute('data-revision', String(original.document.revision))
   await expect(panel.getByRole('alert')).toHaveCount(0)
+  await closeWorkspaceDrawers(page)
+  await openWorkspaceModule(page, '场景')
+  await page.locator('.workspace-session-feedback').getByRole('button', { name: '返回候选审阅', exact: true }).click()
+  await expect(candidate).toBeVisible()
+  await expect(page.locator('.workspace-unified')).toHaveAttribute('data-revision', String(original.document.revision))
   await page.screenshot({ path: info.outputPath('explicit-retry-candidate.png') })
   await candidate.getByRole('button', { name: composition ? '取消组合预览' : '取消当前地形候选', exact: true }).click()
   await expect(candidate).toHaveCount(0)

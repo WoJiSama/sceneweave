@@ -177,7 +177,7 @@ export default function TerrainGenerationPanel({
           <label>高度（米）<input type="number" step="0.001" min="18" max="90" aria-label="地形高度（米）" value={customHeightMm / 1000}
             onChange={event => { setCustomHeightMm(Math.round(Number(event.target.value) * 1000)); setLocalError(null) }}/></label>
         </div>}
-        <small className="terrain-generation-hint">宽24–120米、高18–90米，宽高比1–1.8。预算会结合范围、细节和本机探针在开始前选定，也可在程序生成设置中选择档位；预览后保持该档位。</small>
+        <small className="terrain-generation-hint">宽24–120米、高18–90米，宽高比1–1.8。编辑容量会按地图范围、画面细节和本机情况自动选择，也可在生成设置中选择档位；生成中不会自动降低画面细节。</small>
         {!validSize && <p className="terrain-generation-notice" role="alert">请填写允许范围内的画布尺寸，宽高比须为1–1.8（宽度不少于高度）。</p>}
         {!supportsRoute && <label><input type="checkbox" aria-label="生成海洋水面与布景" checked={ocean} onChange={event => setOcean(event.target.checked)}/>添加静态海面、浅水浪纹与舟船／海洋生物布景</label>}
         {activeOcean && <p className="terrain-generation-hint">保留底图轮廓、岸线和通行。舟船与生物使用普通素材，空间不足会列出缺项；保存后可逐件编辑。</p>}
@@ -191,11 +191,12 @@ export default function TerrainGenerationPanel({
             {!validRoute && <p className="terrain-generation-notice">请填写范围内的不同整数端点和400–3000毫米净宽。</p>}
           </>}
         </div>}
-        <label className="terrain-generation-seed">方案种子
+        <label className="terrain-generation-seed">构图方案
           <input aria-label="地形方案种子" aria-describedby={seedHintId} autoComplete="off" spellCheck={false} value={seed} maxLength={128}
             onChange={event => { setSeed(event.target.value); setLocalError(null) }}/>
         </label>
-        <small id={seedHintId} className="terrain-generation-hint">相同素材和设置下，使用同一种子可重现构图。</small>
+        <small id={seedHintId} className="terrain-generation-hint">更换方案内容可尝试另一种构图。</small>
+        <details className="terrain-generation-series"><summary>技术详情 · 构图重现</summary><p>相同素材和设置下，使用同一种子可重现构图。构图方案输入的内容就是生成种子。</p></details>
         <button className="primary terrain-generation-submit" type="submit" disabled={!validSeed || !validSize || !validRoute} aria-label="生成地形预览">
           <RefreshCw size={14} aria-hidden="true"/>生成预览
         </button>

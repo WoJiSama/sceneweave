@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Columns3, PanelLeft, PanelRight } from 'lucide-react'
+import { Columns3, PanelLeft, PanelRight, SlidersHorizontal } from 'lucide-react'
 import {
   clampWorkspacePanelWidth, DEFAULT_WORKSPACE_LAYOUT, loadWorkspaceLayout, resolveWorkspaceWidths,
   saveWorkspaceLayout, WORKSPACE_LAYOUT_LIMITS, WORKSPACE_NARROW_WIDTH,
@@ -36,6 +36,9 @@ function localStorageOrNull(): Storage | null {
 const panels = ['resources', 'inspector'] as const
 const panelLabels: Record<Panel, string> = { resources: '内容面板', inspector: '当前详情' }
 const collapsedKeys = { resources: 'resourcesCollapsed', inspector: 'inspectorCollapsed' } as const
+const COMPACT_WORKSPACE_WIDTH = 760
+const mapOptionsToolbar = '.asset-viewport-toolbar'
+const mapOptionsControls = `${mapOptionsToolbar} :is(button, input, select):enabled`
 
 export default function WorkspaceLayout({ active, resources, inspector, modules, activeModule, onModuleChange,
   resourceTitle, inspectorTitle, sessionKey, panelRequest, tools, layoutControlsTarget, footer, children }: WorkspaceLayoutProps) {
@@ -44,6 +47,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   const [persistent, setPersistent] = useState(true)
   const [hostWidth, setHostWidth] = useState(() => typeof window === 'undefined' ? 1280 : window.innerWidth)
   const [drawer, setDrawer] = useState<Panel | null>(null)
+  const [mapOptionsOpen, setMapOptionsOpen] = useState(false)
   const [resizing, setResizing] = useState<ResizeSide | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const resourcePanel = useRef<HTMLElement>(null)
@@ -51,15 +55,19 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   const inspectorPanel = useRef<HTMLElement>(null)
   const moduleNavigation = useRef<HTMLElement>(null)
   const layoutSettings = useRef<HTMLDetailsElement>(null)
+  const mapOptionsTrigger = useRef<HTMLButtonElement>(null)
+  const restoreMapOptionsFocus = useRef(false)
   const focusedLayoutControl = useRef<Panel | 'settings' | null>(null)
   const triggers = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const closeButtons = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const drag = useRef<{ pointerId: number; side: ResizeSide; x: number; width: number } | null>(null)
   const lastPanelFocus = useRef<HTMLElement | null>(null)
   const drawerReturnFocus = useRef<HTMLElement | null>(null)
+  const pendingPanelFocus = useRef<Panel | null>(null)
   const moduleScroll = useRef(new Map<string, number>())
   const layoutId = useId()
   const narrow = hostWidth < WORKSPACE_NARROW_WIDTH
+  const compact = hostWidth <= COMPACT_WORKSPACE_WIDTH
   const currentDrawer = useRef(drawer)
   currentDrawer.current = drawer
   const widths = resolveWorkspaceWidths(preferences, hostWidth)
@@ -70,19 +78,26 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
 
   useEffect(() => { setPersistent(saveWorkspaceLayout(preferences, storage)) }, [preferences, storage])
   useLayoutEffect(() => {
-    // Moving the same controls between the header and drawer bar replaces their DOM.
+    // Acquiring the header target moves the controls to a different DOM parent.
     if (!active || document.activeElement !== document.body || !focusedLayoutControl.current) return
     if (focusedLayoutControl.current === 'settings') layoutSettings.current?.querySelector('summary')?.focus()
     else triggers.current[focusedLayoutControl.current]?.focus()
-  }, [active, narrow, layoutControlsTarget])
+  }, [active, layoutControlsTarget])
 
   useEffect(() => {
     const element = host.current
     if (!element) return
     const measure = () => {
-      const width = element.getBoundingClientRect().width
+      const width = Math.round(element.getBoundingClientRect().width)
       // Home keeps this mounted with display:none. Its zero must not erase a useful layout.
-      if (width > 0) setHostWidth(Math.round(width))
+      if (width <= 0) return
+      const nextCompact = width <= COMPACT_WORKSPACE_WIDTH
+      if (element.dataset.compact !== String(nextCompact)) {
+        const focused = document.activeElement
+        restoreMapOptionsFocus.current = !nextCompact && focused === mapOptionsTrigger.current
+        setMapOptionsOpen(nextCompact && !!focused?.closest(mapOptionsToolbar))
+      }
+      setHostWidth(width)
     }
     measure()
     const observer = new ResizeObserver(measure)
@@ -93,7 +108,25 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
 
   useEffect(() => {
     if (!active || !narrow) setDrawer(null)
+    if (!active) {
+      pendingPanelFocus.current = null
+      setMapOptionsOpen(false)
+    }
   }, [active, narrow])
+  useLayoutEffect(() => {
+    if (!active) return
+    if (compact && mapOptionsOpen && !document.activeElement?.closest(mapOptionsToolbar)) {
+      const firstOption = host.current?.querySelector<HTMLElement>(mapOptionsControls) ?? mapOptionsTrigger.current
+      firstOption?.focus()
+    }
+    if (!compact && restoreMapOptionsFocus.current) {
+      restoreMapOptionsFocus.current = false
+      const firstControl = host.current?.querySelector<HTMLElement>(mapOptionsControls)
+        ?? host.current?.querySelector<HTMLButtonElement>('.workspace-canvas-tools button:enabled:not([hidden])')
+        ?? triggers.current.resources
+      firstControl?.focus()
+    }
+  }, [active, compact, mapOptionsOpen])
 
   useLayoutEffect(() => { moduleScroll.current.clear() }, [sessionKey])
   useLayoutEffect(() => {
@@ -108,6 +141,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     const closing = currentDrawer.current
     // The opener can sit outside this layout, so its focus event may not reach our capture handler.
     lastPanelFocus.current = null
+    pendingPanelFocus.current = null
     setDrawer(null)
     currentDrawer.current = null
     if (restoreFocus && active && closing) {
@@ -125,13 +159,25 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     drawerReturnFocus.current = null
   }
 
+  const focusOpenPanel = (panel: Panel) => {
+    const button = closeButtons.current[panel]
+    if (!active || !button || panelRef(panel).current?.dataset.open !== 'true' || button.closest('[hidden],[inert]')) return false
+    pendingPanelFocus.current = null
+    button.focus({ preventScroll: true })
+    return document.activeElement === button
+  }
+
   const openPanel = (panel: Panel, focus = narrow) => {
+    pendingPanelFocus.current = focus ? panel : null
     if (narrow) {
-      if (currentDrawer.current !== panel) drawerReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      setMapOptionsOpen(false)
+      const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      const outsidePanel = opener && opener !== document.body && !panelRef(panel).current?.contains(opener)
+      if (currentDrawer.current !== panel || outsidePanel) drawerReturnFocus.current = opener
       currentDrawer.current = panel
       setDrawer(panel)
     } else setPreferences(current => ({ ...current, [collapsedKeys[panel]]: false }))
-    if (focus) requestAnimationFrame(() => { if (!narrow || currentDrawer.current === panel) closeButtons.current[panel]?.focus() })
+    if (focus) focusOpenPanel(panel)
   }
 
   useEffect(() => {
@@ -144,7 +190,12 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   }, [panelRequest?.id, panelRequest?.sequence])
 
   useLayoutEffect(() => {
+    // A newly opened drawer can receive focus once its visible DOM has committed.
+    const requested = pendingPanelFocus.current
+    if (requested && focusOpenPanel(requested)) return
     const previous = lastPanelFocus.current
+    const focused = document.activeElement
+    if (focused && focused !== document.body && focused !== previous) return
     if (!active || !previous || !previous.closest('[hidden],[inert]') || document.querySelector('[role="dialog"],[role="menu"],dialog[open]')) return
     const panel = panels.find(id => panelRef(id).current?.contains(previous))
     if (!panel) return
@@ -157,6 +208,33 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     if (!layoutSettings.current) return
     layoutSettings.current.open = false
     layoutSettings.current.querySelector('summary')?.focus()
+  }
+
+  const isMapOptionsTarget = (target: EventTarget | null) => target instanceof Element &&
+    (target === mapOptionsTrigger.current || !!target.closest(mapOptionsToolbar))
+
+  const closeMapOptions = () => {
+    mapOptionsTrigger.current?.focus({ preventScroll: true })
+    setMapOptionsOpen(false)
+  }
+
+  const toggleMapOptions = () => {
+    if (mapOptionsOpen) closeMapOptions()
+    else {
+      if (drawer) closeDrawer(false)
+      setMapOptionsOpen(true)
+    }
+  }
+
+  const mapOptionsKey = (event: KeyboardEvent<HTMLElement>) => {
+    if (!active || !compact || !mapOptionsOpen || !isMapOptionsTarget(event.target) || event.defaultPrevented ||
+      event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+    event.stopPropagation()
+    // Let the native grid picker handle Escape while it is open.
+    if (event.target instanceof HTMLSelectElement &&
+      (!CSS.supports('selector(:open)') || event.target.matches(':open'))) return
+    event.preventDefault()
+    closeMapOptions()
   }
 
   const drawerKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -266,9 +344,14 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     <span>{module.label}</span>
   </button>
 
-  const toolbarKey = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
-    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+  const toolbarKey = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.defaultPrevented || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) ||
+      event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+    // The native canvas portals select and pan buttons into this toolbar.
+    const toolbar = event.target instanceof Element ? event.target.closest('.workspace-canvas-tools') : null
+    if (!toolbar) return
+    const buttons = Array.from(toolbar.querySelectorAll<HTMLButtonElement>('button:enabled'))
+      .filter(button => button.getClientRects().length > 0)
     const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
     if (current < 0 || !buttons.length) return
     const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 :
@@ -278,7 +361,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     buttons[index].focus()
   }
 
-  const layoutActions = <div className="workspace-layout-actions" aria-label="工作区布局" data-compact={!narrow && !!layoutControlsTarget}
+  const layoutActions = <div className="workspace-layout-actions" aria-label="工作区布局" data-compact={!!layoutControlsTarget}
     onFocusCapture={event => {
       const panel = (event.target as HTMLElement).closest<HTMLElement>('[data-layout-panel]')?.dataset.layoutPanel
       focusedLayoutControl.current = panel === 'resources' || panel === 'inspector' ? panel : 'settings'
@@ -306,11 +389,12 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     </div>
   const style = { '--workspace-resources-width': `${widths.resources}px`, '--workspace-details-width': `${widths.details}px` } as CSSProperties
   return <div className="workspace-layout" ref={host} style={style} data-testid="workspace-layout" data-narrow={narrow}
+    data-compact={compact} data-map-options-open={compact && mapOptionsOpen}
     data-resizing={resizing ?? undefined} onKeyDown={drawerKey} onFocusCapture={event => {
       const target = event.target as HTMLElement
       lastPanelFocus.current = panels.some(panel => panelRef(panel).current?.contains(target)) ? target : null
     }}>
-    {!narrow && layoutControlsTarget ? createPortal(layoutActions, layoutControlsTarget) : layoutActions}
+    {layoutControlsTarget ? createPortal(layoutActions, layoutControlsTarget) : layoutActions}
     <div className="workspace-layout-body">
       <nav ref={moduleNavigation} className="workspace-module-navigation" data-testid="workspace-module-navigation" aria-label="工作区模块导航" onKeyDown={moduleKey}>
         <div className="workspace-module-group workspace-module-workflow" role="group" aria-label="创作流程">
@@ -328,8 +412,19 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
           onScroll={event => { if (resourcesVisible) moduleScroll.current.set(activeModule, event.currentTarget.scrollTop) }}>{resources}</div>
       </section>
       {renderSeparator('resources', preferences.resourcesCollapsed)}
-      <section className="workspace-canvas" aria-label="场景画布">
-        <div className="workspace-canvas-tools" role="toolbar" aria-label="画布工具" onKeyDown={toolbarKey}>{tools}</div>
+      <section className="workspace-canvas" aria-label="场景画布" onKeyDown={event => {
+        if (event.key === 'Escape') mapOptionsKey(event)
+        else toolbarKey(event)
+      }} onBlur={event => {
+        if (mapOptionsOpen && isMapOptionsTarget(event.target) && !isMapOptionsTarget(event.relatedTarget)) setMapOptionsOpen(false)
+      }}>
+        <div className="workspace-canvas-tools" role="toolbar" aria-label="画布工具">
+          {tools}
+          <button type="button" ref={mapOptionsTrigger} className="workspace-map-options-trigger" hidden={!compact}
+            aria-label="地图选项" title="地图选项" aria-expanded={mapOptionsOpen} onClick={toggleMapOptions}>
+            <SlidersHorizontal size={14} aria-hidden="true"/><span>选项</span>
+          </button>
+        </div>
         {children}
       </section>
       {renderSeparator('details', preferences.inspectorCollapsed)}

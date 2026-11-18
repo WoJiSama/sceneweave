@@ -1,0 +1,124 @@
+.workspace-unified .asset-header {
+  position: relative;
+}
+
+.workspace-unified .asset-header-actions > :is(.workspace-file-menu, .workspace-export-menu, .workspace-help) {
+  position: static;
+  flex: none;
+}
+
+.workspace-unified .asset-header-actions > details > .workspace-file-surface {
+  /* Anchor below the actual header, including when the toolbar wraps. */
+  --workspace-file-gutter: 12px;
+  position: absolute;
+  inset: calc(100% + 6px) var(--workspace-file-gutter) auto auto;
+  box-sizing: border-box;
+  width: min(360px, calc(100% - 2 * var(--workspace-file-gutter)));
+  max-width: none;
+  max-height: calc(100dvh - 100% - 6px - var(--workspace-file-gutter));
+  z-index: 35;
+  min-width: 0;
+  padding: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+  scroll-padding: 7px;
+}
+
+.workspace-unified .asset-header-actions > .workspace-help > .workspace-file-surface {
+  width: min(490px, calc(100% - 2 * var(--workspace-file-gutter)));
+  padding: 14px;
+}
+
+.workspace-unified :is(.workspace-file-menu, .workspace-export-menu, .workspace-help) > summary:focus-visible {
+  outline: 2px solid #68875a;
+  outline-offset: 2px;
+}
+
+.workspace-unified :is(.workspace-file-menu, .workspace-export-menu, .workspace-help)[open] > summary {
+  box-shadow: inset 0 -2px #83a36e;
+}
+
+.workspace-unified .asset-header-actions .workspace-file-surface button {
+  min-width: 0;
+  min-height: 38px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.workspace-file-choice {
+  display: grid;
+  gap: 2px;
+}
+
+.workspace-unified .workspace-file-surface .workspace-file-choice > p {
+  padding: 2px 4px 3px;
+}
+
+.workspace-file-secondary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  border-top: 1px solid #dce4d5;
+  margin-top: 2px;
+  padding-top: 9px;
+}
+
+.workspace-file-secondary-actions > p {
+  grid-column: 1 / -1;
+}
+
+.workspace-help .workspace-file-surface dl > div {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+}
+
+/* Notices and drafts change the space left for review; size it from the panel. */
+.workspace-unified .workspace-inspector > .workspace-panel-body:has(> .workspace-context-content:not([hidden]) > .workspace-review-context:not([hidden]) .workspace-candidate-review) {
+  container-type: size;
+}
+.workspace-unified .workspace-inspector > .workspace-panel-body .workspace-candidate-review {
+  max-height: calc(100cqh - 8px);
+}
+.workspace-unified .workspace-backup-feedback {
+  flex: none;
+  margin: 0;
+  padding: 6px 12px;
+  color: #435f3b;
+  background: #f0f5e9;
+  border-bottom: 1px solid #d4dfcc;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  max-height: 18dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.workspace-unified .workspace-backup-feedback:is([data-state="failed"], [data-state="stale"]) {
+  color: #70552d;
+  background: #faf6e9;
+  border-bottom-color: #e2d4b6;
+}
+
+.workspace-unified .workspace-save-recovery-actions {
+  align-self: flex-start;
+}
+
+@media (max-width: 760px) {
+  .workspace-unified .workspace-save-recovery {
+    gap: 6px;
+    padding: 8px 12px;
+    overscroll-behavior: contain;
+  }
+
+  .workspace-unified .workspace-save-recovery-actions {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .workspace-unified .workspace-save-recovery-actions > button {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}

@@ -59,9 +59,21 @@ export default function MixedGenerationPanel({ busy, disabled, error, candidate,
       <fieldset disabled={locked}><legend>场景与建筑需求</legend>
         <label>工程名称<input aria-label="混合工程名称" value={input.title} maxLength={120} onChange={event => change('title', event.target.value)}/></label>
         <label>室外环境<select aria-label="混合场景环境" value={input.environment} onChange={event => change('environment', event.target.value as MixedGenerationUiRequest['environment'])}><option value="forest">林中建筑</option><option value="volcano">火山平台建筑</option></select></label>
-        <label>布置与接路<select aria-label="混合接路算法版本" value={algorithmVersion} onChange={event => change('algorithmVersion', Number(event.target.value) as 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19)}><option value="19">办公与接待完整单元</option><option value="18">完整桌椅与厨房功能组</option><option value="17">家具与足宽通路</option><option value="16">房间邻接与功能布局</option><option value="15">厨房工作台与柜架编排</option><option value="14">餐桌方向与功能成组</option><option value="13">复杂家具布置与完整通路</option><option value="12">餐桌成组与厨房聚合</option><option value="11">功能分区与家具编排</option><option value="10">入口与外门联合安排 · 完整净宽连接</option><option value="9">房间比例与短走廊 · 完整净宽连接</option><option value="8">床柜与厨房编排 · 完整净宽连接</option><option value="7">门口到家具使用区 · 完整净宽连接</option><option value="6">床边使用与储物组合 · 树木优先</option><option value="5">厨房成组与座位预留 · 树木优先</option><option value="4">预留座位与使用空间 · 第4版</option><option value="3">门前垂直直入 · 第3版</option><option value="2">原版接路 · 第2版</option></select></label>
+        <p className="asset-muted">当前布置：{({
+          19: '办公与接待完整单元', 18: '完整桌椅与厨房功能组', 17: '家具与足宽通路',
+          16: '房间邻接与功能布局', 15: '厨房工作台与柜架编排', 14: '餐桌方向与功能成组',
+          13: '复杂家具布置与完整通路', 12: '餐桌成组与厨房聚合', 11: '功能分区与家具编排',
+          10: '入口与外门联合安排、完整净宽连接', 9: '房间比例与短走廊、完整净宽连接',
+          8: '床柜与厨房编排、完整净宽连接', 7: '门口到家具使用区、完整净宽连接',
+          6: '床边使用与储物组合、树木优先', 5: '厨房成组与座位预留、树木优先',
+          4: '预留座位与使用空间', 3: '门前垂直直入', 2: '原版接路', 1: '原始布置与接路',
+        })[algorithmVersion ?? 19]}。可在技术详情中查看或切换历史方案。</p>
+        <details className="workspace-advanced"><summary>技术详情 · 布置与接路</summary>
+          <p className="asset-muted">历史方案用于复现既有构图；切换后请重新预览。</p>
+          <label>布置与接路<select aria-label="混合接路算法版本" value={algorithmVersion} onChange={event => change('algorithmVersion', Number(event.target.value) as 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19)}><option value="19">办公与接待完整单元</option><option value="18">完整桌椅与厨房功能组</option><option value="17">家具与足宽通路</option><option value="16">房间邻接与功能布局</option><option value="15">厨房工作台与柜架编排</option><option value="14">餐桌方向与功能成组</option><option value="13">复杂家具布置与完整通路</option><option value="12">餐桌成组与厨房聚合</option><option value="11">功能分区与家具编排</option><option value="10">入口与外门联合安排 · 完整净宽连接</option><option value="9">房间比例与短走廊 · 完整净宽连接</option><option value="8">床柜与厨房编排 · 完整净宽连接</option><option value="7">门口到家具使用区 · 完整净宽连接</option><option value="6">床边使用与储物组合 · 树木优先</option><option value="5">厨房成组与座位预留 · 树木优先</option><option value="4">预留座位与使用空间 · 第4版</option><option value="3">门前垂直直入 · 第3版</option><option value="2">原版接路 · 第2版</option></select></label>
+        </details>
         <div className="volcano-field-pair"><label>地图宽（米）<input aria-label="混合地图宽米" type="number" min="20" max="100" step="1" value={input.widthMm / 1000} onChange={event => change('widthMm', Math.round(Number(event.target.value) * 1000))}/></label><label>地图高（米）<input aria-label="混合地图高米" type="number" min="20" max="100" step="1" value={input.heightMm / 1000} onChange={event => change('heightMm', Math.round(Number(event.target.value) * 1000))}/></label></div>
-        <label>生成种子<input aria-label="混合生成种子" value={input.seed} maxLength={128} onChange={event => change('seed', event.target.value)}/></label>
+        <label>构图方案<input aria-label="混合生成种子" value={input.seed} maxLength={128} onChange={event => change('seed', event.target.value)}/></label>
         <label>房间数量<input aria-label="混合建筑房间数量" type="number" min="1" max="4" step="1" value={input.roomCount} onChange={event => change('roomCount', Number(event.target.value))}/></label>
         <label>房间用途<input aria-label="混合建筑房间用途" value={input.purpose} maxLength={120} onChange={event => change('purpose', event.target.value)}/></label>
         <label className="volcano-check"><input aria-label="混合建筑建议家具" type="checkbox" checked={input.furniture} onChange={event => change('furniture', event.target.checked)}/>按用途和面积建议家具</label>
