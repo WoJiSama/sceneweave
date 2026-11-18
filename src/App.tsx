@@ -8,13 +8,21 @@ import { importProject, importHistoryArchive } from './shared/project/file'
 import { inspectZip } from './shared/project/zip'
 import { parseBoundedJson } from './shared/project/json'
 import { inspectLocalDevelopmentImport, importLocalDevelopmentData, type DevelopmentImportPreview } from './platform/browser/storage/development-import'
+import { isTutorialHash } from './tutorial/location'
 
 const Workbench = lazy(() => import('./editor/main/Workbench'))
-const initialRoute = () => window.location.hash === '#workspace' ? 'workspace' as const : 'home' as const
+const TutorialPage = lazy(() => import('./tutorial/TutorialPage'))
+type Page = 'home' | 'workspace' | 'tutorial'
+const currentPage = (): Page => {
+  const hash = window.location.hash
+  if (isTutorialHash(hash)) return 'tutorial'
+  return hash === '#workspace' ? 'workspace' : 'home'
+}
+const pageHash = (page: Page) => page === 'tutorial' && isTutorialHash(window.location.hash) ? window.location.hash : `#${page}`
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 export default function App() {
-  const [route, setRoute] = useState<'home' | 'workspace'>(initialRoute), [mounted, setMounted] = useState(initialRoute() === 'workspace')
+  const [route, setRoute] = useState(currentPage), [mounted, setMounted] = useState(() => currentPage() === 'workspace')
   const [session, setSession] = useState<WorkspaceSessionSummary | null>(null), [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [busyLabel, setBusyLabel] = useState('正在检查完整内容…')
@@ -22,10 +30,11 @@ export default function App() {
   const controller = useRef<WorkspaceController | null>(null), queued = useRef<WorkspaceRequest | null>(null)
   const routeRef = useRef(route), operation = useRef<AbortController | null>(null), changing = useRef(false)
   const projectFile = useRef<HTMLInputElement>(null)
-  const setPage = useCallback((value: 'home' | 'workspace', replace = false) => {
+  const setPage = useCallback((value: Page, replace = false) => {
     routeRef.current = value; setRoute(value)
     if (value === 'workspace') setMounted(true)
-    if (window.location.hash !== '#' + value) window.history[replace ? 'replaceState' : 'pushState'](null, '', '#' + value)
+    const hash = pageHash(value)
+    if (window.location.hash !== hash) window.history[replace ? 'replaceState' : 'pushState'](null, '', hash)
   }, [])
   const request = useCallback((value: WorkspaceRequest) => {
     if (value.type === 'import') { projectFile.current?.click(); return }
@@ -49,16 +58,17 @@ export default function App() {
   useEffect(() => {
     const navigate = () => {
       if (changing.current) return
-      const destination = initialRoute()
+      const destination = currentPage()
       if (destination === routeRef.current) {
-        if (!busy && window.location.hash !== '#' + destination) window.history.replaceState(null, '', '#' + destination)
+        const hash = pageHash(destination)
+        if (!busy && window.location.hash !== hash) window.history.replaceState(null, '', hash)
         return
       }
       if (busy) { window.history.replaceState(null, '', '#' + routeRef.current); return }
       changing.current = true
       void (async () => {
         try {
-          if (destination === 'home' && controller.current && !await controller.current.leave()) { window.history.replaceState(null, '', '#' + routeRef.current); return }
+          if (routeRef.current === 'workspace' && controller.current && !await controller.current.leave()) { window.history.replaceState(null, '', '#workspace'); return }
           setPage(destination, true)
         } catch (error) { setNotice(message(error)); window.history.replaceState(null, '', '#' + routeRef.current) }
         finally { changing.current = false }
@@ -132,6 +142,7 @@ export default function App() {
     <div className="native-app-content" inert={busy}>
       {notice && <div className="workspace-notice" role="status"><span>{notice}</span><button className="secondary small" onClick={() => setNotice(null)}>关闭提示</button></div>}
       <div hidden={route !== 'home'}>{route === 'home' && <WorkspaceHome session={session} onContinue={() => setPage('workspace')} onRequest={request} disabled={busy} developmentTools={developmentTools}/>}</div>
+      {route === 'tutorial' && <Suspense fallback={<p role="status">正在打开使用教程…</p>}><TutorialPage/></Suspense>}
       {mounted && <div hidden={route !== 'workspace'}><Suspense fallback={<p role="status">正在打开统一工作区…</p>}><Workbench active={route === 'workspace'} onBack={() => void home()} onController={register} onSession={setSession} onImportFile={handleFile}/></Suspense></div>}
     </div>
     <input ref={projectFile} data-testid="native-project-file" type="file" hidden accept=".sceneweave" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) handleFile(file) }}/>

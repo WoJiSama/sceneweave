@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowRight, Download, FileUp, FolderOpen, HardDrive, ImagePlus, Layers3, Map as MapIcon, PencilLine, Plus, RefreshCw, Search } from 'lucide-react'
+import { ArrowRight, BookOpen, Download, FileUp, FolderOpen, HardDrive, ImagePlus, Layers3, Map as MapIcon, PencilLine, Plus, RefreshCw, Search } from 'lucide-react'
+import { tutorialHash } from '../../tutorial/location'
 import { projectRepository } from '../../platform/browser/runtime'
 import type { ProjectDirectoryEntry, ProjectDirectoryCursor } from '../../application/ports/project-directory'
 import type { WorkspaceRequest, WorkspaceSessionSummary } from './session'
@@ -49,6 +50,7 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
       <a href="#home" className="home-brand" aria-label="织境首页"><Layers3 size={28} aria-hidden="true"/><span>织境 <small>Sceneweave</small></span></a>
       <div className="home-header-actions">
         <span className="home-local"><HardDrive size={15} aria-hidden="true"/>工程保存在此浏览器</span>
+        <a className="home-tutorial-link" href={tutorialHash}><BookOpen size={16} aria-hidden="true"/>使用教程</a>
       </div>
     </header>
     <main className="home-content">

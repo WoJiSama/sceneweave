@@ -1,5 +1,6 @@
 import { useRef, type KeyboardEvent } from 'react'
 import { CircleHelp } from 'lucide-react'
+import { tutorialHash } from '../../tutorial/location'
 
 export function closeWorkspaceDisclosure(disclosure: HTMLDetailsElement) {
   disclosure.open = false
@@ -18,6 +19,7 @@ export default function WorkspaceHelp({ disclosureGroup }: { disclosureGroup: st
   return <details className="workspace-help" name={disclosureGroup} ref={disclosure} onKeyDown={onWorkspaceDisclosureEscape}>
     <summary><CircleHelp aria-hidden="true" size={15}/>操作帮助</summary>
     <section className="workspace-file-surface" aria-label="制作流程与快捷键" tabIndex={0}>
+      <p><a href={tutorialHash} target="_blank" rel="noopener">阅读完整教程（新标签页）</a></p>
       <h2>保存、备份与分享</h2>
       <dl>
         <div><dt>浏览器自动保存</dt><dd>已采用的编辑保存在此浏览器、此站点。换浏览器、端口、设备或清除站点数据前，从「文件」下载备份。</dd></div>

@@ -8,6 +8,22 @@
   gap: clamp(8px, 2vw, 23px);
 }
 
+.home-tutorial-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid #d5ddcf;
+  border-radius: 7px;
+  color: #344c3b;
+  background: #fcfcf7;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.home-tutorial-link:hover { background: #e8efdf; }
+
 @media (max-width: 490px) {
   .home-header-actions .home-local { display: none; }
 }
