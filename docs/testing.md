@@ -29,7 +29,13 @@
 
 默认Playwright配置启动开发服务；设置`SCENEWEAVE_TEST_BASE_URL`后使用指定服务。系统Chrome/Edge可用`SCENEWEAVE_BROWSER_CHANNEL`选择。依赖本机作品或环境变量的专项未提供输入时保持未运行，不算通过；具体条件见相应用例和[测试导航](../tests/README.md)。
 
+Playwright升级后用`npx playwright install`安装匹配引擎；不要用旧浏览器目录替代新版本。海洋素材的固定WASM逐像素校验在Windows旧WebKit 26.0曾间歇性失败，旧失败与新引擎结果分别保留，不能据此推定真实Safari已测。
+
 保存/历史/导入改动需检查完整往返、坏资源拒绝、取消/配额保全及CAS冲突；渲染/秘密改动需检查GM和player实际像素、隐藏几何变形及文件元数据。不能通过删断言、丢资源或缩小原目标把失败改为成功。
+
+专用阶梯检查使用`src/shared/stairs/*.test.ts`和[页面旅程](../tests/staircase-tools.spec.ts)：覆盖完整踏面分割、重复/拉伸及纹理尺度、覆盖可逆、锁/过期候选、撤销重做、资源备份冷读与双受众PNG。可选私有岩岛用例仅在明确设置`SCENEWEAVE_STAIRCASE_REFERENCE`时执行，未提供输入时跳过；通用夹具通过不代表岩岛美术签收。
+
+图片完整补片边界衔接需检查旧`context`重放保持、新`context-blend`不读移除/保护/前序推断像素、范围外与保护零变化、预算及缺依据拒绝。实际作品另看100%与放大露底、移转及工作包/工程冷读；颜色误差或保存通过不代表隐藏板缝正确。
 
 <a id="performance"></a>
 ## 性能

@@ -24,7 +24,7 @@ npm run test:e2e
 | 导航、键盘、窄屏和导出菜单 | `workspace-*.spec.ts`、`keyboard-narrow-acceptance.spec.ts`、`clipboard-ux.spec.ts` |
 | 玩家保密和实际PNG | `fixed-sample-privacy*.spec.ts`、`prop-contact-privacy.spec.ts`、`src/shared/projection`相关单测 |
 | 建筑、门墙、通路 | `building-*.spec.ts`、`path-checks.spec.ts`和共享geometry/commands单测 |
-| 地形、连接和山路 | `terrain-*.spec.ts`、`terrain-inlay-tools.spec.ts`和共享terrain/terrain-inlay单测 |
+| 地形、连接和山路 | `terrain-*.spec.ts`、`staircase-tools.spec.ts`和共享terrain/terrain-inlay/stairs单测 |
 | 海洋与多层船图 | `ocean-*.spec.ts`；跨浏览器专项配置为[ocean-acceptance.config.ts](ocean-acceptance.config.ts) |
 | 家具、模板、素材库 | `room-furnishing.spec.ts`、`scene-template*.spec.ts`、`asset-expansion.spec.ts` |
 | 图片拆解、修补和增强 | `image-*.spec.ts`、`asset-refinement.spec.ts`及共享image-import/asset-refinement单测 |
