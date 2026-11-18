@@ -132,7 +132,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
       const next = new AiClient(baseUrl, token), info = await next.capabilities(action.controller.signal, continuationVersion, surfaceVersion)
       if (!action.valid()) return
       clientRef.current = next; setClient(next); setConnection(info); taskRef.current = null; setTask(null); setTasks([])
-      setNotice('已连接。发送后会流式显示回复；可进行文字对话，或明确授权后创建独立场景草稿。')
+      setNotice('已连接。发送后会流式显示文字回复。')
     } catch (failure) { if (action.valid() && !cancelled(failure)) setError(safeAiError(failure)) } finally { action.finish() }
   }
   const list = async () => {
@@ -240,7 +240,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
           : activeTask ? '正在连接任务进度'
             : '任务状态已同步'
   return <section className="ai-conversation" aria-label="AI 对话面板">
-    <header className="workspace-panel-heading"><h2><MessageSquare size={16}/>AI 对话</h2><p className="workspace-panel-intro">流式对话与独立场景草稿</p></header>
+    <header className="workspace-panel-heading"><h2><MessageSquare size={16}/>AI 对话</h2></header>
     <WorkflowGuide workflowId={workflowId} onSelect={setWorkflowId} host={toolWorkflowHost('conversation', [])} task={task}/>
     <details className="ai-connection" open={!connected}>
       <summary>连接设置{connected ? ` · ${connection.model}` : ' · 尚未连接'}</summary>
@@ -249,8 +249,21 @@ export default function AiConversationPanel({ context, disabled: externalDisable
       <details className="workspace-inline-help"><summary>应用凭据与隐私说明</summary><p>填写自有后端签发的应用凭据；模型供应商密钥只配置在服务器。此处凭据仅留在本次页面内存，刷新后清除。</p></details>
       <div className="ai-actions"><button type="button" className="primary" disabled={disabled || busy || !!pending || !baseUrl.trim() || !token.trim()} onClick={() => void connect()}>连接 AI 后端</button>{connected && <button type="button" disabled={busy || !!pending || disabled} onClick={disconnect}>断开本地连接</button>}</div>
     </details>
-    <div className="ai-disclosure"><p>普通对话发送文字与工程标识；不自动上传地图、素材或快照。场景草稿需另行授权。</p><details className="workspace-inline-help"><summary>完整发送范围与保留期限</summary><p>自有后端接收本次文字及工程 ID、修订号；模型只接收对话文字和只读连接工具结果，工程 ID 与修订号仅用于后端绑定。普通对话不上传地图、素材或快照；场景草稿需另行明确授权元数据。服务器保留任务 7 日，可主动删除。</p></details></div>
-    <p className="ai-context">{context ? `当前工程 ${context.sceneId} · 修订 ${context.revision}` : '未打开工程，仅发送文字。'}{connection ? ` · 文字模型 ${connection.model}${connection.visionModel ? ` · 视觉模型 ${connection.visionModel}` : ''}` : ''}</p>
+    <div className="ai-disclosure">
+      <dl className="ai-capabilities">
+        <dt>普通对话</dt>
+        <dd>文字问答、制作指导和只读连接查询。地图、素材与快照留在本机。</dd>
+        <dt>场景草稿</dt>
+        <dd>需兼容后端和单独授权。请在下方创建草稿、审阅差异并确认采用。</dd>
+        <dt>图片流程</dt>
+        <dd>此面板仅供查阅图片制作步骤。拆件请使用「从图片新建场景」。</dd>
+      </dl>
+      <details className="workspace-inline-help">
+        <summary>完整发送范围与保留期限</summary>
+        <p>自有后端接收本次文字和工程标识，工程 ID 与修订号仅用于绑定任务。模型接收对话文字及只读工具的查询结果。服务器保留任务 7 日，可主动删除。</p>
+      </details>
+    </div>
+    <p className="ai-context">{context ? `当前工程 ${context.sceneId} · 修订 ${context.revision}` : '未打开工程，仅发送文字。'}{connection ? ` · 文字模型 ${connection.model}${currentAuthoringSupported && visionSupported && connection.visionModel ? ` · 截图复核模型 ${connection.visionModel}` : ''}` : ''}</p>
     <div className="ai-reasoning">
       <label>新任务思考程度<select aria-label="AI 思考程度" aria-describedby={reasoningHintId} value={reasoningEffort} disabled={!supportsReasoning || busy || disabled} onChange={event => setReasoningEffort(event.target.value as ReasoningEffort | '')}>
         <option value="">跟随服务设置{supportsReasoning ? ` · ${effortLabel(connection.reasoningEffort ?? null)}` : ''}</option>
@@ -281,7 +294,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
       {!deleteConfirmation ? <button type="button" className="ai-delete" disabled={!connected || busy || disabled || task.status === 'applying'} onClick={() => setDeleteConfirmation(true)}>删除服务器任务</button> : <div className="ai-delete-confirm"><p>删除会终止此任务，并删除服务器保存的对话、草稿、检查点与私有制品。{continuationIdentity(task.authoring) && '此流程不含对话与工程正文的防重置摘要保留至七日到期，删除不会重置预算。'}此操作不能恢复。</p><div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void remove()}>确认删除服务器任务</button><button type="button" disabled={busy} onClick={() => setDeleteConfirmation(false)}>保留任务</button></div></div>}
     </article>}
     {pending ? <div className="ai-pending"><p>本次创建请求尚未确认。重试使用同一个请求 ID，不会主动创建另一个任务。</p><div className="ai-actions"><button type="button" disabled={!connected || busy || disabled} onClick={() => void send(pending)}>重试本次发送</button><button type="button" disabled={busy} onClick={() => { setPending(null); setNotice('已停止本地重试。服务器可能已创建任务，请先查询最近任务；不会自动取消服务器任务。') }}>停止本地重试</button></div></div> : <form className="ai-compose" onSubmit={event => { event.preventDefault(); void send() }}><label>本次对话<textarea aria-label="AI 对话输入" value={prompt} maxLength={AI_LIMITS.promptBytes} disabled={busy || disabled} placeholder="描述你的想法，或请求检查连接…" onChange={event => setPrompt(event.target.value)} /></label><small>{promptBytes}/{AI_LIMITS.promptBytes} 字节</small>{activeTask && <p>当前任务尚未结束。暂停后可补充并明确继续，或取消后再发送新任务。</p>}<button type="submit" disabled={!connected || busy || disabled || !!activeTask || !prompt.trim() || promptBytes > AI_LIMITS.promptBytes}>发送新任务</button></form>}
-    <AiAuthoringPane workflowDiscovery={connection?.capabilities.workflowDiscovery === 1} reasoningEffort={selectedReasoningEffort} visionEnabled={visionSupported} continuationSupported={continuationSupported} currentAuthoringSupported={currentAuthoringSupported} client={connection?.capabilities.sceneDraft ? client : null} task={task} host={authoring ? { ...authoring, onCritical: value => { setCritical(value); authoring.onCritical(value) } } : undefined} disabled={externalDisabled || busy || !!pending} onTask={(value, active) => { if (clientRef.current !== active) return; if (taskRef.current?.id === value.id) { if (applySnapshot(value, active)) follow(value, active) } else select(value, active) }}/>
-    <p className="ai-footnote">草稿支持明确授权的物件、建筑、室外、组合、散布、主持人文字，以及 SVG 制作和素材风格同化。隐藏面板保留对话；断开连接或切换工程只停止本地读取，取消服务器任务请使用“取消任务”。</p>
+    <AiAuthoringPane connected={connected} workflowDiscovery={connection?.capabilities.workflowDiscovery === 1} reasoningEffort={selectedReasoningEffort} visionEnabled={visionSupported} continuationSupported={continuationSupported} currentAuthoringSupported={currentAuthoringSupported} client={connection?.capabilities.sceneDraft ? client : null} task={task} host={authoring ? { ...authoring, onCritical: value => { setCritical(value); authoring.onCritical(value) } } : undefined} disabled={externalDisabled || busy || !!pending} onTask={(value, active) => { if (clientRef.current !== active) return; if (taskRef.current?.id === value.id) { if (applySnapshot(value, active)) follow(value, active) } else select(value, active) }}/>
+    <p className="ai-footnote">隐藏面板保留对话；断开连接或切换工程只停止本地读取，取消服务器任务请使用“取消任务”。</p>
   </section>
 }

@@ -42,7 +42,7 @@ export interface AiAuthoringHost {
   onAdopted: () => void
   onCritical: (busy: boolean) => void
 }
-interface Props { client: AiClient | null; task: TaskSnapshot | null; host?: AiAuthoringHost; disabled: boolean; reasoningEffort?: ReasoningEffort; visionEnabled?: boolean; continuationSupported?: boolean; currentAuthoringSupported?: boolean; workflowDiscovery?: boolean; onTask: (task: TaskSnapshot, client: AiClient) => void }
+interface Props { client: AiClient | null; connected: boolean; task: TaskSnapshot | null; host?: AiAuthoringHost; disabled: boolean; reasoningEffort?: ReasoningEffort; visionEnabled?: boolean; continuationSupported?: boolean; currentAuthoringSupported?: boolean; workflowDiscovery?: boolean; onTask: (task: TaskSnapshot, client: AiClient) => void }
 const message = (error: unknown) => error instanceof Error && error.name !== 'AiClientError' ? error.message : safeAiError(error)
 const budgetFields = (value: unknown) => {
   const identity = continuationIdentity(value)
@@ -70,7 +70,7 @@ const requirementLabel = { pending: '待完成', claimed: 'AI 已标记，待人
 
 
 /** Server metadata is untrusted: replay against the exact local grant and owned image bytes. */
-export default function AiAuthoringPane({ client, task, host, disabled, reasoningEffort, visionEnabled = false, continuationSupported = false, currentAuthoringSupported = false, workflowDiscovery = false, onTask }: Props) {
+export default function AiAuthoringPane({ client, connected, task, host, disabled, reasoningEffort, visionEnabled = false, continuationSupported = false, currentAuthoringSupported = false, workflowDiscovery = false, onTask }: Props) {
   const [extended, setExtended] = useState(initialExtendedScope)
   const [recipe, setRecipe] = useState<AuthoringBrief['recipe']>('custom'), [requirements, setRequirements] = useState('')
   const [checks, setChecks] = useState<AuthoringEvidenceCheck[]>([])
@@ -271,6 +271,12 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
   }
   const scene = host?.project.document, available = scene ? Object.values(scene.propDefinitions).filter(definition => !definition.tags.includes('sceneweave:retained-appearance')) : []
   const unsupportedSurfaceBaseMap = !!host?.baseMapPreview && Object.keys(host.project.document.surfaceRules).length > 0
+  let draftStatus: string | undefined
+  if (unsupportedSurfaceBaseMap) draftStatus = '此底图包含连续地表或成片植被规则。可回到工程面板直接采用底图。'
+  else if (!connected) draftStatus = '连接 AI 后端后可检查草稿支持。'
+  else if (!client) draftStatus = '当前后端未开放场景草稿。'
+  else if (!host) draftStatus = '打开工程后可设置草稿授权范围。'
+  else if (!currentAuthoringSupported || (host.baseMapPreview && !continuationSupported)) draftStatus = '当前后端未声明此工程所需的草稿协议、工程版本和预算支持。'
   const whole = scene ? Object.values(scene.props).filter(prop => prop.visibility === 'public' && !Object.values(scene.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === prop.id)) && !Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === prop.id))).map(prop => prop.id) : []
   const toggleDefinition = (id: string) => setDefinitions(values => values.includes(id) ? values.filter(value => value !== id) : [...values, id])
   const claimRecovery = task?.authoring?.claim && task.status !== 'applied' && !receipt && <><p>有尚未确认的采用租约。若当前工程已经采用，请保留任务并核对工程；释放后不能再补认旧租约。</p><button disabled={busy || disabled} onClick={() => void release()}>确认本机未采用并释放租约</button></>
@@ -279,7 +285,10 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
   </>
   return <section className="ai-authoring" aria-label="AI 场景草稿">
     <h3>{unsupportedSurfaceBaseMap ? '程序底图暂不支持 AI 接续' : host?.baseMapPreview ? '在程序底图上继续修改' : '场景草稿'}</h3>
-    <p>{unsupportedSurfaceBaseMap ? '此候选包含连续地表和区域植被规则，当前可直接采用并手工编辑。' : host?.baseMapPreview ? 'AI 可在明确授权内调整底图的公开物件与地形。失败或取消时底图仍可独立采用；审阅后保护原工程并一次打开新工程。' : '先授权对象和素材，AI 分步修改独立草稿。检查差异后，保护当前并作为一次事务采用。'}</p>{unsupportedSurfaceBaseMap ? <p role="status">当前 AI 接续合同不支持此工程格式；可回到工程面板直接采用底图。</p> : needsCurrentAuthoring && !currentAuthoringSupported ? <p role="status">当前连接尚未声明此完整工程、固定资源及预算策略的 AI 能力；请更新后端后重新连接。手工工程和独立底图仍可使用。</p> : host?.baseMapPreview && !continuationSupported && <p role="status">当前连接尚未支持此底图的接续策略，请升级后端；仍可直接采用底图。</p>}
+    {draftStatus && <p role="status">{draftStatus}</p>}
+    {!unsupportedSurfaceBaseMap && <p>{host?.baseMapPreview
+      ? 'AI 可在明确授权内调整底图的公开物件与地形。失败或取消时底图仍可独立采用。审阅后保护原工程并一次打开新工程。'
+      : '可单独授权编辑物件、建筑、室外布置和视觉效果，并指定可用的固定素材。审阅本机校验通过的差异后，再保护当前工程并一次采用。'}</p>}
     {host && <details open={!task?.authoring}><summary>新任务的授权范围</summary>
       <div className="ai-actions"><button disabled={busy || disabled} onClick={() => setTargets([...host.selectedIds])}>使用画布选中对象</button><button disabled={busy || disabled} onClick={() => setTargets(whole)}>授权全部独立公开物件</button><button disabled={busy || disabled} onClick={() => setTargets([])}>清空对象范围</button></div>
       <p>已授权 {targets.length} 件：{targets.join('、') || '无现存对象'}。秘密、组合/散布成员、锁定及带注记/路径依赖的对象会整笔拒绝。</p>
@@ -291,7 +300,7 @@ export default function AiAuthoringPane({ client, task, host, disabled, reasonin
       <label>草稿要求<textarea aria-label="AI 草稿要求" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="例如：把选中的椅子向右移动500毫米，并将透明度改为0.8。"/></label>
       <details><summary>制作清单与统一风格</summary><label>场景类型<select aria-label="AI 场景类型" value={recipe} onChange={e => setRecipe(e.target.value as AuthoringBrief['recipe'])}><option value="custom">自定义</option><option value="beach">海岸</option><option value="island">岩岛</option><option value="interior">室内</option></select></label><label>逐项要求（每行一项，最多16项）<textarea aria-label="AI 制作清单" value={requirements} onChange={e => setRequirements(e.target.value)} placeholder="保留六米活动区\n沿岸布置三组可单独编辑的礁石\n上方入口保持通畅"/></label><label className="ai-check"><input type="checkbox" checked={useStyle} onChange={e => setUseStyle(e.target.checked)}/>使用明确风格参数</label>{useStyle && <><label>配色（十六进制，用逗号分隔）<input aria-label="AI 风格配色" value={palette} onChange={e => setPalette(e.target.value)}/></label>{([['线条毫米',lineWeight,setLineWeight],['纹理毫米',textureScale,setTextureScale],['细节密度',density,setDensity],['光照方向',lightDirection,setLightDirection]] as const).map(([label,value,setter]) => <label key={label}>{label}<input type="number" aria-label={`AI ${label}`} value={value} step={label === '细节密度' ? .05 : 1} onChange={e => setter(Number(e.target.value))}/></label>)}</>}<p>AI 按布局、材质、边缘、布景、环境、复核分阶段工作；文字目标的美术效果仍需人工核对。</p></details>
       <details><summary>可核对目标</summary><AiBriefChecks value={checks} onChange={setChecks} project={host.project} bounds={extended.bounds ?? host.project.document.exportBoundsMm} definitionIds={definitions} materialIds={extended.materials} disabled={busy || disabled}/></details>
-      <label className="ai-check"><input type="checkbox" aria-label="AI 发送公开截图" checked={sendVision} disabled={!visionEnabled || !visionFloorSupported || busy || disabled} onChange={e => setSendVision(e.target.checked)}/>另行同意把明确范围的实际玩家画面发送给模型供应商（本次最多768像素，任务累计最多4张）</label><p>{!visionFloorSupported ? '多楼层公开截图尚未提供楼层绑定，当前不发送截图；可继续使用明确授权的结构工具。' : visionEnabled ? '截图会经过玩家秘密过滤，绑定当前工程修订；图片随任务在自有后端保留七日，可删除。' : '当前连接未启用视觉输入，结构诊断仍可使用。'}</p>
+      <label className="ai-check"><input type="checkbox" aria-label="AI 发送公开截图" checked={sendVision} disabled={!visionEnabled || !visionFloorSupported || busy || disabled} onChange={e => setSendVision(e.target.checked)}/>另行同意把明确范围的实际玩家画面发送给模型供应商（本次最多768像素，任务累计最多4张）</label><p>{!visionFloorSupported ? '截图复核当前支持单楼层工程。' : visionEnabled ? '截图用于复核当前草稿，经过玩家秘密过滤并绑定当前工程修订。截图随任务在自有后端保留七日，可删除。' : '截图复核需后端支持视觉输入和复核协议。'}</p>
       <p className="ai-disclosure">发送范围：自有后端接收本次要求、完整工程元数据（含主持人字段）及授权范围，用于完整校验；除另行勾选的公开截图外，不发送图片字节；不发送历史快照。模型仅接收授权公开对象、必要支撑几何、授权素材名称/标签/尺寸及工具结果。任务保留七日，可删除。{(host?.baseMapPreview || needsCurrentAuthoring) && '删除任务正文后，不含对话与工程正文的流程防重置摘要仍保留至七日到期。'}</p>
       <label className="ai-check"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}/>同意向自有后端发送上述完整元数据，并向模型发送授权的公开内容</label>
       <small>{host?.baseMapPreview ? `程序底图接续：生成最多 ${sourcePolicy.generationTargets}，AI 最多 ${sourcePolicy.aiTargets} 个语义目标，最终一次采用最多 ${sourcePolicy.finalAdoptionTargets}；完整账本保留。` : needsCurrentAuthoring ? '当前完整工程：最多16轮模型请求、64次工具、累计300秒；全部实际操作仍计入本次256上限，分阶段执行不会扩大额度。' : '固定技能 v1：独立物件 / 完整场景 / SVG与同化 / 视觉创作 · 最多16轮模型请求、64次工具、累计300秒、256条实际操作。'}</small>

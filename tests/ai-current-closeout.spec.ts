@@ -164,7 +164,10 @@ test('current-v1 staged draft preserves workspace navigation and uses fresh auth
   await authoring.getByRole('button', { name: '创建独立草稿任务', exact: true }).click()
   await expect.poll(() => waitingForPause, { timeout: 60000 }).toBe(true)
   expect(creates).toHaveLength(1); expect(creates[0].authoring?.schemaVersion).toBe(4)
-  expect(capabilityUrls).toContain(backendUrl + '/v1/capabilities?authoringVersion=4')
+  expect(capabilityUrls.some(value => {
+    const url = new URL(value)
+    return url.origin === backendUrl && url.pathname === '/v1/capabilities' && url.searchParams.get('authoringVersion') === '4'
+  })).toBe(true)
   await panel.getByRole('button', { name: '暂停回复', exact: true }).click(); await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已暂停')
   expect((await current(page)).hash).toBe(before.hash)
   await panel.getByLabel('AI 继续补充要求', { exact: true }).fill('画面复核继续：另行授权本次实际公开图片，先提案后精确修正。')
