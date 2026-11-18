@@ -105,6 +105,41 @@ describe('natural aggregate rigid transformations', () => {
     expect(naturalAggregateCommandSchema.safeParse({ ...move, scale: 2 }).success).toBe(false)
     expect(naturalAggregateCommandSchema.safeParse({ ...move, quarterTurns: .5 }).success).toBe(false)
   })
+  it.each(['members', 'clue'] as const)('atomically respects a separate layer lock on member/container or anchored note %s', id => {
+    const scene = simple()
+    scene.userLayers.protected = { id: 'protected', floorId: 'blank-floor', name: 'Protected dependency',
+      order: Math.max(...Object.values(scene.userLayers).map(layer => layer.order)) + 1, editLocked: true }
+    if (id === 'members') { scene.entityLayers.item = 'protected'; scene.entityLayers.scatter = 'protected' }
+    else scene.entityLayers[id] = 'protected'
+    expect(scene.props.item.editLocked).toBe(false)
+    expect(scene.notes.clue.editLocked).toBe(false)
+    expect(scene.scatterGroups.scatter.editLocked).toBe(false)
+    checked(scene)
+    const before = canonicalJson(scene)
+    expect(() => applyNaturalAggregateCommand(scene, move)).toThrow(/锁定/)
+    expect(canonicalJson(scene)).toBe(before)
+  })
+  it('observes a newly locked layer between successful commands on the same mutable scene', () => {
+    const scene = simple()
+    scene.userLayers.protected = { id: 'protected', floorId: 'blank-floor', name: 'Changing dependency lock',
+      order: Math.max(...Object.values(scene.userLayers).map(layer => layer.order)) + 1, editLocked: false }
+    scene.entityLayers.item = 'protected'
+    scene.entityLayers.scatter = 'protected'
+    const before = cloneJson(scene)
+    applyNaturalAggregateCommand(scene, move)
+    checked(scene)
+    expect(scene.props.item.positionMm).toEqual({ x: 11000, y: 6500 })
+    expect(scene.assets).toEqual(before.assets)
+    expect(scene.userLayers).toEqual(before.userLayers)
+    expect(scene.entityLayers).toEqual(before.entityLayers)
+    expect(scene.notes).toEqual(before.notes)
+    expect(scene.scatterGroups.scatter.members).toEqual(before.scatterGroups.scatter.members)
+    expect(scene.decorationClusters.cluster.members).toEqual(before.decorationClusters.cluster.members)
+    scene.userLayers.protected.editLocked = true
+    const locked = canonicalJson(scene)
+    expect(() => applyNaturalAggregateCommand(scene, { ...move, quarterTurns: 0, offsetMm: { x: 100, y: 0 } })).toThrow(/锁定/)
+    expect(canonicalJson(scene)).toBe(locked)
+  })
   it('moves a high terrain-to-Floor connection with both actual endpoints and preserves its external Floor', () => {
     const scene = simple(), floor = cloneJson(scene.floors)
     scene.terrainAreas.ground.groundElevationMm = 1000
@@ -140,6 +175,19 @@ describe('natural aggregate rigid transformations', () => {
       expect(() => applyNaturalAggregateCommand(scene, command), mode).toThrow(/锁定依赖/)
       expect(canonicalJson(scene)).toBe(before)
     }
+  })
+  it('atomically respects a layer lock discovered only in the transformed physical neighborhood', () => {
+    const scene = simple()
+    scene.props.other.positionMm = { x: 14000, y: 6000 }
+    scene.props.other.blocksMovement = false
+    scene.props.other.editLocked = false
+    scene.userLayers.protected = { id: 'protected', floorId: 'blank-floor', name: 'Protected next neighborhood',
+      order: Math.max(...Object.values(scene.userLayers).map(layer => layer.order)) + 1, editLocked: true }
+    scene.entityLayers.other = 'protected'
+    checked(scene)
+    const before = canonicalJson(scene)
+    expect(() => applyNaturalAggregateCommand(scene, move)).toThrow(/锁定依赖/)
+    expect(canonicalJson(scene)).toBe(before)
   })
   it('refuses an attached edge whose other terrain remains outside the explicit group', () => {
     const scene = simple(), layer = scene.entityLayers.ground

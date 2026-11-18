@@ -8,7 +8,7 @@ import { worldToLocalPoint } from '../aggregates/coordinates.js'
 import { aggregateEntityRelations } from '../aggregates/relations.js'
 import { definitionPresentation, propPresentation } from '../appearance/presentation.js'
 import { visualBase } from '../visual/base.js'
-import { canonicalJson, captureJson, encodeUtf8, freezeJson } from '../validation/json.js'
+import { canonicalJson, captureJson, encodeUtf8, equalOwnedJson, freezeJson } from '../validation/json.js'
 import { getCertifiedCompositionContent, getPropUpdateCompositionTransaction, getCompositionRevisionTransaction } from '../validation/content.js'
 import { BUDGET_DIMENSIONS, BudgetUsageSchema, TASK_BUDGET_PROFILES, assertTaskBudget, measureTaskBudget,
   measureBudgetDependencies, measureBudgetGeometry, measuredRetainedSegments, parseTaskBudgetProfile, semanticTargetEntries, type BudgetUsage, type TaskBudgetMetadata, type TaskBudgetProfile } from './task-budget.js'
@@ -138,9 +138,9 @@ function manualEntries(document: SceneDocument, graph?: AppearanceGraph) {
 /** Complete physical/effective appearance changes, with container/member deduplication. */
 export function manualChangedTargets(before: SceneDocument, after: SceneDocument, metadata?: CommandBudgetMetadata): string[] {
   const a = manualEntries(before, metadata?.before.appearance), b = manualEntries(after, metadata?.after.appearance)
-  const changed = new Set([...a.keys(), ...b.keys()].filter(key => !same(a.get(key)?.value, b.get(key)?.value)))
+  const changed = new Set([...new Set([...a.keys(), ...b.keys()])].filter(key => !same(a.get(key)?.value, b.get(key)?.value)))
   const oldGroups = before.aggregateCoordinates?.groups ?? {}, newGroups = after.aggregateCoordinates?.groups ?? {}
-  const changedGroups = new Set([...Object.keys(oldGroups), ...Object.keys(newGroups)].filter(id => !same(oldGroups[id], newGroups[id])))
+  const changedGroups = new Set([...new Set([...Object.keys(oldGroups), ...Object.keys(newGroups)])].filter(id => !same(oldGroups[id], newGroups[id])))
   const targetKeys = new Map([...a, ...b].map(([key, row]) => [row.id, key]))
   // Reparenting changes descendant storage frames and permissions too. Charge
   // their actual members even when their world JSON is unchanged.
@@ -234,7 +234,7 @@ function manualCoreImpact(before: SceneDocument, after: SceneDocument, metadata:
   const oldGroups = before.aggregateCoordinates?.groups, newGroups = after.aggregateCoordinates?.groups
   const ordinary = { semanticTargets: targets.length, groupMembers: 0, externalDependencies: 0 }
   if (!oldGroups || !newGroups || before.aggregateCoordinates?.encoding !== 'world' || after.aggregateCoordinates?.encoding !== 'world') return ordinary
-  const ownChanges = new Set([...Object.keys(oldGroups), ...Object.keys(newGroups)].filter(id => !same(oldGroups[id], newGroups[id])))
+  const ownChanges = new Set([...new Set([...Object.keys(oldGroups), ...Object.keys(newGroups)])].filter(id => !same(oldGroups[id], newGroups[id])))
   if (!ownChanges.size) return ordinary
   const roots = [...ownChanges].filter(id => {
     const a = oldGroups[id], b = newGroups[id]
@@ -257,17 +257,21 @@ function manualCoreImpact(before: SceneDocument, after: SceneDocument, metadata:
       for (const id of Object.keys(before.props)) if (after.props[id]
         && propPresentation(aGraph, id)?.mode === 'nearSide' && propPresentation(bGraph, id)?.mode === 'nearSide'
         && same(propPresentation(aGraph, id), propPresentation(bGraph, id))) {
-        oldLocal.props[id].rotationDeg = before.props[id].rotationDeg
-        newLocal.props[id].rotationDeg = after.props[id].rotationDeg
+        oldLocal.props[id].rotationDeg = captureJson(before.props[id].rotationDeg)
+        newLocal.props[id].rotationDeg = captureJson(after.props[id].rotationDeg)
       }
       for (const id of Object.keys(before.decorations)) if (after.decorations[id]
         && definitionPresentation(aGraph, before.decorations[id].definitionRef)?.mode === 'nearSide'
         && same(definitionPresentation(aGraph, before.decorations[id].definitionRef), definitionPresentation(bGraph, after.decorations[id].definitionRef))) {
-        oldLocal.decorations[id].rotationDeg = before.decorations[id].rotationDeg
-        newLocal.decorations[id].rotationDeg = after.decorations[id].rotationDeg
+        oldLocal.decorations[id].rotationDeg = captureJson(before.decorations[id].rotationDeg)
+        newLocal.decorations[id].rotationDeg = captureJson(after.decorations[id].rotationDeg)
       }
     }
     const oldEntries = manualEntries(oldLocal), newEntries = manualEntries(newLocal)
+    // Coordinate encoding owns independent JSON. Capture the derived entries
+    // too, including optional layer/support fields, before using structural
+    // equality. Invalid/unknown rows still take the ordinary-target fallback.
+    for (const entries of [oldEntries, newEntries]) for (const row of entries.values()) row.value = captureJson(row.value)
     const oldKeys = new Map([...oldEntries].map(([key, row]) => [row.id, key])), newKeys = new Map([...newEntries].map(([key, row]) => [row.id, key]))
     const oldFrames = aggregateWorldFrames(before.aggregateCoordinates!), newFrames = aggregateWorldFrames(after.aggregateCoordinates!)
     const edits = new Set(targets), affected = new Set<string>(), ownedRefs = new Set<string>()
@@ -285,12 +289,12 @@ function manualCoreImpact(before: SceneDocument, after: SceneDocument, metadata:
         const owner = owners.get(memberKey(ref))!
         const collection = AGGREGATE_ENTITY_COLLECTIONS[ref.kind]
         const first = oldLocal[collection][ref.id], second = newLocal[collection][ref.id]
-        if (!same(first, second) || before.entityLayers[ref.id] !== after.entityLayers[ref.id]) return false
+        if (!equalOwnedJson(first ?? null, second ?? null) || before.entityLayers[ref.id] !== after.entityLayers[ref.id]) return false
         const aKey = oldKeys.get(ref.id), bKey = newKeys.get(ref.id)
         if (aKey !== bKey) return false
         // Raw rows above include every member field. Entries additionally
         // include actual wall/room support geometry, layer order and filters.
-        if (aKey && !same(oldEntries.get(aKey)?.value, newEntries.get(aKey)?.value)) return false
+        if (aKey && !equalOwnedJson(oldEntries.get(aKey)?.value ?? null, newEntries.get(aKey)?.value ?? null)) return false
         return unchangedMemberAppearance(ref, before, after, aGraph, bGraph, oldFrames.get(owner)!, newFrames.get(owner)!)
       })
       if (!unchanged) continue

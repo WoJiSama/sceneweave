@@ -27,9 +27,22 @@ export default function RoomFurnishingPanel({ project, ids, floorId, layerId, di
   const catalog = useMemo(() => furnishingPaletteDocument(palette), [palette.source, palette.era, palette.styleId, palette.allowMixed])
   const room = scene.rooms[roomId], props = roomFurnishingProps(scene, roomId)
   const available = { ...catalog?.propDefinitions, ...scene.propDefinitions }, candidates = Object.values(available)
-  const chosen = (role: FurnishingRole) => available[definitions[role] ?? '']
-    ?? props.map(prop => available[prop.definitionRef?.id ?? '']).find(row => row && furnishingDefinitionRole(row) === role && furnishingPaletteMatches(row, palette))
-    ?? candidates.find(row => furnishingDefinitionRole(row) === role && furnishingPaletteMatches(row, palette))
+  // Rebuild from this render's actual definitions and palette. Sharing these
+  // derived lists across roles avoids repeating catalog scans without caching
+  // mutable project data or changing explicit cross-style selections.
+  const roles = new Map(candidates.map(row => [row, furnishingDefinitionRole(row)]))
+  const same = candidates.filter(row => furnishingPaletteMatches(row, palette)), matchingDefinitions = new Set(same)
+  const cross = candidates.filter(row => !matchingDefinitions.has(row))
+  const existingDefinitions = props.map(prop => available[prop.definitionRef?.id ?? ''])
+  const selectedByRole = new Map(furnishingRoles.map(role => [role, available[definitions[role] ?? '']
+    ?? existingDefinitions.find(row => row && roles.get(row) === role && matchingDefinitions.has(row))
+    ?? same.find(row => roles.get(row) === role)]))
+  const chosen = (role: FurnishingRole) => selectedByRole.get(role)
+  const existingCounts = new Map<FurnishingRole, number>()
+  for (const prop of props) {
+    const role = furnishingDefinitionRole(scene.propDefinitions[prop.definitionRef?.id ?? ''])
+    if (role) existingCounts.set(role, (existingCounts.get(role) ?? 0) + 1)
+  }
   const total = furnishingRoles.reduce((sum, role) => sum + (counts[role] ?? 0), 0)
   const invalidCounts = furnishingRoles.some(role => !Number.isInteger(counts[role] ?? 0) || (counts[role] ?? 0) < 0 || (counts[role] ?? 0) > 12) || total > 32
   const missingRoles = furnishingRoles.filter(role => (counts[role] ?? 0) > 0 && !chosen(role))
@@ -117,9 +130,8 @@ export default function RoomFurnishingPanel({ project, ids, floorId, layerId, di
       <h4>2. 家具与目标总数</h4>
       <p>数量包含已有家具。例如已有1张床、目标2张时，只尝试补1张。设为0会跳过该功能，保留现有家具。</p>
       {furnishingRoles.map(role => {
-        const same = candidates.filter(row => furnishingPaletteMatches(row, palette)), matching = same.filter(row => furnishingDefinitionRole(row) === role), others = same.filter(row => furnishingDefinitionRole(row) !== role)
-        const cross = candidates.filter(row => !furnishingPaletteMatches(row, palette)), selected = chosen(role)
-        const existing = props.filter(prop => furnishingDefinitionRole(scene.propDefinitions[prop.definitionRef?.id ?? '']) === role).length
+        const matching = same.filter(row => roles.get(row) === role), others = same.filter(row => roles.get(row) !== role), selected = chosen(role)
+        const existing = existingCounts.get(role) ?? 0
         return <div key={role} className="furnishing-function">
           <label>{furnishingRoleNames[role]} · 已有{existing}件<input aria-label={`布置${furnishingRoleNames[role]}数量`} type="number" min={0} max={12} step={1} value={counts[role] ?? 0} onChange={event => { setCounts(current => ({ ...current, [role]: Number(event.target.value) })); change() }}/></label>
           {(counts[role] ?? 0) > 0 && <label>选择{furnishingRoleNames[role]}<select aria-label={`布置${furnishingRoleNames[role]}素材`} value={selected?.id ?? ''} onChange={event => { setDefinitions(current => ({ ...current, [role]: event.target.value })); change() }}><option value="" disabled>选择素材</option>{[{ label: `匹配风格 · 适用于${furnishingRoleNames[role]}`, values: matching }, { label: '匹配风格 · 其他用途（请核对）', values: others }, { label: '跨风格／未标注（需确认）', values: cross }].map(({ label, values }) => <optgroup key={label} label={label}>{values.map(definition => <option key={definition.id} value={definition.id}>{definition.name} · {definition.defaultFootprintMm.width / 1000}×{definition.defaultFootprintMm.height / 1000}米 · {furnishingStyle(definition).name}</option>)}</optgroup>)}</select>

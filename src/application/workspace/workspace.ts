@@ -4,7 +4,7 @@ import { isDecorationCommand } from '../../shared/decorations/commands.js'
 import type { AggregateEditBoundaryImpact } from './aggregate-boundary.js'
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
 import { emptyBudgetUsage, parseTaskBudgetProfile, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
-import { assertCommandBudget, measureCommandBudget, retainLocalCommandBudget, selectManualTransactionBudget, type ManualTransactionBudget, type CommandBudgetUsage } from '../../shared/budget/command-budget.js'
+import { assertCommandBudget, measureCommandBudget, retainLocalCommandBudget, selectManualTransactionBudget, MANUAL_TRANSACTION_BUDGETS, type ManualTransactionBudget, type CommandBudgetUsage } from '../../shared/budget/command-budget.js'
 import { selectManualCommandBudget } from '../../shared/budget/manual-request.js'
 import { ProfiledAuthoringScopeSchema } from '../../shared/ai/authoring-profile.js'
 import { prepareTerrainComposition } from './terrain-composition.js'
@@ -112,7 +112,7 @@ export interface CompositionPreview {
   checkpoint: number
   currentSceneId: string
   currentRevision: number
-  /** Session-only admission evidence; recomputed from the private baseline at adoption. */
+  /** Session-only review evidence; adoption trusts only a private exact snapshot proof or remeasures. */
   budgetUsage?: CommandBudgetUsage
   budgetProfile?: ManualTransactionBudget
   /** GM preparation diagnostics, excluded from project/history/player outputs. */
@@ -426,6 +426,9 @@ export class Workspace {
   private readonly localGenerationPreviews = new WeakMap<LocalGenerationPreview, PreviewStatus>()
   private readonly regionalPreviews = new WeakMap<RegionalPreview, { status: PreviewStatus; base: EditableProject; sourceBase?: EditableProject; sourceResult?: RegionalDrillDownResult; sceneBase?: EditableProject }>()
   private readonly compositionPreviews = new WeakMap<CompositionPreview, PreviewStatus>()
+  private readonly compositionBudgetProofs = new WeakMap<CompositionPreview, {
+    baseline: EditableProject; candidate: EditableProject; profile: ManualTransactionBudget; usage: CommandBudgetUsage
+  }>()
   private readonly previews = new WeakMap<RestorePreview, PreviewStatus>()
   private readonly structurePreviews = new WeakMap<StructureRestorePreview, PreviewStatus>()
   private readonly atomicAuthorizations = new WeakMap<AtomicAuthorization, EditableProject>()
@@ -1186,7 +1189,10 @@ export class Workspace {
     this.visualContinuity.advance(current.document, content.document, transaction?.invalidation.visualIds ?? this.visualInvalidations.get(candidate))
     // The committed snapshot has already inherited its own exact endpoint
     // proof. Draft receipts must not retain a second chain of older snapshots.
-    releaseProjectTransactionReceipt(toBundle(candidate).project)
+    // An unregistered internal restore wrapper has no exact ProjectData receipt
+    // to release. Capturing it here would create unrelated metadata just for a
+    // WeakMap miss. Validated snapshots keep their exact receipt cleanup.
+    if (getVerifiedEditableProject(candidate)) releaseProjectTransactionReceipt(toBundle(candidate).project)
     if (transaction) releaseCompositionTransactionReceipt(transaction)
     if (history === 'edit') { this.past.push(current); this.future = [] }
     else if (history === 'undo') { this.past.pop(); this.future.push(current) }
@@ -1345,6 +1351,12 @@ export class Workspace {
     const preview = freeze({ project, document: project.document, commands, description, checkpoint,
       currentSceneId: project.document.sceneId, currentRevision: project.document.revision, ...(transaction ? { transaction } : {}), ...(budgetUsage ? { budgetUsage, budgetProfile: budget } : {}), ...(aggregateBoundaryImpact ? { aggregateBoundaryImpact } : {}) })
     this.compositionPreviews.set(preview, 'active')
+    // Only validator-issued exact immutable wrappers and a registered fixed
+    // policy can retain this measurement across the preview lifetime.
+    if (budget && budgetUsage && getVerifiedEditableProject(current) && getVerifiedEditableProject(project)
+      && Object.values(MANUAL_TRANSACTION_BUDGETS).includes(budget)) {
+      this.compositionBudgetProofs.set(preview, { baseline: current, candidate: project, profile: budget, usage: budgetUsage })
+    }
     return preview
   }
   /** A finite fill owns one source, one complete candidate and one undo unit. */
@@ -1387,6 +1399,7 @@ export class Workspace {
   cancelPreview(preview: CompositionPreview) {
     if (!this.compositionPreviews.has(preview)) return
     this.compositionPreviews.set(preview, 'cancelled')
+    this.compositionBudgetProofs.delete(preview)
     this.releasePreparedReceipt(preview.project, preview.transaction)
   }
   private assertPreview(preview: CompositionPreview) {
@@ -1405,8 +1418,16 @@ export class Workspace {
       this.assertPreview(preview)
       const current = this.requireProject()
       if (preview.budgetProfile) {
-        const measured = measureCommandBudget(current.document, candidate.document, { before: current, after: candidate }, undefined, preview.budgetProfile)
-        assertCommandBudget(preview.budgetProfile, preview.budgetUsage ? combineManualPreparationUsage(measured, preview.budgetUsage, emptyBudgetUsage()) : measured)
+        const proof = this.compositionBudgetProofs.get(preview)
+        if (proof && proof.baseline === current && proof.candidate === candidate
+          && proof.profile === preview.budgetProfile && proof.usage === preview.budgetUsage) {
+          // Recheck all policy dimensions against the exact admitted usage;
+          // checkpoint/candidate/lifecycle guards above are still authoritative.
+          assertCommandBudget(proof.profile, proof.usage)
+        } else {
+          const measured = measureCommandBudget(current.document, candidate.document, { before: current, after: candidate }, undefined, preview.budgetProfile)
+          assertCommandBudget(preview.budgetProfile, preview.budgetUsage ? combineManualPreparationUsage(measured, preview.budgetUsage, emptyBudgetUsage()) : measured)
+        }
       }
       if (!equalOwnedContent(current, candidate)
         || this.structuralInvalidations.get(preview.project)?.length || this.visualInvalidations.get(preview.project)?.length) {
@@ -1414,6 +1435,7 @@ export class Workspace {
         this.commit(candidate, 'edit')
       } else this.releasePreparedReceipt(preview.project, preview.transaction)
       this.compositionPreviews.set(preview, 'applied')
+      this.compositionBudgetProofs.delete(preview)
     } catch (error) { this.cancelPreview(preview); throw error }
   }
   async execute(commands: readonly CompositionCommand[]): Promise<void> {
@@ -1443,12 +1465,15 @@ export class Workspace {
   detachPrefabMember(groupId: string, propId: string) { return this.execute([{ type: 'detachPrefabMember', groupId, propId }]) }
   resetPrefabMember(groupId: string, key: string, newId?: string, supportRef?: SurfaceRef) { return this.execute([{ type: 'resetPrefabMember', groupId, key, ...(newId ? { newId } : {}), ...(supportRef ? { supportRef } : {}) }]) }
   removePrefabMember(id: string) { return this.execute([{ type: 'deleteProp', id }]) }
-  private prepareRestoredProject(candidate: EditableProject): EditableProject {
+  private prepareRestoredProject(candidate: EditableProject, reuseOriginalBranches = true): EditableProject {
     const current = this.requireProject(), checkpoint = this.checkpoint()
     // History entries are validator-owned and deeply frozen. Reconciliation may
     // pause a composition or invalidate its receipt, so own a detached draft
     // before lifecycle code writes the restored branch.
-    const draft = captureEditableDraft(candidate)
+    const verified = getVerifiedEditableProject(candidate)
+    const draft = verified ? { ...candidate,
+      document: structuredClone(candidate.document), historyIdentity: structuredClone(candidate.historyIdentity), appearance: structuredClone(candidate.appearance),
+    } : captureEditableDraft(candidate)
     // Keep the exact frozen resource/license closure as the derivation
     // baseline; only document, identity and appearance are detached for the
     // lifecycle reconciliation below.
@@ -1468,7 +1493,11 @@ export class Workspace {
     // This candidate is owned undo/redo history. Only rows absent in the
     // current scene can acquire proofs for their newly restored real births.
     syncNewAttachmentProofs(current.document, draft.document, observedIdentity)
-    const historyIdentity = identityTrace.finish(draft.document)
+    // Before any external validation callback, these are private detached JSON
+    // branches. An unchanged scene may use the original certified object as a
+    // read-only finish argument; later reconciliation still owns its draft.
+    const identityDocument = verified && equalOwnedJson(draft.document, verified.document) ? verified.document : draft.document
+    const historyIdentity = identityTrace.finish(identityDocument)
     if (Object.keys(draft.document.pathAttachments ?? {}).length) draft.document = rebindPathAttachmentProofs(draft.document, historyIdentity)
     protectLocalGenerationContinuity(draft.document, candidate.historyIdentity, historyIdentity)
     {
@@ -1480,10 +1509,17 @@ export class Workspace {
       }
     }
     this.validateCandidate(draft.document)
+    // The callback can install caller-owned objects, including Proxies. Capture
+    // descriptor values once before comparing, so equality cannot hide a bad
+    // descriptor behind a different later property read. Only the original
+    // issued branches may retain their existing proof; copies gain none.
+    const captured = captureJson({ document: draft.document, appearance: draft.appearance })
+    const document = reuseOriginalBranches && verified && equalOwnedJson(captured.document, verified.document) ? verified.document : captured.document
+    const appearance = reuseOriginalBranches && verified && equalOwnedJson(captured.appearance, verified.appearance) ? verified.appearance : captured.appearance
     this.assertCheckpoint(checkpoint)
     // Keep candidate as the derivation baseline so its exact immutable resource
     // certificate remains authoritative while the draft carries reconciliation.
-    return { ...draft, historyIdentity }
+    return { ...draft, document, historyIdentity, appearance }
   }
   private restoreHistory(candidate: EditableProject, history: 'undo' | 'redo') {
     const restored = this.prepareRestoredProject(candidate)
@@ -1528,7 +1564,9 @@ export class Workspace {
       const source = await loadSource()
       this.assertWritable(token); this.assertCheckpoint(checkpoint); checkCancelled(this.validation().signal)
       const candidate = getVerifiedEditableProject(source) ? source : await validateEditableProject(source, this.validation())
-      const reconciled = this.prepareRestoredProject(candidate)
+      // Complete version navigation has another mutable validation callback.
+      // Keep its safely captured branches detached until that callback runs.
+      const reconciled = this.prepareRestoredProject(candidate, false)
       this.validateCandidate(reconciled.document); assertAllFloorPlayerProjections(reconciled.document)
       reviseSceneSnapshot(reconciled.document, revision + 1, this.options.runtime.clock.now())
       const metadataVersion = this.repository.historyMetadataVersion

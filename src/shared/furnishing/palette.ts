@@ -22,11 +22,18 @@ export const buildingFurnishingSchema = z.array(styledRoomFurnishingSchema).min(
   .refine(rows => new Set(rows.map(row => row.request.roomId)).size === rows.length, '同一房间只能有一份布置设置。')
 export type StyledRoomFurnishing = z.infer<typeof styledRoomFurnishingSchema>
 export const currentFurnishingPalette = (): FurnishingPalette => ({ source: 'current', era: 'all', styleId: 'all', allowMixed: false })
+type FurnishingStyle = { era: FurnitureEra | null; styleId: string | null; name: string }
+// Only the finite built-in catalog is indexed; mutable caller definitions and
+// returned discovery objects never become cache keys or shared values.
+const fixedFurnitureStyles = new Map<string, Readonly<FurnishingStyle>>(FURNITURE_STYLES.flatMap(style =>
+  FURNITURE_CATEGORIES.map(category => [`prop.sceneweave.furniture-collection.${furnitureKey(category.id, style.id)}`,
+    { era: style.era, styleId: style.id, name: style.name }] as const)))
 export function furnishingStyle(definition: PropDefinition): { era: FurnitureEra | null; styleId: string | null; name: string } {
-  for (const style of FURNITURE_STYLES) for (const category of FURNITURE_CATEGORIES) {
-    if (definition.catalogId === `prop.sceneweave.furniture-collection.${furnitureKey(category.id, style.id)}` && definition.version === 1) return { era: style.era, styleId: style.id, name: style.name }
+  if (definition.version === 1) {
+    const style = fixedFurnitureStyles.get(definition.catalogId)
+    if (style) return { ...style }
+    if (definition.catalogId.startsWith('sceneweave.inn-function.prop.')) return { era: 'medieval', styleId: 'gray-oak', name: '灰橡旅舍' }
   }
-  if (definition.catalogId.startsWith('sceneweave.inn-function.prop.') && definition.version === 1) return { era: 'medieval', styleId: 'gray-oak', name: '灰橡旅舍' }
   const eras = (['medieval', 'fantasy', '1920s'] as const).filter(era => definition.tags.includes(era))
   return { era: eras.length === 1 ? eras[0] : null, styleId: null, name: '风格未标注' }
 }

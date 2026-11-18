@@ -42,12 +42,6 @@ function descendants(contract: AggregateContract, rootId: string): Set<string> {
   return result
 }
 
-function ownerIdOf(inspection: AggregateInspection, ref: AggregateRelationRef): string | null {
-  if (ref.kind === 'floor') return null
-  const key = aggregateEntityKey(ref)
-  return inspection.members.find(member => aggregateEntityKey(member.entity) === key)?.ownerId ?? null
-}
-
 function proofBody(scene: SceneDocument, projectHash: string, inspection: AggregateInspection, groupId: string, constraints: unknown, algorithmContract: string) {
   const contract = inspection.contract
   if (!Object.hasOwn(contract.groups, groupId)) throw new Error('内部证明目标聚合体不存在。')
@@ -57,10 +51,15 @@ function proofBody(scene: SceneDocument, projectHash: string, inspection: Aggreg
   const relations = aggregateEntityRelations(scene).filter(edge => memberKeys.has(aggregateEntityKey(edge.from))
     || edge.to.kind !== 'floor' && memberKeys.has(aggregateEntityKey(edge.to)))
     .sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)))
+  // This inspection is the fully validated, private immutable result above.
+  // Index all members, including external owners, once per proof body instead
+  // of searching and serializing the whole member list for every endpoint.
+  const owners = new Map(inspection.members.map(member => [aggregateEntityKey(member.entity), member.ownerId]))
+  const ownerIdOf = (ref: AggregateRelationRef): string | null => ref.kind === 'floor' ? null : owners.get(aggregateEntityKey(ref)) ?? null
   const dependencies: AggregateDependency[] = relations.map(edge => ({
     ...edge,
-    fromOwnerId: ownerIdOf(inspection, edge.from),
-    toOwnerId: ownerIdOf(inspection, edge.to),
+    fromOwnerId: ownerIdOf(edge.from),
+    toOwnerId: ownerIdOf(edge.to),
   }))
   const memberChunkRefs = new Set(memberKeys)
   const chunks = contract.chunks.filter(chunk => chunk.entities.some(ref => memberChunkRefs.has(aggregateEntityKey(ref))))

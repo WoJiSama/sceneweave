@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { effectiveEditLocked } from '../commands/layers.js'
+import { isEntityEditLocked } from '../commands/base.js'
+import { geometryDocumentForValidation } from '../commands/domain.js'
 import { outdoorDependencies } from '../commands/outdoor.js'
 import { pathPolygon, polygonsOverlap, terrainPoints } from '../geometry/geometry.js'
 import type { AggregateFrame } from '../model/aggregate.js'
@@ -51,7 +52,11 @@ export function applyNaturalAggregateCommand(scene: SceneDocument, input: Natura
   if (command.quarterTurns === 0 && command.offsetMm.x === 0 && command.offsetMm.y === 0) return { commandCost: 0, affectedIds: [] }
   if (scope.readDependencies.some(ref => ref.kind !== 'floor')) throw new Error('自然组仍引用未随动的地形、房间或附着对象；请显式合并完整支撑范围。')
   const affected = new Set([...scope.members.map(ref => ref.id), ...scope.readDependencies.map(ref => ref.id)])
-  for (const id of affected) if (effectiveEditLocked(scene, id)) throw new Error(`自然组涉及锁定成员、图层或外部依赖：${id}。`)
+  // The original scene is unchanged until the final atomic assignment below.
+  // Share this command's effective-layer view across every dependency query;
+  // the existing entity/anchor/container closure still runs for each ID.
+  const lockDocument = geometryDocumentForValidation(scene, true)
+  for (const id of affected) if (isEntityEditLocked(lockDocument, id)) throw new Error(`自然组涉及锁定成员、图层或外部依赖：${id}。`)
   const owned = new Set(scope.members.map(ref => ref.id)), originalVisual = visualBase(scene)!
   const boundaryIds = new Set(Object.values(originalVisual.boundaries).filter(boundary =>
     boundary.binding.kind === 'path' && owned.has(boundary.binding.pathId)
@@ -125,7 +130,7 @@ export function applyNaturalAggregateCommand(scene: SceneDocument, input: Natura
   const physicalRoots = [...scope.members.map(ref => ref.id), ...derived.affectedIds]
   for (const id of [...outdoorDependencies(scene, physicalRoots), ...outdoorDependencies(next, physicalRoots)]) {
     affected.add(id)
-    if (effectiveEditLocked(scene, id)) throw new Error(`自然组物理变化涉及锁定依赖：${id}。`)
+    if (isEntityEditLocked(lockDocument, id)) throw new Error(`自然组物理变化涉及锁定依赖：${id}。`)
   }
   assertAggregateBuildingClearance(next, scope.members)
   const movedBlockingRegions = scope.members.filter(ref => ref.kind === 'region').map(ref => next.regions[ref.id]).filter(region => region.blocksMovement)
