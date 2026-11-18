@@ -11,6 +11,7 @@ import type { AssetRefinementMetadata } from '../asset-refinement/metadata.js'
 import type { Attachment, AttachmentSurface } from '../attachments/contracts.js'
 import type { RockBody, CarvedStrip } from '../carved-rock/contracts.js'
 import type { TerrainInlay } from '../terrain-inlay/persistence.js'
+import type { StaircaseConfig } from '../stairs/contracts.js'
 import type { RoomFurnishingPlan } from '../furnishing/contracts.js'
 import type { WaterSurface, WaterAppearance } from '../ocean/contracts.js'
 
@@ -115,6 +116,8 @@ export interface TerrainConnection extends Editable {
   carvedStrip?: CarvedStrip
   /** Complete multi-source fill/cut mesh; original connection is inactive evidence. */
   terrainInlay?: TerrainInlay
+  /** Independent tread construction over the complete physical connection. */
+  staircase?: StaircaseConfig
 }
 export interface Path extends Editable {
   visibility: Visibility; centerlineMm: PointMm[]; widthMm: number; supportRefs: SurfaceRef[]

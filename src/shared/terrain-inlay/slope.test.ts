@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
-import { fixture, runtime } from '../../application/workspace/test-fixtures.js'
+import 'fake-indexeddb/auto'
+import Dexie from 'dexie'
+import { afterEach, describe, expect, it } from 'vitest'
+import { fixture, runtime, validation } from '../../application/workspace/test-fixtures.js'
+import { fromBundle } from '../../application/workspace/project.js'
+import { Workspace } from '../../application/workspace/workspace.js'
+import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { createCompositionContent } from '../appearance/graph.js'
 import { applyCompositionDraftCommands } from '../appearance/commands.js'
 import { certifyCompositionContent } from '../validation/content.js'
@@ -11,9 +16,12 @@ import { checkTerrainRoute } from '../geometry/terrain-travel.js'
 import { connectionRouteSchema, sampleConnectionRoute, type ConnectionRoute } from '../geometry/connection-route.js'
 import { planTerrainInlay, createTerrainInlaySampler } from './geometry.js'
 import { createTerrainSlopeCommand } from './slope.js'
+import { cloneJson } from '../validation/json.js'
+import { exportProject, importProject } from '../project/file.js'
+import { terrainInlayHash, validateTerrainInlayProofs } from './scene.js'
 
-function prepared(route?: PointMm[] | ConnectionRoute) {
-  const scene = fixture().project.document
+function prepared(route?: PointMm[] | ConnectionRoute, bundle = fixture()) {
+  const scene = bundle.project.document
   scene.props = {}; scene.entityLayers = Object.fromEntries(Object.entries(scene.entityLayers).filter(([id]) => id !== 'item' && id !== 'other'))
   const initial = certifyCompositionContent(createCompositionContent(scene, runtime)), floorId = 'blank-floor'
   const create = (id: string, x: number, z: number): CompositionCommand => ({ type: 'createTerrainArea', id, floorId,
@@ -30,12 +38,24 @@ function prepared(route?: PointMm[] | ConnectionRoute) {
       visibility: 'public', surfaceStyle: null, ...(route ? { route: connectionRoute } : {}) }], runtime)
 }
 
+const repositories: ProjectRepository[] = [], workspaces: Workspace[] = []
+afterEach(async () => {
+  for (const workspace of workspaces.splice(0)) await workspace.close().catch(() => {})
+  for (const repository of repositories.splice(0)) { const name = repository.database.name; repository.close(); await Dexie.delete(name) }
+})
+
 describe('complete terrain slope proposals', () => {
   it('constructs real source-joining banks around a full-width continuous rise, preserving the input', () => {
     const content = prepared(), before = JSON.stringify(content)
     const command = createTerrainSlopeCommand(content.document, 'road', { bankWidthMm: 1000 }), plan = planTerrainInlay(command.geometry)
     expect(JSON.stringify(content)).toBe(before)
-    expect(plan.footprintAreaMm2).toBeGreaterThan(plan.walkAreaMm2 * 2.9)
+    expect(plan.footprintAreaMm2).toBeGreaterThan(plan.walkAreaMm2 * 2.6)
+    expect(plan.footprintAreaMm2).toBeLessThan(plan.walkAreaMm2 * 2.9)
+    for (const label of ['slope-from-outer', 'slope-to-outer']) {
+      const a = command.geometry.verticesMm[`${label}-outer-left`], b = command.geometry.verticesMm[`${label}-outer-right`]
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBe(1008)
+      expect(a.z).toBe(b.z)
+    }
     expect(plan.fillVolumeMm3).toBeGreaterThan(0); expect(plan.cutVolumeMm3).toBeGreaterThan(0)
     const sample = createTerrainInlaySampler(command.geometry)
     expect(sample.sample({ x: 4000, y: 7502 })).toMatchObject({ zMm: 1000, kind: 'apron' })
@@ -61,6 +81,26 @@ describe('complete terrain slope proposals', () => {
     expect(Object.values(command.geometry.verticesMm).every(point => Object.values(point).every(Number.isSafeInteger))).toBe(true)
   })
 
+  it('rounds tapered diagonal entrances once, keeping tiny banks distinct from the complete walk', () => {
+    const points = [{ x: 2000, y: 2500 }, { x: 9000, y: 9500 }]
+    const content = applyCompositionDraftCommands(prepared(points), [{ type: 'updateTerrainConnection', id: 'road', changes: { widthMm: 170 } }], runtime)
+    const command = createTerrainSlopeCommand(content.document, 'road', { bankWidthMm: 7 })
+    const v = command.geometry.verticesMm
+    expect(v['slope-from-outer-outer-left']).not.toEqual(v['slope-from-outer-walk-left'])
+    expect(v['slope-from-outer-outer-left'].x).not.toBe(v['slope-from-outer-walk-left'].x)
+    expect(v['slope-from-outer-outer-left'].y).not.toBe(v['slope-from-outer-walk-left'].y)
+    const after = applyCompositionDraftCommands(content, [command], runtime)
+    expect(validateGeometry(after.document).errors).toEqual([])
+    expect(checkTerrainRoute(after.document, { floorId: 'blank-floor', pointsMm: points, widthMm: 170 }).ok).toBe(true)
+  })
+
+  it('checks source ownership at the actual tapered entrance instead of the discarded full-bank construction point', () => {
+    const points = [{ x: 2000, y: 1700 }, { x: 9000, y: 6700 }], content = prepared(points)
+    const command = createTerrainSlopeCommand(content.document, 'road', { bankWidthMm: 1000 })
+    expect(command.geometry.verticesMm['slope-from-outer-outer-right'].y).toBeGreaterThan(1000)
+    expect(validateGeometry(applyCompositionDraftCommands(content, [command], runtime).document).errors).toEqual([])
+  })
+
   it('preserves all 33 original cubic samples and level endpoint approaches', () => {
     const shape = { version: 1 as const, kind: 'cubic' as const, sampleSpacingMm: 300, toleranceMm: 100,
       segments: [{ id: 'curve', start: { x: 2000, y: 6000 }, control1: { x: 4000, y: 5000 }, control2: { x: 7000, y: 7000 }, end: { x: 9000, y: 6000 } }],
@@ -74,7 +114,7 @@ describe('complete terrain slope proposals', () => {
     const after = applyCompositionDraftCommands(content, [command], runtime)
     expect(validateGeometry(after.document).errors).toEqual([])
     expect(checkTerrainRoute(after.document, { floorId: 'blank-floor', pointsMm: route.centerlineMm, widthMm: 1000 }).ok).toBe(true)
-  })
+  }, 15000)
 
   it('uses the same complete body for a descending route', () => {
     const points = [{ x: 9000, y: 6000 }, { x: 2000, y: 6000 }], content = prepared(points)
@@ -84,6 +124,57 @@ describe('complete terrain slope proposals', () => {
     expect(validateGeometry(after.document).errors).toEqual([])
     expect(checkTerrainRoute(after.document, { floorId: 'blank-floor', pointsMm: points, widthMm: 1000 }).ok).toBe(true)
   })
+
+  it('persists a wide slope through preview, adoption, undo/redo and cold export/import, rejecting changed baselines and source locks', async () => {
+    const bundle = fixture(), content = prepared(undefined, bundle)
+    Object.assign(bundle.project, content)
+    const repository = new ProjectRepository({ name: `slope-${crypto.randomUUID()}`, runtime, validation }); repositories.push(repository)
+    const workspace = new Workspace(repository, { runtime, validation }); workspaces.push(workspace)
+    await workspace.adoptNew(await fromBundle(bundle, validation))
+    const command = () => ({ ...createTerrainSlopeCommand(workspace.getDocument()!, 'road', { bankWidthMm: 1000 }),
+      appearance: 'source-ground' as const, finish: { kind: 'slope' as const } })
+    const stale = await workspace.preview([command()])
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toBeUndefined()
+    await workspace.execute([{ type: 'setEditLock', kind: 'terrainArea', id: 'low', locked: true }])
+    const locked = cloneJson(workspace.getDocument())
+    await expect(workspace.adoptPreview(stale)).rejects.toThrow(/场景已有修改/)
+    expect(workspace.getDocument()).toEqual(locked)
+    workspace.cancelPreview(stale)
+    await expect(workspace.preview([command()])).rejects.toThrow(/锁/)
+    expect(workspace.getDocument()).toEqual(locked)
+    await workspace.execute([{ type: 'setEditLock', kind: 'terrainArea', id: 'low', locked: false }])
+    const sources = cloneJson(workspace.getDocument()!.terrainAreas), input = command()
+    const preview = await workspace.preview([input])
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toBeUndefined()
+    const previewInlay = preview.document.terrainConnections.road.terrainInlay!
+    expect(planTerrainInlay(previewInlay.geometry).footprintAreaMm2).toBeGreaterThan(planTerrainInlay(previewInlay.geometry).walkAreaMm2 * 2.6)
+    await workspace.adoptPreview(preview)
+    const actual = cloneJson(workspace.getDocument()!.terrainConnections.road.terrainInlay!)
+    expect(actual).toMatchObject({ appearance: 'source-ground', finish: { kind: 'slope' } })
+    expect(workspace.getDocument()!.terrainAreas).toEqual(sources)
+    workspace.undo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toBeUndefined()
+    workspace.redo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toEqual(actual)
+    const finish = await workspace.preview([{ type: 'setTerrainInlayFinish', id: 'road', finish: { kind: 'steps', treadDepthMm: 350 },
+      expectedConnectionHash: terrainInlayHash(workspace.getDocument()!.terrainConnections.road) }])
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.finish).toEqual({ kind: 'slope' })
+    await workspace.adoptPreview(finish)
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.geometry).toEqual(actual.geometry)
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.finish).toEqual({ kind: 'steps', treadDepthMm: 350 })
+    workspace.undo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toEqual(actual)
+    workspace.redo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.finish?.kind).toBe('steps')
+    await workspace.flush()
+    const cold = (await repository.load(workspace.getDocument()!.sceneId))!
+    expect(cold.project.document).toEqual(workspace.getDocument())
+    expect(cold.project.document.terrainConnections.road.terrainInlay!.geometry).toEqual(actual.geometry)
+    expect(validateTerrainInlayProofs(cold.project.document, cold.project.historyIdentity)).toEqual([])
+    expect(validateGeometry(cold.project.document).errors).toEqual([])
+    expect(supportSampleAt(cold.project.document, 'blank-floor', { x: 4000, y: 7000 })).toMatchObject({ walkable: false, sourceConnectionId: 'road' })
+    expect(checkTerrainRoute(cold.project.document, { floorId: 'blank-floor', pointsMm: [{ x: 2000, y: 6000 }, { x: 9000, y: 6000 }], widthMm: 1000 }).ok).toBe(true)
+    const imported = await importProject(await exportProject(cold, validation), validation)
+    expect(imported.project.document).toEqual(cold.project.document)
+    expect(imported.project.historyIdentity).toEqual(cold.project.historyIdentity)
+    expect(validateTerrainInlayProofs(imported.project.document, imported.project.historyIdentity)).toEqual([])
+  }, 30000)
 
   it('rejects a bank outside the source domain and invalid or over-budget full input without shrinking it', () => {
     const content = prepared(), before = JSON.stringify(content)

@@ -71,6 +71,7 @@ export function readConnectionRoute(text: string, draft: ConnectionRouteDraft, r
 }
 
 interface Props {
+  appearanceControls?: boolean
   enabled: boolean
   text: string
   draft: ConnectionRouteDraft
@@ -81,7 +82,7 @@ interface Props {
   onChange: (value: ConnectionRouteDraft) => void
   onBoundaryEditor?: (value: VisualBoundaryEditor | null) => void
 }
-export default function ConnectionRouteFields({ enabled, text, draft, retained, floorId, layerId, visibility, onChange, onBoundaryEditor }: Props) {
+export default function ConnectionRouteFields({ enabled, text, draft, retained, floorId, layerId, visibility, onChange, onBoundaryEditor, appearanceControls = true }: Props) {
   const callback = useRef(onBoundaryEditor); callback.current = onBoundaryEditor
   const change = useRef(onChange); change.current = onChange
   const current = useRef(draft); current.current = draft
@@ -108,10 +109,10 @@ export default function ConnectionRouteFields({ enabled, text, draft, retained, 
         {draft.mode === 'cubic' && <><button type="button" className="secondary asset-wide" onClick={() => { try { patch({ controls: routeControlText(smoothConnectionControls(connectionPoints(text)).map((segment, index, all) => ({ ...segment, id: sourceId(index, retained, 'cubic', all.length) }))) }) } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) } }}>从路线节点生成曲线控制点</button>
           <label>每行：起点；控制点1；控制点2；终点 · mm<textarea aria-label="连接曲线控制点" rows={6} value={draft.controls} onChange={event => patch({ controls: event.target.value })}/></label>
           <label className="composition-check"><input type="checkbox" aria-label="在画布编辑连接控制点" checked={draft.handles} onChange={event => patch({ handles: event.target.checked })}/>在画布编辑连接控制点</label></>}
-        <label>踏面风格<select aria-label="连接踏面风格" value={draft.style} onChange={event => patch({ style: event.target.value as ConnectionRoute['stairStyle'] })}><option value="stone">石砌</option><option value="wood">木梯</option><option value="naturalRock">自然岩阶</option></select></label>{draft.style === 'naturalRock' && <label className="composition-check"><input type="checkbox" aria-label="细化自然岩阶" checked={!!draft.profile} onChange={event => patch({ profile: event.target.checked ? 'naturalRockSteps2' : undefined })}/>细化踏石与短边笔触</label>}{draft.style === 'naturalRock' && draft.profile && <label>岩阶色调<select aria-label="岩阶色调" value={draft.profile} onChange={event => patch({ profile: event.target.value as ConnectionRoute['renderProfile'] })}><option value="naturalRockSteps2">浅色层岩</option><option value="naturalRockSteps3">深灰火山岩</option><option value="naturalRockSteps4">错列凿岩阶</option><option value="naturalRockSteps5">连续立面岩阶</option><option value="naturalRockSteps6">风化凿岩阶</option><option value="naturalRockSteps7">磨蚀岩阶 · 连续岩面</option><option value="naturalRockSteps8">凿岩台阶 · 踏面与侧壁</option></select></label>}
+        {appearanceControls && <><label>踏面风格<select aria-label="连接踏面风格" value={draft.style} onChange={event => patch({ style: event.target.value as ConnectionRoute['stairStyle'] })}><option value="stone">石砌</option><option value="wood">木梯</option><option value="naturalRock">自然岩阶</option></select></label>{draft.style === 'naturalRock' && <label className="composition-check"><input type="checkbox" aria-label="细化自然岩阶" checked={!!draft.profile} onChange={event => patch({ profile: event.target.checked ? 'naturalRockSteps2' : undefined })}/>细化踏石与短边笔触</label>}{draft.style === 'naturalRock' && draft.profile && <label>岩阶色调<select aria-label="岩阶色调" value={draft.profile} onChange={event => patch({ profile: event.target.value as ConnectionRoute['renderProfile'] })}><option value="naturalRockSteps2">浅色层岩</option><option value="naturalRockSteps3">深灰火山岩</option><option value="naturalRockSteps4">错列凿岩阶</option><option value="naturalRockSteps5">连续立面岩阶</option><option value="naturalRockSteps6">风化凿岩阶</option><option value="naturalRockSteps7">磨蚀岩阶 · 连续岩面</option><option value="naturalRockSteps8">凿岩台阶 · 踏面与侧壁</option></select></label>}
         <label>踏面间距 mm<input type="number" aria-label="连接踏面间距毫米" min="50" max="2000" step="1" value={draft.tread} onChange={event => patch({ tread: event.target.value })}/></label>
-        <div className="composition-fields"><label>采样间距 mm<input type="number" aria-label="连接采样间距毫米" min="4" max="20000" step="1" value={draft.spacing} onChange={event => patch({ spacing: event.target.value })}/></label><label>曲线容差 mm<input type="number" aria-label="连接曲线容差毫米" min="1" max="1000" step="1" value={draft.tolerance} onChange={event => patch({ tolerance: event.target.value })}/></label></div>
-        <small>控制源、完整整数采样与踏面参数共同保存；宽度和踏面间距使用世界毫米。</small></>}
+        </>}<div className="composition-fields"><label>采样间距 mm<input type="number" aria-label="连接采样间距毫米" min="4" max="20000" step="1" value={draft.spacing} onChange={event => patch({ spacing: event.target.value })}/></label><label>曲线容差 mm<input type="number" aria-label="连接曲线容差毫米" min="1" max="1000" step="1" value={draft.tolerance} onChange={event => patch({ tolerance: event.target.value })}/></label></div>
+        <small>路线控制点与完整采样共同保存；尺寸使用世界毫米。</small></>}
     </>}
     {error && <p role="alert" className="asset-form-error">{error}</p>}
   </div>

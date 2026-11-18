@@ -1,0 +1,11 @@
+.staircase-fields { min-width: 0; }
+.staircase-fields .composition-fields { align-items: start; }
+.staircase-fields label small { display: block; margin-top: 4px; font-weight: normal; }
+.staircase-covers { margin-top: 12px; }
+.staircase-cover-board { display: block; width: 100%; margin: 10px 0; border: 1px solid #868b9455; border-radius: 5px; background: #f3f0e8; touch-action: none; cursor: crosshair; user-select: none; }
+.staircase-cover-board text { fill: #3d3e40; font: 24px sans-serif; pointer-events: none; }
+.staircase-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.staircase-cover-list { padding: 0; margin: 10px 0; max-height: 180px; overflow: auto; list-style: none; }
+.staircase-cover-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.staircase-cover-list li span { font-size: 12px; }
+.staircase-tools > details { margin-top: 12px; }

@@ -37,7 +37,11 @@ export function applyTerrainInlayCommand(scene: SceneDocument, raw: TerrainInlay
   for (const edge of Object.values(scene.terrainEdges)) if (areaIds.includes(edge.source.areaId) || areaIds.includes(edge.neighborAreaId ?? '')) { dependencies.add(edge.id); dependencies.add(scene.entityLayers[edge.id]) }
   assertAttachmentLocks(scene, [...dependencies])
   const visualGeometry = command.type === 'adoptTerrainInlay' ? command.geometry : connection.terrainInlay?.geometry
-  if (visualGeometry) assertTerrainInlayVisualLocks(scene, inspectTerrainInlayVisualScope(scene, connection.id, visualGeometry))
+  if (visualGeometry) {
+    const appearance = command.type === 'adoptTerrainInlay' || command.type === 'setTerrainInlayAppearance' ? command.appearance : connection.terrainInlay?.appearance
+    const finish = command.type === 'adoptTerrainInlay' || command.type === 'setTerrainInlayFinish' ? command.finish : connection.terrainInlay?.finish
+    assertTerrainInlayVisualLocks(scene, inspectTerrainInlayVisualScope(scene, connection.id, visualGeometry, undefined, !!finish && appearance === 'source-ground'))
+  }
   if (command.type === 'setTerrainInlayAppearance') {
     if (!connection.terrainInlay) throw Error('只有已采用的连续填切山路可以切换地表表现。')
     if (terrainInlayHash(connection) !== command.expectedConnectionHash) throw Error('山路已在外观候选之后改变，请重新准备。')
@@ -62,6 +66,8 @@ export function applyTerrainInlayCommand(scene: SceneDocument, raw: TerrainInlay
     scene.terrainConnections[command.id] = { ...original, editLocked: connection.editLocked,
       visibility: connection.visibility, blocksMovement: connection.blocksMovement,
       movementCostMultiplier: connection.movementCostMultiplier, surfaceStyle: connection.surfaceStyle }
+    delete scene.terrainConnections[command.id].staircase
+    if (connection.staircase) scene.terrainConnections[command.id].staircase = cloneJson(connection.staircase)
     return { commandCost: 1 }
   }
   if (connection.terrainInlay || connection.carvedStrip) throw Error('只能把现存原连接转换一次，不能覆盖人工填切结果。')

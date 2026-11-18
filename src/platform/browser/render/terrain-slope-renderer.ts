@@ -6,7 +6,7 @@ function path(points: PointMm[], closed = true) {
   const p = new Path2D(); points.forEach((v, i) => i ? p.lineTo(v.x, v.y) : p.moveTo(v.x, v.y)); if (closed) p.closePath(); return p
 }
 
-export function drawTerrainSlopeFinish(ctx: CanvasRenderingContext2D, inlay: ProjectedTerrainInlay, lightDirectionDeg: number): void {
+export function drawTerrainSlopeFinish(ctx: CanvasRenderingContext2D, inlay: ProjectedTerrainInlay, lightDirectionDeg: number, suppressTreads = false): void {
   if (!inlay.finish) return
   ctx.save()
   try {
@@ -25,6 +25,7 @@ export function drawTerrainSlopeFinish(ctx: CanvasRenderingContext2D, inlay: Pro
       }
       ctx.fill(path(patch.pointsMm)); ctx.restore()
     }
+    if (suppressTreads) return
     ctx.clip(path(inlay.walkFootprintMm)); ctx.lineJoin = 'round'; ctx.lineCap = 'round'
     for (const tread of terrainSlopeTreads(inlay)) {
       ctx.strokeStyle = '#635745'; ctx.globalAlpha = .52; ctx.lineWidth = Math.min(35, 13 + tread.dropMm * .1)

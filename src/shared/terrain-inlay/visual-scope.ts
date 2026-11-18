@@ -13,11 +13,13 @@ export interface TerrainInlayVisualInput {
   sourceIds: readonly string[]
   footprintMm: PointMm[]
   changedCarriers: { a: PointMm; b: PointMm }[]
+  /** Explicit source-ground slope retains source/world grass in world XY. */
+  sourceGroundSlope?: boolean
 }
 export interface TerrainInlayVisualScopeRow {
   paintId: string
   boundaryId: string
-  kind: 'cliff' | 'source-shore'
+  kind: 'cliff' | 'source-shore' | 'preserved-ground'
   inlayIds: string[]
 }
 export interface TerrainInlayVisualScope {
@@ -74,6 +76,7 @@ export function planTerrainInlayVisualScope(inlays: readonly TerrainInlayVisualI
   const layers = new Set<string>()
   for (const { look, boundary, segments, reach } of prepared) {
     const affected: string[] = []
+    let preserved = false
     for (const inlay of inlays) {
       const carrierChanged = segments.some(({ a, b }) => inlay.changedCarriers.some(c => terrainInlayCarrierRange(a, b, c.a, c.b)))
       const influence = polygon(inlay.footprintMm)
@@ -90,6 +93,11 @@ export function planTerrainInlayVisualScope(inlays: readonly TerrainInlayVisualI
         }
       } else {
         if (!touchesInfluence) continue
+        if (look.kind === 'grass' && inlay.sourceGroundSlope
+          && (boundary.decorationOnly || boundary.terrainAreaIds.length > 0
+            && boundary.terrainAreaIds.every(id => inlay.sourceIds.includes(id)))) {
+          preserved = true; affected.push(inlay.id); continue
+        }
         if (look.kind !== 'shore' || !boundary.terrainAreaIds.some(id => inlay.sourceIds.includes(id))) {
           throw Error(`跨台实际域触及既有草带、岸线或其他装饰 ${look.id}；请明确保留/调整该表现后再采用。`)
         }
@@ -97,7 +105,7 @@ export function planTerrainInlayVisualScope(inlays: readonly TerrainInlayVisualI
       affected.push(inlay.id)
     }
     if (affected.length) {
-      rows.push({ paintId: look.id, boundaryId: boundary.id, kind: look.kind === 'cliff' ? 'cliff' : 'source-shore', inlayIds: affected.sort() })
+      rows.push({ paintId: look.id, boundaryId: boundary.id, kind: preserved ? 'preserved-ground' : look.kind === 'cliff' ? 'cliff' : 'source-shore', inlayIds: affected.sort() })
       layers.add(look.layerId)
     }
   }
@@ -109,7 +117,8 @@ export function planTerrainInlayVisualScope(inlays: readonly TerrainInlayVisualI
 /** GM transaction scope includes hidden/private authored dependencies too.
  * No document certification, resource bypass, identity or adoption authority. */
 export function inspectTerrainInlayVisualScope(scene: SceneDocument, connectionId: string, geometry: TerrainInlayRequest,
-  plan: TerrainInlayPlan = planTerrainInlay(geometry)): TerrainInlayVisualScope {
+  plan: TerrainInlayPlan = planTerrainInlay(geometry), sourceGroundSlope = !!scene.terrainConnections[connectionId]?.terrainInlay?.finish
+    && scene.terrainConnections[connectionId]?.terrainInlay?.appearance === 'source-ground'): TerrainInlayVisualScope {
   const connection = scene.terrainConnections[connectionId]
   if (!connection) throw Error('跨台表现范围缺少现存连接。')
   const base = visualBase(scene)
@@ -117,9 +126,10 @@ export function inspectTerrainInlayVisualScope(scene: SceneDocument, connectionI
   const boundaries = Object.values(base.boundaries).filter(row => row.floorId === connection.floorId).map(row => {
     const sampled = sampleVisualBoundary(row)
     return { id: row.id, points: sampled.points, samples: sampled.samples, lengthMm: sampled.lengthMm, closed: sampled.closed,
-      terrainAreaIds: row.binding.kind === 'terrain' ? row.binding.sides.map(side => side.areaId) : [] }
+      terrainAreaIds: row.binding.kind === 'terrain' ? row.binding.sides.map(side => side.areaId) : [],
+      ...(row.binding.kind === 'decoration' ? { decorationOnly: true as const } : {}) }
   })
-  const scope = planTerrainInlayVisualScope([{ id: connectionId, sourceIds: geometry.sources.map(row => row.id),
+  const scope = planTerrainInlayVisualScope([{ id: connectionId, sourceIds: geometry.sources.map(row => row.id), sourceGroundSlope,
     footprintMm: geometry.footprintVertexIds.map(id => ({ x: geometry.verticesMm[id].x, y: geometry.verticesMm[id].y })),
     changedCarriers: plan.sourceIntervals.map(row => ({ a: row.a, b: row.b })) }], {
     boundaries, edgeLooks: Object.values(base.edgeLooks).filter(row => row.floorId === connection.floorId),

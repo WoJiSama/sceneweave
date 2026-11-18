@@ -2,13 +2,14 @@ import { z } from 'zod'
 import { connectionRouteSchema } from '../geometry/connection-route.js'
 import { editable, visibility, surfaceRef, point, positive, id, movementCost, style } from '../validation/primitives.js'
 import { terrainInlayRequestSchema } from './contracts.js'
+import { staircaseSchema } from '../stairs/contracts.js'
 
 /** Exact, inactive source connection. It is evidence and is never dispatched as
  * a second live route. Its coordinates retain their original world frame. */
 export const terrainInlayOriginalSchema = z.object({ ...editable, visibility, kind: z.enum(['stairs', 'ramp']),
   from: z.object({ surfaceRef, positionMm: point }).strict(), to: z.object({ surfaceRef, positionMm: point }).strict(),
   widthMm: positive, openingId: id.nullable(), blocksMovement: z.boolean(), movementCostMultiplier: movementCost,
-  surfaceStyle: style, route: connectionRouteSchema.optional(),
+  surfaceStyle: style, route: connectionRouteSchema.optional(), staircase: staircaseSchema.optional(),
 }).strict()
 const hash = z.string().regex(/^[a-f0-9]{64}$/)
 const sourceProof = z.object({ areaId: id, birthToken: id, topologyToken: id, topologyHash: hash, geometryHash: hash }).strict()

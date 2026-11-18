@@ -1,5 +1,6 @@
 import type { BoundsMm, GroundSurfaceRef, Issue, Opening, Path, PointMm, Prop, Room, SceneDocument, SurfaceRef, SurfaceStyle, TerrainArea, Wall } from '../model/scene.js'
 import { connectionCenterline, connectionRouteSchema, type ConnectionRouteGeometry } from './connection-route.js'
+import { planStaircase } from '../stairs/geometry.js'
 import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
 import { visualBase } from '../visual/base.js'
 import { validateFloorSettings } from '../floors/output.js'
@@ -593,6 +594,10 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
       if (!same(connection.route.centerlineMm[0], from.positionMm) || !same(connection.route.centerlineMm.at(-1)!, to.positionMm)) { error('CONNECTION_ROUTE_ENDPOINT', '连接实际中心线首尾须精确等于两端支撑坐标。', connection.id); continue }
     }
     const centerline = carved ? carvedStripCenterline(connection.carvedStrip!) : connectionCenterline(connection), band = connectionFootprint(connection)
+    if (connection.staircase) {
+      try { planStaircase(centerline, connection.widthMm, connection.staircase) }
+      catch (cause) { error('STAIRCASE_GEOMETRY', cause instanceof Error ? cause.message : String(cause), connection.id); continue }
+    }
     connectionPolygons.set(connection.id, band)
     withinFloor(band, connection.floorId, connection.id)
     if (connection.route && !polygon(band, connection.id)) { error('CONNECTION_WIDTH', '连接完整净宽转角自交、过窄或折返，请放宽回折间距。', connection.id); continue }

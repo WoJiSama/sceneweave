@@ -45,6 +45,8 @@ export interface ProjectedTerrainInlay {
 export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null }
 export interface ProjectedPath { id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle }
 export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null
+  staircase?: import('../stairs/contracts.js').StaircaseConfig
+  staircaseCenterlineMm?: PointMm[]
   /** Only this audience's complete physical route and finite paint parameters. */
   route?: Pick<import('../geometry/connection-route.js').ConnectionRoute, 'centerlineMm' | 'stairStyle' | 'treadDepthMm' | 'renderProfile'>
   /** Disposable endpoint support IDs, included only after this audience's dependency filtering. */
@@ -126,6 +128,8 @@ export interface ProjectedVisualBoundary {
   closed: boolean
   /** Public, projected supports only; no hidden relationship metadata is retained. */
   terrainAreaIds: string[]
+  /** Explicit world decoration, rather than an unresolved path binding. */
+  decorationOnly?: true
 }
 export interface ProjectedVisualTransition {
   id: string

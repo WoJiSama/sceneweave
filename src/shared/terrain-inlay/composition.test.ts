@@ -62,6 +62,21 @@ afterEach(async () => {
 })
 
 describe('complete cross-terrace inlay transactions', () => {
+  it('changes only slope finish, rejecting stale hashes, locked dependencies and invalid tread spacing', () => {
+    const { result } = prepared(), adopted = applyCompositionDraftCommands(result, [command(result.document)], runtime)
+    const row = adopted.document.terrainConnections.road
+    const change: CompositionCommand = { type: 'setTerrainInlayFinish', id: 'road', finish: { kind: 'steps', treadDepthMm: 350 }, expectedConnectionHash: terrainInlayHash(row) }
+    const after = applyCompositionDraftCommands(adopted, [change], runtime)
+    const connection = cloneJson(after.document.terrainConnections.road); delete connection.terrainInlay!.finish
+    expect(connection).toEqual(row); expect(after.historyIdentity).toEqual(adopted.historyIdentity)
+    physical(after.document)
+    expect(() => applyCompositionDraftCommands(after, [change], runtime)).toThrow(/候选之后改变/)
+    const locked = applyCompositionDraftCommands(adopted, [{ type: 'setEditLock', kind: 'terrainArea', id: 'high', locked: true }], runtime)
+    expect(() => applyCompositionDraftCommands(locked, [change], runtime)).toThrow(/锁/)
+    expect(() => applyCompositionDraftCommands(adopted, [{ ...change, finish: { kind: 'steps', treadDepthMm: 0 } }], runtime)).toThrow()
+    const reverted = applyCompositionDraftCommands(after, [{ ...change, finish: null, expectedConnectionHash: terrainInlayHash(after.document.terrainConnections.road) }], runtime)
+    expect(reverted.document).toEqual(adopted.document)
+  })
   it('switches explicit source-ground paint without changing real walk, fill/cut, proofs or physical identity', () => {
     const { result } = prepared(), adopted = applyCompositionDraftCommands(result, [command(result.document)], runtime)
     const original = cloneJson(adopted), row = adopted.document.terrainConnections.road
@@ -252,6 +267,15 @@ describe('complete cross-terrace inlay transactions', () => {
     expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.appearance).toBe('source-ground')
     workspace.undo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toEqual(actual)
     workspace.redo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.appearance).toBe('source-ground')
+    const beforeFinish = cloneJson(workspace.getDocument()!.terrainConnections.road.terrainInlay)
+    const finish = await workspace.preview([{ type: 'setTerrainInlayFinish', id: 'road', finish: { kind: 'steps', treadDepthMm: 350 },
+      expectedConnectionHash: terrainInlayHash(workspace.getDocument()!.terrainConnections.road) }])
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.finish).toBeUndefined()
+    await workspace.adoptPreview(finish)
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.finish).toEqual({ kind: 'steps', treadDepthMm: 350 })
+    expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.geometry).toEqual(beforeFinish!.geometry)
+    workspace.undo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay).toEqual(beforeFinish)
+    workspace.redo(); expect(workspace.getDocument()!.terrainConnections.road.terrainInlay!.finish?.kind).toBe('steps')
     await workspace.flush()
     const cold = (await repository.load(workspace.getDocument()!.sceneId))!
     expect(cold.project.document).toEqual(workspace.getDocument())

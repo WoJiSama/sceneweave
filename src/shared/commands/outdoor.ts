@@ -15,6 +15,7 @@ import { orderedLayers } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, type SceneDocument } from '../model/scene.js'
 import { connectionRouteSchema } from '../geometry/connection-route.js'
+import { staircaseSchema } from '../stairs/contracts.js'
 import { inspectScene5TransitionChanges, refreshScene5TransitionsAfterPhysicalEdit } from '../visual/derived-transitions.js'
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留ID')
@@ -39,7 +40,7 @@ export const outdoorCommandSchemas = [
   z.object({ type: z.literal('updateTerrainEdge'), id, changes: edgeFields.partial().strict() }).strict(),
   z.object({ type: z.literal('createTerrainConnection'), ...base, ...connectionFields.omit({ visibility: true, openingId: true, blocksMovement: true, movementCostMultiplier: true, surfaceStyle: true }).shape,
     ...connectionFields.pick({ visibility: true, openingId: true, blocksMovement: true, movementCostMultiplier: true, surfaceStyle: true }).partial().shape }).strict(),
-  z.object({ type: z.literal('updateTerrainConnection'), id, changes: connectionFields.partial().extend({ route: connectionRouteSchema.nullable().optional() }).strict() }).strict(),
+  z.object({ type: z.literal('updateTerrainConnection'), id, changes: connectionFields.partial().extend({ route: connectionRouteSchema.nullable().optional(), staircase: staircaseSchema.nullable().optional() }).strict() }).strict(),
   z.object({ type: z.literal('createPath'), ...base, ...pathFields.omit({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).shape,
     ...pathFields.pick({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).partial().shape, materialRef: version.optional() }).strict(),
   z.object({ type: z.literal('updatePath'), id, changes: pathFields.partial().strict() }).strict(),
@@ -387,14 +388,16 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       fresh(scene, command.id); const layer = targetLayer(scene, command.floorId, command.layerId)
       scene.terrainConnections[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, kind: command.kind, from: cloneJson(command.from), to: cloneJson(command.to), widthMm: command.widthMm,
         visibility: command.visibility ?? 'public', openingId: command.openingId ?? null, blocksMovement: command.blocksMovement ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1, surfaceStyle: command.surfaceStyle ?? null,
-        ...(command.route ? { route: cloneJson(command.route) } : {}) }
+        ...(command.route ? { route: cloneJson(command.route) } : {}), ...(command.staircase ? { staircase: cloneJson(command.staircase) } : {}) }
       scene.entityLayers[command.id] = layer; break
     }
     case 'updateTerrainConnection': {
-      const connection = required(scene.terrainConnections, command.id, '高差连接'), { route, ...changes } = command.changes
+      const connection = required(scene.terrainConnections, command.id, '高差连接'), { route, staircase, ...changes } = command.changes
       Object.assign(connection, cloneJson(changes))
       if (route === null) delete connection.route
       else if (route !== undefined) connection.route = cloneJson(route)
+      if (staircase === null) delete connection.staircase
+      else if (staircase !== undefined) connection.staircase = cloneJson(staircase)
       break
     }
     case 'createPath': {

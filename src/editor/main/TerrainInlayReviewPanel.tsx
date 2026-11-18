@@ -10,6 +10,7 @@ export default function TerrainInlayReviewPanel({ scene, rows }: { scene: SceneD
       : row.appearanceOnly ? <p>只调整路面外观，{row.sourceGround ? '沿用周围地表的材质和涂层' : '恢复连接原有的独立铺装'}；路宽、坡度、补岩、切壁及两端接入保持。</p>
       : <p>原地形、边缘与岸线记录保留；{row.restoring ? '撤回本山路的覆盖。' : '仅填切影响域内改用新表面。'}其余范围保持。</p>}
     {!!row.scopedPaintIds.length && <p>局部覆盖的原有岸线：{row.scopedPaintIds.map(name).join('、')}。</p>}
+    {!!row.preservedGroundIds?.length && <p>随坡面保留的原有草带：{row.preservedGroundIds.map(name).join('、')}。</p>}
     <details><summary>源崖变化区间 · {row.sourceIntervals.length} 段</summary>
       <textarea aria-label="山路源崖变化区间" readOnly rows={4} value={row.sourceIntervals.map(interval =>
         `${interval.sourceAreaId} · ${interval.sourceSegmentId} · (${interval.a.x}, ${interval.a.y}) → (${interval.b.x}, ${interval.b.y})`).join('\n')}/>

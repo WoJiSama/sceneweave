@@ -79,6 +79,32 @@ function lockedVisual(content: ReturnType<typeof authoredSource>['before'], targ
 }
 
 describe('cross-terrace actual projection and editor geometry', () => {
+  it('preserves source-ground slope grass at the same coordinates while retaining visual locks', () => {
+    const { before, command } = authoredSource('shore'), document = cloneJson(before.document), base = visualBase(document)!
+    base.edgeLooks.look.kind = 'grass'
+    const content = certifyCompositionContent({ ...before, document }), saved = canonicalJson(base)
+    expect(() => applyCompositionDraftCommands(content, [command], runtime)).toThrow(/草带/)
+    const proposal = { ...command, appearance: 'source-ground' as const, finish: { kind: 'slope' as const } }
+    const after = applyCompositionDraftCommands(content, [proposal], runtime), projection = projectScene(after.document, 'gm')
+    expect(canonicalJson(visualBase(after.document))).toBe(saved)
+    expect(projection.visual!.inlayExclusions ?? []).toEqual([])
+    expect(inspectTerrainInlayVisualScope(after.document, 'road', after.document.terrainConnections.road.terrainInlay!.geometry).rows)
+      .toContainEqual(expect.objectContaining({ paintId: 'look', kind: 'preserved-ground' }))
+    expect(() => applyCompositionDraftCommands(lockedVisual(content, 'look'), [proposal], runtime)).toThrow(/锁/)
+    const privateScene = cloneJson(after.document); privateScene.terrainConnections.road.visibility = 'gm'
+    expect(projectScene(privateScene, 'player').inlays).toBeUndefined()
+  })
+  it('distinguishes explicit world grass from unresolved or path-bound grass before retaining paint', () => {
+    const { before, command } = authoredSource('shore'), visual = projectScene(before.document, 'gm').visual!
+    const input = { id: 'road', sourceIds: ['low', 'high'], sourceGroundSlope: true, changedCarriers: [],
+      footprintMm: command.geometry.footprintVertexIds.map(id => command.geometry.verticesMm[id]) }
+    const boundary = { ...visual.boundaries[0], terrainAreaIds: [] }
+    const edgeLooks = [{ ...visual.edgeLooks[0], kind: 'grass' as const }]
+    expect(() => planTerrainInlayVisualScope([input], { boundaries: [boundary], edgeLooks })).toThrow(/草带/)
+    expect(planTerrainInlayVisualScope([input], { boundaries: [{ ...boundary, decorationOnly: true }], edgeLooks }).rows)
+      .toContainEqual(expect.objectContaining({ paintId: 'look', kind: 'preserved-ground' }))
+    expect(() => planTerrainInlayVisualScope([input], { boundaries: [{ ...boundary, terrainAreaIds: ['unrelated'] }], edgeLooks })).toThrow(/草带/)
+  })
   it('paints explicit source-ground across the complete walk/apron with original disjoint source ownership', () => {
     const { after } = setup(), old = projectScene(after.document, 'gm')
     expect(old.inlays![0].groundSurfaces).toBeUndefined()

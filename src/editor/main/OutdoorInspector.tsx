@@ -1,3 +1,4 @@
+import StaircaseTools from './StaircaseTools'
 import { runtime } from './runtime'
 import { useMemo, useState } from 'react'
 import { Mountain, Trash2 } from 'lucide-react'
@@ -121,6 +122,7 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
       <button className="secondary outdoor-delete asset-wide" disabled={!!connection?.terrainInlay} onClick={() => setDeleteConfirm(value => !value)}><Trash2 size={13}/>删除此对象</button>{deleteConfirm && <><p className="asset-muted">有支撑、成员或注记依赖时将拒绝。预览不会删除当前内容。</p><button className="secondary outdoor-delete asset-wide" onClick={() => run(() => [{ type: 'deleteOutdoorEntity', kind, id }], '删除室外对象')}>预览删除室外对象</button></>}
     </fieldset>
     {area && <WaterSurfaceTools key={`water-${id}`} scene={scene} id={id} disabled={disabled} onPreview={onVisualPreview ?? onPreview}/>}
+    {connection && <StaircaseTools key={`stairs-${id}-${JSON.stringify(connection)}`} scene={scene} id={id} disabled={disabled} onPreview={onVisualPreview ?? onPreview} onBoundaryEditor={onBoundaryEditor}/>}
     {connection && <TerrainInlayTools key={`inlay-${id}-${!!connection.terrainInlay}`} scene={scene} id={id} disabled={disabled} onPreview={onVisualPreview ?? onPreview}/>}
     {(area || connection?.carvedStrip) && <CarvedMountainTools key={`carved-${id}`} scene={scene} id={id} disabled={disabled} onPreview={onVisualPreview ?? onPreview}/>}
     {area && !area.rockBody && onVisualPreview && <TerrainCliffStylePanel key={`cliff-${area.id}`} scene={scene} areaId={area.id} disabled={disabled || effectiveEditLocked(scene, id)} onPreview={onVisualPreview}/>}

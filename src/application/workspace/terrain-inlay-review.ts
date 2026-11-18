@@ -13,6 +13,7 @@ export interface TerrainInlayReview {
   sourceGround?: boolean
   finishOnly?: boolean
   finishKind?: 'slope' | 'steps'
+  preservedGroundIds?: string[]
   sourceIds: string[]
   sourceIntervals: TerrainInlaySourceInterval[]
   scopedPaintIds: string[]
@@ -45,6 +46,7 @@ export function inspectTerrainInlayChanges(before: EditableProject, after: Edita
       ...(command.type === 'setTerrainInlayAppearance' ? { appearanceOnly: true, sourceGround: inlay.appearance === 'source-ground' } : {}),
       ...(command.type === 'setTerrainInlayFinish' ? { finishOnly: true } : {}),
       ...(inlay.finish ? { finishKind: inlay.finish.kind } : {}),
+      ...(scope.rows.some(row => row.kind === 'preserved-ground') ? { preservedGroundIds: scope.rows.filter(row => row.kind === 'preserved-ground').map(row => row.paintId) } : {}),
       sourceIntervals: plan.sourceIntervals, scopedPaintIds: [...scopedPaintIds].sort(),
       dependencyIds: [...dependencies].filter(id => id !== connection.id && !scene.userLayers[id]).sort(), layerIds: [...layerIds].sort() }]
   })

@@ -6,6 +6,7 @@ import { validateOcean } from '../ocean/validation.js'
 import { attachmentSurfaceRecordSchema, attachmentRecordSchema } from '../attachments/contracts.js'
 import { rockBodySchema, carvedStripSchema } from '../carved-rock/contracts.js'
 import { terrainInlaySchema } from '../terrain-inlay/persistence.js'
+import { staircaseSchema } from '../stairs/contracts.js'
 import { imageEnhancementMetadataSchema } from '../image-enhancement/metadata.js'
 import { assetRefinementMetadataSchema } from '../asset-refinement/metadata.js'
 import { validatePathAttachmentGeometry } from '../path-attachments/validation.js'
@@ -78,7 +79,7 @@ const sceneShape = {
     kind: z.enum(['shore', 'cliff', 'materialTransition']), shoreline: z.boolean(), blocksMovement: z.boolean(), blocksSight: z.boolean(), surfaceStyle: style, styleOverride: edgeStyle.nullable() }).strict()),
   terrainConnections: record(z.object({ ...editable, visibility, kind: z.enum(['stairs', 'ramp']), from: z.object({ surfaceRef, positionMm: point }).strict(), to: z.object({ surfaceRef, positionMm: point }).strict(),
     widthMm: positive, openingId: id.nullable(), blocksMovement: z.boolean(), movementCostMultiplier: movementCost, surfaceStyle: style, route: connectionRouteSchema.optional(),
-    carvedStrip: carvedStripSchema.optional(), terrainInlay: terrainInlaySchema.optional() }).strict()),
+    carvedStrip: carvedStripSchema.optional(), terrainInlay: terrainInlaySchema.optional(), staircase: staircaseSchema.optional() }).strict()),
   pathAttachments: record(pathAttachmentSchema).optional(),
   attachmentSurfaces: attachmentSurfaceRecordSchema.optional(),
   attachments: attachmentRecordSchema.optional(),

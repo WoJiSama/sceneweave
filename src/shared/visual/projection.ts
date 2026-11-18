@@ -35,7 +35,8 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     if (binding.kind === 'terrain' && !binding.sides.every(side => terrains.has(side.areaId))) continue
     if (binding.kind === 'path' && !paths.has(binding.pathId)) continue
     const sampled = sampleVisualBoundary(boundary)
-    boundaries.push({ id: boundary.id, points: copy(sampled.points), samples: copy(sampled.samples), lengthMm: sampled.lengthMm, closed: sampled.closed, terrainAreaIds: binding.kind === 'terrain' ? binding.sides.map(side => side.areaId) : [] })
+    boundaries.push({ id: boundary.id, points: copy(sampled.points), samples: copy(sampled.samples), lengthMm: sampled.lengthMm, closed: sampled.closed,
+      terrainAreaIds: binding.kind === 'terrain' ? binding.sides.map(side => side.areaId) : [], ...(binding.kind === 'decoration' ? { decorationOnly: true as const } : {}) })
   }
   const boundaryIds = new Set(boundaries.map(b => b.id)), edgeLooks = Object.values(visual.edgeLooks).filter(look => shown(look) && boundaryIds.has(look.boundaryId)).sort((a, b) => a.id.localeCompare(b.id)).map(copy)
   const transitions: ProjectedVisualTransition[] = scene.visual?.version === 3
@@ -158,9 +159,10 @@ function projectInlayExclusions(projection: Projection, visual: ProjectedVisualS
   let proofWork = 0
   const spend = (count = 1) => { proofWork += count; if (proofWork > 2_000_000) throw Error('跨台表现逐段归属超过有限工作预算。') }
   const scope = planTerrainInlayVisualScope(inlays.map(inlay => ({ ...inlay,
+    sourceGroundSlope: !!inlay.finish && !!inlay.groundSurfaces,
     sourceIds: projection.connections.find(row => row.id === inlay.id)?.surfaceIds ?? [] })), visual)
   spend(scope.workUnits)
-  const exclusions = new Map<string, MultiPolygon[]>(scope.rows.map(row => [row.paintId,
+  const exclusions = new Map<string, MultiPolygon[]>(scope.rows.filter(row => row.kind !== 'preserved-ground').map(row => [row.paintId,
     [clipUnion(inlays.filter(inlay => row.inlayIds.includes(inlay.id)).map(inlay => clipPolygon(inlay.footprintMm)))]]))
   for (const row of scope.rows) if (row.kind === 'source-shore') for (const id of row.inlayIds) {
     const inlay = inlays.find(inlay => inlay.id === id)!, ids = inlay.scopedPaintIds ??= []

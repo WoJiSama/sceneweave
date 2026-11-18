@@ -39,6 +39,7 @@ import { paintWithPreservedAlpha } from './alpha-preservation.js'
 import { noteLabelPositions } from './note-label-layout.js'
 import { terrainInlayWallPaint, type InlayWallPaintPiece } from '../../../shared/terrain-inlay/wall-paint.js'
 import { drawTerrainSlopeFinish } from './terrain-slope-renderer.js'
+import { drawStaircase } from './staircase-renderer.js'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
@@ -733,6 +734,12 @@ function maskNaturalRockLanding(layer: CanvasRenderingContext2D, connection: Pro
   } finally { disposeCanvas(mask) }
 }
 function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, c: ProjectedConnection): void {
+  if (c.staircase) {
+    drawStaircase(ctx, c.staircaseCenterlineMm ?? c.inlayCenterlineMm ?? c.route?.centerlineMm ?? [c.start, c.end], c.widthMm, c.staircase,
+      { footprintMm: connectionPolygon(c), ascending: c.toElevationMm >= c.fromElevationMm })
+    if (c.blocksMovement) { ctx.save(); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 35; ctx.stroke(polygonPath(connectionPolygon(c))); ctx.restore() }
+    return
+  }
   if (c.inlayFootprintMm) {
     if (c.inlayAppearance !== 'source-ground' && !projection.inlays?.some(inlay => inlay.id === c.id && inlay.finish) && c.style) fillSurface(ctx, polygonPath(c.inlayFootprintMm), c.style, projection, raster, '#B5A281')
     if (c.blocksMovement) { ctx.save(); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 35; ctx.stroke(polygonPath(c.inlayFootprintMm)); ctx.restore() }
@@ -881,7 +888,22 @@ function drawTerrainInlays(ctx: CanvasRenderingContext2D, projection: Projection
         if (style) fillSurface(target, walk, style, local, raster, '#B5A281')
         else { target.fillStyle = '#B5A281'; target.fill(walk) }
       }
-      drawTerrainSlopeFinish(target, inlay, local.visual?.environment.lightDirectionDeg ?? 315)
+      drawTerrainSlopeFinish(target, inlay, local.visual?.environment.lightDirectionDeg ?? 315, !!local.connections.find(c => c.id === inlay.id)?.staircase)
+      if (inlay.finish && inlay.groundSurfaces && local.visual) {
+        // Source-ground keeps authored grass at its exact world position. The
+        // slope is painted after old cliffs; restore only its bounded grass
+        // portion rather than moving or deleting the existing decoration.
+        const grass = local.visual.edgeLooks.filter(look => look.kind === 'grass')
+        if (grass.length) {
+          const grassIds = new Set(grass.map(look => look.id))
+          const edgePaintOrder = local.visual.edgePaintOrder?.filter(entry => entry.kind === 'edgeLook' && grassIds.has(entry.id))
+            ?? grass.map(look => ({ kind: 'edgeLook' as const, id: look.id }))
+          target.save(); target.clip(polygonPath(inlay.footprintMm))
+          drawVisualBoundaries(target, { ...local, visual: { ...local.visual, edgeLooks: grass, transitions: [], materializedEdges: [],
+            edgePaintOrder } }, undefined, !!raster.readFrequently)
+          target.restore()
+        }
+      }
     } finally { target.restore() }
   }, !!raster.readFrequently)
 }

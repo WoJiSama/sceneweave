@@ -10,8 +10,8 @@ import { terrainInlayHash, terrainInlaySource } from './scene.js'
 
 const bank = z.number().int().min(1).max(20_000)
 const optionsSchema = z.object({ bankWidthMm: z.union([bank, z.object({ left: bank, right: bank }).strict()]) }).strict()
-/** Bank width is additional real ground outside the guaranteed walk on each
- * side. It is never reduced silently to fit an obstacle or a tight bend. */
+/** Bank width is the maximum extra ground outside the guaranteed walk on each
+ * side. Banks taper at the two entrances; obstacles never silently shrink them. */
 export type TerrainSlopeOptions = z.infer<typeof optionsSchema>
 
 const cross = (a: PointMm, b: PointMm, c: PointMm) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
@@ -63,6 +63,7 @@ export function createTerrainSlopeCommand(scene: SceneDocument, connectionId: st
     return source.groundElevationMm
   }
   const walkRadius = Math.ceil(connection.widthMm / 2) + 2
+  const lateralDirections = new Map<string, PointMm>()
   const station = (i: number, shiftMm: number, label: string) => {
     const before = directions[Math.max(0, i - 1)], after = directions[Math.min(i, directions.length - 1)]
     const denominator = 1 + before.x * after.x + before.y * after.y
@@ -74,13 +75,54 @@ export function createTerrainSlopeCommand(scene: SceneDocument, connectionId: st
     return columns.map((column, k) => {
       const lateral = laterals[k], point = { x: center.x + Math.round((-before.y - after.y) * lateral / denominator),
         y: center.y + Math.round((before.x + after.x) * lateral / denominator) }
-      return { id: `${label}-${column}`, point: { ...point, z: k === 0 || k === columns.length - 1 ? sourceHeight(point) : z } }
+      if (k === 0 || k === 4) lateralDirections.set(`${label}-${column}`, {
+        x: (-before.y - after.y) / denominator * Math.sign(lateral), y: (before.x + after.x) / denominator * Math.sign(lateral),
+      })
+      // Outer source height is resolved only after the entrance taper fixes
+      // its actual XY; the full-width construction point may be outside land.
+      return { id: `${label}-${column}`, point: { ...point, z } }
     })
   }
   // The complete slope grid is constructed before assigning walk membership.
   const originalStations = points.map((_, i) => station(i, 0, `slope-${i}`))
-  const baseStations = [station(0, -3, 'slope-from-outer'), originalStations[0], station(0, 3, 'slope-from-inner'),
-    ...originalStations.slice(1, -1), station(points.length - 1, -3, 'slope-to-inner'), originalStations.at(-1)!, station(points.length - 1, 3, 'slope-to-outer')]
+  const ordered = [
+    { distance: -3, rows: station(0, -3, 'slope-from-outer') },
+    ...originalStations.map((rows, i) => ({ distance: frame.distances[i], rows })),
+    { distance: 3, rows: station(0, 3, 'slope-from-inner') },
+    { distance: frame.length - 3, rows: station(points.length - 1, -3, 'slope-to-inner') },
+    { distance: frame.length + 3, rows: station(points.length - 1, 3, 'slope-to-outer') },
+  ]
+  const taperLength = Math.min(Math.max(16, widths.left, widths.right), frame.length / 3)
+  for (const [label, d] of [['from', taperLength], ['to', frame.length - taperLength]] as const) {
+    if (ordered.some(row => Math.abs(row.distance - d) < 2)) continue
+    const i = frame.distances.findIndex((end, i) => i > 0 && end >= d), t = (d - frame.distances[i - 1]) / (frame.distances[i] - frame.distances[i - 1])
+    const rows = originalStations[i - 1].map((row, k) => {
+      const id = `slope-${label}-bank-${columns[k]}`
+      if (k === 0 || k === 4) {
+        const a = lateralDirections.get(row.id)!, b = lateralDirections.get(originalStations[i][k].id)!
+        lateralDirections.set(id, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+      }
+      return { id, point: {
+        x: Math.round(row.point.x + (originalStations[i][k].point.x - row.point.x) * t),
+        y: Math.round(row.point.y + (originalStations[i][k].point.y - row.point.y) * t),
+        z: Math.round(row.point.z + (originalStations[i][k].point.z - row.point.z) * t),
+      } }
+    })
+    ordered.push({ distance: d, rows })
+  }
+  const baseStations = ordered.sort((a, b) => a.distance - b.distance).map(({ distance: d, rows }) => {
+    // Only the extra banks taper. Complete walk and level entrance collars
+    // stay fixed; a straight full-width bank cap must not cross an old scarp.
+    const fraction = Math.max(0, Math.min(1, (d - 3) / (taperLength - 3), (frame.length - 3 - d) / (taperLength - 3)))
+    const smooth = fraction * fraction * (3 - 2 * fraction)
+    for (const [outer, width] of [[0, widths.left], [4, widths.right]] as const) {
+      const center = rows[2].point, direction = lateralDirections.get(rows[outer].id)!
+      const extra = Math.min(2, width) + (width - Math.min(2, width)) * smooth
+      const p = { x: center.x + Math.round(direction.x * (walkRadius + extra)), y: center.y + Math.round(direction.y * (walkRadius + extra)) }
+      rows[outer].point = { ...p, z: sourceHeight(p) }
+    }
+    return rows
+  })
   const stations = [baseStations[0]]
   // A source-height jump must not be interpolated over an entire original
   // route segment. Add local rows on both sides of its outer-edge crossings;

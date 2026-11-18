@@ -388,6 +388,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
     const keys: string[] = collection === 'terrainAreas' ? ['boundaryMm', 'groundElevationMm'] : collection === 'terrainConnections' ? ['from', 'to', 'widthMm'] : collection === 'paths' ? ['centerlineMm', 'widthMm'] : []
     if (collection === 'terrainConnections' && true && ('route' in present || 'route' in historical)) keys.push('route')
     if (request.mode === 'outdoorProperties') keys.push(...(collection === 'terrainAreas' ? ['visibility', 'coveragePriority', 'blocksMovement', 'blocksSight', 'movementCostMultiplier'] : collection === 'terrainEdges' ? ['visibility', 'kind', 'shoreline', 'blocksMovement', 'blocksSight', 'styleOverride'] : collection === 'terrainConnections' ? ['visibility', 'kind', 'blocksMovement', 'movementCostMultiplier'] : ['visibility', 'movementCostMultiplier', 'renderOrder']))
+    if (collection === 'terrainConnections' && request.mode === 'outdoorProperties' && ('staircase' in present || 'staircase' in historical)) keys.push('staircase')
     if (!keys.length) throw new Error('来源边缘的位置由来源地形段决定；请恢复来源地形，或明确选择边缘业务属性。')
     const before = present as unknown as Record<string, unknown>, source = historical as unknown as Record<string, unknown>, after = candidate.document[collection][targetId] as unknown as Record<string, unknown>
     for (const key of keys) {
@@ -398,7 +399,8 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
           ? { ...copy(historicalRoute), stairStyle: currentRoute.stairStyle, treadDepthMm: currentRoute.treadDepthMm }
           : copy(historicalRoute)
         else delete after.route
-      } else after[key] = copy(source[key])
+      } else if (key === 'staircase' && source[key] === undefined) delete after[key]
+      else after[key] = copy(source[key])
     }
     addChange({ id: targetId, kind: 'outdoor', name: targetId, action: 'update', layerId: current.document.entityLayers[targetId], beforeLayerId: current.document.entityLayers[targetId], fields: keys,
       before: Object.fromEntries(keys.map(key => [key, copy(before[key])])), after: Object.fromEntries(keys.map(key => [key, copy(after[key])])) })
