@@ -218,7 +218,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
     const roleProps = (wanted: InteriorFurnitureRole) => spatialProps().filter(prop => prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId
       && palette.some(item => item.role === wanted && item.ref.id === prop.definitionRef?.id && item.ref.version === prop.definitionRef.version))
     const ports = connectedUse ? roomDoorPorts(next, row.roomId, 600, options.checkCancelled,
-      pairs => meter.charge({ fieldEvaluations: pairs })) : []
+      pairs => meter.charge({ fieldEvaluations: pairs }), input.algorithmVersion >= 21) : []
     const findAccess = (targetMm: PointMm, document = next, extra: PointMm[][] = [], retainedRoute?: FurnitureAccessRoute) => findFurnitureAccess({
       roomPolygon: roomPoints(document, room), targetMm, ports,
       retainedRoute, graphMode: input.algorithmVersion >= 13 ? 'bounded-lazy' : undefined,

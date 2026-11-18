@@ -1,3 +1,4 @@
+import { checkFloorEdgeDoorRoute, floorEdgeDoorStart, roomOwnsInteriorWall } from './entrance-clearance.js'
 import type { PointMm, SceneDocument } from '../../../model/scene.js'
 import { openingEndpoints, pathPolygon, pointInPolygon, polygonInside, polygonsOverlap, roomPoints } from '../../../geometry/geometry.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
@@ -44,24 +45,35 @@ function compact(points: PointMm[]): PointMm[] {
  * checked against native support and physical obstacles before supplying an
  * interior port. No door is opened and no room-centre reachability is assumed. */
 export function roomDoorPorts(document: SceneDocument, roomId: string, widthMm: number, checkCancelled: () => void,
-  charge: (pairs: number) => void): RoomDoorPort[] {
+  charge: (pairs: number) => void, allowFloorEdge = false): RoomDoorPort[] {
   const room = document.rooms[roomId], polygon = roomPoints(document, room), ports: RoomDoorPort[] = []
   for (const opening of Object.values(document.openings)) {
     checkCancelled()
     if (opening.floorId !== room.floorId || opening.kind !== 'door' || opening.state !== 'open' || opening.locked || opening.widthMm < widthMm) continue
     const wall = document.walls[opening.wallId]
-    if (!room.boundaryVertexIds.some((id, index, ids) => {
-      const next = ids[(index + 1) % ids.length]
-      return id === wall.startVertexId && next === wall.endVertexId || id === wall.endVertexId && next === wall.startVertexId
-    })) continue
+    if (!roomOwnsInteriorWall(room, wall)) continue
     const [a, b] = openingEndpoints(document, opening), length = Math.hypot(b.x - a.x, b.y - a.y)
     const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, normal = { x: -(b.y - a.y) / length, y: (b.x - a.x) / length }
     // Square end caps require a complete half-width beyond the inner wall face.
     const depth = Math.ceil(wall.thicknessMm / 2 + widthMm / 2) + 2
     const endpoints = [-1, 1].map(sign => ({ x: Math.round(midpoint.x + normal.x * depth * sign), y: Math.round(midpoint.y + normal.y * depth * sign) }))
-    charge(Object.keys(document.walls).length + Object.keys(document.props).length + Object.keys(document.regions).length)
+    const work = Object.keys(document.walls).length + Object.keys(document.props).length + Object.keys(document.regions).length
+    charge(work)
+    const inside = endpoints.filter(point => pointInPolygon(point, polygon))
+    const edge = allowFloorEdge && inside.length === 1 ? floorEdgeDoorStart(document, room, wall, inside[0]) : undefined
+    if (edge) {
+      const rooms = Object.values(document.rooms)
+      charge(rooms.length)
+      if (!rooms.some(other => other.id !== room.id && roomOwnsInteriorWall(other, wall))) {
+        if (widthMm % 2) charge(work)
+        if (checkFloorEdgeDoorRoute(document, { floorId: room.floorId, pointsMm: [edge, inside[0]], widthMm }, inside[0]).ok) {
+          ports.push({ openingId: opening.id, pointMm: inside[0] })
+        }
+        continue
+      }
+    }
     if (!checkTerrainRoute(document, { floorId: room.floorId, pointsMm: endpoints, widthMm }).ok) continue
-    for (const pointMm of endpoints) if (pointInPolygon(pointMm, polygon)) ports.push({ openingId: opening.id, pointMm })
+    for (const pointMm of inside) ports.push({ openingId: opening.id, pointMm })
   }
   // Geometry, rather than IDs, controls every layout choice. ID is only carried
   // as the witness of the actual selected doorway.

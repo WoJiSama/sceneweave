@@ -52,7 +52,7 @@ describe('application generation intent preparation', () => {
     input.rooms[0].purpose = 'Changed during load'; input.arrangement.furniture = false; delete input.arrangement.entranceRoomRequirementId
     release()
     const result = await pending
-    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 20, seed: original.seed,
+    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 21, seed: original.seed,
       parameters: { rooms: original.rooms, corridor: original.corridor, arrangement: { ...original.arrangement, palette: env.palette } } } })
     expect(env.content.interior).toHaveBeenCalledWith(expect.objectContaining({ title: original.title, preset: 'narrative', gridVisible: false, seed: original.seed }), expect.any(Object))
     expect(env.selectBudget).toHaveBeenCalledExactlyOnceWith({ widthMm: 12000, heightMm: 8000, quality: 'standard', mode: 'auto' })

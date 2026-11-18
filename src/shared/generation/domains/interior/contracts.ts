@@ -45,7 +45,7 @@ export const directedInteriorLayoutParametersSchema = interiorLayoutParametersSc
  * v18 plans complete dining seats against fitting edges and prioritizes kitchen functions.
  * v19 proposes complete seated office/reception units with single-sided work seats.
  * v20 optionally requires the first exterior entrance to enter one named demand. */
-export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(15), z.literal(16), z.literal(17), z.literal(18), z.literal(19), z.literal(20)]), seed: z.string().min(1).max(128), parameters: directedInteriorLayoutParametersSchema }).strict().superRefine((input, ctx) => {
+export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(15), z.literal(16), z.literal(17), z.literal(18), z.literal(19), z.literal(20), z.literal(21)]), seed: z.string().min(1).max(128), parameters: directedInteriorLayoutParametersSchema }).strict().superRefine((input, ctx) => {
   if (input.algorithmVersion < 20 && Object.hasOwn(input.parameters.arrangement, 'entranceRoomRequirementId')) ctx.addIssue({ code: 'custom', path: ['parameters', 'arrangement', 'entranceRoomRequirementId'], message: '指定入口房间需要室内算法20，旧配方不接收该字段。' })
 })
 /** A separate replay contract adds real terrain support without changing the

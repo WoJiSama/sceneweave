@@ -47,6 +47,25 @@ describe('parameterized finite interior generation', () => {
     expect(generationRecipeSchema.safeParse({ ...recipe, recipeVersion: algorithmVersion === 4 ? 3 : 4 }).success).toBe(false)
   })
 
+  it('persists and deterministically replays v21 while keeping the same seeded walls and doors as v20', () => {
+    const base = source(), input = request(2)
+    input.parameters.boundsMm = base.floors[input.parameters.floorId].boundsMm
+    input.parameters.arrangement = { ...input.parameters.arrangement, doors: true, entrance: true, entranceRoomRequirementId: 'room-0' }
+    const previous = runInteriorGeneration(base, { ...input, algorithmVersion: 20 }, options)
+    const currentInput = { ...input, algorithmVersion: 21 }
+    const current = runInteriorGeneration(base, currentInput, options)
+    expect(current.layout).toEqual(previous.layout)
+    for (const collection of ['vertices', 'walls', 'rooms', 'openings'] as const) {
+      expect(current.candidate.document[collection]).toEqual(previous.candidate.document[collection])
+    }
+    expect(previous.report.connectivity.routes.find(route => route.fromRoomId === null)?.status).toBe('unavailable')
+    expect(current.report.connectivity.routes.find(route => route.fromRoomId === null)?.status).toBe('clear')
+    const recipe = Object.values(getLegacyGeneration(cloneJson(current.candidate.document) as SceneDocument)!.recipes)[0]
+    expect(recipe).toMatchObject({ recipeVersion: 21, algorithmId: 'interior-layout', algorithmVersion: 21 })
+    expect(generationRecipeSchema.safeParse({ ...recipe, recipeVersion: 20 }).success).toBe(false)
+    expect(runInteriorGeneration(base, currentInput, options)).toEqual(current)
+  })
+
   it('creates two distinct actual room counts, unique shared walls and deterministic full results', () => {
     const base = source(), before = canonicalJson(base), input = request(2), first = runInteriorGeneration(base, input, options)
     const other = request(4); other.parameters.corridor = { axis: 'horizontal', clearWidthMm: 1800 }

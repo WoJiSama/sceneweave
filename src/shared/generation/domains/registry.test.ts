@@ -15,6 +15,8 @@ describe('static domain registration and exact response contracts', () => {
 
   it.each(domainGenerationKinds)('binds the %s schema to its own normalized input and rejects another domain report', domain => {
     const fixture = domainExecutionFixture(domain), registration = generationDomains[domain]
+    // Transport fixtures retain old replay inputs; this check exercises the current registration.
+    fixture.input.algorithmVersion = registration.algorithm.version
     const request = createDomainExecutionRequest({ requestId: `registry-${domain}`, context: { workspaceId: 'registry', checkpoint: 0, epoch: 1 }, domain, ...fixture })
     expect(request.input).toEqual(registration.normalize(fixture.input))
     expect(request.input.algorithmVersion).toBe(registration.algorithm.version)

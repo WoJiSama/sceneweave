@@ -10,6 +10,7 @@ import { interiorEntityId, InteriorGenerationError } from './layout.js'
 import { rankExteriorEntranceProposals } from './entrance-selection.js'
 import type { BuildingEntranceApproach, InteriorGenerationInput, InteriorLayout } from './contracts.js'
 import { replanInteriorRoomRoute } from './connectivity-routing.js'
+import { checkFloorEdgeDoorRoute, floorEdgeDoorStart, roomOwnsInteriorWall } from './entrance-clearance.js'
 
 export interface InteriorCirculationRoute {
   id: string
@@ -34,10 +35,8 @@ type Options = { profile: TaskBudgetProfile; checkCancelled: () => void; entranc
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 const unique = (messages: string[]) => [...new Set(messages)]
 const same = (a: PointMm, b: PointMm) => a.x === b.x && a.y === b.y
-const owners = (document: SceneDocument, wall: Wall) => Object.values(document.rooms).filter(room => room.boundaryVertexIds.some((id, index, ids) => {
-  const next = ids[(index + 1) % ids.length]
-  return id === wall.startVertexId && next === wall.endVertexId || id === wall.endVertexId && next === wall.startVertexId
-})).map(room => room.id).sort(compare)
+const owners = (document: SceneDocument, wall: Wall) => Object.values(document.rooms)
+  .filter(room => roomOwnsInteriorWall(room, wall)).map(room => room.id).sort(compare)
 const center = (document: SceneDocument, roomId: string): PointMm => {
   const points = roomPoints(document, document.rooms[roomId]), xs = points.map(p => p.x), ys = points.map(p => p.y)
   return { x: Math.min(...xs) + Math.floor((Math.max(...xs) - Math.min(...xs)) / 2), y: Math.min(...ys) + Math.floor((Math.max(...ys) - Math.min(...ys)) / 2) }
@@ -66,6 +65,15 @@ function roomAnchor(document: SceneDocument, roomId: string, midpoint: PointMm, 
   const c = center(document, roomId), sign = (c.x - midpoint.x) * normal.x + (c.y - midpoint.y) * normal.y >= 0 ? 1 : -1
   return { x: midpoint.x + normal.x * depth * sign, y: midpoint.y + normal.y * depth * sign }
 }
+function exteriorApproach(document: SceneDocument, input: InteriorGenerationInput, openingId: string, toRoomId: string,
+  midpoint: PointMm, toAnchor: PointMm): { point: PointMm; atFloorEdge: boolean } {
+  const edge = input.algorithmVersion >= 21
+    ? floorEdgeDoorStart(document, document.rooms[toRoomId], document.walls[document.openings[openingId].wallId], toAnchor) : undefined
+  return edge ? { point: edge, atFloorEdge: true }
+    : { point: { x: midpoint.x - (toAnchor.x - midpoint.x), y: midpoint.y - (toAnchor.y - midpoint.y) }, atFloorEdge: false }
+}
+const routeCheckCount = (input: InteriorGenerationInput, route: InteriorCirculationRoute) =>
+  input.algorithmVersion >= 21 && route.fromRoomId === null && route.widthMm % 2 !== 0 ? 2 : 1
 function routeBand(floorId: string, pointsMm: PointMm[], widthMm: number) {
   return pathPolygon({ id: 'interior-circulation-check', floorId, editLocked: false, visibility: 'public', centerlineMm: pointsMm, widthMm,
     supportRefs: [{ kind: 'floor', id: floorId }], surfaceStyle: null, movementCostMultiplier: 1, renderOrder: 0 })
@@ -91,14 +99,18 @@ function checkRoute(document: SceneDocument, input: InteriorGenerationInput, rou
     return at >= Math.min(near[along], far[along]) + route.widthMm / 2 && at <= Math.max(near[along], far[along]) - route.widthMm / 2
   })
   if (!crossed) return ['建议净宽折线没有实际穿过所引用的门洞。']
-  const checked = checkTerrainRoute(document, { floorId: input.parameters.floorId, pointsMm: route.pointsMm, widthMm: route.widthMm })
-  const notes = checked.issues.map(issue => issue.message)
+  const request = { floorId: input.parameters.floorId, pointsMm: route.pointsMm, widthMm: route.widthMm }
   const rooms = [route.toRoomId, ...(route.fromRoomId ? [route.fromRoomId] : [])].map(id => roomPoints(document, document.rooms[id]))
+  let edgeApproach: PointMm | undefined
   if (route.fromRoomId === null) {
     const { midpoint, normal, depth } = openingFrame(document, route.openingId, route.widthMm)
-    const a = roomAnchor(document, route.toRoomId, midpoint, normal, depth), b = { x: midpoint.x - (a.x - midpoint.x), y: midpoint.y - (a.y - midpoint.y) }
-    rooms.push(routeBand(input.parameters.floorId, [a, b], route.widthMm))
+    const inner = roomAnchor(document, route.toRoomId, midpoint, normal, depth)
+    const approach = exteriorApproach(document, input, route.openingId, route.toRoomId, midpoint, inner)
+    rooms.push(routeBand(request.floorId, [inner, approach.point], route.widthMm))
+    if (approach.atFloorEdge && same(route.from, approach.point)) edgeApproach = inner
   }
+  const checked = edgeApproach ? checkFloorEdgeDoorRoute(document, request, edgeApproach) : checkTerrainRoute(document, request)
+  const notes = checked.issues.map(issue => issue.message)
   const band = routeBand(input.parameters.floorId, route.pointsMm, route.widthMm)
   if (!coveredEverywhere(band, rooms, point => rooms.some(polygon => pointInPolygon(point, polygon)))) notes.push('完整净宽带超出本门两侧实际房间及明确入口预留区。')
   return unique(notes)
@@ -123,7 +135,7 @@ export function replanInteriorCirculation(document: SceneDocument, input: Interi
   const meter = captureExecutionBudget(options.profile)
   const sceneWork = Object.keys(document.walls).length + Object.keys(document.props).length + Object.keys(document.regions).length + Object.keys(document.rooms).length
   const chargeCheck = (routes: InteriorCirculationRoute[]) => {
-    for (const route of routes) { options.checkCancelled(); meter.charge({ fieldEvaluations: sceneWork + route.pointsMm.length }) }
+    for (const route of routes) { options.checkCancelled(); meter.charge({ fieldEvaluations: routeCheckCount(input, route) * (sceneWork + route.pointsMm.length) }) }
   }
   chargeCheck(report.routes)
   const checked = checkInteriorCirculation(document, input, layout, report)
@@ -140,7 +152,7 @@ export function replanInteriorCirculation(document: SceneDocument, input: Interi
     const { midpoint, normal, depth } = openingFrame(document, route.openingId, route.widthMm)
     const toAnchor = roomAnchor(document, route.toRoomId, midpoint, normal, depth)
     const fromAnchor = route.fromRoomId ? roomAnchor(document, route.fromRoomId, midpoint, normal, depth)
-      : { x: midpoint.x - (toAnchor.x - midpoint.x), y: midpoint.y - (toAnchor.y - midpoint.y) }
+      : exteriorApproach(document, input, route.openingId, route.toRoomId, midpoint, toAnchor).point
     const to = replanInteriorRoomRoute(document, { roomId: route.toRoomId, openingId: route.openingId,
       start: toAnchor, end: route.to, widthMm: route.widthMm }, options)
     if (!to) continue
@@ -149,7 +161,7 @@ export function replanInteriorCirculation(document: SceneDocument, input: Interi
     if (!from) continue
     const pointsMm = compact([...from].reverse().concat(to))
     options.checkCancelled()
-    meter.charge({ fieldEvaluations: sceneWork + pointsMm.length })
+    meter.charge({ fieldEvaluations: routeCheckCount(input, route) * (sceneWork + pointsMm.length) })
     const notes = checkRoute(document, input, { ...route, pointsMm })
     if (!notes.length) { route.pointsMm = pointsMm; route.status = 'clear'; route.notes = [] }
   }
@@ -182,13 +194,14 @@ export function inspectInteriorConnections(document: SceneDocument, input: Inter
     const toRoomId = selected[0], fromRoomId = rooms.find(id => id !== toRoomId) ?? null
     const widthMm = input.parameters.arrangement.clearWidthMm, { midpoint, normal, depth } = openingFrame(document, opening.id, widthMm)
     const to = center(document, toRoomId), toAnchor = roomAnchor(document, toRoomId, midpoint, normal, depth)
-    const fromAnchor = fromRoomId ? roomAnchor(document, fromRoomId, midpoint, normal, depth) : { x: midpoint.x - (toAnchor.x - midpoint.x), y: midpoint.y - (toAnchor.y - midpoint.y) }
+    const fromAnchor = fromRoomId ? roomAnchor(document, fromRoomId, midpoint, normal, depth)
+      : exteriorApproach(document, input, opening.id, toRoomId, midpoint, toAnchor).point
     const from = fromRoomId ? center(document, fromRoomId) : fromAnchor
     const route: InteriorCirculationRoute = { id: interiorEntityId(document.sceneId, input.seed, `current-route:${opening.id}:${toRoomId}`), fromRoomId, toRoomId, openingId: opening.id,
       from, to, pointsMm: [], widthMm, status: 'unavailable', notes: [] }
     for (const points of [[from, fromAnchor, toAnchor, to], [from, { x: fromAnchor.x, y: from.y }, fromAnchor, toAnchor, { x: toAnchor.x, y: to.y }, to],
       [from, { x: from.x, y: fromAnchor.y }, fromAnchor, toAnchor, { x: to.x, y: toAnchor.y }, to]]) {
-      options.checkCancelled(); meter.charge({ gridNodes: 1, fieldEvaluations: Object.keys(document.walls).length + Object.keys(document.props).length + points.length })
+      options.checkCancelled(); meter.charge({ gridNodes: 1, fieldEvaluations: routeCheckCount(input, route) * (Object.keys(document.walls).length + Object.keys(document.props).length + points.length) })
       route.pointsMm = compact(points); route.notes = checkRoute(document, input, route)
       if (!route.notes.length) { route.status = 'clear'; break }
     }
@@ -242,7 +255,8 @@ export function arrangeInteriorConnections(document: SceneDocument, input: Inter
   const routesFor = (openingId: string, fromRoomId: string | null, toRoomId: string): InteriorCirculationRoute => {
     const widthMm = arrangement.clearWidthMm, { midpoint, normal, depth } = openingFrame(next, openingId, widthMm)
     const to = center(next, toRoomId), toAnchor = roomAnchor(next, toRoomId, midpoint, normal, depth)
-    const fromAnchor = fromRoomId ? roomAnchor(next, fromRoomId, midpoint, normal, depth) : { x: midpoint.x - (toAnchor.x - midpoint.x), y: midpoint.y - (toAnchor.y - midpoint.y) }
+    const fromAnchor = fromRoomId ? roomAnchor(next, fromRoomId, midpoint, normal, depth)
+      : exteriorApproach(next, input, openingId, toRoomId, midpoint, toAnchor).point
     const from = fromRoomId ? center(next, fromRoomId) : fromAnchor
     const route: InteriorCirculationRoute = { id: interiorEntityId(next.sceneId, input.seed, `route:${openingId}`), fromRoomId, toRoomId, openingId, from, to, pointsMm: [], widthMm, status: 'unavailable', notes: [] }
     const variants = [
@@ -251,7 +265,7 @@ export function arrangeInteriorConnections(document: SceneDocument, input: Inter
       [from, { x: from.x, y: fromAnchor.y }, fromAnchor, toAnchor, { x: to.x, y: toAnchor.y }, to],
     ]
     for (const points of variants) {
-      tick(); meter.charge({ gridNodes: 1, fieldEvaluations: next ? Object.keys(next.walls).length + Object.keys(next.props).length + points.length : points.length })
+      tick(); meter.charge({ gridNodes: 1, fieldEvaluations: routeCheckCount(input, route) * (Object.keys(next.walls).length + Object.keys(next.props).length + points.length) })
       route.pointsMm = compact(points)
       route.notes = checkRoute(next, input, route)
       if (!route.notes.length) { route.status = 'clear'; break }

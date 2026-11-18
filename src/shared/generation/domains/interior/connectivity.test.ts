@@ -5,7 +5,8 @@ import { canonicalJson, cloneJson } from '../../../validation/json.js'
 import { taskBudgetProfile, withExecutionWorkObserver } from '../../../budget/task-budget.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
-import type { SceneDocument } from '../../../model/scene.js'
+import { roomDoorPorts } from './furnishing-circulation.js'
+import type { PointMm, SceneDocument } from '../../../model/scene.js'
 import type { InteriorGenerationInput, InteriorLayout } from './contracts.js'
 import { arrangeInteriorConnections, checkInteriorCirculation, replanInteriorCirculation, inspectInteriorConnections, interiorDoorReservations } from './connectivity.js'
 
@@ -167,5 +168,71 @@ describe('initial interior doors and circulation suggestions', () => {
     expect(Object.keys(separate.document.rooms)).toHaveLength(2)
     expect(validateSceneDocument(separate.document).ok).toBe(true)
     expect(() => arrangeInteriorConnections(document, input, layout, { ...options, checkCancelled() { throw new Error('取消') } })).toThrow(/取消/)
+  })
+})
+
+function floorEdgeFixture(axis: 'x' | 'y', side: 'min' | 'max', clearWidthMm = 900) {
+  const floorId = 'visual-floor', layerId = 'visual-layer-ground', roomId = 'edge-room'
+  const base = createShoreBlankDocument('island', { sceneId: 'edge-entrance', title: '边缘入口', now: '2026-11-05T00:00:00.000Z', widthMm: 12000, heightMm: 8000, preset: 'narrative' })
+  let id = 0
+  const runtime = { ids: { nextId: () => `edge-native-${id++}` }, clock: { now: () => base.updatedAt } }
+  const floor = base.floors[floorId].boundsMm, x = floor.x + 100, y = floor.y + 100, right = floor.x + floor.width - 100, bottom = floor.y + floor.height - 100
+  const boundaryMm = [{ x, y }, { x: right, y }, { x: right, y: bottom }, { x, y: bottom }]
+  const walled = applyCommands(base, [{ type: 'createRoom', id: roomId, floorId, layerId, boundaryMm, thicknessMm: 200, supportRef: { kind: 'floor', id: floorId } }], runtime)
+  const coordinate = side === 'min' ? floor[axis] : floor[axis] + (axis === 'x' ? floor.width : floor.height)
+  const line = coordinate + (side === 'min' ? 100 : -100)
+  const vertexAxis = axis === 'x' ? 'xMm' : 'yMm', along = axis === 'x' ? 'yMm' : 'xMm'
+  const wall = Object.values(walled.walls).find(row => walled.vertices[row.startVertexId][vertexAxis] === line && walled.vertices[row.endVertexId][vertexAxis] === line)!
+  const wallLength = Math.abs(walled.vertices[wall.endVertexId][along] - walled.vertices[wall.startVertexId][along])
+  const openingId = 'edge-door'
+  const document = applyCommands(walled, [{ type: 'addOpening', id: openingId, layerId, wallId: wall.id, kind: 'door', state: 'open',
+    offsetReferenceVertexId: wall.startVertexId, offsetMm: (wallLength - 1100) / 2, widthMm: 1100, locked: false, secret: false, revealed: false }], runtime)
+  const input: InteriorGenerationInput = { version: 1, algorithmVersion: 21, seed: 'edge-entrance', parameters: {
+    floorId, layerId, boundsMm: floor, wallThicknessMm: 200,
+    rooms: [{ id: 'a', purpose: '公共室', minAreaMm2: 4_000_000, maxAreaMm2: 100_000_000, minClearSideMm: 1000 }],
+    relations: [], corridor: { axis: 'none', clearWidthMm: 1500 }, materials: { floor: null, wall: null },
+    arrangement: { doors: true, entrance: true, furniture: false, doorWidthMm: 1100, clearWidthMm, palette: [] },
+  } }
+  const layout = { rooms: [{ requirementId: 'a', roomId, boundsMm: { x, y, width: right - x, height: bottom - y }, clearAreaMm2: (right - x - 200) * (bottom - y - 200) }], corridors: [] }
+  return { document, input, layout, runtime, roomId, openingId, coordinate }
+}
+
+describe('standalone v21 entrances on the Floor boundary', () => {
+  it.each([['x', 'min', 900], ['x', 'max', 901], ['y', 'min', 901], ['y', 'max', 900]] as const)('checks the %s %s threshold at full width %d', (axis, side, widthMm) => {
+    const { document, input, layout, coordinate, roomId, openingId } = floorEdgeFixture(axis, side, widthMm)
+    const legacyInput: InteriorGenerationInput = { ...input, algorithmVersion: 20 }
+    const previous = inspectInteriorConnections(document, legacyInput, layout, options)
+    expect(previous.routes[0].status).toBe('unavailable')
+    expect(roomDoorPorts(document, roomId, widthMm, () => {}, () => {})).toHaveLength(0)
+
+    const current = inspectInteriorConnections(document, input, layout, options)
+    expect(current.routes).toEqual([expect.objectContaining({ openingId, fromRoomId: null, toRoomId: roomId, status: 'clear', widthMm })])
+    expect(current.routes[0].from[axis]).toBe(coordinate)
+    expect(roomDoorPorts(document, roomId, widthMm, () => {}, () => {}, true)).toEqual([expect.objectContaining({ openingId })])
+    expect(replanInteriorCirculation(document, input, layout, current, options)).toEqual(current)
+  })
+
+  it('rejects doors that are closed, locked, too narrow, or blocked by a rotated prop inside the threshold', () => {
+    const widthMm = 1000
+    const { document, input, layout, runtime, roomId, openingId } = floorEdgeFixture('y', 'min', widthMm)
+    const clear = inspectInteriorConnections(document, input, layout, options)
+    const check = (scene: SceneDocument) => {
+      const initial = canonicalJson(scene)
+      expect(checkInteriorCirculation(scene, input, layout, clear).routes[0].status).toBe('unavailable')
+      expect(roomDoorPorts(scene, roomId, widthMm, () => {}, () => {}, true)).toHaveLength(0)
+      expect(canonicalJson(scene)).toBe(initial)
+    }
+    for (const changes of [{ state: 'closed' as const }, { locked: true }, { widthMm: 900 }]) {
+      check(applyCommands(document, [{ type: 'updateOpening', id: openingId, changes }], runtime))
+    }
+    const blocked = cloneJson(document), positionMm: PointMm = { x: clear.routes[0].from.x, y: clear.routes[0].from.y + 480 }
+    blocked.props.blocker = { id: 'blocker', floorId: input.parameters.floorId, editLocked: true, definitionRef: null,
+      appearance: { kind: 'symbol', symbol: 'table', tint: null, opacity: 1 }, visualBoundsMm: { x: -150, y: -150, width: 300, height: 300 }, positionMm, rotationDeg: 30,
+      footprintMm: { width: 300, height: 300 }, footprintOffsetMm: { x: 0, y: 0 }, blocksMovement: true, blocksSight: false,
+      visibility: 'public', roomId, supportRef: { kind: 'room', id: roomId }, renderLayer: 'object', renderOrder: 0, shadowClass: 'none', shadowOverride: null }
+    blocked.entityLayers.blocker = input.parameters.layerId
+    expect(validateSceneDocument(blocked).ok).toBe(true)
+    check(blocked)
+    expect(checkInteriorCirculation(blocked, input, layout, clear).routes[0].notes.join('')).toMatch(/真实旋转占地/)
   })
 })
