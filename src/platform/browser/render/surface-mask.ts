@@ -1,5 +1,6 @@
 import type { BoundsMm } from '../../../shared/model/scene.js'
 import type { ProjectedSurface } from '../../../shared/projection/types.js'
+import { blurWhiteMask } from './mask-blur.js'
 
 /** One world-space mask for terrain, material patches and their holes. */
 export function drawSurfaceRuleMask(ctx: CanvasRenderingContext2D, bounds: BoundsMm, widthPx: number, heightPx: number,
@@ -11,7 +12,10 @@ export function drawSurfaceRuleMask(ctx: CanvasRenderingContext2D, bounds: Bound
   const sx = widthPx / bounds.width, sy = heightPx / bounds.height
   ctx.setTransform(sx, 0, 0, sy, -bounds.x * sx, -bounds.y * sy)
   ctx.fillStyle = '#fff'
-  if (!inward || !blendWidthMm) {
+  // An expando assignment to ctx.filter can succeed without implementing it.
+  // Inspect the native prototype so such engines receive a real soft mask.
+  const nativeBlur = 'filter' in Object.getPrototypeOf(ctx)
+  if (!blendWidthMm || !inward && nativeBlur) {
     if (blendWidthMm) ctx.filter = `blur(${blendWidthMm * .5 * Math.max(sx, sy)}px)`
     ctx.fill(path, 'evenodd'); ctx.filter = 'none'
     return
@@ -25,13 +29,21 @@ export function drawSurfaceRuleMask(ctx: CanvasRenderingContext2D, bounds: Bound
   if (paddedWidth > 16384 || paddedHeight > 16384 || paddedWidth * paddedHeight > 64 * 1024 * 1024) throw new Error('地表羽化遮罩超出像素预算，请降低输出尺寸或羽化宽度。')
   const core = document.createElement('canvas'); core.width = paddedWidth; core.height = paddedHeight
   try {
-    const source = core.getContext('2d')
+    const source = core.getContext('2d', { willReadFrequently: !nativeBlur })
     if (!source) throw new Error('无法建立地表羽化遮罩。')
     source.setTransform(sx, 0, 0, sy, -bounds.x * sx + pad, -bounds.y * sy + pad)
     source.fillStyle = '#fff'; source.fill(path, 'evenodd')
-    source.globalCompositeOperation = 'destination-out'; source.lineWidth = blendWidthMm * 3
-    source.lineJoin = 'round'; source.stroke(path)
-    ctx.save(); ctx.clip(path, 'evenodd'); ctx.resetTransform()
-    ctx.filter = `blur(${blendWidthMm * .5 * Math.max(sx, sy)}px)`; ctx.drawImage(core, -pad, -pad); ctx.restore()
+    if (inward) {
+      source.globalCompositeOperation = 'destination-out'; source.lineWidth = blendWidthMm * 3
+      source.lineJoin = 'round'; source.stroke(path)
+    }
+    const sigma = blendWidthMm * .5 * Math.max(sx, sy)
+    if (!nativeBlur) {
+      const image = source.getImageData(0, 0, paddedWidth, paddedHeight)
+      blurWhiteMask(image, sigma); source.putImageData(image, 0, 0)
+    }
+    ctx.save(); if (inward) ctx.clip(path, 'evenodd'); ctx.resetTransform()
+    if (nativeBlur) ctx.filter = `blur(${sigma}px)`
+    ctx.drawImage(core, -pad, -pad); ctx.restore()
   } finally { core.width = core.height = 0 }
 }

@@ -12,11 +12,18 @@ describe('native v8 surface-rule material mask', () => {
       closePath() { this.rings.push([-1, -1]) }
     }
     vi.stubGlobal('Path2D', PathMock)
-    const calls: unknown[][] = [], state = { fillStyle: '', filter: '' }
-    const ctx = Object.assign(state, {
-      setTransform: vi.fn(), fill: vi.fn((...args: unknown[]) => calls.push(args)),
-    }) as unknown as CanvasRenderingContext2D
-    drawSurfaceRuleMask(ctx, { x: 100, y: 200, width: 1000, height: 500 }, 200, 100, [
+    const calls: unknown[][] = []
+    class NativeContextMock {
+      fillStyle = ''
+      private filterValue = ''
+      filters: string[] = []
+      get filter() { return this.filterValue }
+      set filter(value: string) { this.filterValue = value; this.filters.push(value) }
+      setTransform = vi.fn()
+      fill = vi.fn((...args: unknown[]) => calls.push(args))
+    }
+    const ctx = new NativeContextMock()
+    drawSurfaceRuleMask(ctx as unknown as CanvasRenderingContext2D, { x: 100, y: 200, width: 1000, height: 500 }, 200, 100, [
       { outerMm: [{ x: 100, y: 200 }, { x: 500, y: 200 }, { x: 500, y: 500 }], holesMm: [[{ x: 200, y: 250 }, { x: 250, y: 250 }, { x: 250, y: 300 }]] },
       { outerMm: [{ x: 600, y: 200 }, { x: 900, y: 200 }, { x: 900, y: 500 }], holesMm: [] },
     ], 20)
@@ -25,7 +32,8 @@ describe('native v8 surface-rule material mask', () => {
     expect(calls[0][0]).toBeInstanceOf(PathMock)
     expect(calls[0][1]).toBe('evenodd')
     expect((calls[0][0] as PathMock).rings.filter(point => point[0] === -1)).toHaveLength(3)
-    expect(state.fillStyle).toBe('#fff')
-    expect(state.filter).toBe('none')
+    expect(ctx.fillStyle).toBe('#fff')
+    expect(ctx.filter).toBe('none')
+    expect(ctx.filters).toEqual(['blur(2px)', 'none'])
   })
 })

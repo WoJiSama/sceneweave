@@ -7,9 +7,7 @@ interface Slot { worker: Worker; busy: boolean; cancel?: () => void; idle?: Retu
 // Bound the worker count and active raster pixels independently of the outer
 // resource validator. Serialize canonical WASM work: overlapping or rapidly
 // replaced Windows WebKit instances can trap even for independently valid SVG.
-// Keep that one instance across the byte/pixel checks between raster tasks.
-// Those checks can exceed five seconds on large projects. No RGBA survives a
-// completed task; pagehide/cancellation release immediately, idle WASM after 1m.
+// No RGBA survives a completed task; idle WASM is released.
 const queue = new WeightedTaskQueue(1, 16_000_000), slots = new Set<Slot>()
 let generation = 0
 const release = (slot: Slot) => { clearTimeout(slot.idle); slot.worker.terminate(); slots.delete(slot) }
@@ -43,7 +41,7 @@ export async function rasterizeCanonicalSvgInWorker(input: NormalizedStaticSvg, 
       active.worker.onmessage = active.worker.onerror = active.worker.onmessageerror = null
       active.busy = false; active.cancel = undefined
       if (error) { release(active); reject(error) }
-      else { active.idle = setTimeout(() => release(active), 60_000); resolve(image!) }
+      else { active.idle = setTimeout(() => release(active), 5000); resolve(image!) }
     }
     const cancel = () => { try { checkCancelled(cancellation) } catch (error) { finish(error) } }
     // Flag-only cancellation is used by the resource queue. It must terminate

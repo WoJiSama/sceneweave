@@ -16,8 +16,12 @@ test('shared inward feather is invariant between full and cropped terrain views'
     const a = full.getContext('2d')!.getImageData(200, 200, 400, 300).data, b = crop.getContext('2d')!.getImageData(0, 0, 400, 300).data
     let changed = 0, maxDelta = 0
     for (let i = 3; i < a.length; i += 4) { const delta = Math.abs(a[i] - b[i]); if (delta) changed++; maxDelta = Math.max(maxDelta, delta) }
-    return { changed, maxDelta, cornerFull: a[3], cornerCrop: b[3] }
+    const pixels = full.getContext('2d')!.getImageData(0, 400, 1000, 1).data
+    const softLevels = new Set<number>()
+    for (let x = 110; x < 220; x++) if (pixels[x * 4 + 3] > 5 && pixels[x * 4 + 3] < 250) softLevels.add(pixels[x * 4 + 3])
+    return { changed, maxDelta, cornerFull: a[3], cornerCrop: b[3], softLevels: softLevels.size }
   })
   await writeFile(info.outputPath('mask-crop.json'), JSON.stringify(result, null, 2))
   expect(result.maxDelta).toBeLessThanOrEqual(1)
+  expect(result.softLevels).toBeGreaterThan(12)
 })
