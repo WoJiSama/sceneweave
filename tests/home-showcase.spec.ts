@@ -44,7 +44,7 @@ test('home showcase serves eight delivered archives and native images without wr
   await expect(page).toHaveURL(/#home$/)
   await expect(home(page).getByRole('button', { name: /查找旧工程|保全并转换|导入保全索引|转换旧个人素材库/ })).toHaveCount(0)
   await expect(page.getByTestId('preservation-files')).toHaveCount(0)
-  await expect(home(page)).toContainText('当前版本使用完整工程和统一工作区')
+  await expect(home(page).getByRole('status').filter({ hasText: '共 0 个工程' })).toBeVisible()
   const initialProjects = await storedProjects(page)
   expect(initialProjects).toEqual([])
   expect(Object.keys(showcaseManifest.entries).sort()).toEqual(sampleIds.toSorted())

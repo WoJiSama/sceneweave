@@ -1,8 +1,241 @@
+.home-header {
+  height: 76px;
+}
+
+.home-header-actions {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 2vw, 23px);
+}
+
+@media (max-width: 490px) {
+  .home-header-actions .home-local { display: none; }
+}
+
+.home-local {
+  color: #536450;
+  font-size: 12px;
+}
+
+.home-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(24px, 3.5vw, 52px);
+  margin-top: 26px;
+  padding: clamp(24px, 3vw, 44px);
+  border: 1px solid #d8dfcf;
+  border-radius: 14px;
+  background: linear-gradient(112deg, #fcfcf7 20%, #eaefdf);
+}
+
+.home-entry-copy h1 {
+  color: #263f32;
+  font-family: 'Songti SC', 'Noto Serif SC', STSong, 'SimSun', serif;
+  font-size: clamp(26px, 2.9vw, 42px);
+  font-weight: 700;
+  line-height: 1.28;
+  letter-spacing: .025em;
+}
+
+.home-entry-lead {
+  margin-top: 12px;
+  color: #4c6050;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.home-entry button.home-main-action {
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 46px;
+  padding: 10px 17px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.home-entry-copy > .home-main-action {
+  margin-top: 22px;
+}
+
+.home-other-actions {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  margin-top: 12px;
+}
+
+.home-other-actions button {
+  min-height: 44px;
+  padding: 6px 9px;
+  border-radius: 5px;
+  color: #3c5746;
+  font-weight: 500;
+}
+
+.home-current {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid #d0dbc8;
+  border-radius: 8px;
+  background: #edf2e7;
+}
+
+.home-current h2 {
+  margin: 3px 0;
+  font-size: 16px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.home-current-label,
+.home-current-status {
+  color: #50634e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.home-scene-preview {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid #bac7ad;
+  border-radius: 9px;
+  background: #f4f5eb;
+  box-shadow: 0 10px 24px #334b2920;
+}
+
+.home-scene-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  object-position: center 43%;
+  background: #e0e7d6;
+}
+
+.home-scene-preview figcaption {
+  padding: 8px 12px;
+  border-top: 1px solid #cdd6c3;
+  color: #4c6049;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.home-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 16px 0 34px;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #dce1d4;
+  border-radius: 8px;
+  background: #fcfcf7;
+}
+
+.home-steps li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 12px;
+  padding: 18px 22px;
+}
+
+.home-steps li + li {
+  border-inline-start: 1px solid #dce1d4;
+}
+
+.home-steps svg {
+  margin-top: 2px;
+  color: #497052;
+}
+
+.home-steps h2 {
+  margin-bottom: 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.home-steps p,
+.home-footer p {
+  color: #516251;
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.home-footer h2 {
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+
+.home-footer p + p {
+  margin-top: 5px;
+}
+
 .home-project-identity { display: block; color: #75846c; font-size: 10px; margin-top: 4px; }
 .home-project-id { margin-top: 6px; font-size: 10px; color: #75846c; }
 .home-project-id summary { cursor: pointer; }
 .home-project-id small { overflow-wrap: anywhere; white-space: normal; }
 .home-list-tools { flex-wrap: wrap; }
 .home-list-tools label { min-width: 0; }
-.home-continue h2 { overflow-wrap: anywhere; }
-@media (max-width: 760px) { .home-continue { flex-wrap: wrap; } .home-continue > div { min-width: 0; } }
+.home-empty { color: #576852; }
+
+@media (max-width: 760px) {
+  .home-header {
+    height: 62px;
+  }
+
+  .home-local {
+    font-size: 11px;
+  }
+
+  .home-entry {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    margin-top: 16px;
+    padding: 17px;
+  }
+
+  .home-entry-lead {
+    margin-top: 8px;
+    font-size: 14px;
+  }
+
+  .home-entry-copy > .home-main-action {
+    width: 100%;
+    margin-top: 17px;
+  }
+
+  .home-other-actions {
+    margin-top: 7px;
+  }
+
+  .home-current {
+    flex-direction: column;
+    align-items: stretch;
+    margin-top: 16px;
+  }
+
+  .home-scene-preview img {
+    aspect-ratio: 5 / 2;
+  }
+
+  .home-steps {
+    grid-template-columns: minmax(0, 1fr);
+    margin-bottom: 25px;
+  }
+
+  .home-steps li {
+    padding: 12px 16px;
+  }
+
+  .home-steps li + li {
+    border-inline-start: 0;
+    border-top: 1px solid #dce1d4;
+  }
+}

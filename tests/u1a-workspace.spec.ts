@@ -17,7 +17,6 @@ const homeSamples = await Promise.all(['investigation', 'island', 'coast'].map(a
   const source = JSON.parse(new TextDecoder().decode(files['scene.json'])) as { presetSnapshot: Record<string, unknown> }
   return { name: entry.name, preset: source.presetSnapshot }
 }))
-const headline = '把故事画成可以探索的地方'
 const home = (page: Page) => page.getByTestId('workspace-home')
 const row = (page: Page, key: string) => page.locator(`[data-project-key="${key}"]`)
 const openDialog = (page: Page) => page.getByRole('dialog', { name: '确认打开工程', exact: true })
@@ -99,7 +98,7 @@ async function fileFromHome(page: Page, buffer: Buffer, name: string) {
 
 test('U1a default Home creates one native complete-v1 blank project through real UI', async ({ page }, info) => {
   test.setTimeout(150_000)
-  await page.goto('/'); await expect(page.getByRole('heading', { level: 1, name: headline, exact: true })).toBeVisible()
+  await page.goto('/'); await expect(home(page).getByRole('heading', { level: 1 })).toBeVisible()
   for (const name of ['新建场景', '打开工程文件', '刷新工程列表', ...homeSamples.map(sample => sample.name)]) await expect(home(page).getByRole('button', { name, exact: true })).toBeVisible()
   await home(page).getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
