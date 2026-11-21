@@ -54,6 +54,8 @@ describe('native complete-v1 member and batch selection', () => {
     const scene = checked.document, original = structuredClone(scene.prefabInstances.group)
     expect(() => selectionCommands(scene, ['left'], 'copy')).toThrow(/独立物件/)
     expect(selectionCommands(scene, ['left'], 'move', { dx: 25, dy: -50 })).toEqual([{ type: 'updateProp', id: 'left', changes: { positionMm: { x: 6025, y: 3950 } } }])
+    expect(selectionCommands(scene, ['left'], 'delete')).toEqual([{ type: 'deleteProp', id: 'left' }])
+    expect(selectionCommands(scene, ['group'], 'delete')).toEqual([{ type: 'deletePrefab', id: 'group', memberIds: ['left', 'right'] }])
     expect(selectionActionReason(scene, Array.from({ length: 257 }, () => 'left'), 'move')).toMatch(/256/)
     expect(scene.prefabInstances.group).toEqual(original)
   })

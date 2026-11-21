@@ -10,7 +10,8 @@ const capabilityLabels: Record<WorkflowRequirement, string> = {
   'forest-parameters': '准备林中建筑参数', 'forest-generation': '生成林中建筑', 'project-preview': '查看工程候选',
   'project-delivery': '保存与交付工程', 'draft-read': '读取授权草稿', 'draft-edit': '修改授权草稿',
   'draft-check': '检查草稿', 'page-adopt': '审阅并采用', 'image-read': '读取原图与断点',
-  'image-select': '选区、切割与补底', 'image-preview': '查看物件预览', 'image-build': '保全工作包与工程', 'asset-refine': '优化素材候选',
+  'image-select': '选区与切割', 'image-preview': '查看物件预览', 'image-build': '保全工作包与工程',
+  'image-repair': '修正图片补底', 'image-repair-analysis': '检查图片补底', 'image-surface-refine': '细修地面外观', 'asset-refine': '优化素材候选',
   'ocean-generation': '生成静态海洋候选', 'floor-navigation': '关联楼层入口与定位',
 }
 
@@ -33,7 +34,7 @@ export default function WorkflowGuide({ workflowId, host = pageWorkflowHost(), o
     <ul aria-label="当前可用能力">{selected.capabilities.map(value => <li key={value.id}><strong>{capabilityLabels[value.id]}</strong> · {labels[value.state]}<br/>{value.entry}<br/>{value.reason}</li>)}</ul>
     <details><summary>步骤与完成依据</summary><ol>{definition.steps.map(step => <li key={step.id}>
       <button type="button" className="secondary" aria-expanded={detail?.id === step.id} onClick={() => setStepId(detail?.id === step.id ? null : step.id)}>{step.title}</button>
-      {detail?.id === step.id && <><p>{step.instructions}</p><p className="asset-muted">完成依据：{step.produces}</p></>}
+      {detail?.id === step.id && <><p className="workflow-step-instructions">{step.instructions}</p><p className="asset-muted">完成依据：{step.produces}</p></>}
     </li>)}</ol></details>
     <details aria-label="工作流效果依据"><summary>效果依据与已知限制</summary>{definition.effects.map(effect => <article key={effect.id}>
       <p><strong>{effectLabels[effect.status]}</strong> · {effect.summary}</p>

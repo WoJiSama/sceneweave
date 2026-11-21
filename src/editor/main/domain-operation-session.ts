@@ -96,7 +96,7 @@ export class DomainOperationSession<M extends object> {
     return state.phase === 'idle' ? null : { domain, phase: state.phase }
   }
 
-  async run<K extends keyof M>(domain: K, prepare: (lease: DomainOperationLease) => Promise<M[K]>): Promise<M[K] | null> {
+  async run<K extends keyof M>(domain: K, prepare: (lease: DomainOperationLease) => Promise<M[K] | null>): Promise<M[K] | null> {
     const state = this.snapshot[domain]
     if (state.phase === 'preparing' || state.phase === 'adopting') return null
     if (this.summary(domain).blocking) {
@@ -113,12 +113,12 @@ export class DomainOperationSession<M extends object> {
     try {
       const preview = await prepare(lease)
       if (!current()) {
-        this.options.release[domain](preview)
+        if (preview !== null) this.options.release[domain](preview)
         if (this.attempts.get(domain) === attempt) this.cancel(domain)
         return null
       }
       this.attempts.delete(domain)
-      this.set(domain, { phase: 'review', preview, resetKey: state.resetKey, error: null })
+      this.set(domain, preview === null ? idle(state.resetKey) : { phase: 'review', preview, resetKey: state.resetKey, error: null })
       return preview
     } catch (error) {
       if (current()) {

@@ -18,6 +18,21 @@ export function attachmentOwnerDependencyIds(scene: AttachmentScene, ownerId: st
   return expandDependencyIds(scene, new Set([ownerId]))
 }
 
+export function followingAttachmentProps(scene: AttachmentScene, ownerId: string): Set<string> {
+  const children = new Map<string, string[]>()
+  for (const row of Object.values(scene.attachments ?? {})) {
+    if (row.mode === 'embed' || row.follow !== 'follow') continue
+    const owner = scene.attachmentSurfaces?.[row.surfaceId]?.owner.id
+    if (owner) children.set(owner, [...(children.get(owner) ?? []), row.child.id])
+  }
+  const result = new Set<string>(), queue = [ownerId]
+  for (const owner of queue) for (const child of children.get(owner) ?? []) if (!result.has(child) && child !== ownerId) {
+    result.add(child)
+    queue.push(child)
+  }
+  return result
+}
+
 function expandDependencyIds(scene: AttachmentScene, ids: Set<string>): string[] {
   const add = (id: string | undefined) => { if (id) ids.add(id) }
   let more = true
@@ -51,10 +66,10 @@ function expandDependencyIds(scene: AttachmentScene, ids: Set<string>): string[]
   }
   return [...ids].sort()
 }
-export function assertAttachmentLocks(scene: AttachmentScene, ids: readonly string[]): void {
+export function assertAttachmentLocks(scene: AttachmentScene, ids: readonly string[], carriedPropIds?: ReadonlySet<string>): void {
   const locked = new Set<string>()
   const collections = ['props', 'rooms', 'walls', 'vertices', 'openings', 'terrainAreas', 'terrainEdges', 'terrainConnections', 'paths', 'notes', 'prefabInstances', 'scatterGroups', 'decorations', 'decorationClusters', 'surfaceRules', 'userLayers'] as const
   for (const collection of collections) for (const value of Object.values(scene[collection] ?? {})) if (value.editLocked) locked.add(value.id)
   for (const value of Object.values(scene.aggregateCoordinates?.groups ?? {})) if (value.editLocked) locked.add(value.id)
-  for (const id of ids) if (locked.has(id) || scene.userLayers[scene.entityLayers[id]]?.editLocked) throw new Error(`附着涉及锁定实体、图层或递归依赖：${id}。`)
+  for (const id of ids) if (locked.has(id) && !carriedPropIds?.has(id) || scene.userLayers[scene.entityLayers[id]]?.editLocked) throw new Error(`附着涉及锁定实体、图层或递归依赖：${id}。`)
 }

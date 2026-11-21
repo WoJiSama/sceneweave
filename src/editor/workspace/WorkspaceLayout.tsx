@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Columns3, PanelLeft, PanelRight, SlidersHorizontal } from 'lucide-react'
+import { Columns3, GripVertical, PanelLeft, PanelRight, SlidersHorizontal } from 'lucide-react'
 import {
   clampWorkspacePanelWidth, DEFAULT_WORKSPACE_LAYOUT, loadWorkspaceLayout, resolveWorkspaceWidths,
   saveWorkspaceLayout, WORKSPACE_LAYOUT_LIMITS, WORKSPACE_NARROW_WIDTH,
@@ -61,6 +61,8 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   const triggers = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const closeButtons = useRef<Partial<Record<Panel, HTMLButtonElement | null>>>({})
   const drag = useRef<{ pointerId: number; side: ResizeSide; x: number; width: number } | null>(null)
+  const dockDrag = useRef<{ pointerId: number; x: number } | null>(null)
+  const [dockOverOtherSide, setDockOverOtherSide] = useState(false)
   const lastPanelFocus = useRef<HTMLElement | null>(null)
   const drawerReturnFocus = useRef<HTMLElement | null>(null)
   const pendingPanelFocus = useRef<Panel | null>(null)
@@ -71,6 +73,9 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   const currentDrawer = useRef(drawer)
   currentDrawer.current = drawer
   const widths = resolveWorkspaceWidths(preferences, hostWidth)
+  const swapped = preferences.panelsSwapped === true
+  const onLeft = (panel: Panel) => (panel === 'resources') !== swapped
+  const resizeDirection = (side: ResizeSide) => onLeft(side === 'resources' ? 'resources' : 'inspector') ? 1 : -1
   const visible = (panel: Panel) => narrow ? drawer === panel : !preferences[collapsedKeys[panel]]
   const resourcesVisible = visible('resources')
   const panelRef = (panel: Panel) => panel === 'resources' ? resourcePanel : inspectorPanel
@@ -288,7 +293,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   const moveResize = (event: PointerEvent<HTMLDivElement>) => {
     const current = drag.current
     if (!current || current.pointerId !== event.pointerId) return
-    changeWidth(current.side, current.width + (event.clientX - current.x) * (current.side === 'resources' ? 1 : -1))
+    changeWidth(current.side, current.width + (event.clientX - current.x) * resizeDirection(current.side))
   }
   const endResize = (event: PointerEvent<HTMLDivElement>) => {
     if (drag.current?.pointerId !== event.pointerId) return
@@ -298,7 +303,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   }
   const resizeKey = (event: KeyboardEvent<HTMLDivElement>, side: ResizeSide) => {
     const step = event.shiftKey ? 40 : 10
-    const direction = side === 'resources' ? 1 : -1
+    const direction = resizeDirection(side)
     const requested = event.key === 'Home' ? WORKSPACE_LAYOUT_LIMITS[side].min : event.key === 'End' ? maximumWidth(side) :
       event.key === 'ArrowLeft' ? widths[side] - step * direction : event.key === 'ArrowRight' ? widths[side] + step * direction : null
     if (requested === null) return
@@ -307,7 +312,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     changeWidth(side, requested)
   }
 
-  const renderSeparator = (side: ResizeSide, hidden: boolean) => <div className="workspace-resizer" data-side={side}
+  const renderSeparator = (side: ResizeSide, hidden: boolean) => <div key={`resize-${side}`} className="workspace-resizer" data-side={side}
     role="separator" aria-label={side === 'resources' ? '调整内容面板宽度' : '调整当前详情宽度'} aria-orientation="vertical"
     aria-controls={`${layoutId}-${side === 'resources' ? 'resources' : 'inspector'}`} aria-valuemin={WORKSPACE_LAYOUT_LIMITS[side].min}
     aria-valuemax={maximumWidth(side)} aria-valuenow={widths[side]} aria-valuetext={`${widths[side]} 像素`}
@@ -316,12 +321,35 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
     onPointerUp={endResize} onPointerCancel={endResize} onLostPointerCapture={() => { drag.current = null; setResizing(null) }}
     onKeyDown={event => resizeKey(event, side)}/>
 
+  const swapPanels = () => setPreferences(current => {
+    const { panelsSwapped, ...layout } = current
+    return panelsSwapped ? layout : { ...layout, panelsSwapped: true }
+  })
+  const crossedCanvas = (x: number, panel: Panel) => {
+    const body = host.current?.querySelector('.workspace-canvas')?.getBoundingClientRect()
+    return !!body && (x > body.left + body.width / 2) === onLeft(panel)
+  }
+  const cancelDock = () => { dockDrag.current = null; setDockOverOtherSide(false) }
   const panelHeader = (panel: Panel) => <div className="workspace-panel-header">
+    {!narrow && visible(panel) && <button type="button" className="workspace-dock-handle" aria-label={`将${panelLabels[panel]}停靠到${onLeft(panel) ? '右侧' : '左侧'}`}
+      title="拖到画布另一侧交换侧栏位置" onClick={event => { if (!event.detail) swapPanels() }}
+      onPointerDown={event => {
+        if (event.button !== 0) return
+        dockDrag.current = { pointerId: event.pointerId, x: event.clientX }
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }} onPointerMove={event => {
+        if (dockDrag.current?.pointerId === event.pointerId) setDockOverOtherSide(crossedCanvas(event.clientX, panel))
+      }} onPointerUp={event => {
+        const dragging = dockDrag.current
+        if (dragging?.pointerId !== event.pointerId) return
+        cancelDock()
+        if (Math.abs(event.clientX - dragging.x) < 6 || crossedCanvas(event.clientX, panel)) swapPanels()
+      }} onPointerCancel={cancelDock} onLostPointerCapture={cancelDock}><GripVertical size={14} aria-hidden="true"/></button>}
     <h2>{panel === 'resources' ? resourceLabel : inspectorTitle ?? panelLabels.inspector}</h2>
     <button type="button" ref={element => { closeButtons.current[panel] = element }}
       aria-label={`${narrow ? '关闭' : visible(panel) ? '折叠' : '展开'}${panelLabels[panel]}`} aria-expanded={visible(panel)}
       aria-controls={`${layoutId}-${panel}-content`} onClick={() => togglePanel(panel)}>
-      <span aria-hidden="true">{narrow ? '×' : (panel === 'resources') === visible(panel) ? '‹' : '›'}</span>
+      <span aria-hidden="true">{narrow ? '×' : onLeft(panel) === visible(panel) ? '‹' : '›'}</span>
     </button>
   </div>
 
@@ -372,7 +400,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
         data-layout-panel={panel}
         ref={element => { triggers.current[panel] = element }} aria-expanded={visible(panel)} aria-controls={`${layoutId}-${panel}`}
         aria-label={panelLabels[panel]} title={panelLabels[panel]} onClick={() => togglePanel(panel)}>
-        {panel === 'resources' ? <PanelLeft size={16} aria-hidden="true"/> : <PanelRight size={16} aria-hidden="true"/>}<span>{panelLabels[panel]}</span></button>)}
+        {onLeft(panel) ? <PanelLeft size={16} aria-hidden="true"/> : <PanelRight size={16} aria-hidden="true"/>}<span>{panelLabels[panel]}</span></button>)}
       <span className="workspace-layout-spacer"/>
       <details className="workspace-layout-settings" ref={layoutSettings} onKeyDown={event => {
         if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !event.currentTarget.open) return
@@ -387,10 +415,23 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
       </details>
       {!persistent && <span className="workspace-layout-storage" role="status">布局仅在本次会话生效</span>}
     </div>
-  const style = { '--workspace-resources-width': `${widths.resources}px`, '--workspace-details-width': `${widths.details}px` } as CSSProperties
+  const style = { '--workspace-left-width': `${swapped ? widths.details : widths.resources}px`, '--workspace-right-width': `${swapped ? widths.resources : widths.details}px` } as CSSProperties
+  const resourcesPane = <section key="resources" id={`${layoutId}-resources`} ref={resourcePanel} className="workspace-panel workspace-resources" data-testid="workspace-resources"
+    aria-label={resourceLabel} data-open={resourcesVisible} data-collapsed={!resourcesVisible} data-dock={onLeft('resources') ? 'left' : 'right'}
+    inert={narrow && !resourcesVisible} aria-hidden={narrow && !resourcesVisible || undefined}>
+    {panelHeader('resources')}
+    <div ref={resourceBody} id={`${layoutId}-resources-content`} className="workspace-panel-body" hidden={!resourcesVisible} inert={!resourcesVisible}
+      onScroll={event => { if (resourcesVisible) moduleScroll.current.set(activeModule, event.currentTarget.scrollTop) }}>{resources}</div>
+  </section>
+  const inspectorPane = <section key="details" id={`${layoutId}-inspector`} ref={inspectorPanel} className="workspace-panel workspace-inspector" data-testid="workspace-inspector"
+    aria-label={`${inspectorTitle ?? panelLabels.inspector}面板`} data-open={visible('inspector')} data-collapsed={!visible('inspector')} data-dock={onLeft('inspector') ? 'left' : 'right'}
+    inert={narrow && !visible('inspector')} aria-hidden={narrow && !visible('inspector') || undefined}>
+    {panelHeader('inspector')}
+    <div id={`${layoutId}-inspector-content`} className="workspace-panel-body" hidden={!visible('inspector')} inert={!visible('inspector')}>{inspector}</div>
+  </section>
   return <div className="workspace-layout" ref={host} style={style} data-testid="workspace-layout" data-narrow={narrow}
     data-compact={compact} data-map-options-open={compact && mapOptionsOpen}
-    data-resizing={resizing ?? undefined} onKeyDown={drawerKey} onFocusCapture={event => {
+    data-resizing={resizing ?? undefined} data-dock-target={dockOverOtherSide ? 'true' : undefined} onKeyDown={drawerKey} onFocusCapture={event => {
       const target = event.target as HTMLElement
       lastPanelFocus.current = panels.some(panel => panelRef(panel).current?.contains(target)) ? target : null
     }}>
@@ -404,14 +445,8 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
           {modules.filter(module => module.group === 'utility').map(renderModule)}
         </div>}
       </nav>
-      <section id={`${layoutId}-resources`} ref={resourcePanel} className="workspace-panel workspace-resources" data-testid="workspace-resources"
-        aria-label={resourceLabel} data-open={resourcesVisible} data-collapsed={!resourcesVisible}
-        inert={narrow && !resourcesVisible} aria-hidden={narrow && !resourcesVisible || undefined}>
-        {panelHeader('resources')}
-        <div ref={resourceBody} id={`${layoutId}-resources-content`} className="workspace-panel-body" hidden={!resourcesVisible} inert={!resourcesVisible}
-          onScroll={event => { if (resourcesVisible) moduleScroll.current.set(activeModule, event.currentTarget.scrollTop) }}>{resources}</div>
-      </section>
-      {renderSeparator('resources', preferences.resourcesCollapsed)}
+      {swapped ? inspectorPane : resourcesPane}
+      {swapped ? renderSeparator('details', preferences.inspectorCollapsed) : renderSeparator('resources', preferences.resourcesCollapsed)}
       <section className="workspace-canvas" aria-label="场景画布" onKeyDown={event => {
         if (event.key === 'Escape') mapOptionsKey(event)
         else toolbarKey(event)
@@ -427,13 +462,8 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
         </div>
         {children}
       </section>
-      {renderSeparator('details', preferences.inspectorCollapsed)}
-      <section id={`${layoutId}-inspector`} ref={inspectorPanel} className="workspace-panel workspace-inspector" data-testid="workspace-inspector"
-        aria-label={`${inspectorTitle ?? panelLabels.inspector}面板`} data-open={visible('inspector')} data-collapsed={!visible('inspector')}
-        inert={narrow && !visible('inspector')} aria-hidden={narrow && !visible('inspector') || undefined}>
-        {panelHeader('inspector')}
-        <div id={`${layoutId}-inspector-content`} className="workspace-panel-body" hidden={!visible('inspector')} inert={!visible('inspector')}>{inspector}</div>
-      </section>
+      {swapped ? renderSeparator('resources', preferences.resourcesCollapsed) : renderSeparator('details', preferences.inspectorCollapsed)}
+      {swapped ? resourcesPane : inspectorPane}
     </div>
     <footer className="workspace-footer">{footer}</footer>
   </div>

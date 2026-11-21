@@ -32,3 +32,15 @@
 .outpost-building { left: 23%; top: 25%; width: 34%; height: 31%; background: linear-gradient(90deg, #bda786 60%, #7f7662 60%, #7f7662 64%, #b3ae96 64%); border: 3px solid #616658; }
 .outpost-beacon { left: 80%; top: 42%; width: 6px; height: 6px; border-radius: 50%; background: #d0b66e; box-shadow: 0 0 0 4px #727966; }
 @media (max-width: 700px) { .outdoor-panel, .outdoor-inspector { padding: 14px; } }
+
+.line-style-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: .5rem 0;
+  border: 1px solid #8d91934d;
+  border-radius: .5rem;
+  background: #263136;
+}
+.line-style-manager { display: grid; gap: .6rem; }
+.line-style-routes { display: grid; gap: .45rem; max-height: 16rem; overflow: auto; margin-block: .5rem; }

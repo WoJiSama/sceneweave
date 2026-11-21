@@ -3,7 +3,11 @@ import type { MixedPreview } from '../../application/workspace/workspace.js'
 import type { SemanticGenerationRequest } from '../../shared/generation/semantic-request.js'
 import type { AiConnection } from './AiConversationPanel.js'
 import { safeAiError } from '../../platform/browser/ai/client.js'
-import type { ForestLoopCandidate, ForestLoopObserver, ForestLoopOutcome } from '../../platform/browser/ai/forest-loop.js'
+import { FOREST_USER_STOP, forestLoopOutcome, lookupForestDecisions, type ForestLoopCandidate,
+  type ForestLoopObserver, type ForestLoopOutcome } from '../../platform/browser/ai/forest-loop.js'
+import { forestLoopStore, type StoredForestLoop } from '../../platform/browser/ai/forest-loop-store.js'
+import { assertWorkflowBinding } from '../../shared/ai/workflows/catalog.js'
+import { canonicalJson } from '../../shared/validation/json.js'
 import type { FurnitureRejectionReason } from '../../shared/generation/forest-furniture-contract.js'
 
 const roles = { bed: '床', seat: '座椅', table: '桌子', storage: '储物', work: '工作台', hearth: '炉灶', shelf: '置物架' }
@@ -16,7 +20,8 @@ const rejectionLabels: Record<FurnitureRejectionReason, string> = {
   circulation: '无法保持完整通路净宽', 'furniture-access': '家具使用位置不可达',
 }
 
-export type RunForestLoop = (request: SemanticGenerationRequest, observer: ForestLoopObserver<MixedPreview>, signal: AbortSignal) => Promise<ForestLoopOutcome<MixedPreview> | null>
+type ForestLoopCommand = { kind: 'start'; request: SemanticGenerationRequest } | { kind: 'review' | 'resume'; runId: string; revision: number }
+export type RunForestLoop = (command: ForestLoopCommand, observer: ForestLoopObserver<MixedPreview>, signal: AbortSignal) => Promise<ForestLoopOutcome<MixedPreview> | null>
 
 function CandidateCard({ value, index, selected }: { value: ForestLoopCandidate<MixedPreview>; index: number; selected: boolean }) {
   const [imageUrl, setImageUrl] = useState(''), [archiveUrl, setArchiveUrl] = useState('')
@@ -50,64 +55,99 @@ export default function ForestLoopAssistant({ connection, request, unavailableRe
   connection: AiConnection | null; request: SemanticGenerationRequest | null; unavailableReason: string | null
   disabled: boolean; onRun: RunForestLoop
 }) {
-  const [approved, setApproved] = useState(false), [running, setRunning] = useState(false)
-  const [outcome, setOutcome] = useState<ForestLoopOutcome<MixedPreview> | null>(null), [error, setError] = useState('')
-  const [checking, setChecking] = useState(false)
-  const controller = useRef<AbortController | null>(null), mounted = useRef(true), epoch = useRef(0)
-  const connectionRef = useRef(connection); connectionRef.current = connection
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; controller.current?.abort() } }, [])
+  const [saved, setSaved] = useState<StoredForestLoop | null>()
+  const [storeError, setStoreError] = useState('')
+  const [approved, setApproved] = useState(false)
+  const [operation, setOperation] = useState<'review' | 'start' | 'resume' | 'lookup' | 'archive' | null>(null)
+  const [result, setResult] = useState<ForestLoopOutcome<MixedPreview> | null>(null), [error, setError] = useState('')
+  const controller = useRef<AbortController | null>(null)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    const subscription = forestLoopStore.observe(setSaved, failure => setStoreError(safeAiError(failure)))
+    return () => { mounted.current = false; controller.current?.abort(); subscription.unsubscribe() }
+  }, [])
   useEffect(() => { controller.current?.abort(); setApproved(false) }, [connection?.client])
-  const start = async () => {
-    if (!approved || !connection || !request || unavailableReason || disabled || running || outcome) return
-    const abort = new AbortController(), operation = ++epoch.current
-    controller.current = abort; setRunning(true); setError(''); setApproved(false)
-    try {
-      const result = await onRun(request, value => { if (mounted.current && epoch.current === operation) setOutcome(value) }, abort.signal)
-      if (mounted.current && epoch.current === operation && result) setOutcome(result)
-    } catch (failure) {
-      if (mounted.current && epoch.current === operation) setError(failure instanceof Error ? failure.message : '本轮未完成，当前工程保留。')
-    } finally {
-      if (mounted.current && epoch.current === operation) setRunning(false)
+  useEffect(() => { setApproved(false) }, [request?.parameters.seed])
+  const running = operation === 'start' || operation === 'resume'
+  const sameRun = saved && result?.state.runId === saved.checkpoint.state.runId
+  const outcome = running && result ? result : saved ? forestLoopOutcome(saved.checkpoint,
+    sameRun ? result.candidates.filter(value => saved.checkpoint.state.receipts.some(receipt => receipt.candidateId === value.receipt.candidateId)) : [],
+    sameRun ? result.notice : null) : null
+  const sameEndpoint = !!connection && connection.client.baseUrl === saved?.endpoint
+  const run = async (kind: NonNullable<typeof operation>, work: (signal: AbortSignal) => Promise<void>) => {
+    if (controller.current) return
+    const abort = new AbortController()
+    controller.current = abort; setOperation(kind); setError(''); setApproved(false)
+    try { await work(abort.signal) }
+    catch (failure) { if (mounted.current && !abort.signal.aborted) setError(failure instanceof Error ? failure.message : '无法读取或保存本轮断点。') }
+    finally {
       if (controller.current === abort) controller.current = null
+      if (mounted.current) setOperation(null)
     }
   }
-  const lookup = async () => {
-    if (!outcome || !connection || running || checking) return
-    const client = connection.client; setChecking(true); setError('')
-    try {
-      const decisions = []
-      for (const record of outcome.decisions) {
-        const snapshot = record.taskId ? await client.snapshot(record.taskId) : await client.findByClientRequestId(record.clientRequestId)
-        if (connectionRef.current?.client !== client || !mounted.current) return
-        if (!snapshot || snapshot.clientRequestId !== record.clientRequestId) { decisions.push(record); continue }
-        decisions.push({ ...record, taskId: snapshot.id, requests: snapshot.usage.requests,
-          inputTokens: snapshot.usage.inputTokens, outputTokens: snapshot.usage.outputTokens,
-          unknown: snapshot.usage.unknown || !['completed', 'failed', 'cancelled'].includes(snapshot.status) })
-      }
-      const updated = { ...outcome, decisions, requests: decisions.reduce((sum, value) => sum + value.requests, 0),
-        inputTokens: decisions.some(value => value.inputTokens === null) ? null : decisions.reduce((sum, value) => sum + value.inputTokens!, 0),
-        outputTokens: decisions.some(value => value.outputTokens === null) ? null : decisions.reduce((sum, value) => sum + value.outputTokens!, 0),
-        unknown: decisions.some(value => value.unknown) }
-      setOutcome(updated)
-    } catch (failure) { if (mounted.current) setError(safeAiError(failure)) }
-    finally { if (mounted.current) setChecking(false) }
+  const execute = (command: ForestLoopCommand) => run(command.kind, async signal => {
+    const update = (value: ForestLoopOutcome<MixedPreview>) => { if (mounted.current) setResult(value) }
+    const next = await onRun(command, update, signal)
+    if (next) update(next)
+  })
+  const openSaved = (kind: 'review' | 'resume') => {
+    if (saved && !disabled && (kind === 'review' || sameEndpoint)) void execute({ kind, runId: saved.checkpoint.state.runId, revision: saved.revision })
   }
+  const lookup = () => {
+    if (!saved || !connection || !sameEndpoint) return
+    void run('lookup', signal => forestLoopStore.exclusive(async () => {
+      const current = await forestLoopStore.active()
+      if (!current || current.checkpoint.state.runId !== saved.checkpoint.state.runId || current.revision !== saved.revision) {
+        throw new Error('林中建筑断点已变化，请重新读取后继续。')
+      }
+      const next = await lookupForestDecisions(current.checkpoint, current.workflow, connection.client, signal)
+      if (canonicalJson(next) !== canonicalJson(current.checkpoint)) await forestLoopStore.commit(current, next, undefined, signal)
+      if (mounted.current) setResult(previous => previous && { ...previous, notice: null })
+    }))
+  }
+  const archive = () => {
+    if (!saved || outcome?.unknown) return
+    void run('archive', signal => forestLoopStore.exclusive(async () => {
+      signal.throwIfAborted()
+      await forestLoopStore.archive(saved.checkpoint.state.runId, saved.revision)
+      if (mounted.current) setResult(null)
+    }))
+  }
+  let bindingError = ''
+  if (saved) {
+    try { assertWorkflowBinding(saved.workflow) }
+    catch (failure) { bindingError = failure instanceof Error ? failure.message : '无法读取本轮流程定义。' }
+  }
+  const canContinue = outcome?.state.status === 'ready' || outcome?.state.status === 'generating'
+  const waiting = outcome?.decisions.at(-1)?.action === null && (canContinue || outcome.unknown)
   return <details className="workspace-detail-disclosure" aria-label="林中建筑自动候选闭环">
     <summary>让模型比较候选并调整</summary>
-    <p>模型读取逐房家具目标、实际数量和摆位受阻原因，选择换种子或修正指定房间，再交给你审阅。连续无改善时停止尝试；尺寸、房间数、用途、家具和植被目标保持。</p>
-    {!connection && <p className="asset-muted">请先到「AI」连接后端，再返回这里开始。</p>}
-    {unavailableReason && <p role="status">{unavailableReason}</p>}
-    {!outcome && <><label className="volcano-check"><input aria-label="允许本轮有限自动候选" type="checkbox" checked={approved} disabled={disabled || running} onChange={event => setApproved(event.target.checked)}/>
-      允许本轮最多3次本机生成或家具修正、4次模型决策，最终由我审阅保存</label>
-      <button type="button" className="secondary asset-wide" disabled={!connection || !request || !!unavailableReason || disabled || running || !approved} onClick={() => void start()}>开始自动候选比较</button></>}
-    {running && <button type="button" className="secondary asset-wide" onClick={() => controller.current?.abort()}>停止自动比较并保留候选</button>}
-    {error && <p role="alert" className="asset-error">{error}</p>}
-    {outcome && <section aria-label="自动候选真实进度" aria-live="polite">
-      <p>{running ? outcome.state.status === 'generating' ? '本机正在生成并校验候选…' : '模型正在根据当前状态选择下一动作…'
-        : outcome.state.status === 'finished' ? '模型已完成比较，候选等待你审阅保存。' : outcome.state.stopReason ?? '本轮已结束，已有候选保留。'}</p>
-      <p>累计生成或修正 {outcome.state.attemptsUsed}/3次 · 模型决策 {outcome.decisions.length}/4次 · 实际模型请求 {outcome.requests}次</p>
-      <p>输入 {outcome.inputTokens ?? '未知'} / 输出 {outcome.outputTokens ?? '未知'} token · 已用 {(outcome.elapsedMs / 1000).toFixed(1)}秒</p>
-      {outcome.unknown && <p>原模型请求仍有未确认项，停止自动执行；不会重发或开始新一轮。</p>}
+    <p>模型比较逐房家具目标、实际数量和摆位受阻原因。你可以查看完整候选，再决定保存为新工程。</p>
+    {!connection && <p className="asset-muted">开始或继续模型决策前，请在「AI」连接后端。</p>}
+    {connection && saved && !sameEndpoint && <p role="status">请连接本轮使用的 AI 后端 {saved.endpoint}。</p>}
+    {saved === undefined && !storeError && <p role="status">正在读取本机断点…</p>}
+    {saved === null && !running && <>
+      {unavailableReason && <p role="status">{unavailableReason}</p>}
+      <label className="volcano-check"><input aria-label="允许本轮有限自动候选" type="checkbox" checked={approved} disabled={disabled || !!operation} onChange={event => setApproved(event.target.checked)}/>
+        允许本轮最多3次生成或家具修正、4次模型决策，最终由我审阅保存</label>
+      <button type="button" className="secondary asset-wide" disabled={!connection || !request || !!unavailableReason || disabled || !!operation || !approved}
+        onClick={() => { if (request && approved) void execute({ kind: 'start', request }) }}>开始自动候选比较</button>
+    </>}
+    {running && <button type="button" className="secondary asset-wide" onClick={() => controller.current?.abort(FOREST_USER_STOP)}>停止自动比较并保留候选</button>}
+    {(error || storeError || bindingError) && <p role="alert" className="asset-error">{error || storeError || bindingError}</p>}
+    {saved && outcome && <section aria-label="自动候选真实进度" aria-live="polite">
+      {operation === 'review' && <p role="status">正在冷读完整候选工程并恢复预览…</p>}
+      <p>{running ? outcome.state.status === 'generating' ? '本机正在生成并校验候选…' : '正在处理本轮模型决策…'
+        : outcome.state.status === 'finished' ? '模型已选定候选，等待你审阅或保存。'
+        : outcome.state.status === 'stopped' ? outcome.state.stopReason : '本机断点可接续。'}</p>
+      {outcome.notice && !running && <p role="status">{outcome.notice}</p>}
+      <p>{outcome.state.request.parameters.title} · {outcome.state.request.parameters.widthMm / 1000} × {outcome.state.request.parameters.heightMm / 1000} 米 · {outcome.state.request.parameters.roomCount} 个房间 · {outcome.state.request.parameters.purpose}</p>
+      <p>候选 {outcome.state.receipts.length} 个 · 已用生成与修正 {outcome.state.attemptsUsed}/{outcome.state.limits.maxCandidates} 次 · 模型决策已占用 {outcome.decisions.length}/{outcome.state.limits.maxDecisions} 次</p>
+      <p>已记录模型请求 {outcome.requests} 次 · 输入 {outcome.inputTokens ?? '未知'} / 输出 {outcome.outputTokens ?? '未知'} token · 已用 {(outcome.elapsedMs / 1000).toFixed(1)} 秒</p>
+      {outcome.unknown && <p>原模型请求仍有未确认项。继续时先查询原请求。</p>}
+      {!operation && outcome.state.receipts.length > 0 && <button type="button" className="secondary asset-wide" disabled={disabled} onClick={() => openSaved('review')}>恢复候选预览</button>}
+      {!operation && canContinue && <button type="button" className="secondary asset-wide" disabled={disabled || !sameEndpoint || !!bindingError} onClick={() => openSaved('resume')}>继续本轮并使用剩余模型额度</button>}
       <details><summary>查看模型决策与原任务记录</summary><ol>{outcome.decisions.map(record => <li key={record.clientRequestId}>
         {record.action ? `${record.action.kind === 'generate' ? '生成候选' : record.action.kind === 'repair-furniture' ? '修正指定房间家具' : '结束并选择'}：${record.action.reason}` : '等候合法动作'}
         <small> · 请求 {record.clientRequestId}{record.taskId ? ` · 任务 ${record.taskId}` : ' · 创建结果尚未确认'}</small>
@@ -115,8 +155,8 @@ export default function ForestLoopAssistant({ connection, request, unavailableRe
       {outcome.state.failures.map((failure, index) => <p key={index} className="asset-error">种子 {failure.seed} 未完成：{failure.message}</p>)}
       {outcome.candidates.map((value, index) => <CandidateCard key={value.receipt.candidateId} value={value} index={index} selected={outcome.state.selectedCandidateId === value.receipt.candidateId}/>)}
       <p className="asset-muted">预览来自实际候选，模型本轮只收到结构诊断；没有进行模型看图审核。生成说明数量不代表美术质量。</p>
-      {!running && <button type="button" className="secondary asset-wide" disabled={!connection || checking} onClick={() => void lookup()}>只读查询原模型任务</button>}
-      {!running && !outcome.unknown && <button type="button" className="secondary asset-wide" disabled={disabled || checking} onClick={() => { setOutcome(null); setApproved(false); setError('') }}>结束本轮并重新设置</button>}
+      {!operation && waiting && <button type="button" className="secondary asset-wide" disabled={!sameEndpoint} onClick={lookup}>只读查询原模型任务</button>}
+      {!operation && <button type="button" className="secondary asset-wide" disabled={disabled || outcome.unknown} onClick={archive}>归档本轮并设置新任务</button>}
     </section>}
   </details>
 }

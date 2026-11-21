@@ -1,5 +1,6 @@
 import type { PointMm } from '../model/scene.js'
 import { staircaseSchema, type StaircaseConfig, type StaircaseCover } from './contracts.js'
+import { routeWidthFrame, type RouteWidthSection } from '../geometry/route-width.js'
 
 const EPS = 1e-7
 export const STAIRCASE_LIMITS = Object.freeze({ routePoints: 256, treads: 512, coverVertices: 4096 })
@@ -46,7 +47,7 @@ function assertSimple(p: readonly PointMm[], label: string): void {
 }
 function positive(p: PointMm[]): PointMm[] { return area(p) < 0 ? p.reverse() : p }
 
-function sectionsFor(points: readonly PointMm[], widthMm: number): StaircaseSection[] {
+function sectionsFor(points: readonly PointMm[], widthMm: number, widthSections?: readonly RouteWidthSection[]): StaircaseSection[] {
   if (points.length < 2 || points.length > STAIRCASE_LIMITS.routePoints || points.some(p => !Number.isSafeInteger(p.x) || !Number.isSafeInteger(p.y))) throw new Error('阶梯路线须含2–256个整数毫米点。')
   if (!Number.isSafeInteger(widthMm) || widthMm <= 0) throw new Error('阶梯宽度须为正整数毫米。')
   // Saved cubic/polyline samples may contain tiny redundant collinear spans.
@@ -62,7 +63,8 @@ function sectionsFor(points: readonly PointMm[], widthMm: number): StaircaseSect
     }
     reduced.push(p)
   }
-  points = reduced
+  const profile = widthSections?.length ? routeWidthFrame(reduced, widthMm, widthSections).stations : undefined
+  points = profile ? profile.map(station => station.positionMm) : reduced
   const directions = points.slice(1).map((p, i) => {
     const length = Math.hypot(p.x - points[i].x, p.y - points[i].y)
     if (length <= EPS) throw new Error('阶梯路线不能含零长段。')
@@ -74,8 +76,9 @@ function sectionsFor(points: readonly PointMm[], widthMm: number): StaircaseSect
     const before = directions[Math.max(0, i - 1)], after = directions[Math.min(i, directions.length - 1)]
     const nx = -before.y - after.y, ny = before.x + after.x, divisor = 1 + before.x * after.x + before.y * after.y
     if (divisor < 0.5 - EPS) throw new Error('阶梯转弯过急，请增加弯曲半径。')
-    const offset = { x: nx / divisor * widthMm / 2, y: ny / divisor * widthMm / 2 }
-    return { distanceMm, leftMm: { x: p.x + offset.x, y: p.y + offset.y }, rightMm: { x: p.x - offset.x, y: p.y - offset.y } }
+    const halfWidth = (profile?.[i].widthMm ?? widthMm) / 2
+    const offset = { x: nx / divisor * halfWidth, y: ny / divisor * halfWidth }
+    return { distanceMm: profile?.[i].distanceMm ?? distanceMm, leftMm: { x: p.x + offset.x, y: p.y + offset.y }, rightMm: { x: p.x - offset.x, y: p.y - offset.y } }
   })
 }
 
@@ -99,8 +102,20 @@ export function staircaseLocalPoint(centerlineMm: readonly PointMm[], widthMm: n
   return staircasePointAt({ sections, lengthMm }, pointPpm.x / 1_000_000 * lengthMm, pointPpm.y / 1_000_000)
 }
 
-export function planStaircase(centerlineMm: readonly PointMm[], widthMm: number, rawConfig: StaircaseConfig): StaircaseGeometry {
-  const config = staircaseSchema.parse(rawConfig), sections = sectionsFor(centerlineMm, widthMm), lengthMm = sections.at(-1)!.distanceMm
+export function planStaircase(centerlineMm: readonly PointMm[], widthMm: number, rawConfig: StaircaseConfig, widthSections?: readonly RouteWidthSection[]): StaircaseGeometry {
+  const config = staircaseSchema.parse(rawConfig), fullSections = sectionsFor(centerlineMm, widthMm, widthSections)
+  const fullLength = fullSections.at(-1)!.distanceMm
+  let sections = fullSections
+  if (config.range) {
+    const start = fullLength * config.range.startPpm / 1_000_000, end = fullLength * config.range.endPpm / 1_000_000
+    if (end - start < 1) throw new Error('局部铺阶范围至少需要 1 毫米。')
+    const full = { sections: fullSections, lengthMm: fullLength }
+    const at = (distance: number): StaircaseSection => ({ distanceMm: distance - start,
+      leftMm: staircasePointAt(full, distance, 0.5), rightMm: staircasePointAt(full, distance, -0.5) })
+    sections = [at(start), ...fullSections.filter(s => s.distanceMm > start + EPS && s.distanceMm < end - EPS)
+      .map(s => ({ ...s, distanceMm: s.distanceMm - start })), at(end)]
+  }
+  const lengthMm = sections.at(-1)!.distanceMm
   const count = config.layout.kind === 'repeat' ? Math.ceil(lengthMm / config.layout.treadDepthMm - 1e-10) : config.layout.stepCount
   if (count < 1 || count > STAIRCASE_LIMITS.treads) throw new Error('阶梯须在1–512级预算内；请增加踏深或缩短路线。')
   const footprintMm = positive([...sections.map(s => s.rightMm), ...sections.toReversed().map(s => s.leftMm)])

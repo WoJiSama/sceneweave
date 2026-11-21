@@ -1,11 +1,13 @@
 import type { BoundsMm, PointMm, SurfaceRef } from '../../shared/model/scene.js'
+import type { RoadDrawingSettings, RoadStrokeSettings } from './road-sketch'
 
 export type BuildingSketch = { kind: 'rectangle' | 'polygon' | 'orthogonal' | 'ruler'; points: PointMm[]; cursor: PointMm | null }
 export type CanvasWorldTool = Omit<BuildingSketch, 'kind'> & {
   kind: BuildingSketch['kind'] | 'polyline'
   label?: string
   snapMm: number
-  road?: { floorId: string; widthMm: number; supportRefs: readonly SurfaceRef[]; visibility: 'public' | 'gm' }
+  road?: RoadDrawingSettings
+  roadStroke?: { settings: RoadStrokeSettings; onEnd: (points: PointMm[], supportRefs: SurfaceRef[]) => void }
   elevation?: { mode: 'elevate' | 'sample'; scopeMm?: PointMm[]; onStep: (direction: -1 | 1) => void }
   template?: { polygons: PointMm[][]; issues: string[]; onRotate: () => void }
   onPoint: (point: PointMm) => void

@@ -20,8 +20,8 @@ const surface: AttachmentCommand = { type: 'addAttachmentSurface', id: 'table-to
 const bind: AttachmentCommand = { type: 'bindPropAttachment', id: 'on-table', childId: 'other', surfaceId: 'table-top', mode: 'support', follow: 'follow', anchorState: 'manual',
   anchor: { kind: 'horizontal', localMm: { x: 200, y: 0 }, heightOffsetMm: 0, rotationOffsetDeg: 0 } }
 
-function bundle() {
-  const value = fixture(), document = value.project.document
+function bundle(options: { image?: boolean } = {}) {
+  const value = fixture(options), document = value.project.document
   Object.assign(document.props.item, { positionMm: { x: 6000, y: 6000 }, rotationDeg: 0, footprintMm: { width: 2400, height: 1600 }, footprintOffsetMm: { x: 0, y: 0 }, blocksMovement: false })
   Object.assign(document.props.other, { positionMm: { x: 6200, y: 6000 }, rotationDeg: 0, footprintMm: { width: 400, height: 200 }, footprintOffsetMm: { x: 0, y: 0 }, blocksMovement: false })
   Object.assign(value.project, createCompositionContent(document, runtime))
@@ -40,11 +40,11 @@ afterEach(async () => {
   for (const workspace of workspaces.splice(0)) await workspace.close().catch(() => {})
   for (const repository of repositories.splice(0)) { const name = repository.database.name; repository.close(); await Dexie.delete(name) }
 })
-async function workspaceSetup() {
+async function workspaceSetup(options?: { image?: boolean }) {
   const repository = new ProjectRepository({ name: `attachment-integration-${crypto.randomUUID()}`, runtime, validation })
   repositories.push(repository)
   const workspace = new Workspace(repository, { runtime, validation }); workspaces.push(workspace)
-  await workspace.adoptNew(await fromBundle(bundle(), validation))
+  await workspace.adoptNew(await fromBundle(bundle(options), validation))
   return { repository, workspace, owner: workspace.getDocument()!.sceneId }
 }
 
@@ -125,6 +125,48 @@ describe('attachment composition and actual Workspace adoption', () => {
     const restored = workspace.getState().project!.historyIdentity.structureTokens!['on-table']
     expect(restored.token).toBe(original.token)
     expect(restored.topologyToken).not.toBe(original.topologyToken)
+  })
+
+  it('deletes only the chosen table or the group and preserves attached props outside the selected deletion', async () => {
+    const { workspace } = await workspaceSetup({ image: true })
+    await workspace.execute([{ type: 'createPrefab', id: 'dinner', definitionId: 'dinner-source', name: '宴席', ids: ['item'], anchorMm: { x: 6000, y: 6000 } }])
+    await workspace.execute([surface, bind])
+    const before = workspace.getDocument()!
+    const tableOnly = await workspace.preview([{ type: 'deleteProp', id: 'item' }])
+    expect(tableOnly.document.props.other).toEqual(before.props.other)
+    expect(tableOnly.document.props.item).toBeUndefined()
+    expect(tableOnly.document.prefabInstances.dinner).toBeDefined()
+    expect(tableOnly.document.attachments?.['on-table']).toBeUndefined()
+    expect(tableOnly.document.attachmentSurfaces?.['table-top']).toBeUndefined()
+    expect(workspace.getDocument()).toBe(before)
+    workspace.cancelPreview(tableOnly)
+    await workspace.execute([{ type: 'deletePrefab', id: 'dinner', memberIds: ['item'] }])
+    expect(workspace.getDocument()!.prefabInstances.dinner).toBeUndefined()
+    expect(workspace.getDocument()!.props.other).toEqual(before.props.other)
+    workspace.undo()
+    expect(workspace.getDocument()!.prefabInstances.dinner).toEqual(before.prefabInstances.dinner)
+    assertContact(content(workspace.getState().project!))
+  })
+
+  it('carries a locked lamp by its unchanged anchor when the complete host wall is translated', () => {
+    const { project } = fixture({ building: true })
+    const document = project.document
+    document.props.other.supportRef = { kind: 'room', id: 'room' }
+    document.props.other.roomId = 'room'
+    const source = createCompositionContent(document, runtime)
+    const attached = applyCompositionDraftCommands(source, [
+      { type: 'addAttachmentSurface', id: 'wall-face', owner: { kind: 'wall', id: 'wall-0' },
+        feature: { kind: 'wallSide', referenceVertexId: 'vertex-0', side: 'left', startMm: 0, endMm: 7000, lowMm: 0, highMm: 3000 }, capabilities: ['hang'] },
+      { type: 'bindPropAttachment', id: 'wall-lamp', childId: 'other', surfaceId: 'wall-face', mode: 'hang', follow: 'follow', anchorState: 'manual',
+        anchor: { kind: 'vertical', referenceVertexId: 'vertex-0', alongMm: 2000, heightMm: 1800, heightExtentMm: 400, normalOffsetMm: 100, rotationOffsetDeg: 0 } },
+    ], runtime)
+    const locked = applyCompositionDraftCommands(attached, [{ type: 'setEditLock', id: 'other', kind: 'prop', locked: true }], runtime)
+    const anchor = locked.document.attachments!['wall-lamp'].anchor
+    const moved = applyCompositionDraftCommands(locked, [{ type: 'translateWall', id: 'wall-0', offsetMm: { x: 0, y: 1000 } }], runtime)
+    expect(moved.document.props.other).toMatchObject({ positionMm: { x: 5000, y: 4200 }, editLocked: true })
+    expect(moved.document.attachments!['wall-lamp'].anchor).toEqual(anchor)
+    expect(validateAttachmentProofs(moved.document, moved.historyIdentity)).toEqual([])
+    expect(() => applyCompositionDraftCommands(moved, [{ type: 'updateProp', id: 'other', changes: { positionMm: { x: 5100, y: 4200 } } }], runtime)).toThrow(/锁定/)
   })
 
   it('restores a surface and relation through separate undo steps with current surface continuity', async () => {

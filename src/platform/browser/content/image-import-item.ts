@@ -6,7 +6,7 @@ import { definitionPresentation } from '../../../shared/appearance/presentation.
 import { prepareLibraryEntry } from '../../../shared/library/content.js'
 import type { PreparedLibraryEntry } from '../../../shared/library/types.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
-import type { ProjectBundle, ProjectData, ResourceBytePort } from '../../../shared/model/project.js'
+import type { LicenseBinding, ProjectBundle, ProjectData, ResourceBytePort } from '../../../shared/model/project.js'
 import { normalizeStaticSvg, STATIC_SVG_LIMITS } from '../../../shared/ai/svg.js'
 import { decodeUtf8 } from '../../../shared/project/binary.js'
 import { projectResourceHashes } from '../../../shared/project/source-resources.js'
@@ -89,6 +89,31 @@ async function editedSvgAsset(source: EditableProject, bundle: ProjectBundle, pr
   return { assetId: newId, resources: createMemoryResources(bytes) }
 }
 
+/** Old raster imports shared a licence alias. An explicit library copy can
+ * carry the exact text under its own reference without editing fixed originals. */
+function scopeLegacyRasterCopy(project: ProjectData, definitionBinding: LicenseBinding, assetId: string) {
+  const asset = project.document.assets[assetId], legacyRef = 'image-import-source'
+  const unchanged = { assetId, licenseRef: definitionBinding.licenseRef }
+  if (definitionBinding.licenseRef !== legacyRef || asset?.licenseRef !== legacyRef || asset.origin.kind !== 'imported'
+    || asset.mimeType !== 'image/png' || asset.imageEnhancement || asset.imageRefinement || Object.hasOwn(project.authoringSources, assetId)) return unchanged
+  const binding = project.licenseBindings.find(row => row.subjectKind === 'asset' && row.subjectId === assetId)
+  if (binding?.licenseRef !== legacyRef || binding.licensePath !== definitionBinding.licensePath) return unchanged
+  const licenseHash = binding.licensePath.slice('licenses/'.length, -'.txt'.length)
+  const licenseRef = `image-import-source-${licenseHash}`
+  const id = `image-import-raster-copy-${sha256Bytes(encodeUtf8(canonicalJson({ assetId, licenseRef })))}`
+  const copy = { ...asset, id, licenseRef }, copyBinding = { ...binding, subjectId: id, licenseRef }
+  if (Object.hasOwn(project.document.assets, id)) {
+    const existingBinding = project.licenseBindings.find(row => row.subjectKind === 'asset' && row.subjectId === id)
+    if (!existingBinding || canonicalJson(project.document.assets[id]) !== canonicalJson(copy) || canonicalJson(existingBinding) !== canonicalJson(copyBinding)) {
+      throw new Error('旧图片素材的副本身份与现有固定来源冲突。')
+    }
+  } else {
+    project.document.assets[id] = copy
+    project.licenseBindings.push(copyBinding)
+  }
+  return { assetId: id, licenseRef }
+}
+
 /** Fixed source and licence closure are retained. Editing creates a fresh immutable definition. */
 export async function prepareImageImportItemVariant(source: EditableProject, definitionId: string, input: ImageImportItemChanges,
   signal?: AbortSignal, capabilities: CompleteValidationOptions = validation): Promise<PreparedLibraryEntry> {
@@ -102,18 +127,21 @@ export async function prepareImageImportItemVariant(source: EditableProject, def
   const edited = original.defaultAppearance.kind === 'image'
     ? await editedSvgAsset(source, bundle, project, original.defaultAppearance.assetId, definitionId, changes, signal)
     : { assetId: null, resources: bundle.resources }
+  const rasterCopy = edited.assetId && scopeLegacyRasterCopy(project, bindings[0], edited.assetId)
+  const assetId = rasterCopy ? rasterCopy.assetId : edited.assetId
+  const binding = rasterCopy ? { ...bindings[0], licenseRef: rasterCopy.licenseRef } : bindings[0]
   const presentation = definitionPresentation(source.appearance, { id: original.id, version: original.version })
   if (presentation?.mode === 'nearSide' && ((changes.footprintOffsetXmm ?? original.defaultFootprintOffsetMm.x) !== 0 || (changes.footprintOffsetYmm ?? original.defaultFootprintOffsetMm.y) !== 0)) throw new Error('近侧视物件的占地须以树根为中心，偏移保持为0。')
-  const hash = sha256Bytes(encodeUtf8(canonicalJson({ original, changes, assetId: edited.assetId, binding: bindings[0], presentation: presentation ?? null }))), id = `asset-copy-prop-${hash}`
-  const definition = { ...original, id, catalogId: `prop.edited.${hash}`, version: 1, name: changes.name,
-    defaultAppearance: original.defaultAppearance.kind === 'image' ? { ...original.defaultAppearance, assetId: edited.assetId! } : original.defaultAppearance,
+  const hash = sha256Bytes(encodeUtf8(canonicalJson({ original, changes, assetId, binding, presentation: presentation ?? null }))), id = `asset-copy-prop-${hash}`
+  const definition = { ...original, id, catalogId: `prop.edited.${hash}`, version: 1, name: changes.name, licenseRef: binding.licenseRef,
+    defaultAppearance: original.defaultAppearance.kind === 'image' ? { ...original.defaultAppearance, assetId: assetId! } : original.defaultAppearance,
     defaultVisualBoundsMm: { x: Math.round(original.defaultVisualBoundsMm.x * changes.widthMm / original.defaultVisualBoundsMm.width),
       y: Math.round(original.defaultVisualBoundsMm.y * changes.heightMm / original.defaultVisualBoundsMm.height), width: changes.widthMm, height: changes.heightMm },
     defaultFootprintMm: { width: changes.footprintWidthMm, height: changes.footprintHeightMm },
     defaultFootprintOffsetMm: { x: changes.footprintOffsetXmm ?? original.defaultFootprintOffsetMm.x, y: changes.footprintOffsetYmm ?? original.defaultFootprintOffsetMm.y },
     defaultBlocksMovement: changes.blocksMovement, defaultBlocksSight: changes.blocksSight ?? original.defaultBlocksSight }
   project.document.propDefinitions[id] = definition
-  if (!project.licenseBindings.some(binding => binding.subjectKind === 'propDefinition' && binding.subjectId === id)) project.licenseBindings.push({ ...bindings[0], subjectId: id })
+  if (!project.licenseBindings.some(binding => binding.subjectKind === 'propDefinition' && binding.subjectId === id)) project.licenseBindings.push({ ...binding, subjectId: id })
   if (presentation) addPropAppearanceSource(project.appearance, { definitionRef: { id, version: 1 }, appearance: definition.defaultAppearance,
     visualBoundsMm: definition.defaultVisualBoundsMm, shadowClass: definition.defaultShadowClass, shadowOverride: null }, null,
   { ...cloneJson(presentation), rootAnchorMm: { x: Math.round(presentation.rootAnchorMm.x * changes.widthMm / original.defaultVisualBoundsMm.width),
@@ -131,10 +159,12 @@ export async function prepareImageImportMaterialVariant(source: EditableProject,
   const bindings = project.licenseBindings.filter(binding => binding.subjectKind === 'material' && binding.subjectId === definitionId)
   if (bindings.length !== 1) throw new Error('图片材质缺少唯一许可绑定。')
   const edited = await editedSvgAsset(source, bundle, project, original.textureAssetId, definitionId, changes, signal)
-  const hash = sha256Bytes(encodeUtf8(canonicalJson({ original, changes, assetId: edited.assetId, binding: bindings[0] }))), id = `asset-copy-material-${hash}`
+  const { assetId, licenseRef } = scopeLegacyRasterCopy(project, bindings[0], edited.assetId)
+  const binding = { ...bindings[0], licenseRef }
+  const hash = sha256Bytes(encodeUtf8(canonicalJson({ original, changes, assetId, binding }))), id = `asset-copy-material-${hash}`
   project.document.materials[id] = { ...original, id, catalogId: `material.edited.${hash}`, version: 1,
-    name: changes.name, textureAssetId: edited.assetId, defaultTileSizeMm: { width: changes.widthMm, height: changes.heightMm } }
-  if (!project.licenseBindings.some(binding => binding.subjectKind === 'material' && binding.subjectId === id)) project.licenseBindings.push({ ...bindings[0], subjectId: id })
+    name: changes.name, licenseRef, textureAssetId: assetId, defaultTileSizeMm: { width: changes.widthMm, height: changes.heightMm } }
+  if (!project.licenseBindings.some(binding => binding.subjectKind === 'material' && binding.subjectId === id)) project.licenseBindings.push({ ...binding, subjectId: id })
   return prepareLibraryEntry({ project, resources: edited.resources }, { kind: 'material', definitionId: id }, { ...capabilities, signal })
 }
 

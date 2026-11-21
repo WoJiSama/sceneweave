@@ -109,14 +109,14 @@ export interface ProjectionAssetClosure { readonly complete: boolean; readonly c
 // These exhaustively registered modules are the resource-consumer boundary.
 // A new projection module cannot silently inherit sprite-only decode behavior.
 const projectionModules = {
-  audience: true, floorId: true, sourceRevision: true, bounds: true, gridSizeMm: true, outputBackground: true, rooms: true, terrain: true, walls: true, props: true,
+  audience: true, floorId: true, sourceRevision: true, bounds: true, gridSizeMm: true, outputBackground: true, floorArtwork: true, rooms: true, terrain: true, walls: true, props: true,
   decorations: true, spritePaintOrder: true, propPresentations: true, groundView: true, edges: true, paths: true, connections: true, rocks: true, inlays: true,
-  pathJoinGroups: true, pathJoinPaintOrder: true, pathTerrainJoins: true, pathPaintOrder: true, openingPaintOrder: true, notes: true, regions: true, masks: true, regional: true,
-  theme: true, materials: true, visual: true, assetIds: true, limitations: true, diagnostics: true,
+  pathJoinGroups: true, bridgeEntrances: true, pathJoinPaintOrder: true, pathTerrainJoins: true, pathPaintOrder: true, openingPaintOrder: true, notes: true, regions: true, masks: true, regional: true,
+  maskPublicRooms: true, theme: true, materials: true, visual: true, assetIds: true, limitations: true, diagnostics: true,
 } satisfies Record<keyof Projection, true>
 const visualModules = {
   materializedEdges: true, edgePaintOrder: true, environment: true, boundsMm: true, boundaries: true, transitions: true, edgeLooks: true,
-  lights: true, fogs: true, filters: true, occluderRings: true, contactRings: true, suppressedTerrainEdgeIds: true, inlayExclusions: true,
+  lights: true, fixtureGlows: true, fogs: true, filters: true, occluderRings: true, occluderLines: true, contactRings: true, suppressedTerrainEdgeIds: true, inlayExclusions: true,
 } satisfies Record<keyof ProjectedVisualSystem, true>
 const regionalModules = { areas: true, lines: true, landmarks: true, symbols: true } satisfies Record<keyof NonNullable<Projection['regional']>, true>
 const knownModules = (value: object, modules: object) => Object.keys(value).every(key => Object.hasOwn(modules, key))
@@ -136,6 +136,7 @@ export function projectionAssetConsumers(projection: Projection): ProjectionAsse
   }
   for (const [index, prop] of projection.props.entries()) if (prop.appearance.kind === 'image') add({ kind: 'presentation', presentationKind: 'prop', id: prop.id, assetIds: [prop.appearance.assetId] }, [['props', String(index), 'appearance', 'assetId']])
   for (const [index, value] of (projection.decorations ?? []).entries()) add({ kind: 'presentation', presentationKind: 'decoration', id: value.id, assetIds: [value.assetId] }, [['decorations', String(index), 'assetId']])
+  if (projection.floorArtwork) add({ kind: 'always', id: 'floor-artwork', assetIds: [projection.floorArtwork.assetId] }, [['floorArtwork', 'assetId']])
   // Materials remain resident because surfaces are not culled. Their actual
   // paints still independently check exact material identity and version.
   for (const [id, material] of Object.entries(projection.materials)) add({ kind: 'always', id: `material:${id}`, assetIds: [material.textureAssetId] }, [['materials', id, 'textureAssetId']])

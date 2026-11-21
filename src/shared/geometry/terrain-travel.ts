@@ -3,6 +3,7 @@ import { connectionFootprint, connectionBand, corridor, coveredEverywhere, openi
 import { connectionCenterline, connectionArcFrame } from './connection-route.js'
 import { carvedStripCenterline } from '../carved-rock/index.js'
 import { createSupportQuery, type SupportSample } from './support-sample.js'
+import { bridgeDeckIds } from '../path-assembly/contracts.js'
 import type { Issue, Path, PointMm, SceneDocument, SurfaceRef, TerrainConnection } from '../model/scene.js'
 
 export interface TerrainTravelRequest { floorId: string; from: PointMm; to: PointMm; widthMm: number }
@@ -79,6 +80,7 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
   for (const prop of Object.values(scene.props)) if (prop.floorId === floorId && prop.blocksMovement && polygonsOverlap(band, propFootprint(prop))) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被物件的真实旋转占地阻挡。', prop.id)
   for (const region of Object.values(scene.regions)) if (region.floorId === floorId && region.blocksMovement && polygonsOverlap(band, region.boundaryMm)) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被阻挡区域侵入。', region.id)
   for (const wall of wallMovementPolygons(scene, true)) if (wall.floorId === floorId && polygonsOverlap(band, wall.polygon)) issue('TERRAIN_TRAVEL_WALL', '有限通行净宽被实际墙体、转角或未打开的门窗阻挡。', wall.entityId)
+  const deckIds = bridgeDeckIds(scene)
   const allBoundaries = [...boundaries, band, ...usable.map(item => item.polygon)]
   const allEdges = allBoundaries.flatMap(edges)
   const physicalEdges = [...areas.flatMap(area => area.boundaryMm.map((row, index) => ({ a: row.positionMm, b: area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm, area, index }))),
@@ -106,6 +108,7 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
         const source = scene.terrainAreas[edge.source.areaId], sourceIndex = source?.boundaryMm.findIndex(p => p.segmentId === edge.source.segmentId) ?? -1
         return !!source && sourceIndex >= 0 && pointInPolygon(point, corridor(source.boundaryMm[sourceIndex].positionMm, source.boundaryMm[(sourceIndex + 1) % source.boundaryMm.length].positionMm, 0.001))
       })())
+      if (!heightChange && sameRef(inside, outside) && deckIds.has(inside.id)) continue
       const cutOpening = !heightChange && usable.some(item => (item.connection.carvedStrip || item.connection.terrainInlay) && (insideSample.sourceConnectionId === item.connection.id || outsideSample.sourceConnectionId === item.connection.id) && pointInPolygon(point, item.polygon))
       if (!heightChange && (!declared?.blocksMovement || cutOpening)) continue
       // A saved cut is actual sloping ground; its same root ID can never grant

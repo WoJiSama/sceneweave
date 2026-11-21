@@ -53,6 +53,29 @@ function wallAt(scene: SceneDocument, a: PointMm, b: PointMm): Wall {
 }
 
 describe('native building edits', () => {
+  it('moves a single room, gives it a separate wall, and keeps each opening on its chosen side', () => {
+    const base = adjacentRooms(), shared = sharedWall(base)
+    const withOpenings = apply(base,
+      { type: 'addOpening', id: 'door', wallId: shared.id, offsetReferenceVertexId: shared.startVertexId, offsetMm: 1100, widthMm: 1000, kind: 'door', secret: true, locked: true },
+      { type: 'addOpening', id: 'window', wallId: shared.id, offsetReferenceVertexId: shared.startVertexId, offsetMm: 3400, widthMm: 800, kind: 'window' })
+    withOpenings.props.item = { ...cloneJson(layerSceneV3().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a' }
+    withOpenings.entityLayers.item = layerId
+    const shift = { x: 0, y: 8500 }
+    const command = { type: 'moveRoom' as const, id: 'a', offsetMm: shift, splitId: 'move-a', openingsToMove: ['door'] }
+    const preview = previewBuildingCommands(withOpenings, [command])
+    expect(preview.reason).toBeNull()
+    const moved = apply(withOpenings, command)
+    expect(moved.rooms.b).toEqual(withOpenings.rooms.b)
+    expect(moved.walls[shared.id]).toEqual(withOpenings.walls[shared.id])
+    expect(moved.openings.window).toEqual(withOpenings.openings.window)
+    const newWall = moved.walls['move-a:wall:1']
+    expect(ownsWall(moved.rooms.a, newWall)).toBe(true)
+    expect(ownsWall(moved.rooms.b, newWall)).toBe(false)
+    expect(moved.openings.door).toMatchObject({ wallId: newWall.id, secret: true, locked: true, offsetMm: 1100 })
+    expect(openingEndpoints(moved, moved.openings.door)).toEqual(openingEndpoints(withOpenings, withOpenings.openings.door).map(point => ({ x: point.x, y: point.y + shift.y })))
+    expect(moved.props.item.positionMm).toEqual({ x: 4000, y: 12500 })
+  })
+
   it('reports a transformed room path, its visual source and unchanged edge look on their real layers', () => {
     const source = adjacentRooms()
     source.userLayers.visualLayer = { id: 'visualLayer', floorId, name: '曲线与边带', order: 1, editLocked: false }
@@ -105,6 +128,7 @@ describe('native building edits', () => {
     const before = canonicalJson(source)
     const impact = previewBuildingCommands(source, [{ type: 'transformBuilding', id: 'a', offsetMm: { x: 1000, y: 0 }, pivotMm: { x: 0, y: 0 }, quarterTurns: 0 }])
     expect(impact.reason).toMatch(/锁定/)
+    expect(impact.reasonCode).toBe('locked_dependency')
     expect(canonicalJson(source)).toBe(before)
   })
 

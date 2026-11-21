@@ -386,8 +386,9 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
     const present = current.document[collection][targetId], historical = historic.document[collection][targetId]
     if (present.floorId !== historical.floorId) throw new Error('室外对象Floor变化，不能恢复。')
     const keys: string[] = collection === 'terrainAreas' ? ['boundaryMm', 'groundElevationMm'] : collection === 'terrainConnections' ? ['from', 'to', 'widthMm'] : collection === 'paths' ? ['centerlineMm', 'widthMm'] : []
+    if (collection === 'paths' && ('widthSections' in present || 'widthSections' in historical)) keys.push('widthSections')
     if (collection === 'terrainConnections' && true && ('route' in present || 'route' in historical)) keys.push('route')
-    if (request.mode === 'outdoorProperties') keys.push(...(collection === 'terrainAreas' ? ['visibility', 'coveragePriority', 'blocksMovement', 'blocksSight', 'movementCostMultiplier'] : collection === 'terrainEdges' ? ['visibility', 'kind', 'shoreline', 'blocksMovement', 'blocksSight', 'styleOverride'] : collection === 'terrainConnections' ? ['visibility', 'kind', 'blocksMovement', 'movementCostMultiplier'] : ['visibility', 'movementCostMultiplier', 'renderOrder']))
+    if (request.mode === 'outdoorProperties') keys.push(...(collection === 'terrainAreas' ? ['visibility', 'coveragePriority', 'blocksMovement', 'blocksSight', 'movementCostMultiplier', 'facade'] : collection === 'terrainEdges' ? ['visibility', 'kind', 'shoreline', 'blocksMovement', 'blocksSight', 'styleOverride', 'shoreStyle'] : collection === 'terrainConnections' ? ['visibility', 'kind', 'blocksMovement', 'movementCostMultiplier'] : ['visibility', 'movementCostMultiplier', 'renderOrder']))
     if (collection === 'terrainConnections' && request.mode === 'outdoorProperties' && ('staircase' in present || 'staircase' in historical)) keys.push('staircase')
     if (!keys.length) throw new Error('来源边缘的位置由来源地形段决定；请恢复来源地形，或明确选择边缘业务属性。')
     const before = present as unknown as Record<string, unknown>, source = historical as unknown as Record<string, unknown>, after = candidate.document[collection][targetId] as unknown as Record<string, unknown>
@@ -399,7 +400,7 @@ export function buildRestorePlan(currentInput: CompositionContent, historicInput
           ? { ...copy(historicalRoute), stairStyle: currentRoute.stairStyle, treadDepthMm: currentRoute.treadDepthMm }
           : copy(historicalRoute)
         else delete after.route
-      } else if (key === 'staircase' && source[key] === undefined) delete after[key]
+      } else if ((key === 'staircase' || key === 'shoreStyle') && source[key] === undefined) delete after[key]
       else after[key] = copy(source[key])
     }
     addChange({ id: targetId, kind: 'outdoor', name: targetId, action: 'update', layerId: current.document.entityLayers[targetId], beforeLayerId: current.document.entityLayers[targetId], fields: keys,

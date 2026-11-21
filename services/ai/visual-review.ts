@@ -1,3 +1,5 @@
+import { OperationRejected } from '../../src/shared/validation/operation-rejection.js'
+import { ToolRejected } from './tool-rejection.js'
 import { authoringCreatedIds } from './authoring-grant.js'
 import { PublicScreenshotRefV4Schema, CurrentDraftStampV4Schema, type PublicScreenshotRefV4 } from '../../src/shared/ai/authoring-closeout.js'
 import { AuthoringOperationV4Schema } from '../../src/shared/ai/authoring-protocol-v4.js'
@@ -11,7 +13,7 @@ import { z } from 'zod'
 import { remainingAuthoringOperations } from '../../src/shared/ai/authoring.js'
 import type { AuthoringOperation, AuthoringStart } from '../../src/shared/ai/authoring-protocol.js'
 import { AUTHORING_LIMITS, AuthoringOperationSchema } from '../../src/shared/ai/authoring-protocol.js'
-import { applyAuthoringStep, authoringProjectHash, replayAuthoring, validateAuthoringStart } from '../../src/shared/ai/authoring.js'
+import { applyAuthoringStep, authoringProjectHash, AuthoringOperationError, replayAuthoring, validateAuthoringStart } from '../../src/shared/ai/authoring.js'
 import { createPublicVisibility } from '../../src/shared/geometry/visibility.js'
 import { effectiveEditLocked } from '../../src/shared/commands/layers.js'
 import { visualBase } from '../../src/shared/visual/base.js'
@@ -64,6 +66,16 @@ const messages: Record<VisualReviewError['code'], string> = {
   preview_invalid: '视觉修正候选未通过完整本机账本预演。',
 }
 function reject(code: VisualReviewError['code']): never { throw new VisualReviewError(code, messages[code]) }
+
+function rejectPreview(error: unknown): never {
+  const cause = error instanceof AuthoringOperationError ? error.cause : error
+  if (cause instanceof OperationRejected) {
+    if (cause.code === 'operation_budget' || cause.code === 'outside_scope') throw new ToolRejected(cause.code)
+    // Native checks can encounter dependencies beyond the model's public targets.
+    if (cause.code === 'locked_dependency') throw new ToolRejected('outside_scope')
+  }
+  return reject('preview_invalid')
+}
 
 function points(boundsValue: BoundsMm): PointMm[] {
   return [{ x: boundsValue.x, y: boundsValue.y }, { x: boundsValue.x + boundsValue.width, y: boundsValue.y },
@@ -195,7 +207,7 @@ export function proposeVisualReview(task: StoredTask, args: unknown, callId: str
   try {
     const stepId = `visual-review-${authoringProjectHash(start.project).slice(0, 16)}-${callId.replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 32) || 'candidate'}`
     preview = applyAuthoringStep(start, authoring.state, cloneJson(parsed.candidateOperations) as AuthoringOperation[], stepId)
-  } catch { reject('preview_invalid') }
+  } catch (error) { rejectPreview(error) }
   const output = {
     issuesReviewed: parsed.issues.length,
     targetsReviewed: [...targetIds].sort(),
@@ -296,10 +308,10 @@ export function prepareVisualReviewV4(task: StoredTask, args: unknown, callId: s
   if (apply && (candidateHash !== suppliedHash || !task.snapshot.tools.some(tool => {
     if (tool.name !== 'sceneweave_visual_review' || !tool.success) return false
     try { const receipt = JSON.parse(tool.output) as { candidateHash?: string; screenshotBinding?: unknown }; return receipt.candidateHash === candidateHash && canonicalJson(receipt.screenshotBinding) === canonicalJson(reference) } catch { return false }
-  }))) reject('stale_screenshot')
+  }))) throw new ToolRejected('invalid_candidate')
   let preview: ReturnType<typeof applyAuthoringStep>
   try { preview = applyAuthoringStep(authoring.start, authoring.state, parsed.candidateOperations, `visual-fix-${candidateHash.slice(0, 32)}`) }
-  catch { reject('preview_invalid') }
+  catch (error) { rejectPreview(error) }
   const output = { issues: cloneJson(parsed.issues), issuesReviewed: parsed.issues.length, targetsReviewed: [...targetIds].sort(),
     omissions: (authoring.start.brief?.requirements ?? []).map((_, requirementIndex) => ({ requirementIndex,
       status: authoring.plan?.requirements.find(item => item.index === requirementIndex)?.state === 'unsupported' ? 'unsupported' : 'unreviewed',

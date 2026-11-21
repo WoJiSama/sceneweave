@@ -6,6 +6,7 @@ import { decodeSelectionMask, type ImageSelectionMask } from './selection-mask.j
 import { imageRepairScope, maskCoverage } from './repair-scope.js'
 import { repairContextPatch } from './context-patch.js'
 import { repairContextBlend } from './context-blend.js'
+import { IMAGE_REPAIR_MODES, isContextBlendRepair, type ImageRepairMode } from './repair-mode.js'
 import type { ImageNeighborhoodSignal } from './neighborhood-evidence.js'
 
 export interface ImagePixels { width: number; height: number; data: Uint8ClampedArray }
@@ -135,10 +136,10 @@ function expandedRepairMask(image: ImagePixels, mask: ImagePixelMask, radius: nu
 
 /** Extract original object pixels, then repair only the declared mask and optional cleanup halo. */
 export function extractImageLayer(image: ImagePixels, polygon: readonly ImagePoint[], donorBoundsPx: PixelBounds,
-  options: { repair?: 'tile' | 'seamless' | 'aligned' | 'texture' | 'context' | 'context-blend' | 'structure' | 'surfaces'; repairSurfaces?: readonly ImageRepairSurface[]; appearanceImage?: ImagePixels; fills?: readonly ImageRepairFill[]; cleanupPx?: number; selectionMask?: ImageSelectionMask;
+  options: { repair?: ImageRepairMode; repairSurfaces?: readonly ImageRepairSurface[]; appearanceImage?: ImagePixels; fills?: readonly ImageRepairFill[]; cleanupPx?: number; selectionMask?: ImageSelectionMask;
     removalMask?: ImageSelectionMask; protectionMask?: ImageSelectionMask;
     neighborhoodEvidence?: { priorInference?: Uint8Array; objectEvidence?: readonly ImagePixelMask[]; signal?: ImageNeighborhoodSignal } } = {}): ExtractedImageLayer {
-  if (options.repair !== undefined && !['tile', 'seamless', 'aligned', 'texture', 'context', 'context-blend', 'structure', 'surfaces'].includes(options.repair)) throw new Error('不支持的补底方式。')
+  if (options.repair !== undefined && !IMAGE_REPAIR_MODES.includes(options.repair)) throw new Error('不支持的补底方式。')
   const cleanupPx = options.cleanupPx ?? 0
   if (!Number.isSafeInteger(cleanupPx) || cleanupPx < 0 || cleanupPx > 8) throw new Error('残影清理范围须为0至8像素。')
   checkImage(image)
@@ -165,7 +166,7 @@ export function extractImageLayer(image: ImagePixels, polygon: readonly ImagePoi
   for (const donor of donors) for (let y = donor.y; y < donor.y + donor.height; y++) for (let x = donor.x; x < donor.x + donor.width; x++) {
     if (maskCoverage(protectionMask, x, y)) throw new Error('补底取样与保护范围相交，请选择可信的干净底材。')
   }
-  if ((options.repair === 'context' || options.repair === 'context-blend' || options.repair === 'structure') && regions.length) throw new Error('完整纹理补片当前只支持单一底材，请先分开处理。')
+  if ((options.repair === 'context' || isContextBlendRepair(options.repair) || options.repair === 'structure') && regions.length) throw new Error('完整纹理补片当前只支持单一底材，请先分开处理。')
   const prioritizedRegions = [...regions].reverse()
   const regionCoverage = (region: ImagePixelMask, x: number, y: number): number => {
     const column = x - region.boundsPx.x, row = y - region.boundsPx.y
@@ -208,7 +209,7 @@ export function extractImageLayer(image: ImagePixels, polygon: readonly ImagePoi
       { regions, baseMask: mask, protectionMask, ...(options.repair === 'aligned' ? { alignment: 'boundary-phase-v1' as const } : {}) })
       : options.repair === 'texture' ? repairImageTexture(image, repairMask, donorBoundsPx, { regions, baseMask: mask, protectionMask })
         : options.repair === 'structure' ? repairStructuredSurface(image, repairMask, donorBoundsPx, protectionMask)
-        : options.repair === 'context-blend' ? repairContextBlend(image, repairMask, donorBoundsPx, protectionMask, options.neighborhoodEvidence)
+        : isContextBlendRepair(options.repair) ? repairContextBlend(image, repairMask, donorBoundsPx, protectionMask, options.neighborhoodEvidence, options.repair === 'context-blend-v2' ? 2 : 1)
         : options.repair === 'context' ? repairContextPatch(image, repairMask, donorBoundsPx, protectionMask)
         : { width: image.width, height: image.height, data: remainingData }, mask, repairMask }
 }

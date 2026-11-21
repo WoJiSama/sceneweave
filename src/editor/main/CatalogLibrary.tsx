@@ -1,3 +1,5 @@
+import { SourcePreview } from './PathStyleFields'
+import type { BridgeArt } from '../../shared/path-assembly/profiles'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Download, Heart, Layers3, Plus, RefreshCw, Search, Upload, X } from 'lucide-react'
@@ -383,6 +385,7 @@ function ColorButton({ color, selected, onClick, disabled }: { color: CatalogCol
   return <button type="button" className="catalog-color" aria-pressed={selected} aria-label={`${color}色`} disabled={disabled} onClick={onClick}><i style={{ background: COLORS[color] }}/>{color}{selected && <Check size={10}/>}</button>
 }
 function CatalogThumbnail({ item, loadProject, onThumbnailState, eager = false }: { item: CatalogItemV1; loadProject: (item: CatalogItemV1) => Promise<EditableProject>; onThumbnailState: (key: string, missing: boolean) => void; eager?: boolean }) {
+  const [section, setSection] = useState<{ art: BridgeArt; length: number; width: number; detail?: number }>()
   const thumbnailCallback = useRef(onThumbnailState); thumbnailCallback.current = onThumbnailState
   const host = useRef<HTMLSpanElement>(null), [urls, setUrls] = useState<string[]>([]), [state, setState] = useState<'waiting' | 'loading' | 'ready' | 'missing'>('waiting')
   useEffect(() => {
@@ -391,6 +394,11 @@ function CatalogThumbnail({ item, loadProject, onThumbnailState, eager = false }
       if (started) return; started = true; setState('loading')
       loadProject(item).then(async project => {
         if (!active) return
+        const prefab = item.selector.kind === 'prefab' ? project.document.prefabDefinitions[item.selector.definitionId] : undefined
+        const source = prefab?.pathStyle && prefab.members.length === 1 ? prefab.members[0].propTemplate : undefined
+        const art = source?.appearance
+        setSection(source && art?.kind === 'symbol' && art.bridgeArt ? { art: art.bridgeArt, length: source.visualBoundsMm.width,
+          width: source.visualBoundsMm.height, detail: art.detailPercent } : undefined)
         for (const id of item.thumbnailAssetIds.slice(0, 4)) { const asset = project.document.assets[id], record = asset ? project.assets[asset.sha256] : undefined; if (record) { const bytes = await project.resources.read(record.sha256); if (!active) return; created.push(URL.createObjectURL(new Blob([bytes.slice().buffer], { type: record.mimeType }))) } }
         setUrls([...created]); setState(created.length || !item.thumbnailAssetIds.length ? 'ready' : 'missing'); thumbnailCallback.current(item.identity.key, created.length < Math.min(4, item.thumbnailAssetIds.length))
       }).catch(() => { if (active) { setState('missing'); thumbnailCallback.current(item.identity.key, true) } })
@@ -403,7 +411,7 @@ function CatalogThumbnail({ item, loadProject, onThumbnailState, eager = false }
   }, [item, loadProject, eager])
   return <span ref={host} className={`catalog-thumbnail ${urls.length > 1 ? 'multiple' : ''}`} aria-label={`${item.name}固定源缩略图`}>
     {urls.map(url => <img key={url} src={url} alt="" onError={() => { setState('missing'); thumbnailCallback.current(item.identity.key, true) }}/>)}
-    {state === 'missing' && <span>图片缺失</span>}{state === 'ready' && !item.thumbnailAssetIds.length && <span>几何素材</span>}{(state === 'waiting' || state === 'loading') && <span>载入图片</span>}
+    {state === 'missing' && <span>图片缺失</span>}{state === 'ready' && !item.thumbnailAssetIds.length && (section ? <SourcePreview {...section}/> : <span>几何素材</span>)}{(state === 'waiting' || state === 'loading') && <span>载入图片</span>}
     {item.thumbnailAssetIds.length > 4 && <small>+{item.thumbnailAssetIds.length - 4}</small>}
   </span>
 }

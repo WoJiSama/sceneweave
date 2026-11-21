@@ -1,4 +1,5 @@
 import { openWorkspaceModule } from './workspace-navigation-helpers'
+import type { Workspace } from '../src/application/workspace/workspace'
 import { expect, test, type Page } from '@playwright/test'
 import { serve } from '@hono/node-server'
 import { randomBytes, createHash } from 'node:crypto'
@@ -50,10 +51,10 @@ test.afterAll(async () => {
 
 async function state(page: Page) {
   return page.evaluate(async () => {
-    const path = '/src/editor/main/Workbench.tsx', { nativeWorkspace } = await import(path) as typeof import('../src/editor/main/Workbench')
-    const value = nativeWorkspace.getState(), project = value.project!
+    const { workspace } = Reflect.get(window, '__sceneweaveOutdoorDev') as { workspace: Workspace }
+    const value = workspace.getState(), project = value.project!
     return { document: structuredClone(project.document), appearance: structuredClone(project.appearance), identity: structuredClone(project.historyIdentity),
-      sources: structuredClone(project.authoringSources), checkpoint: nativeWorkspace.checkpoint(), canUndo: value.canUndo, canRedo: value.canRedo, status: value.status }
+      sources: structuredClone(project.authoringSources), checkpoint: workspace.checkpoint(), canUndo: value.canUndo, canRedo: value.canRedo, status: value.status }
   })
 }
 async function saved(page: Page) {
@@ -130,7 +131,7 @@ test('request-limit failure keeps a valid local draft reviewable, downloadable a
   expect(retained.snapshot.tools.some(item => item.callId === `check-${count + 16}`)).toBe(false)
   expect(retained.snapshot.tools.every(item => item.success)).toBe(true)
   expect(await state(page)).toEqual(original)
-  await authoring.getByRole('button', { name: '重新绑定并校验草稿', exact: true }).click()
+  await authoring.getByRole('button', { name: '重新检查草稿', exact: true }).click()
   await expect(review.getByRole('button', { name: '下载完整草稿备份', exact: true })).toBeEnabled()
   await expect(review.getByLabel('AI 草稿差异')).toContainText('preserved-gm-clue')
   expect(await state(page)).toEqual(original)
@@ -155,7 +156,7 @@ test('request-limit failure keeps a valid local draft reviewable, downloadable a
   await review.getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
   await review.getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已采用'); await saved(page)
-  await expect(page.getByRole('button', { name: '确认本机未采用并释放租约', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '地图未应用这些修改，恢复草稿审阅', exact: true })).toHaveCount(0)
   const adopted = await state(page)
   expect(adopted.document.revision).toBe(original.document.revision + 1)
   expect(adopted.document.notes['preserved-gm-clue']).toEqual(draftScene.notes['preserved-gm-clue'])

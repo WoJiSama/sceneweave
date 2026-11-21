@@ -7,19 +7,52 @@ interface ContextEvidence {
   priorInference?: Uint8Array
   objectEvidence?: readonly ImagePixelMask[]
   signal?: ImageNeighborhoodSignal
+  trustedSource?: (x: number, y: number) => boolean
 }
 
 const MAX_PIXEL_ITERATIONS_PER_CHANNEL = 50_000_000
 const MAX_ITERATIONS = 2048
 const RESIDUAL_RMS = 0.00001
 
-/** Explicit context-gradient-v1. One translated source patch supplies the gradients;
+/** MIC(0) on the masked five-point stencil, following Bridson's SIGGRAPH 2007
+ * course notes, section 4.3.4. Accumulate discarded diagonal-neighbour couplings
+ * into the pivots to approximate the low-frequency colour correction.
+ */
+function contextPreconditioner(degree: Uint8Array, neighbors: Int32Array, signal?: ImageNeighborhoodSignal): Float64Array {
+  const inverse = new Float64Array(degree.length), weight = 0.97
+  for (let i = 0; i < degree.length; i++) {
+    if (i % 4096 === 0) signal?.throwIfAborted()
+    const left = neighbors[i * 4], up = neighbors[i * 4 + 2]
+    let pivot = degree[i]
+    if (left >= 0) pivot -= inverse[left] * (1 + (neighbors[left * 4 + 3] >= 0 ? weight : 0))
+    if (up >= 0) pivot -= inverse[up] * (1 + (neighbors[up * 4 + 1] >= 0 ? weight : 0))
+    // Near an irregular or excluded edge, keep a positive triangular factor.
+    inverse[i] = 1 / (pivot >= degree[i] * 0.25 ? pivot : degree[i])
+  }
+  return inverse
+}
+
+function preconditionResidual(residual: Float64Array, neighbors: Int32Array, inverse: Float64Array, output: Float64Array): number {
+  for (let i = 0; i < residual.length; i++) {
+    const left = neighbors[i * 4], up = neighbors[i * 4 + 2]
+    output[i] = (residual[i] + (left >= 0 ? output[left] : 0) + (up >= 0 ? output[up] : 0)) * inverse[i]
+  }
+  let product = 0
+  for (let i = residual.length - 1; i >= 0; i--) {
+    const right = neighbors[i * 4 + 1], down = neighbors[i * 4 + 3]
+    output[i] += ((right >= 0 ? output[right] : 0) + (down >= 0 ? output[down] : 0)) * inverse[i]
+    product += residual[i] * output[i]
+  }
+  return product
+}
+
+/** One translated source patch supplies the gradients;
  * harmonic RGB correction uses the actual writable outline, never the rectangle's sides.
  * Protected/unknown edges have zero flux. Every connected component needs real boundary
  * evidence. Neither a failed solve nor an exhausted budget returns a usable image.
  */
 export function repairContextBlend(image: ImagePixels, mask: ImagePixelMask, donor: PixelBounds,
-  protection?: ImagePixelMask, evidence: ContextEvidence = {}): ImagePixels {
+  protection?: ImagePixelMask, evidence: ContextEvidence = {}, version: 1 | 2 = 1): ImagePixels {
   if (![image.width, image.height].every(Number.isSafeInteger) || image.width < 1 || image.height < 1
     || image.width > 8192 || image.height > 8192 || image.width * image.height > 32_000_000
     || !(image.data instanceof Uint8ClampedArray) || image.data.length !== image.width * image.height * 4) throw new Error('边界衔接需要完整原图RGBA。')
@@ -41,6 +74,7 @@ export function repairContextBlend(image: ImagePixels, mask: ImagePixelMask, don
   const excludedBoundary = imageNeighborhoodExcludedEvidence(boundaryBounds, evidence.objectEvidence ?? [])
   const excluded = (sx: number, sy: number) => !!evidence.priorInference?.[sy * image.width + sx]
     || !!maskCoverage(excludedDonor, sx, sy) || !!maskCoverage(excludedBoundary, sx, sy)
+    || (evidence.trustedSource !== undefined && !evidence.trustedSource(sx, sy))
   const forbidden = (sx: number, sy: number) => !!maskCoverage(mask, sx, sy) || !!maskCoverage(protection, sx, sy) || excluded(sx, sy)
   // The whole declared source is evidence, including its two-pixel context margin.
   for (let sy = donor.y; sy < donor.y + donor.height; sy++) {
@@ -91,15 +125,21 @@ export function repairContextBlend(image: ImagePixels, mask: ImagePixelMask, don
     if (!hasBoundary) throw new Error('移除范围有缺少可信原图边界的独立部分，请补充同材质依据或缩小范围。')
   }
   const correction = new Float64Array(count * 3)
-  const limit = Math.min(MAX_ITERATIONS, Math.floor(MAX_PIXEL_ITERATIONS_PER_CHANNEL / count))
-  // All channels share a positive definite masked Laplacian. Jacobi-preconditioned
-  // conjugate gradients stop on the equation residual, not on a cosmetic iteration count.
+  // Charge the two additional triangular sweeps at twice the original per-iteration cost.
+  const limit = Math.min(MAX_ITERATIONS, Math.floor(MAX_PIXEL_ITERATIONS_PER_CHANNEL / (count * version)))
+  const inverse = version === 2 ? contextPreconditioner(degree, neighbors, evidence.signal) : undefined
+  const conditioned = inverse ? new Float64Array(count) : undefined
+  // The versions share the same Laplacian, trusted boundary and residual threshold.
   const residual = new Float64Array(count), direction = new Float64Array(count), product = new Float64Array(count)
   for (let c = 0; c < 3; c++) {
     let rz = 0, norm = 0
     for (let i = 0; i < count; i++) {
       residual[i] = rhs[i * 3 + c]; direction[i] = residual[i] / degree[i]
       rz += residual[i] * direction[i]; norm += residual[i] ** 2
+    }
+    if (inverse && conditioned) {
+      rz = preconditionResidual(residual, neighbors, inverse, conditioned)
+      direction.set(conditioned)
     }
     let iteration = 0
     while (norm > count * RESIDUAL_RMS ** 2) {
@@ -118,8 +158,9 @@ export function repairContextBlend(image: ImagePixels, mask: ImagePixelMask, don
         correction[i * 3 + c] += alpha * direction[i]; residual[i] -= alpha * product[i]
         nextRz += residual[i] ** 2 / degree[i]; norm += residual[i] ** 2
       }
+      if (inverse && conditioned) nextRz = preconditionResidual(residual, neighbors, inverse, conditioned)
       const beta = nextRz / rz
-      for (let i = 0; i < count; i++) direction[i] = residual[i] / degree[i] + beta * direction[i]
+      for (let i = 0; i < count; i++) direction[i] = (conditioned ? conditioned[i] : residual[i] / degree[i]) + beta * direction[i]
       rz = nextRz
       if (!Number.isFinite(norm) || !Number.isFinite(rz)) throw new Error('边界衔接求解失败，旧结果保持。')
     }

@@ -24,8 +24,8 @@ import type { BaseMapRequestV3 } from '../../src/shared/terrain-generation/base-
 import { emptyBudgetUsage, withExecutionWorkObserver, type BudgetUsage, type TaskBudgetProfile } from '../../src/shared/budget/task-budget.js'
 import { CONTINUATION_POLICY, createContinuationPolicyV2 } from '../../src/shared/ai/budget-policy.js'
 import { DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS } from '../../src/shared/ai/project-workflow.js'
-import { assertWorkflowBinding, type WorkflowBinding } from '../../src/shared/ai/workflows/catalog.js'
-import { ForestLoopContextSchema, forestLoopInstructions, type ForestLoopContext, type ForestAction } from '../../src/shared/ai/forest-loop.js'
+import { assertWorkflowBinding, workflowBinding, type WorkflowBinding } from '../../src/shared/ai/workflows/catalog.js'
+import { FOREST_WORKFLOW_ID, ForestLoopContextSchema, forestLoopInstructions, type ForestLoopContext, type ForestAction } from '../../src/shared/ai/forest-loop.js'
 export interface StoredTerrainCandidate { id: string; hash: string; atContentHash: string; atDraftRevision: number; operation: TerrainAuthoringOperation; contentHash: string; operationCost: number }
 export interface StoredRegionSceneCandidate { id: string; hash: string; atContentHash: string; atDraftRevision: number; scopeHash: string; result: RegionalDrillDownResult }
 const workDimensions = ['gridNodes', 'fieldEvaluations', 'intersectionPairs', 'dependencyRefs', 'candidateAttempts'] as const
@@ -212,14 +212,15 @@ export class TaskStore {
     if (this.activeCount() >= maxConcurrent) throw new TaskFault('concurrency_limit', 429)
     this.checkScene(owner, request.context?.sceneId)
     const now = this.now(), id = randomUUID()
-    if (request.workflow) assertWorkflowBinding(request.workflow)
     const forestLoop = request.forestLoop ? ForestLoopContextSchema.parse(request.forestLoop) : undefined
+    const workflow = request.workflow ? assertWorkflowBinding(request.workflow) : forestLoop ? workflowBinding(FOREST_WORKFLOW_ID) : undefined
+    if (forestLoop && workflow?.id !== FOREST_WORKFLOW_ID) throw new TaskFault('workflow_changed', 400)
     const task: StoredTask = { owner, fingerprint, messages: [{ role: 'system', content: forestLoop ? forestLoopInstructions(forestLoop) : system }, { role: 'user', content: request.prompt }], calls: {}, runtimeMs: 0, runStartedAt: now, outputBytes: 0, toolAttempts: 0, completedRequests: 0, pendingText: '',
       ...(forestLoop ? { forestLoop } : {}),
-      ...(request.workflow ? { workflowBindings: [request.workflow] } : {}),
+      ...(workflow ? { workflowBindings: [workflow] } : {}),
       snapshot: { schemaVersion: 1, id, clientRequestId: request.clientRequestId, context: request.context, reasoningEffort: request.reasoningEffort ?? defaultReasoningEffort, status: 'running', generation: 1, lastSequence: 0,
         text: '', tools: [], usage: { inputTokens: null, outputTokens: null, requests: 0, unknown: true }, error: null, createdAt: now, updatedAt: now, expiresAt: now + AI_LIMITS.retentionDays * 86400000,
-        ...(request.workflow ? { workflow: request.workflow } : {}) } }
+        ...(workflow ? { workflow } : {}) } }
     if (request.authoring) {
       try {
         let initializationToken: BaseMapExecutionToken | undefined
@@ -275,7 +276,7 @@ export class TaskStore {
         if (request.authoring.schemaVersion !== 3 && request.authoring.schemaVersion !== 4) initializeMessages()
       } catch (error) { if (error instanceof TaskFault) throw error; throw new TaskFault('invalid_authoring', 400) }
     }
-    if (request.workflow) task.messages.splice(1, 0, { role: 'system', content: `Selected shared workflow (host-validated binding): ${JSON.stringify(request.workflow)}. Read this workflow with sceneweave_workflow only when needed; existing task tools and scope remain authoritative.` })
+    if (workflow && !forestLoop) task.messages.splice(1, 0, { role: 'system', content: `Selected shared workflow (host-validated binding): ${JSON.stringify(workflow)}. Read this workflow with sceneweave_workflow only when needed; existing task tools and scope remain authoritative.` })
     if (request.vision) task.messages[task.messages.length - 1].images = [request.vision]
     this.write(task, [{ type: 'status', data: { status: 'running', reason: null } }], true)
     return { task, created: true }

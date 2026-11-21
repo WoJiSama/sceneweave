@@ -57,7 +57,7 @@ describe('persistent canonical vectors in image import', () => {
       expect(stored).not.toBeNull()
       const reopened = await fromBundle(stored!, capabilities)
       expect(await readImageImportItemSvg(reopened, definitionId)).toBe(redSvg)
-      expect(await readImageImportItemSvg(reopened, IMAGE_IMPORT_IDS.floorMaterial)).toBe(blueSvg)
+      expect(await readImageImportItemSvg(reopened, reopened.document.rooms[IMAGE_IMPORT_IDS.room].floorStyle!.base.materialRef.id)).toBe(blueSvg)
     } finally { repository.close(); await Dexie.delete(name) }
   }, 20000)
 
@@ -84,7 +84,8 @@ describe('persistent canonical vectors in image import', () => {
     const prop = edited.document.propDefinitions[entry.item.selector.definitionId]
     if (prop.defaultAppearance.kind !== 'image') throw new Error()
     expect(edited.document.assets[prop.defaultAppearance.assetId]).toMatchObject({ pixelWidth: 64, pixelHeight: 64 })
-    const floorEntry = await prepareImageImportMaterialVariant(project, IMAGE_IMPORT_IDS.floorMaterial,
+    const floorId = project.document.rooms[IMAGE_IMPORT_IDS.room].floorStyle!.base.materialRef.id
+    const floorEntry = await prepareImageImportMaterialVariant(project, floorId,
       { name: '红色矢量地板', widthMm: 5000, heightMm: 5000, sourceSvg: redSvg, targetLongEdgePx: 64 }, undefined, capabilities)
     expect(floorEntry.item.selector.kind).toBe('material')
     const floor = await fromBundle(await loadLibraryCapsule(floorEntry, capabilities), capabilities)

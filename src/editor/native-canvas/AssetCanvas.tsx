@@ -3,8 +3,12 @@ import type { VisualBoundary } from '../../shared/visual/types'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Hand, Maximize, MousePointer2, ZoomIn, ZoomOut } from 'lucide-react'
-import { connectionFootprint, pointInPolygon, polylineBand, openingEndpoints as openingEndpointsV2, propFootprint, roomPoints as roomPointsV2, terrainPoints as terrainPointsV2 } from '../../shared/geometry/geometry.js'
+import { connectionBand, connectionFootprint, createRouteSupportCheck, pointInPolygon, polylineBand, openingEndpoints as openingEndpointsV2, propFootprint, roomPoints as roomPointsV2, terrainPoints as terrainPointsV2 } from '../../shared/geometry/geometry.js'
 import { prepareRoadSnapTargets, resolveRoadSnap, type RoadSnapResult } from './road-snapping'
+import { beginRoadStroke, roadSketchShape, type RoadStrokePreview } from './road-sketch'
+import { fitRoadWidth } from '../../shared/geometry/fit-road-width'
+import { partitionAt } from '../../shared/geometry/partitions'
+import { PIPE_PORTS } from '../../shared/path-assembly/pipe-geometry'
 import type { BoundsMm, PointMm, Prop as PropV2, SceneDocument as SceneDocumentV2 } from '../../shared/model/scene.js'
 import type { EditableProject as CompleteProjectV2 } from '../../application/workspace/project'
 import { toBundle } from '../../application/workspace/project'
@@ -18,14 +22,14 @@ import { constrainViewportV2, FIT_VIEWPORT_V2, MAX_VIEW_ZOOM_V2, MIN_VIEW_ZOOM_V
 import type { MapViewportV2, ViewportSizeV2 } from './viewport'
 import type { SelectionSessionV2 } from './selection-session'
 import { useSelectionIdsV2 } from './SelectionSubscriber'
-import { effectiveEditLockedV2, hitTestAllV2, normalizeSelectionV2, selectInBoundsV2, selectionGeometryV2 } from './selection'
+import { effectiveEditLockedV2, hitTestAllV2, normalizeSelectionV2, selectInBoundsV2, selectionGeometryV2, selectionUnitIdV2 } from './selection'
 import { decorationPaintGeometry, decorationPaintPolygon } from '../../shared/decorations/presentation.js'
 import { summarizeSelectionV2 } from './selection-summary'
 import { finishOrthogonalBoundary, formatDistanceMm, normalizeSketchPoint, rectanglePoints, rectangleFromPoints, rulerDistance, wallDragOffset, type CanvasWorldTool } from './building-session'
 import { inspectFillCopy, type FillCopyReport } from '../../application/workspace/fill-copy'
 import { selectManualTransactionBudget } from '../../shared/budget/command-budget'
 import { snapSubgridPoint, type SubgridSnap } from './subgrid'
-import { buildingDependants } from '../../shared/commands/building.js'
+import { wallTranslationLockBlockers } from '../../shared/commands/building.js'
 import { PreviewScheduler } from '../../platform/browser/render/preview-scheduler.js'
 import NotePrivacyNotice from './NotePrivacyNotice'
 
@@ -44,6 +48,24 @@ function selection(ctx: CanvasRenderingContext2D, scene: SceneDocumentV2, bounds
     ctx.translate(prop.positionMm.x, prop.positionMm.y); ctx.rotate(prop.rotationDeg * Math.PI / 180)
     const v = prop.visualBoundsMm; ctx.strokeRect(v.x - 45, v.y - 45, v.width + 90, v.height + 90)
     ctx.strokeStyle = '#B0723E'; ctx.lineWidth = 1 / scale; const f = prop.footprintMm, o = prop.footprintOffsetMm; ctx.strokeRect(o.x - f.width / 2, o.y - f.height / 2, f.width, f.height)
+    if (prop.sightOccluder) {
+      ctx.beginPath()
+      for (const [index, point] of prop.sightOccluder.pointsLocalMm.entries()) {
+        if (index) ctx.lineTo(point.x, point.y)
+        else ctx.moveTo(point.x, point.y)
+      }
+      ctx.strokeStyle = '#146E8A'
+      ctx.lineWidth = 3 / scale
+      ctx.setLineDash([])
+      ctx.stroke()
+    }
+    for (const port of PIPE_PORTS) {
+      const point = prop.pipePorts?.[port]
+      if (!point) continue
+      ctx.strokeStyle = port === 'inlet' ? '#146E8A' : '#BA5B30'
+      ctx.lineWidth = 2 / scale
+      handle(point)
+    }
   } else if (scene.decorations?.[id]) { polygon(decorationPaintPolygon(decorationPaintGeometry(scene, scene.decorations[id]))); handle(scene.decorations[id].positionMm) }
   else if (scene.decorationClusters?.[id]) { for (const shape of (nativeGeometry ?? selectionGeometryV2)(scene, id)) polygon(shape) }
   else if (vertex) handle({ x: vertex.xMm, y: vertex.yMm })
@@ -89,10 +111,20 @@ export interface CanvasFillCopy {
   onCancel: () => void
 }
 
-/** Captured on pointer down; completion must use that exact selection and baseline. */
-export type CanvasSelectionDragStart = (ids: readonly string[]) => ((offsetMm: PointMm) => void) | null
+interface SelectionDragFeedback {
+  offsetMm: PointMm
+  message?: string
+  allowDrop?: boolean
+  links?: { state: 'follow' | 'break' | 'attach' | 'split'; kind?: 'pipe'; from: PointMm; to: PointMm; band?: PointMm[]; route?: PointMm[] }[]
+}
 
-export default function AssetCanvas({ floorId, project, selected, onSelect, audience = 'gm', groundView = false, persistenceBusy = false, disabled = false, onRenderMetrics, onPaint, placement, fillCopy, onFillCopyCancel, onFillCopyPreview, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, onDeleteSelection, onCopySelection, onPasteSelection, memberMode = false, onMemberMode, focusPoint, fitRequest = 0, editorRenderer, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, terrainBrush, visualBoundary, onVisualBoundaryChange, onVisualBoundaryFinish, onWallDragPreview, onSelectionDragStart, toolControlsTarget, viewControlsTarget }: { floorId?: string; groundView?: boolean; persistenceBusy?: boolean; terrainBrush?: CanvasTerrainBrush | null; fillCopy?: Omit<CanvasFillCopy, 'onPreview' | 'onCancel'> | null; onFillCopyPreview?: CanvasFillCopy['onPreview']; onFillCopyCancel?: () => void; onVisualBoundaryFinish?: (value: VisualBoundary) => void; onWallDragPreview?: (wallId: string, offsetMm: PointMm) => void; onSelectionDragStart?: CanvasSelectionDragStart; visualBoundary?: VisualBoundary | null; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; worldTool?: CanvasWorldTool | null; editorRenderer?: (options: EditorRenderOptionsV2) => Promise<HTMLCanvasElement>; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onDeleteSelection?: () => void; onCopySelection?: () => string | null; onPasteSelection?: (marker: string) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; focusPoint?: { positionMm: PointMm; sequence: number }; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
+/** Captured on pointer down; completion uses that exact selection and baseline. */
+export type CanvasSelectionDragStart = (ids: readonly string[]) => {
+  preview?: (offsetMm: PointMm, snapDistanceMm: number) => SelectionDragFeedback
+  finish: (offsetMm: PointMm) => void
+} | null
+
+export default function AssetCanvas({ floorId, project, selected, onSelect, audience = 'gm', groundView = false, persistenceBusy = false, disabled = false, onRenderMetrics, onPaint, placement, fillCopy, onFillCopyCancel, onFillCopyPreview, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, onDeleteSelection, onCopySelection, onPasteSelection, memberMode = false, onMemberMode, focusPoint, onFocusPartition, sightOverlay, partitionOutline, fitRequest = 0, editorRenderer, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, terrainBrush, visualBoundary, onVisualBoundaryChange, onVisualBoundaryFinish, onWallDragPreview, onSelectionDragStart, toolControlsTarget, viewControlsTarget }: { floorId?: string; groundView?: boolean; persistenceBusy?: boolean; terrainBrush?: CanvasTerrainBrush | null; fillCopy?: Omit<CanvasFillCopy, 'onPreview' | 'onCancel'> | null; onFillCopyPreview?: CanvasFillCopy['onPreview']; onFillCopyCancel?: () => void; onVisualBoundaryFinish?: (value: VisualBoundary) => void; onWallDragPreview?: (wallId: string, offsetMm: PointMm) => void; onSelectionDragStart?: CanvasSelectionDragStart; visualBoundary?: VisualBoundary | null; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; worldTool?: CanvasWorldTool | null; editorRenderer?: (options: EditorRenderOptionsV2) => Promise<HTMLCanvasElement>; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onDeleteSelection?: () => void; onCopySelection?: () => string | null; onPasteSelection?: (marker: string) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; focusPoint?: { positionMm: PointMm; sequence: number; scope?: BoundsMm }; onFocusPartition?: (id: string) => void; sightOverlay?: { origin: PointMm; boundary: PointMm[] }; partitionOutline?: PointMm[]; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
   const previewScope = useMemo(() => ({}), [project, floorId, audience, groundView, editorRenderer])
   const roadSources = useMemo(() => {
     if (!worldTool?.road) return null
@@ -101,10 +133,28 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   }, [project.document, worldTool?.road, audience, selectionOptions?.hiddenIds])
   const roadTarget = useRef<string | null>(null), rawToolPoint = useRef<PointMm | null>(null)
   const [roadFeedback, setRoadFeedback] = useState<RoadSnapResult | null>(null), [roadReleased, setRoadReleased] = useState(false)
+  const roadStroke = useRef<{ pointer: number; owner: HTMLElement; draft: ReturnType<typeof beginRoadStroke> } | null>(null)
+  const [roadStrokePreview, setRoadStrokePreview] = useState<RoadStrokePreview | null>(null)
+  const roadFit = useMemo(() => {
+    const settings = worldTool?.road, stroke = worldTool?.roadStroke, points = worldTool?.points
+    if (!settings?.fitWidth || !points || points.length < 2) return null
+    try {
+      const shape = roadSketchShape(points, stroke?.settings ?? { smooth: false, excavate: false })
+      const checker = createRouteSupportCheck(project.document, settings.floorId, settings.supportRefs)
+      return fitRoadWidth(shape.centerlineMm, settings.widthMm, checker.band)
+    } catch { return null }
+  }, [project.document, worldTool?.road, worldTool?.roadStroke?.settings, worldTool?.points])
+  const cancelRoadStroke = () => {
+    const active = roadStroke.current
+    roadStroke.current = null
+    setRoadStrokePreview(null)
+    if (active?.owner.hasPointerCapture(active.pointer)) active.owner.releasePointerCapture(active.pointer)
+  }
   const worldToolRef = useRef(worldTool); worldToolRef.current = !disabled && audience === 'gm' ? worldTool : null
   const elevationWheel = useRef({ delta: 0, time: 0 })
   useEffect(() => { elevationWheel.current.delta = 0; elevationWheel.current.time = 0 }, [worldTool?.elevation?.mode])
   useEffect(() => { if (worldToolRef.current?.road) worldToolRef.current.onClearCursor?.(); roadTarget.current = null; rawToolPoint.current = null; setRoadFeedback(null); setRoadReleased(false) }, [roadSources])
+  useLayoutEffect(() => { cancelRoadStroke() }, [project.document, disabled, audience, worldTool?.road, worldTool?.roadStroke?.settings])
   const previewScheduler = useMemo(() => new PreviewScheduler<HTMLCanvasElement>(image => { image.width = 0; image.height = 0 }), [])
   const metricsCallback = useRef(onRenderMetrics); metricsCallback.current = onRenderMetrics
   const brushDrag = useRef<{ pointer: number; points: PointMm[] } | null>(null)
@@ -143,8 +193,8 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   const marqueeRef = useRef<{ pointer: number; x: number; y: number; world: PointMm; ids: string[]; operation: 'replace' | 'add' | 'subtract' } | null>(null)
   const selectingRef = useRef(false)
   const resumeRefinement = useRef(false)
-  const selectionDrag = useRef<{ pointer: number; owner: HTMLDivElement; project: CompleteProjectV2; selectionKey: string; ids: string[]; x: number; y: number; startMm: PointMm; offsetMm: PointMm; moved: boolean; shapes: PointMm[][]; finish: ((offsetMm: PointMm) => void) | null } | null>(null)
-  const [selectionMove, setSelectionMove] = useState<{ shapes: PointMm[][]; offsetMm: PointMm } | null>(null)
+  const selectionDrag = useRef<{ pointer: number; owner: HTMLDivElement; project: CompleteProjectV2; selectionKey: string; ids: string[]; x: number; y: number; startMm: PointMm; offsetMm: PointMm; moved: boolean; shapes: PointMm[][]; operation: ReturnType<CanvasSelectionDragStart>; allowDrop: boolean } | null>(null)
+  const [selectionMove, setSelectionMove] = useState<(SelectionDragFeedback & { shapes: PointMm[][] }) | null>(null)
   const selectionKey = JSON.stringify(ids)
   const cancelSelectionDrag = (suppress = true) => {
     const active = selectionDrag.current
@@ -203,8 +253,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   const selectedWallEndpoints = selectedWall ? [project.document.vertices[selectedWall.startVertexId], project.document.vertices[selectedWall.endVertexId]] : null
   const wallCanDrag = useMemo(() => {
     if (!selectedWall || !onWallDragPreview || audience !== 'gm' || disabled || placement || fillCopy || worldTool || terrainBrush || visualBoundary || selectionOptions?.hiddenIds?.has(selectedWall.id)) return false
-    if (effectiveEditLockedV2(project.document, selectedWall.id)) return false
-    return buildingDependants(project.document, [selectedWall.id]).every(id => !effectiveEditLockedV2(project.document, id) && !project.document.userLayers[project.document.entityLayers[id]]?.editLocked)
+    return !wallTranslationLockBlockers(project.document, selectedWall.id).length
   }, [project.document, selectedWall?.id, onWallDragPreview, audience, disabled, placement, fillCopy, worldTool, terrainBrush, visualBoundary, selectionOptions])
   const wallOverlay = useMemo(() => {
     if (!selectedWall || !wallOffsetMm) return null
@@ -318,7 +367,13 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   useEffect(() => { if (fitRequest) fit() }, [fitRequest])
   useLayoutEffect(() => {
     if (!focusPoint || audience !== 'gm' || size.width <= 1 || size.height <= 1) return
-    const zoom = Math.max(2, viewRef.current.zoom), rect = viewportMapRectV2({ zoom, panX: 0, panY: 0 }, size, bounds)
+    const fitRect = viewportMapRectV2(FIT_VIEWPORT_V2, size, bounds), scope = focusPoint.scope
+    const scopeZoom = scope ? Math.min(
+      size.width * .86 / (fitRect.width * scope.width / bounds.width),
+      size.height * .86 / (fitRect.height * scope.height / bounds.height),
+    ) : Math.max(2, viewRef.current.zoom)
+    const zoom = Math.max(MIN_VIEW_ZOOM_V2, Math.min(MAX_VIEW_ZOOM_V2, scopeZoom))
+    const rect = viewportMapRectV2({ zoom, panX: 0, panY: 0 }, size, bounds)
     const next = constrainViewportV2({ zoom,
       panX: (bounds.x + bounds.width / 2 - focusPoint.positionMm.x) * rect.width / bounds.width,
       panY: (bounds.y + bounds.height / 2 - focusPoint.positionMm.y) * rect.height / bounds.height }, size, bounds)
@@ -421,9 +476,9 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   readyRef.current = !!ready
   const rect = viewportMapRectV2(view, size, bounds)
   const refinementBounds = refinement?.token === refinementView && refinement.image.width > 0 && refinement.image.height > 0 ? refinement.bounds : null
-  const pointerWorld = (clientX: number, clientY: number): PointMm | null => {
+  const pointerWorld = (clientX: number, clientY: number, allowOutside = false): PointMm | null => {
     const image = canvas.current?.getBoundingClientRect()
-    if (!image || clientX < image.left || clientX > image.right || clientY < image.top || clientY > image.bottom) return null
+    if (!image || !allowOutside && (clientX < image.left || clientX > image.right || clientY < image.top || clientY > image.bottom)) return null
     return { x: Math.round(bounds.x + (clientX - image.left) / image.width * bounds.width), y: Math.round(bounds.y + (clientY - image.top) / image.height * bounds.height) }
   }
   const toolPoint = (point: PointMm, released: boolean): PointMm => {
@@ -435,19 +490,24 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
     roadTarget.current = feedback.target?.id ?? null; setRoadFeedback(feedback); setRoadReleased(released)
     return feedback.point
   }
-  const roadHint = worldTool?.road ? roadReleased ? 'Shift · 道路自由取点（整数毫米）' : roadFeedback?.target ? `吸附：${roadFeedback.target.label} · 方向 ${Math.round(roadFeedback.target.directionDeg)}°` : '道路默认吸附 · Shift 临时自由取点' : null
-  const updateSelectionDrag = (clientX: number, clientY: number) => {
+  const narrowedRoad = !!(roadStrokePreview?.widthSections?.length || !roadStrokePreview && roadFit?.sections.length)
+  const roadHint = worldTool?.road ? roadStrokePreview?.rejected?.reason ?? (narrowedRoad ? '已按承托收窄受限路段' : undefined)
+    ?? (roadReleased ? 'Shift · 道路自由取点（整数毫米）' : roadFeedback?.target ? `吸附：${roadFeedback.target.label} · 方向 ${Math.round(roadFeedback.target.directionDeg)}°` : worldTool.roadStroke ? '按住拖出路线 · Enter 预览' : '道路默认吸附 · Shift 临时自由取点') : null
+  const updateSelectionDrag = (clientX: number, clientY: number, shiftKey: boolean) => {
     const active = selectionDrag.current
     if (!active) return
     if (active.project !== project || active.selectionKey !== selectionKey || disabled || audience !== 'gm') { cancelSelectionDrag(); return }
     const point = pointerWorld(clientX, clientY)
     if (!point) { cancelSelectionDrag(); setSelectionNotice('拖动越出画布，已取消，工程未修改。'); return }
     if (Math.hypot(clientX - active.x, clientY - active.y) >= 4) active.moved = true
-    if (!active.moved || !active.finish) return
+    if (!active.moved || !active.operation) return
     try {
       const start = subgrid ? snapPoint(active.startMm) : active.startMm, end = subgrid ? snapPoint(point) : point
-      active.offsetMm = wallDragOffset(start, end, subgrid ? 1 : project.document.units.snapMm)
-      setSelectionMove({ shapes: active.shapes, offsetMm: active.offsetMm })
+      const offsetMm = wallDragOffset(start, end, subgrid ? 1 : project.document.units.snapMm)
+      const feedback = active.operation.preview?.(offsetMm, shiftKey ? 0 : 12 * bounds.width / rect.width)
+      active.offsetMm = feedback?.offsetMm ?? offsetMm
+      active.allowDrop = feedback?.allowDrop ?? !!(offsetMm.x || offsetMm.y)
+      setSelectionMove({ ...feedback, shapes: active.shapes, offsetMm: active.offsetMm })
     } catch (error) { cancelSelectionDrag(); setSelectionNotice(error instanceof Error ? error.message : String(error)) }
   }
   const updateWallDrag = (clientX: number, clientY: number): boolean => {
@@ -496,7 +556,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
     </div>
     <div ref={viewport} className={`asset-viewport${mode === 'pan' ? ' is-pan' : ''}${dragging ? ' is-dragging' : ''}${worldTool || terrainBrush ? ' building-world-tool' : ''}`} role="group" aria-label="地图视口" tabIndex={0}
       data-selected-ids={JSON.stringify(ids)} data-selection-detail={ids.length > 256 ? 'bounds' : ids.length > 32 ? 'outlines' : 'handles'} data-zoom={view.zoom} data-pan-x={view.panX} data-pan-y={view.panY} data-render-count={renderCount} data-refinement-count={refinementCount} data-refinement-pending={refinementPending}
-      onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { cancelSelectionDrag(); endDrag(true); cancelMarquee(); cancelBrushStroke(); cancelWallDrag(); worldToolRef.current?.onClearCursor?.(); roadTarget.current = null; rawToolPoint.current = null; setRoadReleased(false); setRoadFeedback(null); elevationWheel.current.delta = 0 } }}
+      onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { cancelRoadStroke(); cancelSelectionDrag(); endDrag(true); cancelMarquee(); cancelBrushStroke(); cancelWallDrag(); worldToolRef.current?.onClearCursor?.(); roadTarget.current = null; rawToolPoint.current = null; setRoadReleased(false); setRoadFeedback(null); elevationWheel.current.delta = 0 } }}
       onContextMenu={event => {
         if (selectionDrag.current) { event.preventDefault(); return }
         if (!ready || disabled || audience !== 'gm' || placement || fillCopy || worldTool || terrainBrush || mode === 'pan' || drag.current || marqueeRef.current) return
@@ -507,10 +567,20 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
       }}
       onPointerDown={event => {
         if (!ready || event.button > 1) return
-        if (brushDrag.current || wallDrag.current || selectionDrag.current) { event.preventDefault(); return }
+        if (brushDrag.current || wallDrag.current || selectionDrag.current || roadStroke.current) { event.preventDefault(); return }
         suppressClick.current = false
         event.currentTarget.focus({ preventScroll: true })
-        if (terrainBrush && !disabled && audience === 'gm' && event.button === 0 && mode !== 'pan' && !space.current) {
+        if (worldTool?.road && worldTool.roadStroke && !disabled && audience === 'gm' && event.button === 0 && mode === 'select' && !space.current) {
+          const point = pointerWorld(event.clientX, event.clientY)
+          if (!point) return
+          event.preventDefault()
+          suppressClick.current = true
+          cancelRefinement()
+          const draft = beginRoadStroke(project.document, worldTool.road, worldTool.roadStroke.settings, toolPoint(point, event.shiftKey))
+          roadStroke.current = { pointer: event.pointerId, owner: event.currentTarget, draft }
+          setRoadStrokePreview(draft.preview)
+          event.currentTarget.setPointerCapture(event.pointerId)
+        } else if (terrainBrush && !disabled && audience === 'gm' && event.button === 0 && mode !== 'pan' && !space.current) {
           const point = pointerWorld(event.clientX, event.clientY)
           if (!point) return
           event.preventDefault(); suppressClick.current = true; cancelMarquee(); cancelRefinement()
@@ -525,11 +595,11 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
           if (world) {
             const op = event.altKey ? 'subtract' : event.shiftKey ? 'add' : operation
             const hit = pointHits(project.document, world, 7 / canvas.current!.getBoundingClientRect().width * bounds.width, { ...selectionOptions, memberMode })[0]
-            if (op === 'replace' && !event.ctrlKey && !event.metaKey && !visualBoundary && hit && onSelectionDragStart && (project.document.props[hit] || project.document.prefabInstances[hit] || project.document.decorations?.[hit])) {
+            if (op === 'replace' && !event.ctrlKey && !event.metaKey && !visualBoundary && hit && onSelectionDragStart && (project.document.props[hit] || project.document.prefabInstances[hit] || project.document.decorations?.[hit] || project.document.paths[hit]?.assembly?.bridge || project.document.rooms[hit])) {
               const targets = normalizeSelectionV2(project.document, ids.includes(hit) ? ids : [hit], true)
-              const finish = onSelectionDragStart(targets)
+              const operation = onSelectionDragStart(targets)
               cancelRefinement()
-              selectionDrag.current = { pointer: event.pointerId, owner: event.currentTarget, project, selectionKey, ids: targets, x: event.clientX, y: event.clientY, startMm: world, offsetMm: { x: 0, y: 0 }, moved: false, shapes: finish ? targets.flatMap(id => readGeometry(project.document, id)) : [], finish }
+              selectionDrag.current = { pointer: event.pointerId, owner: event.currentTarget, project, selectionKey, ids: targets, x: event.clientX, y: event.clientY, startMm: world, offsetMm: { x: 0, y: 0 }, moved: false, shapes: operation ? targets.flatMap(id => readGeometry(project.document, id)) : [], operation, allowDrop: false }
               event.currentTarget.setPointerCapture(event.pointerId)
             } else {
               cancelRefinement(); selectingRef.current = true; marqueeRef.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, world, ids: [...ids], operation: op }; event.currentTarget.setPointerCapture(event.pointerId)
@@ -538,7 +608,14 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
         }
       }}
       onPointerMove={event => {
-        if (selectionDrag.current?.pointer === event.pointerId) { event.preventDefault(); updateSelectionDrag(event.clientX, event.clientY); return }
+        const stroke = roadStroke.current
+        if (stroke?.pointer === event.pointerId) {
+          event.preventDefault()
+          const point = pointerWorld(event.clientX, event.clientY, true)
+          if (point) setRoadStrokePreview(stroke.draft.extend(point))
+          return
+        }
+        if (selectionDrag.current?.pointer === event.pointerId) { event.preventDefault(); updateSelectionDrag(event.clientX, event.clientY, event.shiftKey); return }
         if (wallDrag.current?.pointer === event.pointerId) { event.preventDefault(); updateWallDrag(event.clientX, event.clientY); return }
         const brush = brushDrag.current
         if (terrainBrush && !disabled && audience === 'gm' && mode === 'select') {
@@ -562,14 +639,25 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
         else if (ready && placement && !disabled && audience === 'gm' && mode === 'select') { const point = pointerWorld(event.clientX, event.clientY); if (point) onPlacementMove?.(snapPoint(point)) }
       }}
       onPointerUp={event => {
+        const stroke = roadStroke.current
+        if (stroke?.pointer === event.pointerId) {
+          event.preventDefault()
+          const point = pointerWorld(event.clientX, event.clientY, true)
+          if (point && !stroke.draft.preview.rejected) stroke.draft.extend(toolPoint(point, event.shiftKey), true)
+          const { controls, rejected } = stroke.draft.preview
+          cancelRoadStroke()
+          if (controls.length >= 2) worldTool?.roadStroke?.onEnd(controls, stroke.draft.supportRefs)
+          if (rejected) setSelectionNotice(rejected.reason)
+          return
+        }
         if (selectionDrag.current?.pointer === event.pointerId) {
-          updateSelectionDrag(event.clientX, event.clientY)
+          updateSelectionDrag(event.clientX, event.clientY, event.shiftKey)
           const active = selectionDrag.current
           if (!active) return
           cancelSelectionDrag(active.moved)
           if (active.moved) {
             event.preventDefault()
-            if (active.finish && (active.offsetMm.x || active.offsetMm.y)) { publish(active.ids); active.finish(active.offsetMm) }
+            if (active.operation && active.allowDrop) { publish(active.ids); active.operation.finish(active.offsetMm) }
           }
           return
         }
@@ -602,7 +690,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
           cancelMarquee(Math.hypot(event.clientX - active.x, event.clientY - active.y) >= 4)
         }
       }}
-      onPointerCancel={() => { cancelSelectionDrag(); cancelWallDrag(); cancelBrushStroke(); endDrag(true); cancelMarquee(); suppressClick.current = true }} onLostPointerCapture={() => { if (selectionDrag.current) cancelSelectionDrag(); if (wallDrag.current) cancelWallDrag(); if (brushDrag.current) cancelBrushStroke(); if (drag.current) endDrag(true); if (marqueeRef.current) { cancelMarquee(); suppressClick.current = true } }}
+      onPointerCancel={() => { cancelRoadStroke(); cancelSelectionDrag(); cancelWallDrag(); cancelBrushStroke(); endDrag(true); cancelMarquee(); suppressClick.current = true }} onLostPointerCapture={() => { if (roadStroke.current) cancelRoadStroke(); if (selectionDrag.current) cancelSelectionDrag(); if (wallDrag.current) cancelWallDrag(); if (brushDrag.current) cancelBrushStroke(); if (drag.current) endDrag(true); if (marqueeRef.current) { cancelMarquee(); suppressClick.current = true } }}
       onCopy={event => {
         if (selectionDrag.current) { event.preventDefault(); return }
         if (event.target !== event.currentTarget || document.activeElement !== event.currentTarget || !ready || disabled || audience !== 'gm' || mode !== 'select' || placement || fillCopy || worldTool || terrainBrush || visualBoundary || drag.current || wallDrag.current || visualDrag.current || marqueeRef.current || !onCopySelection) return
@@ -629,12 +717,18 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
         if (event.key === 'Shift' && worldTool?.road && !disabled && audience === 'gm' && mode === 'select' && !drag.current && !wallDrag.current && !visualDrag.current && !marqueeRef.current) { if (rawToolPoint.current) worldTool.onMove(toolPoint(rawToolPoint.current, true)); else setRoadReleased(true) }
         if (event.key === 'Escape' && visualDrag.current) { event.preventDefault(); event.stopPropagation(); cancelVisualDrag(); setSelectionNotice('已取消曲线拖动，工程未修改。'); return }
         if (event.key === 'Escape' && wallDrag.current) { event.preventDefault(); event.stopPropagation(); cancelWallDrag(); setSelectionNotice('已取消拖边，工程未修改。'); return }
-        if (event.key === 'Escape') { event.preventDefault(); if (fillCopy) { event.stopPropagation(); cancelFillDrag(false); setFillReport(null); onFillCopyCancel?.(); return }; if (marqueeRef.current) suppressClick.current = true; cancelMarquee(); cancelBrushStroke(); endDrag(true); setMode('select'); onCancelPlacement?.(); worldTool?.onCancel(); terrainBrush?.onCancel(); return }
+        if (event.key === 'Escape' && !disabled && !worldTool && !terrainBrush && !placement && !fillCopy && !visualBoundary && memberMode && ids.length === 1) {
+          const parent = selectionUnitIdV2(project.document, ids[0])
+          if (parent && parent !== ids[0] && !selectionOptions?.hiddenIds?.has(parent)) {
+            event.preventDefault(); event.stopPropagation(); onMemberMode?.(false); publish([parent]); return
+          }
+        }
+        if (event.key === 'Escape') { event.preventDefault(); if (roadStroke.current) { event.stopPropagation(); cancelRoadStroke(); return }; if (fillCopy) { event.stopPropagation(); cancelFillDrag(false); setFillReport(null); onFillCopyCancel?.(); return }; if (marqueeRef.current) suppressClick.current = true; cancelMarquee(); cancelBrushStroke(); endDrag(true); setMode('select'); onCancelPlacement?.(); worldTool?.onCancel(); terrainBrush?.onCancel(); return }
         if ((event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) && !disabled && audience === 'gm' && !placement && !worldTool && !terrainBrush && onContext) {
           event.preventDefault(); const image = canvas.current!.getBoundingClientRect(), prop = ids.length === 1 ? project.document.props[ids[0]] ?? project.document.decorations?.[ids[0]] : null, point = prop?.positionMm ?? { x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) }
           onContext(point, ids.length ? [...ids] : pointHits(project.document, point, 7 / image.width * bounds.width, { ...selectionOptions, memberMode }), { x: image.left + (point.x - bounds.x) / bounds.width * image.width, y: image.top + (point.y - bounds.y) / bounds.height * image.height }, event.currentTarget); return
         }
-        if (event.key === 'Enter' && worldTool?.onFinish && !disabled && audience === 'gm' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !placement && !fillCopy && !terrainBrush && !drag.current && !wallDrag.current && !visualDrag.current && !marqueeRef.current) { event.preventDefault(); event.stopPropagation(); if (!event.repeat) worldTool.onFinish(); return }
+        if (event.key === 'Enter' && worldTool?.onFinish && !disabled && audience === 'gm' && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !placement && !fillCopy && !terrainBrush && !drag.current && !roadStroke.current && !wallDrag.current && !visualDrag.current && !marqueeRef.current) { event.preventDefault(); event.stopPropagation(); if (!event.repeat) worldTool.onFinish(); return }
         if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a' && !disabled && audience === 'gm' && !placement && !fillCopy && !worldTool && !terrainBrush) { event.preventDefault(); selectAll(); return }
         if (event.metaKey || event.ctrlKey || event.altKey) return
         if ((event.key === 'Delete' || event.key === 'Backspace') && !disabled && audience === 'gm' && mode === 'select' && !space.current && !placement && !fillCopy && !worldTool && !terrainBrush && !visualBoundary && !drag.current && !wallDrag.current && !visualDrag.current && !marqueeRef.current && ids.length && onDeleteSelection) {
@@ -654,12 +748,16 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
         const point = pointerWorld(event.clientX, event.clientY)
         if (!point) return
         const id = pointHits(project.document, point, 7 / canvas.current!.getBoundingClientRect().width * bounds.width, { ...selectionOptions, memberMode: true })[0]
-        if (id && project.document.props[id] && Object.values(project.document.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === id))) { onMemberMode?.(true); publish([id]) }
+        if (id && selectionUnitIdV2(project.document, id) !== id) {
+          onMemberMode?.(true); publish([id]); return
+        }
+        const region = floorId && onFocusPartition && (!id || project.document.regions[id]) ? partitionAt(project.document, floorId, point) : undefined
+        if (region && !selectionOptions?.hiddenIds?.has(region.id)) onFocusPartition?.(region.id)
       }}
       onClick={event => {
         if (!ready || disabled || audience !== 'gm' || mode === 'pan' || fillCopy || suppressClick.current || !canvas.current) return
         if (terrainBrush) return
-        if (worldTool) { const point = pointerWorld(event.clientX, event.clientY); if (point) worldTool.onPoint(toolPoint(point, event.shiftKey)); return }
+        if (worldTool) { const point = pointerWorld(event.clientX, event.clientY); if (point && !worldTool.roadStroke) worldTool.onPoint(toolPoint(point, event.shiftKey)); return }
         if (placement) { const point = pointerWorld(event.clientX, event.clientY); if (point) onPlace?.(snapPoint(point)); return }
         const image = canvas.current.getBoundingClientRect()
         if (event.clientX < image.left || event.clientX > image.right || event.clientY < image.top || event.clientY > image.bottom) { publish(mergeSelection(ids, [], event.altKey ? 'subtract' : event.shiftKey ? 'add' : operation)); return }
@@ -667,19 +765,39 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
         const hit = pointHits(project.document, world, 7 / image.width * bounds.width, { ...selectionOptions, memberMode })[0]
         publish(mergeSelection(ids, hit ? [hit] : [], event.altKey ? 'subtract' : event.shiftKey ? 'add' : operation))
       }}>
-      {selectionMove && <div role="status" data-testid="selection-drag-status" style={{ position: 'absolute', zIndex: 3, left: 8, bottom: 8, maxWidth: 'calc(100% - 16px)', padding: '4px 7px', background: '#f6f0ddee', color: '#24594b', fontSize: 11, pointerEvents: 'none' }}>移动 ΔX {selectionMove.offsetMm.x} · ΔY {selectionMove.offsetMm.y} mm；松开后预览，Escape 取消，当前工程未修改。</div>}
+      {selectionMove && <div role="status" data-testid="selection-drag-status" style={{ position: 'absolute', zIndex: 3, left: 8, bottom: 8, maxWidth: 'calc(100% - 16px)', padding: '4px 7px', background: '#f6f0ddee', color: '#24594b', fontSize: 11, pointerEvents: 'none' }}>
+        {selectionMove.message ?? `移动 ΔX ${selectionMove.offsetMm.x} · ΔY ${selectionMove.offsetMm.y} mm`}。Escape 取消，当前工程未修改。
+      </div>}
       <div className="asset-viewport-image" data-transparent={project.document.outputBackground?.mode === 'transparent' || undefined} style={{ width: rect.width, height: rect.height, transform: `translate(${rect.x}px, ${rect.y}px)`, visibility: ready ? 'visible' : 'hidden' }}>
         <canvas ref={canvas} aria-label={audience === 'gm' ? '材质场景主持人预览' : '材质场景玩家预览'}/>
         {/* Session-only render inputs preserve precision that CSS percentage serialization can round. */}
         <canvas ref={detailCanvas} className="asset-detail-preview" aria-hidden="true" data-refinement-bounds={refinementBounds ? JSON.stringify(refinementBounds) : undefined} data-refinement-scale={refinementBounds ? refinement?.screenScalePxPerMm : undefined} style={refinementBounds ? { left: `${(refinementBounds.x - bounds.x) / bounds.width * 100}%`, top: `${(refinementBounds.y - bounds.y) / bounds.height * 100}%`, width: `${refinementBounds.width / bounds.width * 100}%`, height: `${refinementBounds.height / bounds.height * 100}%` } : { display: 'none' }}/>
         <canvas ref={overlay} className="asset-selection-overlay" aria-hidden="true"/>
-        {focusPoint && audience === 'gm' && <svg className="asset-selection-overlay" data-testid="floor-entrance-marker" aria-label="当前定位入口" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
+        {focusPoint && !focusPoint.scope && audience === 'gm' && <svg className="asset-selection-overlay" data-testid="floor-entrance-marker" aria-label="当前定位入口" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
           <circle cx={focusPoint.positionMm.x} cy={focusPoint.positionMm.y} r={12 * bounds.width / rect.width} fill="#FFD36A55" stroke="#B25822" strokeWidth={2 * bounds.width / rect.width}/>
+        </svg>}
+        {audience === 'gm' && <svg className="asset-selection-overlay" aria-hidden="true" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
+          {Object.values(project.document.regions).filter(region => region.kind === 'partition' && region.floorId === floorId && !selectionOptions?.hiddenIds?.has(region.id)).map(region => <polygon key={region.id}
+            points={region.boundaryMm.map(point => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#638379" strokeWidth={1.4 * bounds.width / rect.width} strokeDasharray={`${6 * bounds.width / rect.width} ${4 * bounds.width / rect.width}`}/>)}
+        </svg>}
+        {audience === 'player' && partitionOutline && <svg className="asset-selection-overlay" aria-label="分区迷雾预览" role="img" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
+          <path data-testid="partition-fog-preview" fill="#293834" fillRule="evenodd" d={`M ${bounds.x} ${bounds.y} h ${bounds.width} v ${bounds.height} h ${-bounds.width} Z M ${partitionOutline.map(point => `${point.x} ${point.y}`).join(' L ')} Z`}/>
+        </svg>}
+        {sightOverlay && <svg className="asset-selection-overlay" data-testid="sight-preview" aria-label="临时视点与视野范围" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
+          <path fill="#17263077" fillRule="evenodd" d={`M ${bounds.x} ${bounds.y} h ${bounds.width} v ${bounds.height} h ${-bounds.width} Z ${sightOverlay.boundary.length ? 'M ' + sightOverlay.boundary.map(point => point.x + ' ' + point.y).join(' L ') + ' Z' : ''}`}/>
+          <polygon data-testid="sight-preview-boundary" points={sightOverlay.boundary.map(point => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#5fd8bd" strokeWidth={2 * bounds.width / rect.width}/>
+          <circle cx={sightOverlay.origin.x} cy={sightOverlay.origin.y} r={6 * bounds.width / rect.width} fill="#f3edc8" stroke="#117568" strokeWidth={2 * bounds.width / rect.width}/>
         </svg>}
         {selectionMove && <svg className="asset-selection-overlay" data-testid="selection-drag-preview" aria-hidden="true" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
           <g transform={`translate(${selectionMove.offsetMm.x} ${selectionMove.offsetMm.y})`} fill="#2C7A6518" stroke="#176c64" strokeWidth={2 * bounds.width / rect.width} strokeDasharray={`${7 * bounds.width / rect.width} ${5 * bounds.width / rect.width}`}>
             {selectionMove.shapes.map((points, i) => <polygon key={i} points={points.map(p => `${p.x},${p.y}`).join(' ')}/>)}
           </g>
+          {selectionMove.links?.map(({ state, kind, from, to, band, route }, index) => <g key={index} data-testid={state === 'split' ? 'room-shared-wall-split' : `${kind ?? 'bridge'}-link-${state}`} stroke={state === 'break' || state === 'split' ? '#c83d36' : '#147684'} strokeWidth={3 * bounds.width / rect.width}>
+            {band && <polygon points={band.map(point => `${point.x},${point.y}`).join(' ')} fill="#1b81942a"/>}
+            {route && <polyline points={route.map(point => `${point.x},${point.y}`).join(' ')} fill="none"/>}
+            <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} strokeDasharray={state === 'break' ? `${6 * bounds.width / rect.width} ${4 * bounds.width / rect.width}` : undefined}/>
+            <circle cx={to.x} cy={to.y} r={5 * bounds.width / rect.width} fill="#f6f0dd"/>
+          </g>)}
         </svg>}
         {wallCanDrag && selectedWall && selectedWallEndpoints && mode === 'select' && <svg className="asset-selection-overlay wall-drag-overlay" data-testid="wall-drag-overlay" aria-label="墙体直接拖边预览" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ position: 'absolute', inset: 0, zIndex: 1, width: '100%', height: '100%', pointerEvents: 'none' }} onClick={event => event.stopPropagation()}
           onPointerMove={event => { if (wallDrag.current?.pointer === event.pointerId) { event.preventDefault(); event.stopPropagation(); updateWallDrag(event.clientX, event.clientY) } }}
@@ -792,8 +910,13 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
         {worldTool?.elevation?.scopeMm && audience === 'gm' && !disabled && <svg className="asset-selection-overlay" aria-hidden="true" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}><polygon data-testid="elevation-scope" points={worldTool.elevation.scopeMm.map(p => `${p.x},${p.y}`).join(' ')} fill="#13758b16" stroke="#13758b" strokeWidth={2 * bounds.width / rect.width} strokeDasharray={`${6 * bounds.width / rect.width} ${4 * bounds.width / rect.width}`}/></svg>}
         {worldTool && !worldTool.elevation && audience === 'gm' && !disabled && <svg className="asset-selection-overlay" data-testid="building-sketch" aria-hidden="true" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
           {(() => {
-            const points = [...worldTool.points]
-            if (worldTool.cursor && (worldTool.kind === 'polygon' || worldTool.kind === 'orthogonal' || worldTool.kind === 'polyline' || points.length === 1) && !(worldTool.kind === 'orthogonal' && points.at(-1)?.x === worldTool.cursor.x && points.at(-1)?.y === worldTool.cursor.y)) points.push(worldTool.cursor)
+            let points = roadStrokePreview?.centerlineMm ?? worldTool.points
+            if (worldTool.roadStroke && !roadStrokePreview && points.length > 1) {
+              try { points = roadSketchShape(points, worldTool.roadStroke.settings).centerlineMm }
+              catch { /* The sketch points remain visible for correction. */ }
+            }
+            points = [...points]
+            if (!worldTool.roadStroke && worldTool.cursor && (worldTool.kind === 'polygon' || worldTool.kind === 'orthogonal' || worldTool.kind === 'polyline' || points.length === 1) && !(worldTool.kind === 'orthogonal' && points.at(-1)?.x === worldTool.cursor.x && points.at(-1)?.y === worldTool.cursor.y)) points.push(worldTool.cursor)
             let orthogonalClosed = false
             if (worldTool.kind === 'orthogonal' && points.length >= 3) {
               try { const closed = finishOrthogonalBoundary(points); points.splice(0, points.length, ...closed, closed[0]); orthogonalClosed = true } catch { /* Keep the open line visible until a valid closure exists. */ }
@@ -802,8 +925,12 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
             const unit = bounds.width / rect.width
             if (worldTool.template) return <g data-testid="scene-template-placement-outline" data-conflict={worldTool.template.issues.length > 0}>{worldTool.template.polygons.map((polygon, i) => <polygon key={i} points={polygon.map(p => `${p.x},${p.y}`).join(' ')} fill={worldTool.template!.issues.length ? '#a7473726' : '#5c865722'} stroke={worldTool.template!.issues.length ? '#a74737' : '#3c7650'} strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/>)}</g>
             const distinct = path.filter((point, index) => !index || point.x !== path[index - 1].x || point.y !== path[index - 1].y)
-            const band = worldTool.road && distinct.length > 1 ? polylineBand(distinct, worldTool.road.widthMm, true) : null
-            return <>{band && <polygon data-testid="road-width-preview" points={band.map(p => `${p.x},${p.y}`).join(' ')} fill="#b9874850" stroke="#8e643d" strokeWidth={unit}/>} {roadFeedback?.target && worldTool.road && <circle data-testid="road-snap-target" cx={roadFeedback.point.x} cy={roadFeedback.point.y} r={8 * unit} fill="none" stroke="#13758b" strokeWidth={2 * unit}/>} {orthogonalClosed ? <polygon data-orthogonal-valid="true" points={path.map(p => `${p.x},${p.y}`).join(' ')} fill="#5c865722" stroke="#3c7650" strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/> : <polyline data-orthogonal-valid={worldTool.kind === 'orthogonal' ? 'false' : undefined} points={path.map(p => `${p.x},${p.y}`).join(' ')} fill={worldTool.kind === 'ruler' || worldTool.kind === 'polyline' || worldTool.kind === 'orthogonal' ? 'none' : '#5c865722'} stroke={worldTool.kind === 'orthogonal' ? '#aa6e2e' : '#3c7650'} strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/> }{worldTool.kind === 'rectangle' && path.length === 4 && <line x1={path[3].x} y1={path[3].y} x2={path[0].x} y2={path[0].y} stroke="#3c7650" strokeWidth={2 * unit}/>}{worldTool.points.map((p, index) => <circle key={index} cx={p.x} cy={p.y} r={4 * unit} fill="#f9f7e8" stroke="#3c7650" strokeWidth={2 * unit}/>)}{worldTool.kind === 'ruler' && points.length >= 2 && <text x={(points[0].x + points[1].x) / 2} y={(points[0].y + points[1].y) / 2 - 10 * unit} textAnchor="middle" fontSize={14 * unit} fill="#355e34" stroke="#fffcee" strokeWidth={3 * unit} paintOrder="stroke">{formatDistanceMm(rulerDistance(points[0], points[1]).distanceMm, project.document.units.display)}</text>}</>
+            const band = roadStrokePreview?.band ?? roadFit?.band ?? (worldTool.road && distinct.length > 1
+              ? worldTool.roadStroke?.settings.excavate ? connectionBand(distinct, worldTool.road.widthMm) : polylineBand(distinct, worldTool.road.widthMm, true)
+              : [])
+            const rejection = roadStrokePreview?.rejected?.point, lastAccepted = roadStrokePreview?.centerlineMm.at(-1)
+            const roadRejection = rejection && <g stroke="#B64134" strokeWidth={2 * unit} data-testid="road-outside-support">{lastAccepted && <line x1={lastAccepted.x} y1={lastAccepted.y} x2={rejection.x} y2={rejection.y} strokeDasharray={`${5 * unit} ${4 * unit}`}/>}<circle cx={rejection.x} cy={rejection.y} r={5 * unit} fill="none"/></g>
+            return <>{roadRejection}{band.length > 0 && <polygon data-testid="road-width-preview" points={band.map(p => `${p.x},${p.y}`).join(' ')} fill="#b9874850" stroke="#8e643d" strokeWidth={unit}/>} {roadFeedback?.target && worldTool.road && <circle data-testid="road-snap-target" cx={roadFeedback.point.x} cy={roadFeedback.point.y} r={8 * unit} fill="none" stroke="#13758b" strokeWidth={2 * unit}/>} {orthogonalClosed ? <polygon data-orthogonal-valid="true" points={path.map(p => `${p.x},${p.y}`).join(' ')} fill="#5c865722" stroke="#3c7650" strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/> : <polyline data-orthogonal-valid={worldTool.kind === 'orthogonal' ? 'false' : undefined} points={path.map(p => `${p.x},${p.y}`).join(' ')} fill={worldTool.kind === 'ruler' || worldTool.kind === 'polyline' || worldTool.kind === 'orthogonal' ? 'none' : '#5c865722'} stroke={worldTool.kind === 'orthogonal' ? '#aa6e2e' : '#3c7650'} strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/> }{worldTool.kind === 'rectangle' && path.length === 4 && <line x1={path[3].x} y1={path[3].y} x2={path[0].x} y2={path[0].y} stroke="#3c7650" strokeWidth={2 * unit}/>}{(roadStrokePreview?.controls ?? worldTool.points).map((p, index) => <circle key={index} cx={p.x} cy={p.y} r={4 * unit} fill="#f9f7e8" stroke="#3c7650" strokeWidth={2 * unit}/>)}{worldTool.kind === 'ruler' && points.length >= 2 && <text x={(points[0].x + points[1].x) / 2} y={(points[0].y + points[1].y) / 2 - 10 * unit} textAnchor="middle" fontSize={14 * unit} fill="#355e34" stroke="#fffcee" strokeWidth={3 * unit} paintOrder="stroke">{formatDistanceMm(rulerDistance(points[0], points[1]).distanceMm, project.document.units.display)}</text>}</>
           })()}
         </svg>}
       </div>

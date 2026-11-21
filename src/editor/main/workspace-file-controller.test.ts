@@ -72,6 +72,7 @@ function setup(project: EditableProject, status: WorkspaceState['status'] = 'sav
   const sceneId = project.document.sceneId
   return {
     ports, controller, onAttempt, onSuccess,
+    setStatus(value: WorkspaceState['status']) { status = value },
     backup: (snapshotIds?: readonly string[]) => controller.backup({ project, sceneId, snapshotIds }, onAttempt),
     async invalidate(change: 'checkpoint' | 'scene') {
       // Change one input at a time so each stale-result guard is observable.
@@ -181,6 +182,40 @@ describe('complete workspace backup', () => {
     await operation
     expectAttempt(client, project, 'download-started', '含全部资源、许可和秘密')
     await expectArchiveDownload(client, bytes, completeFilename)
+  })
+
+  it.each(saveFailures)('downloads the current project on the first attempt when saving enters %s', async status => {
+    const project = await editableFixture()
+    const client = setup(project, 'unsaved')
+    const bytes = await exportProject(toBundle(project), validation)
+    client.ports.workspace.flush.mockImplementationOnce(async () => {
+      client.setStatus(status)
+      throw new Error('write could not finish')
+    })
+    client.ports.exportProject.mockResolvedValueOnce(bytes)
+
+    await client.backup()
+
+    expect(client.ports.workspace.flush).toHaveBeenCalledOnce()
+    expect(client.ports.exportProject).toHaveBeenCalledExactlyOnceWith(toBundle(project))
+    expect(client.ports.exportArchive).not.toHaveBeenCalled()
+    expectAttempt(client, project, 'download-started', '当前页面的最新编辑')
+    await expectArchiveDownload(client, bytes, completeFilename)
+  })
+
+  it('still refuses a history backup when its save could not finish', async () => {
+    const project = await editableFixture()
+    const client = setup(project, 'unsaved')
+    client.ports.workspace.flush.mockImplementationOnce(async () => {
+      client.setStatus('error')
+      throw new Error('history baseline could not be saved')
+    })
+
+    await client.backup(['named'])
+
+    expect(client.ports.exportArchive).not.toHaveBeenCalled()
+    expect(client.ports.download).not.toHaveBeenCalled()
+    expectAttempt(client, project, 'failed', 'history baseline could not be saved')
   })
 
   it('reports an export rejection without calling download', async () => {

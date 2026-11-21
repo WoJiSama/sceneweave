@@ -1,15 +1,22 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Worker } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
 import { acknowledgeAssetQuality } from './asset-quality-helpers'
-import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
+import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
 import { closeWorkspaceDrawers, openBuildingTask, openSceneObjects, openWorkspaceModule } from './workspace-navigation-helpers'
 import { mapExportButton } from './workspace-ux-helpers'
+import { decodeCanonicalPng } from '../src/shared/project/png-rgba'
 
 type Input = { project: string; items: { kind: 'prop' | 'material' | 'prefab'; definitionId: string; name: string }[] }
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const library = (page: Page) => page.getByRole('region', { name: '组件素材库', exact: true })
+const audiences = ['gm', 'player'] as const
+
+async function picturePixels(path: string) {
+  const { width, height, rgba } = decodeCanonicalPng(await readFile(path))
+  return { width, height, sha256: hash(new Uint8Array(rgba.buffer, rgba.byteOffset, rgba.byteLength)) }
+}
 
 async function browse(page: Page, scope: 'project' | 'mine') {
   await openWorkspaceModule(page, '素材')
@@ -112,6 +119,10 @@ test('a real inn exports selected fixed prop, material and prefab content, resto
   const failed = (request: { url(): string }) => failedRequests.push(request.url())
   try {
     const target = await context.newPage(); target.on('pageerror', error => errors.push(error.message))
+    const svgWorkers: Worker[] = []
+    target.on('worker', worker => {
+      if (worker.url().startsWith('blob:') || /\/svg-worker-[^/]+\.js$/.test(worker.url())) svgWorkers.push(worker)
+    })
     await createKeyboardProject(target, '旅舍素材跨设备 · 离线布景示例')
     await openBuildingTask(target)
     await target.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
@@ -139,9 +150,11 @@ test('a real inn exports selected fixed prop, material and prefab content, resto
     await expect(preview).toContainText('完整验证3项素材、3项整理', { timeout: 60000 })
     await preview.getByRole('button', { name: '取消导入预览', exact: true }).click()
     await expect(mine.locator('.catalog-empty')).toContainText('还没有个人素材')
-    // This checks use after the required application modules have loaded,
-    // rather than a PWA cold start. Content must be self-contained; homepage
-    // sample thumbnails and the favicon are separate application decorations.
+    // Let the production reader release every warmed rasterizer before the
+    // network disappears. The next validation must start a new worker.
+    expect(svgWorkers.length).toBeGreaterThan(0)
+    await expect.poll(() => target.workers().some(worker => svgWorkers.includes(worker)), { timeout: 12000 }).toBe(false)
+    const onlineWorkerCount = svgWorkers.length
     target.on('request', requested); target.on('requestfailed', failed)
     await context.setOffline(true)
     await mine.getByLabel('导入素材库备份', { exact: true }).setInputFiles(libraryFile)
@@ -192,11 +205,18 @@ test('a real inn exports selected fixed prop, material and prefab content, resto
     await materialReview.getByLabel('确认完整影响范围', { exact: true }).check()
     await materialReview.getByRole('button', { name: '采用视觉修改', exact: true }).click()
     await keyboardWorkspaceSaved(target)
-    const final = await keyboardProjectBackup(target, info.outputPath('target-final.sceneweave'))
+    const offlineBackup = info.outputPath('target-final.sceneweave')
+    const final = await keyboardProjectBackup(target, offlineBackup)
+    expect(svgWorkers.length).toBeGreaterThan(onlineWorkerCount)
     expect(Object.keys(final.document.prefabInstances)).toHaveLength(1)
     expect(Object.keys(final.document.props)).toHaveLength(source.document.prefabDefinitions[prefab.definitionId].members.length + 1)
     expect(final.document.rooms[room.id].floorStyle?.base.materialRef.id).toBe(material.definitionId)
-    for (const audience of ['gm', 'player'] as const) await picture(target, info.outputPath(`target-${audience}.png`), audience)
+    const offlinePngs = []
+    for (const audience of audiences) {
+      const path = info.outputPath('target-' + audience + '.png')
+      await picture(target, path, audience)
+      offlinePngs.push(await picturePixels(path))
+    }
     await target.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(target)
     await target.getByRole('button', { name: '重做编辑', exact: true }).click(); await keyboardWorkspaceSaved(target)
     const redone = await keyboardProjectBackup(target, info.outputPath('target-redone.sceneweave'))
@@ -222,7 +242,28 @@ test('a real inn exports selected fixed prop, material and prefab content, resto
     await keyboardWorkspaceSaved(target)
     expect((await keyboardProjectBackup(target, info.outputPath('target-cold.sceneweave'))).hashes).toEqual(redone.hashes)
     for (const audience of ['gm', 'player'] as const) await picture(target, info.outputPath(`cold-${audience}.png`), audience)
+    const fresh = await browser.newContext({ baseURL: info.project.use.baseURL, viewport: { width: 1512, height: 982 } })
+    try {
+      const imported = await fresh.newPage(); imported.on('pageerror', error => errors.push(error.message))
+      await imported.goto('./#home')
+      const chooser = imported.waitForEvent('filechooser')
+      await imported.getByRole('button', { name: '打开工程文件', exact: true }).click()
+      await (await chooser).setFiles(offlineBackup)
+      await keyboardWorkspaceSaved(imported)
+      const reopened = await keyboardProjectBackup(imported, info.outputPath('target-cold-import.sceneweave'))
+      expect(reopened.document.sceneId).not.toBe(final.document.sceneId)
+      expect(reopened.document.rooms).toEqual(final.document.rooms)
+      expect(reopened.document.props).toEqual(final.document.props)
+      expect(reopened.document.prefabInstances).toEqual(final.document.prefabInstances)
+      expect(reopened.appearance).toEqual(final.appearance)
+      expect(keyboardResourceHashes(reopened.hashes)).toEqual(keyboardResourceHashes(final.hashes))
+      for (const [index, audience] of audiences.entries()) {
+        const path = info.outputPath('cold-import-' + audience + '.png')
+        await picture(imported, path, audience)
+        expect(await picturePixels(path)).toEqual(offlinePngs[index])
+      }
+    } finally { await fresh.close() }
     expect(errors).toEqual([]); expect(hash(await readFile(input.project))).toBe(originalHash)
-    await writeFile(info.outputPath('facts.json'), JSON.stringify({ input, originalHash, librarySha256: hash(await readFile(libraryFile)), sourceSceneId: source.document.sceneId, targetSceneId: final.document.sceneId, targetRoomId: room.id, targetProps: Object.keys(final.document.props).length, offlineRequests, failedRequests, offlineContentRequests, failedContentRequests, svgModulePreparation: 'Online ordinary backup preview, then cancellation; library remains empty before offline restoration.', errors, browserVersion: browser.version() }, null, 2))
+    await writeFile(info.outputPath('facts.json'), JSON.stringify({ input, originalHash, librarySha256: hash(await readFile(libraryFile)), sourceSceneId: source.document.sceneId, targetSceneId: final.document.sceneId, targetRoomId: room.id, targetProps: Object.keys(final.document.props).length, offlineRequests, failedRequests, offlineContentRequests, failedContentRequests, onlineWorkerCount, offlinePngs, svgModulePreparation: 'Online validation, cancel preview, wait for rasterizer release, restore and back up offline, then cold import.', errors, browserVersion: browser.version() }, null, 2))
   } finally { await context.close() }
 })

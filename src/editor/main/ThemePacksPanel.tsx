@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { THEME_PACK_PLANS, selectThemePacks } from '../../shared/assets/theme-packs'
-import { THEME_PACK_CATALOGS, type ThemePackArtId } from '../../shared/assets/theme-pack-catalogs'
+import { THEME_PACK_CATALOGS, type ThemePackId } from '../../shared/assets/theme-pack-catalogs'
 import type { LoadedThemePack } from '../../platform/browser/content/theme-pack-catalog'
 import type { OutpostVegetationDensity } from '../../platform/browser/content/outpost-vegetation'
 import type { PreparedCatalogEntryV1 } from './catalog'
-import { prepareCatalogEntry } from './catalog'
+import { prepareCatalogEntries, prepareCatalogEntry } from './catalog'
 import AssetReviewPanel from './AssetReviewPanel'
 import FurnitureCollectionPanel from './FurnitureCollectionPanel'
 import SceneCollectionPanel from './SceneCollectionPanel'
@@ -24,7 +24,7 @@ const download = (name: string, blob: Blob) => {
 
 /** One demand-loaded pack in memory. Nothing is installed until the ordinary atomic adoption preview. */
 export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: Props) {
-  const [query, setQuery] = useState(''), [packId, setPackId] = useState<ThemePackArtId>('investigation')
+  const [query, setQuery] = useState(''), [packId, setPackId] = useState<ThemePackId>('investigation')
   const [loaded, setLoaded] = useState<LoadedThemePack | null>(null), [selected, setSelected] = useState<string[]>([])
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({}), [pending, setPending] = useState(false)
   const [reviewPending, setReviewPending] = useState(false)
@@ -67,11 +67,7 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
   const adopt = () => void perform(async (signal, current) => {
     if (!loaded || !selected.length) return
     const pack = loaded, choices = pack.items.filter(item => selected.includes(item.identity.key))
-    await onAdopt(async adoptionSignal => {
-      const result: PreparedCatalogEntryV1[] = []
-      for (const item of choices) { adoptionSignal.throwIfAborted(); result.push(await prepareCatalogEntry(pack.project, item.selector, adoptionSignal)) }
-      return result
-    }, signal)
+    await onAdopt(adoptionSignal => prepareCatalogEntries(pack.project, choices.map(item => item.selector), adoptionSignal), signal)
     if (current()) { setSelected([]); setMessage('候选已准备，请在画布审阅后一次采用。') }
   })
   const sample = (variant: 0 | 1, daylight = false) => void perform(async (signal, current) => {
@@ -181,9 +177,9 @@ export default function ThemePacksPanel({ disabled, onAdopt, onPendingChange }: 
   const plan = THEME_PACK_PLANS.find(plan => plan.id === metadata.planId)!
   return <><SceneCollectionPanel disabled={disabled || pending || reviewPending} onAdopt={onAdopt} onPendingChange={onPendingChange}/><FurnitureCollectionPanel disabled={disabled || pending || reviewPending} onAdopt={onAdopt} onPendingChange={onPendingChange}/><section aria-label="主题素材包" className="theme-packs-panel"><details>
     <summary>主题素材包 · 场景与画风</summary>
-    <p>六套独立候选。当前所选包含{metadata.counts.materials}种材质、{metadata.counts.props}件物件和{metadata.counts.prefabs}个可拆组合，另有两份可编辑场景。按需加载，再选择需要的内容添加。</p>
+    <p>当前所选包含{metadata.counts.materials}种材质、{metadata.counts.props}件物件和{metadata.counts.prefabs}个可拆组合，另有两份可编辑场景。按需加载，再选择需要的内容添加。</p>
     <label>查找主题<input aria-label="查找主题包" value={query} onChange={event => setQuery(event.target.value)} placeholder="主题、场景或画风"/></label>
-    <fieldset disabled={disabled || pending || reviewPending}><label>主题包<select aria-label="选择主题包" value={packId} onChange={event => { setPackId(event.target.value as ThemePackArtId); setLoaded(null); setSelected([]); clearImages(); setError(''); setMessage('') }}>
+    <fieldset disabled={disabled || pending || reviewPending}><label>主题包<select aria-label="选择主题包" value={packId} onChange={event => { setPackId(event.target.value as ThemePackId); setLoaded(null); setSelected([]); clearImages(); setError(''); setMessage('') }}>
       {!choices.some(pack => pack.id === packId) && <option value={packId}>{metadata.name}</option>}
       {choices.map(pack => <option key={pack.id} value={pack.id}>{pack.name}</option>)}
     </select></label><button className="secondary asset-wide" type="button" onClick={load}>加载所选主题包</button></fieldset>

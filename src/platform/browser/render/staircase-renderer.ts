@@ -2,6 +2,7 @@ import type { PointMm } from '../../../shared/model/scene.js'
 import type { StaircaseConfig } from '../../../shared/stairs/contracts.js'
 import { staircaseMaterial } from '../../../shared/stairs/catalog.js'
 import { planStaircase, staircasePatch, staircasePointAt, type StaircaseGeometry, type StaircaseTread } from '../../../shared/stairs/geometry.js'
+import type { RouteWidthSection } from '../../../shared/geometry/route-width.js'
 
 function path(ctx: CanvasRenderingContext2D, polygon: readonly PointMm[]): void {
   if (!polygon.length) return
@@ -29,8 +30,8 @@ function worldStations(start: number, end: number, spacing: number, limit: numbe
 
 /** Native opaque shapes, in world millimetres. No blur, raster enlargement or
  * slope-wide gradient enters the stair layer. Audience filtering happens upstream. */
-export function drawStaircase(ctx: CanvasRenderingContext2D, centerlineMm: readonly PointMm[], widthMm: number, config: StaircaseConfig, options: { footprintMm?: PointMm[]; ascending?: boolean } = {}): void {
-  const geometry = planStaircase(centerlineMm, widthMm, config), palette = staircaseMaterial(config.material).palette
+export function drawStaircase(ctx: CanvasRenderingContext2D, centerlineMm: readonly PointMm[], widthMm: number, config: StaircaseConfig, options: { footprintMm?: PointMm[]; ascending?: boolean; widthSections?: RouteWidthSection[] } = {}): void {
+  const geometry = planStaircase(centerlineMm, widthMm, config, options.widthSections), palette = staircaseMaterial(config.material).palette
   const footprint = options.footprintMm ?? geometry.footprintMm, ascending = options.ascending !== false
   const scale = config.textureScaleMm
   const at = (distance: number, lateral = 0) => staircasePointAt(geometry, distance, lateral)
@@ -45,8 +46,20 @@ export function drawStaircase(ctx: CanvasRenderingContext2D, centerlineMm: reado
   for (const cover of geometry.covers.filter(row => row.kind === 'reveal-ground')) {
     ctx.beginPath(); path(ctx, geometry.footprintMm); path(ctx, cover.polygonMm); ctx.clip('evenodd')
   }
+  const stringer = Math.min(0.16, 126 / widthMm)
   if (config.preset === 'boardwalk' || config.preset === 'timber') {
     for (const lateral of [-0.38, 0.38]) fill(ctx, patch(0, geometry.lengthMm, lateral - 0.05, lateral + 0.05), palette.shadow)
+  }
+  if (config.preset === 'metal-grate') {
+    for (const side of [-1, 1]) {
+      const from = side > 0 ? .5 - stringer : -.5, to = from + stringer
+      fill(ctx, patch(0, geometry.lengthMm, from, to), palette.joint)
+      fill(ctx, patch(0, geometry.lengthMm, from + stringer * .19, to - stringer * .15), palette.shadow)
+      fill(ctx, patch(0, geometry.lengthMm, from + stringer * .19, from + stringer * .35), palette.top)
+    }
+    const tieDepth = Math.min(92, geometry.lengthMm * .06)
+    fill(ctx, patch(0, tieDepth), palette.joint)
+    fill(ctx, patch(geometry.lengthMm - tieDepth, geometry.lengthMm), palette.joint)
   }
   for (const tread of geometry.treads) drawTread(ctx, geometry, tread, config, ascending)
   ctx.restore()
@@ -91,15 +104,26 @@ export function drawStaircase(ctx: CanvasRenderingContext2D, centerlineMm: reado
         line(context, [point(0.1, low + 0.04), point(0.08, high - 0.05)], palette.light, 7)
       }
     } else if (style.preset === 'metal-grate') {
-      // Open cells expose the already drawn ground; the grid is actual bars.
-      const rim = Math.min(0.09, 48 / widthMm), bar = Math.max(7, Math.min(13, scale * 0.035))
-      strip(start, start + Math.min(35, depth * 0.1), -0.5, 0.5, palette.shadow)
-      strip(end - Math.min(25, depth * 0.08), end, -0.5, 0.5, palette.shadow)
-      strip(start, end, -0.5, -0.5 + rim, palette.top); strip(start, end, 0.5 - rim, 0.5, palette.top)
-      const columnSpacing = Math.max(70, scale * 0.24), rowSpacing = Math.max(55, scale * 0.2)
-      for (const offset of worldStations((-0.5 + rim) * widthMm, (0.5 - rim) * widthMm, columnSpacing, 40)) along(start + gap, end - gap, offset / widthMm, palette.top, bar)
-      for (const d of worldStations(start + gap, end - gap, rowSpacing, 32, rowSpacing / 2)) across(d, -0.5 + rim, 0.5 - rim, palette.alternate, bar)
-      across(uphill ? start + 8 : end - 8, -0.5, 0.5, palette.light, 7)
+      // Each open grate ends in a folded nosing. The gaps retain the ground below.
+      const low = -.5 + stringer * .62, high = -low
+      const nose = Math.min(100, depth * .30), back = Math.min(34, depth * .10)
+      const s = uphill ? start + nose : start + back, e = uphill ? end - back : end - nose
+      const width = Math.max(12, Math.min(25, scale * .065))
+      strip(uphill ? start : e, uphill ? s : end, low, high, palette.joint)
+      strip(uphill ? e : start, uphill ? end : s, low, high, palette.shadow)
+      const lip = uphill ? s : e, sign = uphill ? 1 : -1
+      across(lip - sign * nose * .33, low, high, palette.shadow, nose * .55)
+      across(lip - sign * nose * .57, low, high, palette.light, Math.min(15, nose * .22))
+      for (const offset of worldStations(low * widthMm, high * widthMm, Math.max(88, scale * .31), 40)) {
+        if (Math.abs(offset / widthMm) >= high - .012) continue
+        along(s, e, offset / widthMm, palette.alternate, width)
+      }
+      for (const d of worldStations(s + 14, e - 14, Math.max(75, scale * .27), 24, scale * .08)) across(d, low, high, palette.shadow, width * .67)
+      for (const side of [-1, 1]) {
+        const bolt = at(lip - sign * nose * .42, side * (.5 - stringer * .48))
+        const radius = Math.min(18, nose * .21, widthMm * stringer * .15)
+        context.beginPath(); context.arc(bolt.x, bolt.y, radius, 0, Math.PI * 2); context.fillStyle = palette.light; context.fill()
+      }
     } else if (style.preset === 'boardwalk') {
       strip(start + gap, end - gap, -0.5, 0.5, index % 3 === 0 ? palette.alternate : palette.top)
       for (const side of [-0.37, 0.37]) {

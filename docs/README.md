@@ -7,6 +7,7 @@
 | 已经实现什么、从哪里用 | [已完成功能](completed.md) |
 | 当前优先与未解决缺口 | [剩余事项](roadmap.md) |
 | 模块、当前工程、事务、保存和玩家保密 | [当前架构](architecture.md) |
+| 地图对象如何组成、附着、连接和共享 | [地图编辑架构整改设计](reference/map-editor-refactor.md) |
 | 怎样选择和执行检查 | [检查方法](testing.md) |
 | 素材、导入、画面和许可 | [素材说明](assets.md) · [导入操作](reference/asset-import.md) |
 | 地图/局部/素材制作 | [制作总则](reference/project-creation-workflow.md) · [图片步骤](reference/image-item-workflow.md) |

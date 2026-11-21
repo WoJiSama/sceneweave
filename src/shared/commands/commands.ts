@@ -1,6 +1,8 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { floorCommandSchemas, isFloorCommand, applyFloorCommand, type FloorCommand } from '../floors/commands.js'
 import { waterCommandSchemas, isWaterCommand, applyWaterCommand, type WaterCommand } from '../ocean/commands.js'
 import { attachmentCommandSchemas, isAttachmentCommand, applyAttachmentCommand, followAttachments, type AttachmentCommand } from '../attachments/index.js'
+import { removePropAttachmentBindings } from '../attachments/commands.js'
 import { followRockShells } from '../rock-shell/state.js'
 import { carvedRockCommandSchemas, isCarvedRockCommand, applyCarvedRockCommand, type CarvedRockCommand } from './carved-rock.js'
 import { terrainInlayCommandSchemas, isTerrainInlayCommand, applyTerrainInlayCommand, type TerrainInlayCommand } from './terrain-inlay.js'
@@ -33,10 +35,15 @@ import { sceneBackgroundCommandSchema, applySceneBackgroundCommand, type SceneBa
 import { annotationCommandSchemas, applyAnnotationCommand, isAnnotationCommand, type AnnotationCommand } from './annotations.js'
 import { applyBuildingCommand, buildingCommandSchemasForBudget, isBuildingCommand, type BuildingCommand } from './building.js'
 import { applyOutdoorCommand, isOutdoorCommand, outdoorCommandSchemas, outdoorDependencies, type OutdoorCommand } from './outdoor.js'
+import { fenceAssemblyCommandSchema, pathAssemblyCommandSchema, removeFenceAssemblySchema, type FenceAssemblyCommand, type PathAssemblyCommand } from '../path-assembly/contracts.js'
+import { applyFenceAssembly, applyPathAssembly, detachBridgeRoad, followPipeLinks, moveBridge, removeFenceAssembly, removeIncomingBridgeLinks, retainRemovedPathSlots, setPipeLink } from '../path-assembly/commands.js'
+import { detachBridgeRoadSchema, moveBridgeSchema, type DetachBridgeRoad, type MoveBridge } from '../path-assembly/bridge-link-contracts.js'
+import { setPipeLinkSchema, type SetPipeLink } from '../path-assembly/pipe-contracts.js'
 import { refreshScene5TransitionsAfterPhysicalEdit } from '../visual/derived-transitions.js'
 import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
 import { entitiesInLayer, enumerateLayerEntities, orderedLayers, previewLayerMove, previewLayerRemoval } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
+import { pipePortsSchema, sightOccluderSchema } from '../validation/primitives.js'
 import { tryApplyPropUpdatesSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot } from '../validation/snapshots.js'
 import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS, USER_LAYER_LIMIT, type SceneDocument } from '../model/scene.js'
 import type { TransactionExecutionScope } from '../transaction/receipt.js'
@@ -61,6 +68,8 @@ export type SceneCommand =
   | SceneBackgroundCommand
   | { type: 'renameScene'; title: string }
   | OutdoorCommand
+  | PathAssemblyCommand | FenceAssemblyCommand | { type: 'removeFenceAssembly'; id: string }
+  | MoveBridge | DetachBridgeRoad | SetPipeLink
   | VisualCommand
   | DecorationCommand
   | SurfaceRuleCommand
@@ -118,6 +127,12 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     naturalAggregateCommandSchema,
     ...annotationCommandSchemas,
     ...outdoorCommandSchemas,
+    pathAssemblyCommandSchema,
+    moveBridgeSchema,
+    detachBridgeRoadSchema,
+    setPipeLinkSchema,
+    fenceAssemblyCommandSchema,
+    removeFenceAssemblySchema,
     ...visualCommandSchemas,
     ...decorationCommandSchemas,
     ...surfaceRuleCommandSchemas,
@@ -155,6 +170,8 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     z.object({ type: z.literal('unpackPrefab'), id }).strict(),
     z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
     z.object({ type: z.literal('setPropBlocking'), id, blocksMovement: z.boolean() }).strict(),
+    z.object({ type: z.literal('setPropSightOccluder'), id, component: sightOccluderSchema.nullable() }).strict(),
+    z.object({ type: z.literal('setPropPipePorts'), id, ports: pipePortsSchema }).strict(),
     z.object({ type: z.literal('replacePropAppearance'), id, definitionRef: version }).strict(),
     z.object({ type: z.literal('createLayer'), id, floorId: id, name }).strict(),
     z.object({ type: z.literal('renameLayer'), id, name }).strict(),
@@ -193,7 +210,7 @@ export function refreshNativeDerivedTransitions(before: SceneDocument, after: Sc
   const byId = new Map(enumerateLayerEntities(before).map(entity => [entity.id, entity]))
   const dependencies = new Set([...outdoorDependencies(before, impact.affectedIds), ...outdoorDependencies(after, impact.affectedIds)])
   const locked = [...dependencies].filter(id => byId.get(id)?.editLocked || byId.has(id) && before.userLayers[before.entityLayers[id]]?.editLocked)
-  if (locked.length) throw new Error(`物理修改影响锁定的派生支撑或遮挡依赖：${locked.join('、')}。`)
+  if (locked.length) throw new OperationRejected('locked_dependency', `物理修改影响锁定的派生支撑或遮挡依赖：${locked.join('、')}。`)
   return impact.commandCost
 }
 
@@ -206,7 +223,7 @@ function checkedCommands(commands: readonly SceneCommand[], budget?: CommandBudg
   if (!checked.success) throw new Error(`编辑指令无效：${checked.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('；')}`)
   const parsed = checked.data as SceneCommand[]
   if (parsed.some(command => command.type === 'bindPathAttachment' || command.type === 'initializeStructureIdentity') && parsed.length !== 1) throw new Error('建立结构身份或门路绑定须独立预览采用；绑定命令内部一次修改道路与关系。')
-  if (parsed.some(isPathCheckCommand) && parsed.length > COMMAND_LIMIT) throw new Error('通路声明事务最多256条操作，不能借普通编辑档位扩大。')
+  if (parsed.some(isPathCheckCommand) && parsed.length > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '通路声明事务最多256条操作，不能借普通编辑档位扩大。')
   if (new Set(parsed.map(category)).size > 1) throw new Error('显示设置、图层组织、通路声明、内容编辑、实体锁和图层锁须分别独立提交；不能同批解除约束或解锁后编辑。')
   return parsed
 }
@@ -217,7 +234,7 @@ function requiredLayer(scene: SceneDocument, id: string) {
 }
 function assertLayerUnlocked(scene: SceneDocument, id: string) {
   const layer = requiredLayer(scene, id)
-  if (layer.editLocked) throw new Error(`用户图层已锁定：${id}；请先单独解锁。`)
+  if (layer.editLocked) throw new OperationRejected('locked_dependency', `用户图层已锁定：${id}；请先单独解锁。`)
   return layer
 }
 function restoreActualLocks(next: SceneDocument, source: SceneDocument, explicit: ReadonlyMap<string, boolean>) {
@@ -301,7 +318,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
         assertDecorationMemberUnlocked(next, command.id)
         if (command.kind === 'prop') {
           const parents = [...Object.values(next.prefabInstances), ...Object.values(next.scatterGroups)].filter(group => Object.values(group.members).some(member => member.propId === command.id))
-          if (parents.some(group => group.editLocked || next.userLayers[next.entityLayers[group.id]].editLocked)) throw new Error('物件所属组合、散布或其图层已锁定，不能修改成员编辑锁。')
+          if (parents.some(group => group.editLocked || next.userLayers[next.entityLayers[group.id]].editLocked)) throw new OperationRejected('locked_dependency', '物件所属组合、散布或其图层已锁定，不能修改成员编辑锁。')
         }
         entity.editLocked = command.locked
       }
@@ -314,17 +331,18 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
         // in this same batch. A repeated lock request still consumes one step.
         const commandCost = Math.max(1, terrainCommandCost(beforeTerrain, next).total)
         cost += commandCost
-        if (!options?.budget && !relationBudget && cost > COMMAND_LIMIT) throw new Error('锁与生成记录累计展开超过256。')
+        if (!options?.budget && !relationBudget && cost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '锁与生成记录累计展开超过256。')
         options?.onSceneDraft?.(next, command, commandCost)
       }
     }
-    if (!options?.budget && !relationBudget?.active && cost > COMMAND_LIMIT) throw new Error('锁与生成记录累计展开超过256。')
+    if (!options?.budget && !relationBudget?.active && cost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '锁与生成记录累计展开超过256。')
     return next
   }
   let next = cloneJson(scene), cost = 0
-  const consume = (amount: number) => { cost += amount; if ((commands.some(isPathCheckCommand) || !options?.budget && !relationBudget) && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。') }
+  const consume = (amount: number) => { cost += amount; if ((commands.some(isPathCheckCommand) || !options?.budget && !relationBudget) && cost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '展开后的整体事务超过256条操作预算，不能拆批绕过。') }
   for (const command of commands) {
     const beforeTerrain=cloneJson(next)
+    const removedBindings = command.type === 'deleteProp' ? removePropAttachmentBindings(next, command.id, context, options?.historyIdentity) : 0
     let commandCost: number
     let scope: TransactionExecutionScope | undefined
     const derivedHandled = isVisualCommand(command) || needsOutdoorExpansion(next, command) || isBuildingCommand(command) || isNaturalAggregateCommand(command)
@@ -358,10 +376,26 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     } else if (isVisualCommand(command)) {
       commandCost = applyVisualCommand(next, command, context, options?.budget).commandCost
       options?.onOutdoorDraft?.(next, command)
+    } else if (command.type === 'setFenceAssembly' || command.type === 'removeFenceAssembly') {
+      if (command.type === 'setFenceAssembly') applyFenceAssembly(next, command, context, options?.appearance)
+      else removeFenceAssembly(next, command.id)
+      commandCost = nativeCommandCost(beforeTerrain, next) + 1
+    } else if (command.type === 'setPathAssembly') {
+      applyPathAssembly(next, command, context, options?.appearance)
+      commandCost = nativeCommandCost(beforeTerrain, next)
+    } else if (command.type === 'moveBridge' || command.type === 'detachBridgeRoad') {
+      if (command.type === 'moveBridge') moveBridge(next, command)
+      else detachBridgeRoad(next, command)
+      commandCost = nativeCommandCost(beforeTerrain, next)
+    } else if (command.type === 'setPipeLink') {
+      setPipeLink(next, command, context, options?.appearance)
+      commandCost = nativeCommandCost(beforeTerrain, next) + 1
     } else if (needsOutdoorExpansion(next, command)) {
       let attachmentCost = 0
+      let bridgeLinkCost = 0
       const attachmentDependencies = new Set<string>()
       if (command.type === 'deleteOutdoorEntity' && command.kind === 'path') {
+        bridgeLinkCost = removeIncomingBridgeLinks(next, command.id)
         // Deleting a road owns its finite relation closure. Detach while the
         // complete path/door dependencies still exist, so the same lock checks
         // run before the private draft loses either authoritative record.
@@ -372,8 +406,8 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
         }
       }
       const impact = applyOutdoorCommand(next, command, context, options?.budget)
-      commandCost = impact.commandCost + attachmentCost
-      scope = { owner: 'outdoor', affectedIds: [...new Set([...impact.affectedIds, ...attachmentDependencies])].sort() }
+      commandCost = impact.commandCost + attachmentCost + bridgeLinkCost
+      scope = bridgeLinkCost ? undefined : { owner: 'outdoor', affectedIds: [...new Set([...impact.affectedIds, ...attachmentDependencies])].sort() }
       options?.onOutdoorDraft?.(next, command)
     } else if (isBuildingCommand(command)) {
       const impact = applyBuildingCommand(next, command, options?.fixedUprightPropIds)
@@ -390,12 +424,18 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
       next = applyNativeContent(next, [command], context, options)
       commandCost = nativeCommandCost(before, next)
     }
+    if (removedBindings) { commandCost += removedBindings; scope = undefined }
+    retainRemovedPathSlots(beforeTerrain, next)
     followRockShells(beforeTerrain, next)
     if (Object.keys(beforeTerrain.attachments ?? {}).length || Object.keys(next.attachments ?? {}).length) {
       const impact = followAttachments(beforeTerrain, next, options?.historyIdentity)
       commandCost += impact.commandCost
       // Every changed child and read dependency participates in receipt scope.
       scope = undefined
+    }
+    if (command.type !== 'setFenceAssembly' && command.type !== 'setPipeLink') {
+      const changedPipes = followPipeLinks(next, context, options?.appearance)
+      if (changedPipes) { commandCost += changedPipes; scope = undefined }
     }
     if (options?.finalizeNativeDraft) options.historyIdentity = options.finalizeNativeDraft(beforeTerrain, next)
     if (Object.keys(beforeTerrain.pathAttachments ?? {}).length || Object.keys(next.pathAttachments ?? {}).length) {
@@ -422,13 +462,13 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     }
     options?.onSceneDraft?.(next, command, chargedCost, scope)
   }
-  if (!options?.budget && !relationBudget?.active && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过256条操作预算，不能拆批绕过。')
+  if (!options?.budget && !relationBudget?.active && cost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '展开后的整体事务超过256条操作预算，不能拆批绕过。')
   return next
 }
 function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand[], options?: ApplyCommandsOptions): SceneDocument {
   const next = cloneJson(scene)
   let cost = 0
-  const consume = (amount: number) => { cost += amount; if (!options?.budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体事务超过 256 条操作预算，不能拆批绕过。') }
+  const consume = (amount: number) => { cost += amount; if (!options?.budget && cost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '展开后的整体事务超过 256 条操作预算，不能拆批绕过。') }
   const consumeCommand = (amount: number) => consume(Math.max(1, amount))
   for (const command of commands) {
     const beforeCost = cost
@@ -455,7 +495,7 @@ function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand
           // Preview uses the same dependency-aware lock affordance; a locked
           // member cannot be visually reordered by changing its layer instead.
           const locked = changedIds.filter(id => isEntityEditLocked(domain, id))
-          if (locked.length) throw new Error(`图层重排涉及已锁定实体或依赖：${locked.join('、')}。`)
+          if (locked.length) throw new OperationRejected('locked_dependency', `图层重排涉及已锁定实体或依赖：${locked.join('、')}。`)
         }
         command.ids.forEach((id, order) => { next.userLayers[id].order = order })
         break

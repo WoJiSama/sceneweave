@@ -16,6 +16,7 @@ export interface WorkspaceLayoutPreferences {
   detailsWidth: number
   resourcesCollapsed: boolean
   inspectorCollapsed: boolean
+  panelsSwapped?: true
 }
 
 export const DEFAULT_WORKSPACE_LAYOUT: Readonly<WorkspaceLayoutPreferences> = Object.freeze({
@@ -38,13 +39,15 @@ function parseCurrentLayout(raw: string | null): WorkspaceLayoutPreferences | nu
     const value: unknown = JSON.parse(raw)
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
     const record = value as Record<string, unknown>
-    if (Object.keys(record).sort().join('|') !== preferenceKeys.join('|') || record.version !== 2 ||
+    if (Object.keys(record).filter(key => key !== 'panelsSwapped').sort().join('|') !== preferenceKeys.join('|') || record.version !== 2 ||
+      (record.panelsSwapped !== undefined && record.panelsSwapped !== true) ||
       !validWidth(record.resourcesWidth, WORKSPACE_LAYOUT_LIMITS.resources) ||
       !validWidth(record.detailsWidth, WORKSPACE_LAYOUT_LIMITS.details) ||
       typeof record.resourcesCollapsed !== 'boolean' || typeof record.inspectorCollapsed !== 'boolean') return null
     return {
       version: 2, resourcesWidth: record.resourcesWidth, detailsWidth: record.detailsWidth,
       resourcesCollapsed: record.resourcesCollapsed, inspectorCollapsed: record.inspectorCollapsed,
+      ...(record.panelsSwapped === true ? { panelsSwapped: true } : {}),
     }
   } catch { return null }
 }

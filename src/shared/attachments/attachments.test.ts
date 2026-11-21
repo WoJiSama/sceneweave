@@ -9,6 +9,7 @@ import { followAttachments } from './state.js'
 import { syncNewAttachmentProofs, validateAttachmentProofs } from './identity.js'
 import { inspectAttachments } from './validation.js'
 import { resolvePropContact } from './contact.js'
+import { createPublicVisibility } from '../geometry/visibility.js'
 import { createCarvedStrip } from '../carved-rock/index.js'
 import type { AttachmentSurface } from './contracts.js'
 import { createEmbeddedAttachmentPlan } from './state.js'
@@ -94,6 +95,23 @@ describe('explicit instance attachment contact and continuity', () => {
     expect(() => command(secret, bind)).toThrow(/公开/)
     const self = setup(); command(self, top)
     expect(() => command(self, { ...bind, childId: 'item' })).toThrow(/自附着|成环/)
+  })
+  it('keeps a nominally public child hidden by its private room after detaching from a private host', () => {
+    const s = setup(true), { item: host, other: child } = s.scene.props
+    const supportRef = { kind: 'room', id: 'room' } as const
+    s.scene.rooms.room.visibility = 'gm'
+    host.visibility = 'gm'
+    host.supportRef = supportRef
+    child.supportRef = supportRef
+    command(s, top)
+    command(s, bind)
+    expect(inspectAttachments(s.scene)).toEqual([])
+    expect(createPublicVisibility(s.scene).prop(child)).toBe(false)
+
+    command(s, { type: 'detachPropAttachment', id: 'on-table' })
+    expect(child).toMatchObject({ visibility: 'public', supportRef })
+    expect(resolvePropContact(s.scene, child.id)).toMatchObject({ actualSurfaceId: null, rootSupportRef: supportRef })
+    expect(createPublicVisibility(s.scene).prop(child)).toBe(false)
   })
   it('does not refresh existing surface or relation claims when a host birth has retired', () => {
     const s = supported(), before = cloneJson(s.scene), changed = cloneJson(s.identity)

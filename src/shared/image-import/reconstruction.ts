@@ -8,7 +8,10 @@ export function reconstructSourceLayers(source: ImagePixels, input: unknown) {
   const recipe = parseImageImportRecipe(input)
   assertSourcePreservingRecipe(recipe)
   if (recipe.image.pixelWidth !== source.width || recipe.image.pixelHeight !== source.height) throw new Error('拆解提案与原图像素尺寸不符。')
-  const boundary = recipe.sourceBoundaryPx ?? recipe.roomPointsPx, scope = imagePolygonMask(source, boundary)
+  const { width, height } = source
+  const wholeImage = [{ x: 0, y: 0 }, { x: width, y: 0 }, { x: width, y: height }, { x: 0, y: height }]
+  const boundary = recipe.sourceBoundaryPx ?? (recipe.roomPointsPx.length ? recipe.roomPointsPx : wholeImage)
+  const scope = imagePolygonMask(source, boundary)
   const scopeMask = new Uint8Array(source.width * source.height), inferenceMask = new Uint8Array(scopeMask.length), edgeMask = new Uint8Array(scopeMask.length)
   for (let y = 0; y < scope.height; y++) for (let x = 0; x < scope.width; x++) {
     const coverage = scope.data[y * scope.width + x], index = (y + scope.boundsPx.y) * source.width + x + scope.boundsPx.x

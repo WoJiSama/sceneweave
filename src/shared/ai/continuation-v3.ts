@@ -1,3 +1,4 @@
+import { OperationRejected, type OperationRejectionCode } from '../validation/operation-rejection.js'
 import { BUDGET_DIMENSIONS, semanticChangedDocumentTargets, semanticTargetEntries, groupMemberIds, measureTaskBudget, assertTaskBudget } from '../budget/task-budget.js'
 import type { ProjectData, LicenseSubjectKind } from '../model/project.js'
 import type { CompositionContent } from '../model/appearance.js'
@@ -24,7 +25,7 @@ const semanticChangedTargets = (before: ProjectData, after: ProjectData) => sema
 const digest = (value: unknown) => sha256Text(canonicalJson(value))
 const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null)
 const sorted = (values: Iterable<string>) => [...new Set(values)].sort()
-const deny = (message: string): never => { throw new Error(`AI接续无效：${message}`) }
+const deny = (message: string, code: OperationRejectionCode = 'invalid_geometry'): never => { throw new OperationRejected(code, `AI接续无效：${message}`) }
 function targetIds(project: ProjectData, keys: string[]): string[] {
   const rows = semanticTargetEntries(project.document)
   return sorted(keys.flatMap(key => rows.get(key)?.id ?? []))
@@ -123,8 +124,8 @@ export function replayBaseMapSourceV3(input: BaseMapSourceV3) {
   if (!same(project, source.project) || authoringProjectHash(project) !== source.projectHash
     || baseMapResourceClosureHash(project) !== source.resourceClosureHash) deny('实际物化工程、身份、资源或来源指纹不同。')
   const generationTargets = semanticChangedTargets(blank, project)
-  if (generationTargets.length > request.profile.semanticTargets) deny('程序生成超过语义目标额度。')
-  if (!same(response.generationBudget.semanticTargets, generationTargets) || response.generationBudget.semanticCost !== generationTargets.length) deny('完整物化后的生成语义额度与领域回执不同。')
+  if (generationTargets.length > request.profile.semanticTargets) deny('程序生成超过语义目标额度。', 'operation_budget')
+  if (!same(response.generationBudget.semanticTargets, generationTargets) || response.generationBudget.semanticCost !== generationTargets.length) deny('完整物化后的生成语义额度与领域回执不同。', 'operation_budget')
   // The domain reply has no actual asset bytes. Re-measure the complete project
   // closure, while preserving the generator's deterministic execution meter.
   const retained = measureTaskBudget(blank.document, project.document, { before: blank, after: project })
@@ -188,7 +189,7 @@ export function replayAuthoringV3(input: AuthoringStartV3, inputSteps: readonly 
     assertTaskBudget(start.policy.profile, operationUsage)
     aiCost += cost; usage = accumulateContinuationUsage(usage, operationUsage)
     assertContinuationUsage(start.policy, usage)
-    if (cost > start.policy.aiTargets || aiCost > start.policy.aiTargets) deny('AI语义累计或计算复杂度超过冻结策略。')
+    if (cost > start.policy.aiTargets || aiCost > start.policy.aiTargets) deny('AI语义累计或计算复杂度超过冻结策略。', 'operation_budget')
     append(ledger, { operationId: `ai-${digest([steps[trace.stepIndex - 1].stepId, trace.operationIndex])}`, category: 'ai', operationHash: digest(trace.operation),
       beforeHash: authoringProjectHash(trace.before), afterHash: authoringProjectHash(trace.after), targets,
       semanticCost: cost, usage: operationUsage }, root)
@@ -219,6 +220,6 @@ export function applyAuthoringStepV3(start: AuthoringStartV3, input: AuthoringSt
 
 export function assertContinuationAdoptionBudgetV3(before: ProjectData, after: ProjectData, limit: number): string[] {
   const targets = semanticChangedTargets(before, after)
-  if (targets.length > limit) deny(`完整采用超过冻结的${limit}语义目标。`)
+  if (targets.length > limit) deny(`完整采用超过冻结的${limit}语义目标。`, 'operation_budget')
   return targets
 }

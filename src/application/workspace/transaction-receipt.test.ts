@@ -375,8 +375,8 @@ describe('executor-owned common transaction receipts', () => {
     await workspace.execute([move(4500)])
     const pending = workspace.getState().project!, pendingData = toBundle(pending).project, receipt = getProjectTransactionReceipt(pendingData)!
     expect(receipt).toBeDefined(); expect(getProjectLocalTransaction(pendingData)).toBeDefined()
-    const write = repository.save.bind(repository)
-    vi.spyOn(repository, 'save').mockImplementationOnce((bundle, _expected, options) => write(bundle, 999, options))
+    const write = repository.saveSnapshot.bind(repository)
+    vi.spyOn(repository, 'saveSnapshot').mockImplementationOnce((bundle, _expected, options) => write(bundle, 999, options))
     await expect(workspace.saveAsCopy()).rejects.toMatchObject({ name: 'ProjectConflictError' })
     expect(workspace.getState().project).toBe(pending)
     expect(getProjectTransactionReceipt(pendingData)).toBe(receipt)

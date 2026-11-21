@@ -11,15 +11,22 @@ import { parseForestServerArguments } from './forest-server.mjs'
 import { digest } from './io.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-test('forest MCP requires existing CLI authorization, budget and independent absolute output', () => {
+test('forest MCP requires explicit authorization and budget for new or resumed runs', () => {
   const args = ['--input', path.resolve('input.json'), '--output', path.resolve('new-output'), '--allow', 'forest-building', '--budget', 'standard']
   assert.equal(parseForestServerArguments(args).budget, 'standard')
+  const directory = path.resolve('saved-run')
+  const resumed = parseForestServerArguments(['--resume', directory, '--allow', 'forest-building', '--budget', 'standard'])
+  assert.equal(resumed.resume, true)
+  assert.equal(resumed.input, path.join(directory, 'request.json'))
+  assert.equal(resumed.output, directory)
   assert.equal(parseForestServerArguments(['--help']), null)
-  for (const invalid of [args.slice(0, -2), [...args, '--resume', path.resolve('prior.json')], args.map(value => value === 'standard' ? 'unbounded' : value)]) assert.throws(() => parseForestServerArguments(invalid))
+  for (const invalid of [args.slice(0, -2), [...args, '--resume', directory], ['--resume', directory, '--budget', 'standard'],
+    ['--resume', 'relative', '--allow', 'forest-building', '--budget', 'standard'], args.map(value => value === 'standard' ? 'unbounded' : value)]) assert.throws(() => parseForestServerArguments(invalid))
 })
 
-function host(input, output, children) {
-  const child = spawn(process.execPath, ['tools/harness/forest-server.mjs', '--input', input, '--output', output, '--allow', 'forest-building', '--budget', 'standard'], {
+function host(input, children, { output, budget = 'standard' } = {}) {
+  const args = output ? ['--input', input, '--output', output] : ['--resume', input]
+  const child = spawn(process.execPath, ['tools/harness/forest-server.mjs', ...args, '--allow', 'forest-building', '--budget', budget], {
     cwd: root, env: process.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
   })
   children.add(child)
@@ -50,7 +57,7 @@ function host(input, output, children) {
     }, close: async () => { child.stdin.end(); return closed } }
 }
 
-test('real forest MCP discovers, generates through CLI, preserves cold files and refuses stale actions', { timeout: 420000 }, async t => {
+test('real forest MCP resumes the same candidates and budget, repairs and delivers cold files', { timeout: 420000 }, async t => {
   const directory = await fs.mkdtemp(path.join(tmpdir(), 'sceneweave-forest-host-')), children = new Set()
   t.after(async () => {
     for (const child of children) if (child.exitCode === null) child.kill()
@@ -65,7 +72,7 @@ test('real forest MCP discovers, generates through CLI, preserves cold files and
   } }
   const input = path.join(directory, 'input.json'), output = path.join(directory, 'output')
   await fs.writeFile(input, JSON.stringify(request))
-  const first = host(input, output, children)
+  const first = host(input, children, { output })
   assert.equal((await first.call('initialize', {})).serverInfo.name, 'sceneweave-forest-building')
   const tools = (await first.call('tools/list')).tools
   assert.deepEqual(tools.map(tool => tool.name), ['sceneweave_forest_state', 'sceneweave_forest_action', 'sceneweave_workflow'])
@@ -93,15 +100,41 @@ test('real forest MCP discovers, generates through CLI, preserves cold files and
   assert.equal(afterStale.attemptsUsed, 1)
   assert.equal(afterStale.stateHash, generated.stateHash)
   assert.deepEqual((await fs.readdir(output)).filter(name => /^candidate-/.test(name)), ['candidate-1'])
-  let repairState = afterStale, selected = actual
+  assert.equal((await first.close()).code, 0)
+
+  const wrongBudget = host(output, children, { budget: 'expanded' })
+  await assert.rejects(wrongBudget.call('initialize', {}), /original budget/)
+  assert.notEqual((await wrongBudget.close()).code, 0)
+  const originalPreview = await fs.readFile(actual.files.preview.path)
+  try {
+    await fs.appendFile(actual.files.preview.path, 'fixture corruption')
+    const corrupted = host(output, children)
+    await assert.rejects(corrupted.call('initialize', {}), /preview bytes changed/)
+    assert.notEqual((await corrupted.close()).code, 0)
+  } finally { await fs.writeFile(actual.files.preview.path, originalPreview) }
+
+  const resumed = host(output, children), competing = host(output, children)
+  let repairState = await resumed.tool('sceneweave_forest_state'), selected = actual
+  assert.equal(repairState.runId, generated.runId)
+  assert.equal(repairState.stateHash, generated.stateHash)
+  assert.equal(repairState.resumeSupported, true)
+  assert.deepEqual(repairState.workflow, discovery.workflow)
+  assert.deepEqual(repairState.cumulative, generated.cumulative)
+  assert.equal((await competing.tool('sceneweave_forest_state')).stateHash, repairState.stateHash)
   for (let index = 0; index < 2; index++) {
     const target = repairState.repairTargets.find(row => !repairState.receipts.some(receipt => receipt.repairRoomId === row.roomId))
     assert.ok(target, 'A distinct room with unmet furniture targets must be repairable')
     const parent = repairState.candidates.find(row => row.candidateId === target.candidateId)
     const parentBytes = await fs.readFile(parent.files.project.path)
     const beforeDocument = JSON.parse(new TextDecoder().decode(unzipSync(parentBytes)['scene.json']))
-    repairState = await first.tool('sceneweave_forest_action', { kind: 'repair-furniture', stateHash: repairState.stateHash,
+    repairState = await resumed.tool('sceneweave_forest_action', { kind: 'repair-furniture', stateHash: repairState.stateHash,
       candidateId: target.candidateId, roomId: target.roomId, reason: 'Repair only this actual room while keeping building geometry and other rooms.' })
+    if (index === 0) {
+      const staleHost = await competing.rawTool('sceneweave_forest_action', { kind: 'generate', stateHash: generated.stateHash, seed: 'other-seed', reason: 'Stale host may not spend the same slot.' })
+      assert.equal(staleHost.isError, true)
+      assert.match(staleHost.content[0].text, /checkpoint changed/)
+      assert.equal((await competing.close()).code, 0)
+    }
     selected = repairState.candidates.at(-1)
     assert.equal(selected.parentCandidateId, parent.candidateId)
     assert.equal(selected.repairRoomId, target.roomId)
@@ -117,27 +150,32 @@ test('real forest MCP discovers, generates through CLI, preserves cold files and
   assert.equal(repairState.attemptsUsed, 3)
   assert.ok(selected.diagnostics.deficit < actual.diagnostics.deficit)
   assert.deepEqual(repairState.nextActions, ['finish'])
-  const completed = await first.tool('sceneweave_forest_action', { kind: 'finish', stateHash: repairState.stateHash, candidateId: selected.candidateId, reason: 'Keep this actual cold-verified candidate and report the remaining deficit honestly.' })
+  assert.equal((await resumed.close()).code, 0)
+  const finalHost = host(output, children)
+  const beforeFinish = await finalHost.tool('sceneweave_forest_state')
+  assert.deepEqual(beforeFinish.cumulative, repairState.cumulative)
+  assert.equal(beforeFinish.stateHash, repairState.stateHash)
+  const completed = await finalHost.tool('sceneweave_forest_action', { kind: 'finish', stateHash: beforeFinish.stateHash, candidateId: selected.candidateId, reason: 'Keep this actual cold-verified candidate and report the remaining deficit honestly.' })
   assert.equal(completed.status, 'finished')
   assert.equal(completed.selected.files.project.path, selected.files.project.path)
   assert.equal(completed.decisionsUsed, 4)
-  assert.equal((await first.close()).code, 0)
+  assert.equal((await finalHost.close()).code, 0)
   assert.deepEqual(await fs.readFile(actual.files.project.path), frozen)
   const persisted = JSON.parse(await fs.readFile(path.join(output, 'result.json'), 'utf8'))
   assert.equal(persisted.state.status, 'finished')
   assert.equal(persisted.selected.candidateId, selected.candidateId)
   assert.equal(persisted.cumulative.generatedCandidates, 3)
   assert.equal(persisted.cumulative.modelRequests, 0)
-  assert.equal(persisted.resumeSupported, false)
-  const refusal = host(input, output, children)
+  assert.equal(persisted.resumeSupported, true)
+  const refusal = host(input, children, { output })
   await assert.rejects(refusal.call('initialize', {}), /EEXIST/)
   assert.notEqual((await refusal.close()).code, 0)
   assert.deepEqual(await fs.readFile(actual.files.project.path), frozen)
   const independentOutput = path.join(directory, 'closed-host')
-  const closedHost = host(input, independentOutput, children)
+  const closedHost = host(input, children, { output: independentOutput })
   await closedHost.call('initialize', {})
   assert.equal((await closedHost.close()).code, 0)
-  const stopped = JSON.parse(await fs.readFile(path.join(independentOutput, 'result.json'), 'utf8'))
-  assert.equal(stopped.state.status, 'stopped')
-  assert.equal(stopped.state.attemptsUsed, 0)
+  const checkpoint = JSON.parse(await fs.readFile(path.join(independentOutput, 'result.json'), 'utf8'))
+  assert.equal(checkpoint.state.status, 'ready')
+  assert.equal(checkpoint.state.attemptsUsed, 0)
 })

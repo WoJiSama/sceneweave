@@ -21,7 +21,8 @@ export default function StaircaseFields({ value, onChange, centerlineMm, widthMm
   const [rangeStart, setRangeStart] = useState('20'), [rangeEnd, setRangeEnd] = useState('40')
   const [sideStart, setSideStart] = useState('0'), [sideEnd, setSideEnd] = useState('50')
   const [error, setError] = useState(''), addedIds = useRef<string[]>([]), titleId = useId(), descriptionId = useId()
-  const length = pathLength(centerlineMm), hasLength = Number.isFinite(length) && length > 0
+  const length = pathLength(centerlineMm) * (value.range ? (value.range.endPpm - value.range.startPpm) / 1_000_000 : 1)
+  const hasLength = Number.isFinite(length) && length > 0
   const stepCount = value.layout.kind === 'stretch' ? value.layout.stepCount : hasLength && value.layout.treadDepthMm > 0 ? Math.ceil(length / value.layout.treadDepthMm) : 0
   const diagramSteps = clamp(Number.isFinite(stepCount) ? stepCount : 1, 1, 48)
   const undoId = addedIds.current.filter(id => value.covers.some(cover => cover.id === id)).at(-1)
@@ -46,6 +47,17 @@ export default function StaircaseFields({ value, onChange, centerlineMm, widthMm
   const cancelDrag = () => { dragStart.current = null; setDragEnd(null) }
   const draftPolygon = dragStart.current && dragEnd ? [dragStart.current, { x: dragEnd.x, y: dragStart.current.y }, dragEnd, { x: dragStart.current.x, y: dragEnd.y }] : null
   return <div className="staircase-fields" data-staircase-fields>
+    <label className="composition-check"><input type="checkbox" checked={!!value.range} onChange={event => {
+      const { range: _range, ...settings } = value
+      setError('')
+      onChange(event.target.checked ? { ...settings, range: { startPpm: 250_000, endPpm: 750_000 } } : settings)
+    }}/>只铺路线的一段</label>
+    {value.range && <div className="composition-fields">
+      <label>铺阶起点（%）<input type="number" min="0" max="100" step="0.1" value={value.range.startPpm / 10_000}
+        onChange={event => change({ range: { ...value.range!, startPpm: Math.round(Number(event.target.value) * 10_000) } })}/></label>
+      <label>铺阶终点（%）<input type="number" min="0" max="100" step="0.1" value={value.range.endPpm / 10_000}
+        onChange={event => change({ range: { ...value.range!, endPpm: Math.round(Number(event.target.value) * 10_000) } })}/></label>
+    </div>}
     <div className="composition-fields">
       <label>阶梯样式<select aria-label="阶梯样式" value={value.preset} onChange={event => change({ preset: event.target.value as StaircaseConfig['preset'] })}>{STAIRCASE_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
       <label>阶梯材质<select aria-label="阶梯材质" value={value.material} onChange={event => change({ material: event.target.value as StaircaseConfig['material'] })}>{STAIRCASE_MATERIALS.map(material => <option key={material.id} value={material.id}>{material.label}</option>)}</select></label>
@@ -61,7 +73,7 @@ export default function StaircaseFields({ value, onChange, centerlineMm, widthMm
       ? <label>单级踏面深度（毫米）<input aria-label="阶梯踏面深度毫米" type="number" min="50" max="2000" step="1" value={value.layout.treadDepthMm} onChange={event => change({ layout: { kind: 'repeat', treadDepthMm: Number(event.target.value) } })}/><small>延长路线会增加级数，踏面和材质保持原有尺度。</small></label>
       : <label>固定级数<input aria-label="阶梯固定级数" type="number" min="1" max="512" step="1" value={value.layout.stepCount} onChange={event => change({ layout: { kind: 'stretch', stepCount: Number(event.target.value) } })}/><small>延长路线会加深每级踏面，材质纹理保持独立尺度。</small></label>}
     <label>材质纹理尺度（毫米）<input aria-label="阶梯纹理尺度毫米" type="number" min="50" max="4000" step="1" value={value.textureScaleMm} onChange={event => change({ textureScaleMm: Number(event.target.value) })}/></label>
-    {hasLength && <p className="asset-muted" aria-live="polite">路线约 {Math.round(length).toLocaleString()} 毫米{widthMm && widthMm > 0 ? ` · 宽 ${widthMm.toLocaleString()} 毫米` : ''} · {stepCount} 级{value.layout.kind === 'stretch' && stepCount > 0 ? ` · 每级约 ${Math.round(length / stepCount)} 毫米` : ''}。</p>}
+    {hasLength && <p className="asset-muted" aria-live="polite">铺阶约 {Math.round(length).toLocaleString()} 毫米{widthMm && widthMm > 0 ? ` · 宽 ${widthMm.toLocaleString()} 毫米` : ''} · {stepCount} 级{value.layout.kind === 'stretch' && stepCount > 0 ? ` · 每级约 ${Math.round(length / stepCount)} 毫米` : ''}。</p>}
     {stepCount > 512 && <p className="asset-form-error" role="alert">当前路线超过512级，请增大踏面深度或缩短路线。</p>}
     <details className="staircase-covers">
       <summary>局部覆盖与露出底层 · {value.covers.length}/32</summary>

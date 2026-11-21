@@ -100,10 +100,14 @@ export function describeTransactionWrites(before: unknown, after: unknown, prefi
 
 /** Collapse the already observed path union, never rediscover the whole delta. */
 export function netTransactionWrites(before: unknown, after: unknown, writes: readonly TransactionWrite[]): TransactionWrite[] {
-  const paths = [...new Map(writes.map(write => [JSON.stringify(write.path), write.path])).values()].sort((a, b) => a.length - b.length)
-  const roots: (readonly string[])[] = []
-  for (const path of paths) if (!roots.some(root => root.every((part, i) => path[i] === part))) roots.push(path)
-  return roots.flatMap(path => {
+  const paths = new Map(writes.map(write => [JSON.stringify(write.path), write.path]))
+  const ordered = [...paths.values()].sort((a, b) => a.length - b.length)
+  return ordered.flatMap(path => {
+    // A written ancestor covers this path even if the ancestor ultimately
+    // returns to its baseline value. Keep the order within each depth.
+    for (let length = 0; length < path.length; length++) {
+      if (paths.has(JSON.stringify(path.slice(0, length)))) return []
+    }
     const left = transactionSlot(before, path), right = transactionSlot(after, path)
     return equalSlot(left, right) ? [] : [{ path, before: left, after: right }]
   })

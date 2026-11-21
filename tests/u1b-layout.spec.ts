@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import type { Workspace } from '../src/application/workspace/workspace'
 import { openBuildingTask, openSceneObjects, openWorkspaceModule } from './workspace-navigation-helpers'
+import { keyboardProjectBackup } from './keyboard-ux-helpers'
 
 // Two small U1b smoke cases only. Creation uses the public Home form; DEV access
 // observes the active project and never installs fixtures or calls editor writes.
@@ -140,6 +141,34 @@ test('U1b desktop panels resize, fold, retain passive drafts and remember layout
   expect(await projectState(page)).toEqual(before)
   await info.attach('u1b-desktop.png', { body: await page.screenshot(), contentType: 'image/png' })
   await info.attach('u1b-desktop-smoke.json', { body: JSON.stringify({ viewport: { width: 1512, height: 982 }, sceneId: before.document.sceneId, revision: before.document.revision, remembered, unchangedDocumentIdentityAppearance: true, sameCanvasBeforeRealReload: true }), contentType: 'application/json' })
+})
+
+test('desktop panel docking swaps the sidebars and keeps the canvas, draft and project through reopen', async ({ page }, info) => {
+  await page.goto('./#home')
+  await createBlank(page, '侧栏停靠测试')
+  const state = await keyboardProjectBackup(page, info.outputPath('before.sceneweave'))
+  await rememberCanvas(page)
+  await openBuildingTask(page)
+  const field = inspector(page).getByLabel('房间名称', { exact: true })
+  await field.fill('交换侧栏保留草稿')
+  const marker = page.getByRole('button', { name: '将当前详情停靠到左侧', exact: true })
+  const a = await marker.boundingBox(), destination = await resources(page).boundingBox()
+  if (!a || !destination) throw new Error('Expected both desktop sidebars')
+  const x = a.x + a.width / 2, y = a.y + a.height / 2
+  await page.mouse.move(x, y); await page.mouse.down()
+  await page.mouse.move(destination.x + destination.width / 2, y, { steps: 5 })
+  await page.mouse.up()
+  await expect(inspector(page)).toHaveAttribute('data-dock', 'left')
+  await expect(resources(page)).toHaveAttribute('data-dock', 'right')
+  await expect(field).toHaveValue('交换侧栏保留草稿')
+  await expectSameCanvas(page)
+  await page.getByRole('button', { name: '取消建筑草稿', exact: true }).click()
+  await page.getByRole('button', { name: '回到首页', exact: true }).click()
+  await page.reload(); await reopenFromHome(page, state.document.sceneId)
+  await expect(inspector(page)).toHaveAttribute('data-dock', 'left')
+  expect((await keyboardProjectBackup(page, info.outputPath('reopened.sceneweave'))).hashes).toEqual(state.hashes)
+  await page.getByRole('button', { name: '将当前详情停靠到右侧', exact: true }).press('Enter')
+  await expect(inspector(page)).toHaveAttribute('data-dock', 'right')
 })
 
 test.describe('U1b narrow workspace', () => {

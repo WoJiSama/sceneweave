@@ -60,6 +60,7 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
       }
     }
   }
+  for (const floor of Object.values(scene.floors)) if (floor.artwork) useAsset(floor.artwork.assetId, floor.id)
   const checkAppearance = (appearance: Appearance, definitionRef: VersionRef | null, owner: string) => {
     if (definitionRef) checkVersion(definitionRef, scene.propDefinitions, owner)
     if (appearance.kind === 'image') {

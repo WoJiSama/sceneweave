@@ -4,6 +4,7 @@ import type { ProjectBundle } from '../../shared/model/project'
 import type { HistoryArchive } from '../../shared/project/history'
 import { projectContentHash } from '../../shared/project/validate'
 import type { WorkspaceBackupAttempt } from './WorkspaceBackupFeedback'
+import { resolvePartitionOutput } from '../../shared/geometry/partitions'
 
 export interface WorkspaceFilePorts {
   workspace: {
@@ -15,7 +16,7 @@ export interface WorkspaceFilePorts {
   exportArchive(sceneId: string, snapshotIds: readonly string[]): Promise<HistoryArchive>
   exportProject(bundle: ProjectBundle): Promise<Uint8Array>
   exportHistoryArchive(archive: HistoryArchive): Promise<Uint8Array>
-  exportPng(bundle: ProjectBundle, options: { audience: 'gm' | 'player'; floorId: string; longEdgePx: number }): Promise<Blob>
+  exportPng(bundle: ProjectBundle, options: { audience: 'gm' | 'player'; floorId: string; longEdgePx: number; partitionId?: string }): Promise<Blob>
   download(blob: Blob, name: string): void
 }
 
@@ -46,10 +47,18 @@ export function createWorkspaceFileController(ports: WorkspaceFilePorts) {
         return requireBackupScene(workspace.getState().project, sceneId)
       }
 
-      // A failed save can still leave an editable branch to back up from memory.
-      // Selected history requires a saved baseline because its archive comes from storage.
-      if (selected || (state.status !== 'error' && state.status !== 'conflict')) await workspace.flush()
+      const saveBlocked = () => ['error', 'conflict'].includes(workspace.getState().status)
+      // History uses a stored baseline. A complete backup can use the exact current project from memory.
+      if (selected) await workspace.flush()
+      else if (!saveBlocked()) {
+        try { await workspace.flush() }
+        catch (error) {
+          assertBaseline()
+          if (!saveBlocked()) throw error
+        }
+      }
       const current = assertBaseline()
+      const backedUpFromMemory = saveBlocked()
       const bundle = toBundle(current)
       let bytes: Uint8Array
       if (selected) {
@@ -67,7 +76,8 @@ export function createWorkspaceFileController(ports: WorkspaceFilePorts) {
         selected ? 'sceneweave-history.sceneweave' : 'sceneweave-complete.sceneweave')
       attempt = {
         sceneId, baseline: new WeakRef(current), kind: 'download-started',
-        detail: selected ? `（含秘密及所选 ${selected.length} 份历史快照）` : '（含全部资源、许可和秘密）',
+        detail: selected ? `（含秘密及所选 ${selected.length} 份历史快照）`
+          : backedUpFromMemory ? '（含全部资源、许可和秘密，以及当前页面的最新编辑）' : '（含全部资源、许可和秘密）',
       }
     } catch (error) {
       attempt = {
@@ -79,18 +89,20 @@ export function createWorkspaceFileController(ports: WorkspaceFilePorts) {
   }
 
   async function exportImage(
-    { project, audience, floorId }: { project: EditableProject; audience: 'gm' | 'player'; floorId: string },
+    { project, audience, floorId, partitionId }: { project: EditableProject; audience: 'gm' | 'player'; floorId: string; partitionId?: string },
     onSuccess: (message: string) => void,
   ): Promise<void> {
     const checkpoint = workspace.checkpoint()
     if (workspace.getState().project !== project) throw new Error('导出所属工程已有变化，请重新导出地图。')
     const { document } = project
-    const longEdgePx = 4096
-    const blob = await ports.exportPng(toBundle(project), { audience, floorId, longEdgePx })
+    const partition = partitionId ? resolvePartitionOutput(document, partitionId, audience) : undefined
+    const longEdgePx = partition ? 3840 : 4096
+    const blob = await ports.exportPng(toBundle(project), { audience, floorId, longEdgePx, ...(partitionId ? { partitionId } : {}) })
     workspace.assertCheckpoint(checkpoint)
     if (workspace.getState().project?.document.sceneId !== document.sceneId) throw new Error('导出所属工程已切换，请重新导出地图。')
-    const message = `${audience === 'gm' ? '主持人' : '玩家'} PNG 已生成 · r${document.revision} · ${document.floors[floorId].name}固定范围 · 长边 ${longEdgePx} px`
-    ports.download(blob, `sceneweave-${audience}-map.png`)
+    const range = partition ? `分区 ${partition.region.name}` : `${document.floors[floorId].name}固定范围`
+    const message = `${audience === 'gm' ? '主持人' : '玩家'} PNG 已生成 · r${document.revision} · ${range} · 长边 ${longEdgePx} px`
+    ports.download(blob, `sceneweave-${audience}-${partition ? 'partition' : 'map'}.png`)
     onSuccess(message)
   }
 

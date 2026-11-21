@@ -4,6 +4,7 @@ import { projectScene } from '../../../shared/projection/projection.js'
 import { layerSceneV3 } from '../../../core/v3/test-fixtures'
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { atmosphereComparison } from './atmosphere-comparison'
+import { TERRAIN_FACADES } from '../../../shared/appearance/terrain-facade.js'
 
 describe('temporary atmosphere comparison', () => {
   it('keeps actual geometry, private masks, materials and high-edge/contact shadows intact', () => {
@@ -25,6 +26,17 @@ describe('temporary atmosphere comparison', () => {
     expect(result.visual!.filters).not.toBe(source.visual.filters)
     expect(result.visual).toMatchObject({ lights: [], fogs: [], filters: [] })
     expect(source).toEqual(frozen)
+  })
+  it('dims façade windows and fixture glows in the temporary view', () => {
+    const scene = toCurrentSceneDocument({ ...layerSceneV3(), format: 'sceneweave-scene', schemaVersion: 1 }), source = projectScene(scene, 'gm')
+    const facade = { ...TERRAIN_FACADES['glazed-v1'] }
+    source.terrain = [{ id: 'silhouette', points: [], style: null, elevationMm: 2400, priority: 0, facade }]
+    source.visual!.fixtureGlows = [{ positionMm: { x: 100, y: 100 }, color: '#6DFFD3', radiusMm: 1400, intensity: .5 }]
+    const result = atmosphereComparison(source)
+    expect(result.terrain[0].facade).toEqual({ ...facade, lightIntensity: 0 })
+    expect(result.visual!.fixtureGlows).toBeUndefined()
+    expect(source.terrain[0].facade).toBe(facade)
+    expect(source.visual!.fixtureGlows).toHaveLength(1)
   })
   it('leaves player projections and scenes without a visual system unchanged', () => {
     const scene = toCurrentSceneDocument({ ...layerSceneV3(), format: 'sceneweave-scene', schemaVersion: 1 }), player = projectScene(scene, 'player'), gm = projectScene(scene, 'gm')

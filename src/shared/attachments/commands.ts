@@ -38,6 +38,21 @@ export function placePropAtAttachmentAnchor(scene: AttachmentScene, row: PropAtt
     child.rotationDeg = normalizeAttachmentAngle(frame.angleDeg + anchor.rotationOffsetDeg)
   } else throw new Error('附着模式与锚点种类不相容。')
 }
+
+/** The selected prop owns its surfaces. Other props survive and keep their
+ * world placement when their relation to one of those surfaces is removed. */
+export function removePropAttachmentBindings(scene: AttachmentScene, propId: string, context: PreparationContext, identity?: HistoryIdentity): number {
+  const surfaces = Object.values(scene.attachmentSurfaces ?? {}).filter(surface => surface.owner.kind === 'prop' && surface.owner.id === propId)
+  const owned = new Set(surfaces.map(surface => surface.id))
+  let cost = 0
+  for (const row of Object.values(scene.attachments ?? {})) {
+    if (row.mode !== 'embed' && (row.child.id === propId || owned.has(row.surfaceId))) {
+      cost += applyAttachmentCommand(scene, { type: 'detachPropAttachment', id: row.id }, context, identity).commandCost
+    }
+  }
+  for (const surface of surfaces) cost += applyAttachmentCommand(scene, { type: 'removeAttachmentSurface', id: surface.id }, context, identity).commandCost
+  return cost
+}
 /** Native mutator: the caller owns its draft and publishes only after full
  * dependency, identity, budget and scene validation. Public intents carry no proof. */
 export function applyAttachmentCommand(scene: AttachmentScene, raw: AttachmentCommand, _context: PreparationContext, identity?: HistoryIdentity): { commandCost: number; dependencyIds: string[]; affectedIds: string[] } {

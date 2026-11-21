@@ -107,6 +107,7 @@ export function extractTemplateFixedContent(source: ProjectData, selectors: read
     const definition = own(source.document.prefabDefinitions, id), template = own(source.appearance.prefabAppearanceTemplates, id)
     document.prefabDefinitions[id] = cloneJson(definition)
     graph.prefabAppearanceTemplates[id] = cloneJson(template)
+    if (definition.pathStyle?.lamps?.ref) addProp(definition.pathStyle.lamps.ref.id)
     for (const member of definition.members) {
       if (member.propTemplate.definitionRef) addProp(member.propTemplate.definitionRef.id)
       addAppearance(member.propTemplate.appearance)

@@ -20,9 +20,9 @@ export const rootSurfaceElevation = (scene: SceneDocument, ref: SurfaceRef): num
 
 /** One synchronous operation owns this disposable query. No mutable-scene or ID
  * cache: callers discard it after validation/travel; saved geometry is never regenerated. */
-export function createSupportQuery(scene: SceneDocument, floorId: string) {
+export function createSupportQuery(scene: SceneDocument, floorId: string, excludedAreaIds?: ReadonlySet<string>) {
   const floor = scene.floors[floorId]
-  const areas = Object.values(scene.terrainAreas).filter(row => row.floorId === floorId).sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id))
+  const areas = Object.values(scene.terrainAreas).filter(row => row.floorId === floorId && !excludedAreaIds?.has(row.id)).sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id))
   const invalidHosts = new Set<string>()
   const strips = Object.values(scene.terrainConnections).filter(row => row.floorId === floorId && row.carvedStrip).flatMap(connection => {
     try { return [{ connection, sampler: createCarvedStripSampler(connection.carvedStrip!) }] }

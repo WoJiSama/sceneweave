@@ -1,3 +1,5 @@
+import { OperationRejected } from '../../src/shared/validation/operation-rejection.js'
+import { ToolRejected, toolRejection } from './tool-rejection.js'
 import { authoringCreatedIds } from './authoring-grant.js'
 import type { StaticSvgArtifacts } from './svg-artifacts.js'
 import { z } from 'zod'
@@ -77,9 +79,9 @@ export function getAuthoringTools(scope: import('../../src/shared/ai/authoring-p
   // full catalogue or a later task. Entity counts and brief prose add no grants.
   const catalogue = structuredClone(authoringTools)
   if (schemaVersion === 4) {
-    catalogue.push({ name: 'sceneweave_apply_stage', description: 'Apply one named stage of 1–64 finite recipes to the isolated authoring4 draft, atomically. Copy the exact expected draft stamp from the current summary; all internal steps share the original cumulative semantic/work/resource budgets. A rejected stage installs no partial edit. No main project writes or adoption.', parameters: z.toJSONSchema(stageArguments, { io: 'input' }) }, ...structuredClone(visualReviewV4Tools))
+    catalogue.push({ name: 'sceneweave_apply_stage', description: 'Apply one named stage of 1–64 finite recipes to the isolated authoring4 draft, atomically. Copy the exact expected draft stamp from the current summary; all internal steps share the original cumulative semantic/work/resource budgets. A rejected stage installs no partial edit. No main project writes or adoption.', parameters: structuredClone(stageParameters) }, ...structuredClone(visualReviewV4Tools))
     const edit = catalogue.find(tool => tool.name === 'sceneweave_edit_scene')!
-    edit.parameters = z.toJSONSchema(currentEditArguments, { io: 'input' })
+    edit.parameters = structuredClone(currentEditParameters)
   }
   if (schemaVersion === 2 || schemaVersion === 3 || schemaVersion === 4) for (const tool of catalogue) tool.description = tool.description
     .replace(/256 cumulative expansion|(?:actual )?cumulative 256 expansion|256 cumulative operations/g,
@@ -136,6 +138,10 @@ const findArguments = z.object({ query: z.string().max(80), limit: z.number().in
 const editArguments = z.object({ operations: z.array(AuthoringOperationSchema).min(1).max(16) }).strict()
 const currentEditArguments = z.object({ operations: z.array(AuthoringOperationV4Schema).min(1).max(16) }).strict()
 const stageArguments = z.object({ stage: AuthoringStageV4Schema, expected: CurrentDraftStampV4Schema, operations: z.array(AuthoringOperationV4Schema).min(1).max(AUTHORING_V4_LIMITS.stageOperations) }).strict()
+// These generated objects may have non-JSON validator metadata. The catalogue
+// exposes independent clones of only their enumerable JSON Schema properties.
+const stageParameters = z.toJSONSchema(stageArguments, { io: 'input' })
+const currentEditParameters = z.toJSONSchema(currentEditArguments, { io: 'input' })
 const emptyArguments = z.object({}).strict()
 function boundedDiagnosis(report: ReturnType<typeof diagnoseAuthoringProject>) {
   // Requirement prose is already frozen in the initial brief. Do not spend a
@@ -177,7 +183,6 @@ export function updateAuthoringSummary(task: StoredTask): AuthoringSummary {
   task.snapshot.authoring = summary
   return summary
 }
-const failure = (code: string) => ({ error: { code, message: '工具未采用此步骤。请使用明确授权的公开对象、素材与操作，修正参数后重试。' } })
 const boundaryEditHint = 'Prefer sceneweave_apply_boundary_candidates with {atDraftRevision,atContentHash,candidates:[candidateRecipe]}. Or sceneweave_edit_scene with {"operations":[candidateOperation]} unchanged, without wrappers or null optional fields.'
 const compositionEditHint = 'Call sceneweave_edit_scene with {"operations":candidateOperations}. Copy the returned array unchanged; do not wrap individual operations.'
 const editShapeHint = `${boundaryEditHint} For composition proposals use {"operations":candidateOperations}.`
@@ -191,9 +196,6 @@ class PlanEvidenceError extends Error {
 }
 class PlanArgumentsError extends Error {
   constructor(message: string, readonly hint: string = planIndexHint) { super(message) }
-}
-class BoundaryCandidateError extends Error {
-  constructor(readonly code: 'stale_candidate' | 'invalid_candidate') { super(code === 'stale_candidate' ? '曲线候选基线已变化，此步骤未采用。' : '曲线候选与原提案哈希不符，此步骤未采用。') }
 }
 function editSchemaHint(error: z.ZodError, args: unknown): string {
   // Inspect only schema-owned positions and known discriminants. Never echo
@@ -215,7 +217,7 @@ function prepareAuthoringEdit(task: StoredTask, call: ProviderToolCall, operatio
     ...result.state.changedIds.filter(id => !previousIds.has(id))])].sort()
   const output = { ...(authoring.start.schemaVersion === 4 ? { expected: authoringDraftStamp(result.state, task.snapshot.generation) } : {}), draftRevision: result.state.draftRevision, contentHash: result.state.contentHash, operationCost: result.state.operationCost,
     affectedIds, changedCount: result.state.changedIds.length, remainingOperations: remainingAuthoringOperations(authoring.start, result.state) }
-  if (utf8Size(JSON.stringify(output)) > (authoring.start.brief ? 8000 : 8192)) throw new Error('output_limit')
+  if (utf8Size(JSON.stringify(output)) > (authoring.start.brief ? 8000 : 8192)) throw new ToolRejected('tool_output_limit')
   // The caller installs only after checking the final, fully wrapped receipt.
   return { output, install: () => {
     for (const operation of operations) if (operation.kind === 'svg') artifacts?.store(task.snapshot.id, operation.sourceSvg)
@@ -239,8 +241,8 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
   try {
     if (call.name === 'sceneweave_apply_stage') {
       const authoring = task.authoring!, parsed = stageArguments.parse(args)
-      if (authoring.start.schemaVersion !== 4 || authoring.state.schemaVersion !== 4) throw new Error('本任务未开放阶段工具。')
-      if (canonicalJson(parsed.expected) !== canonicalJson(authoringDraftStamp(authoring.state, task.snapshot.generation))) throw new BoundaryCandidateError('stale_candidate')
+      if (authoring.start.schemaVersion !== 4 || authoring.state.schemaVersion !== 4) throw new ToolRejected('unsupported_tool')
+      if (canonicalJson(parsed.expected) !== canonicalJson(authoringDraftStamp(authoring.state, task.snapshot.generation))) throw new ToolRejected('stale_candidate')
       const next = applyAuthoringStageV4(authoring.start, authoring.state, parsed.operations, `stage-${sha256Text(call.id).slice(0, 32)}`)
       output = { stage: parsed.stage, atomic: true, stepsApplied: next.state.draftRevision - authoring.state.draftRevision,
         draftRevision: next.state.draftRevision, contentHash: next.state.contentHash, expected: authoringDraftStamp(next.state, task.snapshot.generation),
@@ -311,12 +313,12 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       output = prepared.output; install = prepared.install
     } else if (call.name === 'sceneweave_apply_boundary_candidates') {
       const parsed = boundaryCandidatesArguments.parse(args), authoring = task.authoring!, scope = authoring.start.scope.visual
-      if (parsed.atDraftRevision !== authoring.state.draftRevision || parsed.atContentHash !== authoring.state.contentHash) throw new BoundaryCandidateError('stale_candidate')
-      if (!scope) throw new Error('视觉曲线操作未授权。')
+      if (parsed.atDraftRevision !== authoring.state.draftRevision || parsed.atContentHash !== authoring.state.contentHash) throw new ToolRejected('stale_candidate')
+      if (!scope) throw new ToolRejected('outside_scope')
       const replayed = replayAuthoring(authoring.start, authoring.state.steps), ids = new Set([...scope.entityIds, ...authoringCreatedIds(authoring)])
       const operations = parsed.candidates.map(candidate => {
         const proposed = proposeAuthoringTerrainBoundary(replayed.project, scope, ids, candidate.proposal)
-        if (boundaryCandidateHash(proposed.candidateOperation) !== candidate.candidateHash) throw new BoundaryCandidateError('invalid_candidate')
+        if (boundaryCandidateHash(proposed.candidateOperation) !== candidate.candidateHash) throw new ToolRejected('invalid_candidate')
         return proposed.candidateOperation
       })
       const prepared = prepareAuthoringEdit(task, call, operations, artifacts)
@@ -333,7 +335,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
         `${planIndexHint} This brief has ${brief.requirements.length} requirements; valid indices are 0 through ${brief.requirements.length - 1}.`)
       if (parsed.requirements.some(value => value.state === 'claimed' && !value.evidenceIds.length)) throw new PlanArgumentsError('已完成声明缺少证据，请引用授权对象或保持pending。')
       output = { phase: parsed.phase, requirements: parsed.requirements, status: 'claims_require_independent_review', remainingOperations: remainingAuthoringOperations(authoring.start, authoring.state) }
-      if (utf8Size(JSON.stringify(output)) > 8000) throw new Error('output_limit')
+      if (utf8Size(JSON.stringify(output)) > 8000) throw new ToolRejected('tool_output_limit')
       install = () => { authoring.plan = parsed; updateAuthoringSummary(task) }
     } else if (call.name === 'sceneweave_probe_placement') {
       const parsed = PlacementProbeSchema.parse(args), authoring = task.authoring!, replayed = replayAuthoring(authoring.start, authoring.state.steps)
@@ -341,7 +343,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       output = probeAuthoringPlacement(replayed.project, authoring.start, ids, parsed)
     } else if (call.name === 'sceneweave_propose_boundary') {
       const parsed = TerrainBoundaryProposalSchema.parse(args), authoring = task.authoring!, scope = authoring.start.scope.visual
-      if (!scope) throw new Error('视觉曲线操作未授权。')
+      if (!scope) throw new ToolRejected('outside_scope')
       const replayed = replayAuthoring(authoring.start, authoring.state.steps)
       const ids = new Set([...scope.entityIds, ...authoringCreatedIds(authoring)])
       const proposed = proposeAuthoringTerrainBoundary(replayed.project, scope, ids, parsed)
@@ -387,29 +389,30 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       output = { valid: true, operationCost: checked.operationCost, changedCount: checked.changedIds.length,
         remainingOperations: remainingAuthoringOperations(task.authoring!.start, task.authoring!.state), requirementClaims: task.authoring!.plan?.requirements.map(({ index, state }) => ({ index, state })) ?? [],
         ...(task.authoring!.plan ? { claimsRead: 'Full evidence remains in the persisted plan; claims are not independent requirement verification.' } : {}), appearanceReview: 'unconfirmed' }
-    } else { output = failure('unsupported_tool'); success = false }
+    } else { output = { error: toolRejection('unsupported_tool') }; success = false }
     output = withBudget(output)
-    if (receiptSize(output) > 8192) { output = failure('tool_output_limit'); success = false }
+    if (receiptSize(output) > 8192) { output = { error: toolRejection('tool_output_limit') }; success = false }
     // Budget/final-round guidance is part of the actual receipt. An oversized
     // failure must leave the draft, plan, summary and artifact store untouched.
     if (success) install?.()
   } catch (error) {
-    const restrictedTerrain = error instanceof TerrainAuthoringRestrictedError || error instanceof AuthoringOperationError && error.cause instanceof TerrainAuthoringRestrictedError
-    const text = error instanceof Error ? error.message.replace(/^AI(?:场景)?草稿范围无效：/, '') : ''
-    const connectionError = error instanceof VisualBoundaryConnectionError ? error
-      : error instanceof AuthoringOperationError && error.cause instanceof VisualBoundaryConnectionError ? error.cause : undefined
-    const category = text === 'output_limit' ? ['tool_output_limit', '工具回执超过8KiB；此步骤未采用。'] : error instanceof VisualReviewError ? [error.code, error.message] : restrictedTerrain ? ['restricted_dependency', '地形候选存在未授权依赖，此步骤未采用。'] : connectionError ? ['invalid_geometry', '曲线候选改变了已授权连接的有效支撑，此步骤未采用。']
-      : error instanceof BoundaryCandidateError ? [error.code, error.message]
-      : error instanceof SceneReadScopeError || error instanceof PlanEvidenceError ? ['outside_scope', error.message]
-      : error instanceof PlanArgumentsError ? ['invalid_arguments', error.message]
-      : error instanceof z.ZodError ? ['invalid_arguments', '参数不符合有限工具合同，请检查kind、必填字段与整数毫米。']
-      : /锁/.test(text) ? ['locked_dependency', '对象、图层或真实依赖已锁定，此步骤未采用。']
-      : /256|512|预算|上限|语义累计|计算复杂度/.test(text) ? ['operation_budget', '步骤的真实展开超过任务剩余预算；请缩小改动。']
-      : /范围|授权|公开|私密|遮罩/.test(text) ? ['outside_scope', '对象、支撑、依赖或实际外轮廓不在冻结公开范围；请缩小操作或重新授权任务。']
-      : /SVG|脚本|外部|规范化/.test(text) ? ['invalid_svg', 'SVG不符合受限静态子集，请去掉脚本、URL、CSS及未支持元素并修正几何。']
-      : ['invalid_geometry', '步骤未采用；请检查几何、支撑、附着距离与依赖后修正。']
-    const hint = restrictedTerrain ? undefined : error instanceof BoundaryCandidateError || error instanceof z.ZodError && call.name === 'sceneweave_apply_boundary_candidates'
-      ? 'Request a fresh sceneweave_propose_boundary on the current draft. Copy its candidateRecipe plus atDraftRevision/atContentHash unchanged; batch at most two proposals from that same baseline. No candidate was applied.'
+    const cause = error instanceof AuthoringOperationError ? error.cause : error
+    const text = cause instanceof Error ? cause.message : ''
+    const connectionError = cause instanceof VisualBoundaryConnectionError ? cause : undefined
+    const rejected = cause instanceof ToolRejected || cause instanceof OperationRejected ? toolRejection(cause.code)
+      : cause instanceof VisualReviewError ? toolRejection(cause.code, { message: cause.message })
+      : cause instanceof TerrainAuthoringRestrictedError ? toolRejection('restricted_dependency')
+      : cause instanceof SceneReadScopeError || cause instanceof PlanEvidenceError ? toolRejection('outside_scope', { message: cause.message, nextAction: 'read_current_context' })
+      : cause instanceof PlanArgumentsError ? toolRejection('invalid_arguments', { message: cause.message })
+      : cause instanceof z.ZodError ? toolRejection('invalid_arguments')
+      : toolRejection('invalid_geometry', connectionError ? { message: '曲线候选改变了已授权连接的有效支撑，此步骤未采用。' } : undefined)
+    const candidateNeedsRefresh = rejected.nextAction === 'refresh_candidate'
+    const hint = candidateNeedsRefresh && call.name === 'sceneweave_apply_stage'
+      ? 'Read sceneweave_read_scene with section summary. Re-evaluate this stage on the current draft and copy its expected stamp unchanged.'
+      : candidateNeedsRefresh && call.name === 'sceneweave_terrain_apply_candidate'
+        ? 'Request a fresh terrain candidate on the current draft and use its exact ID, hash, revision and content hash.'
+      : call.name === 'sceneweave_apply_boundary_candidates' && (candidateNeedsRefresh || error instanceof z.ZodError)
+        ? 'Request a fresh sceneweave_propose_boundary on the current draft. Copy its candidateRecipe plus atDraftRevision/atContentHash unchanged; batch at most two proposals from that same baseline. No candidate was applied.'
       : error instanceof PlanArgumentsError ? error.hint
       : error instanceof SceneReadScopeError ? sceneReadHint
       : error instanceof PlanEvidenceError ? planEvidenceHint
@@ -417,8 +420,9 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       : error instanceof z.ZodError && call.name === 'sceneweave_read_scene' ? 'section anchors requires ids with exactly one authorised terrain ID; use independent calls for different terrains, or section scene for a batch summary. Use offset/limit to page the actual persisted anchors.'
       : error instanceof z.ZodError && (call.name === 'sceneweave_edit_scene' || call.name === 'sceneweave_apply_stage') ? editSchemaHint(error, args)
       : connectionError ? 'The proposed terrain curve changes an authorised stairs/ramp endpoint or support transition. Reduce smoothness to shrink the outward bulge and request a new read-only proposal; preserve both landing supports and the full connection width. Do not change the connection or its scope implicitly. Increasing sample spacing alone does not remove the bulge.'
-      : call.name === 'sceneweave_propose_boundary' && category[0] === 'invalid_geometry' ? 'The terrain curve proposal failed full geometry validation. Reduce smoothness to shrink the outward bulge and request a new read-only proposal. Preserve the authorised supports and all other entities; do not broaden the scope implicitly. Increasing sample spacing alone does not remove the bulge.'
-      : category[0] === 'invalid_geometry' && error instanceof AuthoringOperationError && /(?:^|[：；])房间完整内部须落在声明的有效支撑面内。(?:；|$)/.test(text) ? 'Set room.supportRef explicitly to the authorised effective ground surface. If a terrainArea was created over the Floor, use {kind:"terrainArea",id:<actual terrain ID>} for each room on it; omitted support defaults to the bare Floor. Read section scene for actual supports and retain valid terrain. The complete atomic step was rejected.'
+      : call.name === 'sceneweave_propose_boundary' && rejected.code === 'invalid_geometry' ? 'The terrain curve proposal failed full geometry validation. Reduce smoothness to shrink the outward bulge and request a new read-only proposal. Preserve the authorised supports and all other entities; do not broaden the scope implicitly. Increasing sample spacing alone does not remove the bulge.'
+      : rejected.code === 'invalid_geometry' && error instanceof AuthoringOperationError && /(?:^|[：；])房间完整内部须落在声明的有效支撑面内。(?:；|$)/.test(text) ? 'Set room.supportRef explicitly to the authorised effective ground surface. If a terrainArea was created over the Floor, use {kind:"terrainArea",id:<actual terrain ID>} for each room on it; omitted support defaults to the bare Floor. Read section scene for actual supports and retain valid terrain. The complete atomic step was rejected.'
+      : rejected.code !== 'invalid_geometry' && rejected.code !== 'outside_scope' ? undefined
       : call.name !== 'sceneweave_propose_boundary' && /支撑|地面/.test(text) && /占地|图像|物件|连接|整|越|匹配|未|覆盖/.test(text) ? 'The whole rotated footprint must fit the declared support at its effective terrain priority. Use sceneweave_probe_placement for this granted definition/support and reuse feasible positions with the returned rotation. A higher-priority terrain or a curved edge can cut through the footprint even when its centre is valid. If too few positions exist, explicitly enlarge/revise the authorised support or reduce optional furnishing; do not keep guessing IDs/coordinates. Keep valid edge/effect work separate from a failing furnishing step.'
       : /共享曲线|曲线.*(?:锚点|端点|绑定)|边界链|起止点/.test(text) ? 'Read actual terrain boundary order and stable point IDs. A side always follows the terrain ring from startPointId forward to endPointId; reverse means that directed chain runs opposite to the curve. Two shared sides need opposite reverse values. Keep the real existing endpoint coordinates; do not swap anchors to select the long outer arc.'
       : /材质.*不适用/.test(text) ? 'Read applicableSurfaces for this authorised material and choose one supporting the target surface.'
@@ -428,7 +432,7 @@ export function executeAuthoringTool(task: StoredTask, call: ProviderToolCall, a
       : undefined
     // Paths and issue codes are schema-owned; never forward input values, unknown keys or raw domain text.
     const issues = error instanceof z.ZodError ? error.issues.slice(0, 6).map(issue => ({ path: issue.path.map(part => typeof part === 'number' ? part : /^[A-Za-z][A-Za-z0-9_]{0,40}$/.test(String(part)) ? part : 'field').join('.'), code: issue.code })) : undefined
-    output = { error: { code: category[0], message: category[1], ...(error instanceof AuthoringOperationError ? { operationIndex: error.operationIndex } : {}), ...(hint ? { hint } : {}), ...(issues ? { issues } : {}), ...(connectionError ? { domainIssues: connectionError.issues } : {}) } }; success = false
+    output = { error: { ...rejected, ...(error instanceof AuthoringOperationError ? { operationIndex: error.operationIndex } : {}), ...(hint ? { hint } : {}), ...(issues ? { issues } : {}), ...(connectionError ? { domainIssues: connectionError.issues } : {}) } }; success = false
   }
   if (!success && task.authoring!.start.brief && output && typeof output === 'object') output = { ...output,
     remainingOperations: remainingAuthoringOperations(task.authoring!.start, task.authoring!.state),

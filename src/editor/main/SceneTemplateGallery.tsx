@@ -28,7 +28,7 @@ export default function SceneTemplateGallery({ entries, selected, disabled, onSe
   const validSize = (text: string) => !text || Number.isFinite(Number(text)) && Number(text) > 0
   const visible = entries.filter(entry => {
     const row = rows[entry.key]
-    return row && `${entry.name} ${row.sketch.rooms.map(room => room.purpose).join(' ')}`.toLowerCase().includes(query.toLowerCase())
+    return row && `${entry.name} ${row.sketch.bridgeDecks?.length ? '桥梁' : row.sketch.rooms.map(room => room.purpose).join(' ')}`.toLowerCase().includes(query.toLowerCase())
       && validSize(maxWidth) && validSize(maxHeight) && (!maxWidth || row.sketch.widthMm <= Number(maxWidth) * 1000) && (!maxHeight || row.sketch.heightMm <= Number(maxHeight) * 1000)
   })
   return <div aria-label="场景模板图库">
@@ -37,7 +37,8 @@ export default function SceneTemplateGallery({ entries, selected, disabled, onSe
     <label>最大高度（米）<input aria-label="筛选模板最大高度米" type="number" min="0.001" step="0.1" value={maxHeight} onChange={event => setMaxHeight(event.target.value)}/></label>
     {(!validSize(maxWidth) || !validSize(maxHeight)) && <p role="alert">筛选尺寸须为正数。</p>}
     <div className="scene-template-gallery">{visible.map(entry => { const row = rows[entry.key]; return <button type="button" key={entry.key} className="secondary scene-template-card" aria-pressed={entry.key === selected} disabled={disabled} onClick={() => onSelect(entry.key)}>
-      <img src={row.thumbnail} alt={`${entry.name}实际内容缩略图`}/><strong>{entry.name}</strong><span>{row.sketch.widthMm / 1000}×{row.sketch.heightMm / 1000}米 · {row.sketch.rooms.length}间</span><span>{[...new Set(row.sketch.rooms.map(room => room.purpose))].join('、')}</span>
+      <img src={row.thumbnail} alt={`${entry.name}实际内容缩略图`}/><strong>{entry.name}</strong><span>{row.sketch.widthMm / 1000}×{row.sketch.heightMm / 1000}米 · {row.sketch.bridgeDecks?.length ? '桥梁' : `${row.sketch.rooms.length}间`}</span>
+      {!!row.sketch.rooms.length && <span>{[...new Set(row.sketch.rooms.map(room => room.purpose))].join('、')}</span>}
     </button> })}</div>
     {!!entries.length && <p className="asset-muted">已校验并显示{visible.length}/{entries.length}项。缩略图含主持人内容；画布轮廓用于定位，点击后检查完整资源、支撑和冲突。</p>}
     {Object.entries(errors).map(([key, error]) => <p role="alert" key={key}>模板缩略图未完成：{entries.find(entry => entry.key === key)?.name} · {error}</p>)}

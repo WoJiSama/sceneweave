@@ -1,5 +1,7 @@
 import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { reloadSaved } from './workspace-ux-helpers'
+import type { Workspace } from '../src/application/workspace/workspace'
+import type { WorkspaceRepository } from '../src/editor/main/repository'
 import { test, expect, type Page, type Locator } from '@playwright/test'
 import { serve } from '@hono/node-server'
 import { randomBytes } from 'node:crypto'
@@ -74,19 +76,17 @@ test.afterAll(async () => {
 
 async function state(page: Page) {
   return page.evaluate(async () => {
-    const path = '/src/editor/main/Workbench.tsx', { nativeWorkspace } = await import(path) as typeof import('../src/editor/main/Workbench')
-    const value = nativeWorkspace.getState(), project = value.project
+    const { workspace } = Reflect.get(window, '__sceneweaveOutdoorDev') as { workspace: Workspace }
+    const value = workspace.getState(), project = value.project
     if (!project) throw new Error('Expected an active native project.')
     return { document: structuredClone(project.document), identity: structuredClone(project.historyIdentity), appearance: structuredClone(project.appearance),
-      canUndo: value.canUndo, canRedo: value.canRedo, checkpoint: nativeWorkspace.checkpoint(), status: value.status }
+      canUndo: value.canUndo, canRedo: value.canRedo, checkpoint: workspace.checkpoint(), status: value.status }
   })
 }
 async function snapshots(page: Page) {
   return page.evaluate(async () => {
-    const runtimePath = '/src/platform/browser/runtime.ts', workbenchPath = '/src/editor/main/Workbench.tsx'
-    const { projectRepository } = await import(runtimePath) as typeof import('../src/platform/browser/runtime')
-    const { nativeWorkspace } = await import(workbenchPath) as typeof import('../src/editor/main/Workbench')
-    return projectRepository.listSnapshots(nativeWorkspace.getDocument()!.sceneId)
+    const { workspace, repository } = Reflect.get(window, '__sceneweaveOutdoorDev') as { workspace: Workspace; repository: WorkspaceRepository }
+    return repository.listNamedSnapshots(workspace.getDocument()!.sceneId)
   })
 }
 async function settled(page: Page) {
@@ -185,6 +185,81 @@ test('M2-2 authorized tools make an isolated draft, then protected one-transacti
   expect(await page.evaluate(secret => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }).includes(secret), token)).toBe(false)
   expect(errors).toEqual([])
   await info.attach('m22-protected-adoption.json', { body: JSON.stringify({ sceneId: adopted.document.sceneId, revisions: [1, 2, 3], propId: id, protectionId: protections[0].id, modelRequests: 5 }), contentType: 'application/json' })
+})
+
+test('M2-2 lost adoption replies let the host recheck and adopt the same draft', async ({ page }) => {
+  test.setTimeout(90_000)
+  await createBlank(page, '采用请求中断后恢复')
+  const before = await state(page), initial = modelRequests, panel = await connect(page)
+  const authoring = await createDraft(page, panel)
+  const claimRoute = backendUrl + '/v1/tasks/*/draft/claim'
+  await page.route(claimRoute, async route => {
+    const response = await route.fetch()
+    expect(response.ok()).toBe(true)
+    await route.abort('failed')
+  }, { times: 1 })
+  let lostReleaseReply = false
+  await page.route(backendUrl + '/v1/tasks/*/draft/release', async route => {
+    const response = await route.fetch()
+    expect(response.ok()).toBe(true)
+    expect(await response.json()).toMatchObject({ status: 'ready', authoring: { claim: null } })
+    lostReleaseReply = true
+    await route.abort('failed')
+  }, { times: 1 })
+  await draftReview(page).getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
+  await draftReview(page).getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
+  await expect.poll(() => lostReleaseReply).toBe(true)
+  const recheck = authoring.getByRole('button', { name: '重新检查草稿', exact: true })
+  await expect(recheck).toBeEnabled()
+  expect(await state(page)).toEqual(before)
+  await recheck.click()
+  await expect(draftReview(page).getByLabel('AI 草稿差异', { exact: true }).locator(':scope > li')).toHaveCount(1)
+  await draftReview(page).getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
+  await draftReview(page).getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
+  await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已采用', { timeout: 30_000 })
+  await settled(page)
+  expect((await state(page)).document.revision).toBe(1)
+  expect(Object.values((await state(page)).document.props)).toHaveLength(1)
+  expect(modelRequests - initial).toBe(5)
+})
+
+test('M2-2 a missing adoption confirmation never holds a saved map or adopts a second time', async ({ page }) => {
+  test.setTimeout(90_000)
+  await createBlank(page, '后端确认中断后继续编辑')
+  const initial = modelRequests, panel = await connect(page)
+  const authoring = await createDraft(page, panel)
+  const appliedRoute = backendUrl + '/v1/tasks/*/draft/applied'
+  let dropConfirmation!: () => void
+  const confirmationGate = new Promise<void>(resolve => { dropConfirmation = resolve })
+  await page.route(appliedRoute, async route => { await confirmationGate; await route.abort('failed') }, { times: 1 })
+  const firstConfirmation = page.waitForRequest(appliedRoute)
+  await draftReview(page).getByRole('checkbox', { name: '已检查范围和差异，采用前创建保护快照', exact: true }).check()
+  await draftReview(page).getByRole('button', { name: '保护当前并一次采用 AI 草稿', exact: true }).click()
+  const first = await firstConfirmation
+  expect(first.method()).toBe('POST')
+  try {
+    await expect(page.locator('.asset-save')).toHaveText('本地已保存')
+    expect((await state(page)).document.revision).toBe(1)
+    expect(Object.values((await state(page)).document.props)).toHaveLength(1)
+    const undo = page.getByRole('button', { name: '撤销编辑', exact: true })
+    await expect(undo).toBeEnabled({ timeout: 5000 })
+    await undo.click()
+    await settled(page)
+    expect((await state(page)).document.revision).toBe(2)
+    expect((await state(page)).document.props).toEqual({})
+  } finally { dropConfirmation() }
+  const retry = authoring.getByRole('button', { name: '重试确认采用结果', exact: true })
+  await expect(retry).toBeEnabled()
+  const repeated = page.waitForRequest(appliedRoute)
+  await retry.click()
+  expect((await repeated).postDataJSON()).toEqual(first.postDataJSON())
+  await expect(panel.locator('.ai-task-heading > strong')).toHaveText('已采用', { timeout: 30_000 })
+  await expect(retry).toHaveCount(0)
+  await settled(page)
+  expect((await state(page)).document.revision).toBe(2)
+  expect((await state(page)).document.props).toEqual({})
+  expect(await snapshots(page)).toHaveLength(1)
+  expect(modelRequests - initial).toBe(5)
 })
 
 test('M2-2 a manual edit invalidates old task adoption while the isolated complete draft remains downloadable', async ({ page }) => {
@@ -294,7 +369,7 @@ test('M2-2 ready tasks survive a page refresh and explicitly reattach to the exa
   const reopened = await state(page)
   expect(reopened.document).toEqual(before.document); expect(reopened.identity).toEqual(before.identity); expect(reopened.appearance).toEqual(before.appearance)
   expect(modelRequests - initial).toBe(5); expect(await snapshots(page)).toEqual([])
-  await authoring.getByRole('button', { name: '重新绑定并校验草稿', exact: true }).click()
+  await authoring.getByRole('button', { name: '重新检查草稿', exact: true }).click()
   await expect(draftReview(page).getByLabel('AI 草稿差异', { exact: true }).locator(':scope > li')).toHaveCount(1)
   await expect(draftReview(page)).toContainText('本机重放及实际素材校验通过')
   expect(await state(page)).toEqual(reopened); expect(modelRequests - initial).toBe(5)

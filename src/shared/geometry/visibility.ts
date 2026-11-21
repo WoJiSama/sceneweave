@@ -1,4 +1,5 @@
 import type { Decoration, Prop, SceneDocument, SurfaceRef } from '../model/scene.js'
+import { visualBase } from '../visual/base.js'
 import type { AttachmentOwner } from '../attachments/contracts.js'
 
 /** Upstream audience semantics shared by finite commands; no render dependency. */
@@ -54,6 +55,12 @@ export function createPublicVisibility(scene: SceneDocument) {
       && !!relation && relation.mode === 'embed' && relation.child.id === id && relation.surfaceIds.every(surfaceId => attachmentSurface(surfaceId, next))
   }
   const hiddenMembers = new Set<string>()
+  for (const owner of Object.values(scene.paths)) if (owner.assembly && !path(owner.id)) {
+    for (const member of Object.values(owner.assembly.members)) if (member.state === 'placed') hiddenMembers.add(member.propId)
+  }
+  for (const boundary of Object.values(visualBase(scene)?.boundaries ?? {})) if (boundary.fence && boundary.visibility !== 'public') {
+    for (const member of Object.values(boundary.fence.members)) if (member.state === 'placed') hiddenMembers.add(member.propId)
+  }
   for (const group of Object.values(scene.prefabInstances)) if (group.visibility !== 'public') for (const member of Object.values(group.members)) if (member.propId !== null) hiddenMembers.add(member.propId)
   for (const group of Object.values(scene.scatterGroups)) if (!scatterGroup(group.id)) for (const member of Object.values(group.members)) if (member.propId !== null) hiddenMembers.add(member.propId)
   for (const group of Object.values(scene.decorationClusters ?? {})) if (!decorationCluster(group.id)) for (const member of Object.values(group.members)) if (member.entityId !== null && member.state !== 'detached' && member.state !== 'deleted') hiddenMembers.add(member.entityId)

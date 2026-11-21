@@ -1,4 +1,5 @@
 import type { BoundsMm, PointMm } from '../../../shared/model/scene.js'
+import type { ProjectedVisualSystem } from '../../../shared/projection/types.js'
 
 const EPS = 1e-7
 export interface VisualSegment { start: PointMm; end: PointMm }
@@ -98,6 +99,12 @@ function rayDistance(origin: PointMm, direction: PointMm, segment: VisualSegment
   return t > EPS && u >= -EPS && u <= 1 + EPS ? t : null
 }
 export const polygonSegments = (points: readonly PointMm[]): VisualSegment[] => points.map((p, i) => ({ start: { ...p }, end: { ...points[(i + 1) % points.length] } }))
+export function occluderSegments(occlusion: Pick<ProjectedVisualSystem, 'occluderRings' | 'occluderLines'>): VisualSegment[] {
+  return [
+    ...occlusion.occluderRings.flatMap(polygonSegments),
+    ...(occlusion.occluderLines ?? []).flatMap(points => points.slice(1).map((end, index) => ({ start: points[index], end }))),
+  ]
+}
 export const intersectsVisualBounds = (a: BoundsMm, b: BoundsMm) => a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y
 
 /** Two-dimensional, audience-owned visibility. The radius is cosmetic, never movement/path geometry. */

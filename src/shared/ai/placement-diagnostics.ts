@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { definitionPresentation, propPresentation, propPaintPolygon, presentationBounds } from '../appearance/presentation.js'
 import { z } from 'zod'
 import type { ProjectData } from '../model/project.js'
@@ -31,12 +32,12 @@ export function probeAuthoringPlacement(project: ProjectData, start: AuthoringSt
   const query = PlacementProbeSchema.parse(input), scene = project.document, view = createPublicVisibility(scene), ref = query.supportRef
   const floorId = ref.kind === 'floor' ? ref.id : ref.kind === 'room' ? scene.rooms[ref.id]?.floorId : scene.terrainAreas[ref.id]?.floorId
   const grants = [start.scope.scene, start.scope.visual, start.scope.placement].filter(value => value && value.floorId === floorId && value.definitionIds.includes(query.definitionId))
-  if (!floorId || !grants.length || !scene.propDefinitions[query.definitionId] || ref.kind !== 'floor' && (!ids.has(ref.id) || !view.surface(ref))) throw new Error('Placement probe requires an explicitly granted public definition, floor and support')
+  if (!floorId || !grants.length || !scene.propDefinitions[query.definitionId] || ref.kind !== 'floor' && (!ids.has(ref.id) || !view.surface(ref))) throw new OperationRejected('outside_scope', 'Placement probe requires an explicitly granted public definition, floor and support')
   const current = start.schemaVersion === 4, fixedPresentation = current ? definitionPresentation(project.appearance, { id: query.definitionId, version: scene.propDefinitions[query.definitionId].version }) : undefined
   if (fixedPresentation?.mode === 'nearSide' && (query.rotationDeg ?? 0) !== 0) throw new Error('Near-side placement requires its fixed upright orientation')
   const paint = (prop: Prop) => current ? propPaintPolygon(prop, propPresentation(project.appearance, prop.id) ?? fixedPresentation) : authoringPropVisualPolygon(prop)
   const definition = scene.propDefinitions[query.definitionId], grantPolygons = grants.map(grant => rectangle(grant!.boundsMm))
-  if (query.keepClearBoundsMm?.some(bounds => !grantPolygons.some(grant => polygonInside(rectangle(bounds), grant)))) throw new Error('Placement clear areas require explicit granted bounds')
+  if (query.keepClearBoundsMm?.some(bounds => !grantPolygons.some(grant => polygonInside(rectangle(bounds), grant)))) throw new OperationRejected('outside_scope', 'Placement clear areas require explicit granted bounds')
   const terrain = Object.values(scene.terrainAreas).filter(area => ids.has(area.id) && area.floorId === floorId && view.terrainArea(area.id))
   const rooms = Object.values(scene.rooms).filter(room => ids.has(room.id) && room.floorId === floorId && view.room(room.id))
   const visibleScene = { ...scene, terrainAreas: Object.fromEntries(terrain.map(area => [area.id, area])), rooms: Object.fromEntries(rooms.map(room => [room.id, room])) }
@@ -53,7 +54,7 @@ export function probeAuthoringPlacement(project: ProjectData, start: AuthoringSt
   }
   for (const region of Object.values(scene.regions).filter(region => ids.has(region.id) && region.floorId === floorId && region.visibility === 'public' && region.blocksMovement)) blockers.push({ id: region.id, polygon: region.boundaryMm })
   for (const connection of Object.values(scene.terrainConnections).filter(connection => ids.has(connection.id) && connection.floorId === floorId && connection.visibility === 'public' && view.surface(connection.from.surfaceRef) && view.surface(connection.to.surfaceRef))) blockers.push({ id: connection.id, polygon: corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm) })
-  if (blockers.length > 256 || terrain.reduce((sum, area) => sum + area.boundaryMm.length, 0) > 2048) throw new Error('Placement probe exceeds its finite public geometry budget; reduce the explicit subset')
+  if (blockers.length > 256 || terrain.reduce((sum, area) => sum + area.boundaryMm.length, 0) > 2048) throw new OperationRejected('operation_budget', 'Placement probe exceeds its finite public geometry budget; reduce the explicit subset')
   const higherTerrain = terrain.filter(area => ref.kind === 'floor' || ref.kind === 'terrainArea' && area.coveragePriority > scene.terrainAreas[ref.id].coveragePriority
     || ref.kind === 'room' && scene.rooms[ref.id].supportRef.kind === 'terrainArea' && area.coveragePriority > scene.terrainAreas[scene.rooms[ref.id].supportRef.id].coveragePriority)
   const examine = (positionMm: PointMm) => {

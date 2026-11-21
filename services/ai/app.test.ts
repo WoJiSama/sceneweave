@@ -18,7 +18,8 @@ import type { ProviderAdapter, ProviderCompletion, ProviderInput, ProviderToolCa
 import { DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS } from '../../src/shared/ai/project-workflow.js'
 import { beginForestAction, completeForestGeneration, createForestLoop, forestLoopContext, FOREST_ACTION_TOOL } from '../../src/shared/ai/forest-loop.js'
 import { semanticGenerationExample } from '../../src/shared/generation/semantic-request.js'
-import { workflowBinding } from '../../src/shared/ai/workflows/catalog.js'
+import { getWorkflow, queryWorkflow, workflowBinding } from '../../src/shared/ai/workflows/catalog.js'
+import { harnessWorkflowHost } from '../../src/shared/ai/workflows/hosts.js'
 import type { ForestFurnitureDiagnostics } from '../../src/shared/generation/forest-furniture-contract.js'
 
 const tokenA = 'a'.repeat(40), tokenB = 'b'.repeat(40), origin = 'https://editor.example.test'
@@ -72,11 +73,18 @@ describe('private AI task HTTP service', () => {
     const pending = beginForestAction(initial, { kind: 'generate', stateHash: forestLoopContext(initial).stateHash, seed: initial.request.parameters.seed, reason: '首轮' })
     const state = completeForestGeneration(pending, { candidateId: 'c'.repeat(64), requestHash: pending.pending!.requestHash, seed: pending.pending!.seed, entities: { rooms: 2, props: 44 }, notes: ['两处座椅找不到合法位置。'] })
     const context = forestLoopContext(state)
+    const forest = getWorkflow('sceneweave-forest-building')
     const { request, store } = setup({ complete: async input => {
+      expect(input.tools.map(tool => tool.name)).toEqual([FOREST_ACTION_TOOL.name])
+      expect(input.messages[0].content).toContain(forest.definitionHash)
+      for (const step of forest.steps.filter(step => step.id === 'generate' || step.id === 'review')) {
+        expect(input.messages[0].content).toContain(step.instructions)
+      }
       expect(input.messages[0].content).toContain('两处座椅找不到合法位置')
       return done('', [{ id: 'forest-finish', name: FOREST_ACTION_TOOL.name, arguments: JSON.stringify({ kind: 'finish', stateHash: context.stateHash, candidateId: state.receipts[0].candidateId, reason: '保留实际可编辑候选，座椅缺项未解决。' }) }])
     } })
     const first = await (await request('/v1/tasks', 'POST', { ...taskRequest(), forestLoop: context })).json() as TaskSnapshot
+    expect(first.workflow).toEqual(workflowBinding(forest.id))
     expect((await waitStatus(store, first.id, 'completed')).tools[0]).toMatchObject({ name: FOREST_ACTION_TOOL.name, success: true })
   })
   it('accepts a current diagnosed room repair as one host request without claiming execution', async () => {
@@ -109,6 +117,9 @@ describe('private AI task HTTP service', () => {
     const context = forestLoopContext(createForestLoop(semanticGenerationExample()))
     expect((await request('/v1/tasks', 'POST', { ...taskRequest({ sceneId: 'scene', revision: 1, audience: 'public' }), forestLoop: context })).status).toBe(400)
     expect((await request('/v1/tasks', 'POST', { ...taskRequest(), forestLoop: { ...context, stateHash: '0'.repeat(64) } })).status).toBe(400)
+    const mismatched = await request('/v1/tasks', 'POST', { ...taskRequest(), forestLoop: context, workflow: workflowBinding('sceneweave-image-items') })
+    expect(mismatched.status).toBe(400)
+    expect((await mismatched.json()).error.code).toBe('workflow_changed')
     expect(complete).not.toHaveBeenCalled()
   })
   it.each(['missing', 'multiple', 'stale'] as const)('stops a %s forest action after its single known provider request', async mode => {
@@ -145,7 +156,8 @@ describe('private AI task HTTP service', () => {
       inputs.push(input)
       expect(input.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining(DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS) })
       expect(input.messages[0].content).toContain('sceneweave-project-creation@1')
-      expect(input.messages[0].content).toContain('sceneweave-image-items@1')
+      const { id, version } = workflowBinding('sceneweave-image-items')
+      expect(input.messages[0].content).toContain(`${id}@${version}`)
       expect(input.tools.map(tool => tool.name)).toEqual(['sceneweave_connection_info', 'sceneweave_workflow'])
       expect(input.messages[0].content).not.toContain('subject-contour-v1')
       return inputs.length === 1 ? done('', [{ id: 'image-request', name: 'image_import_extract_item', arguments: '{}' }]) : done()
@@ -157,23 +169,32 @@ describe('private AI task HTTP service', () => {
     expect(JSON.parse(completed.tools[0].output).error.code).toBe('unsupported_tool')
     expect(store.read(created.id).authoring).toBeUndefined()
   })
-  it('discovers read-only workflow details, pins the definition and persists actual checkpoints', async () => {
+  it.each([
+    ['sceneweave-image-items', 'review', 'not-connected'],
+    ['sceneweave-forest-building', 'generate', 'page-only'],
+  ])('reads %s from the same pinned definition as the CLI', async (workflowId, stepId, capability) => {
+    const binding = workflowBinding(workflowId)
+    const query = { action: 'step', workflowId, stepId, definitionHash: binding.definitionHash }
+    const harnessStep = queryWorkflow(query, harnessWorkflowHost())
+    if (!('step' in harnessStep)) throw new Error('Expected a workflow step')
     let round = 0
     const { create, store, request } = setup({ complete: async input => {
       round++
-      if (round === 1) return done('', [{ id: 'workflow-read', name: 'sceneweave_workflow', arguments: JSON.stringify({ action: 'read', workflowId: 'sceneweave-image-items' }) }])
+      if (round === 1) return done('', [{ id: 'workflow-read', name: 'sceneweave_workflow', arguments: JSON.stringify(query) }])
       const message = input.messages.find(value => value.toolCallId === 'workflow-read')!
       const details = JSON.parse(message.content!)
-      expect(details.steps[0].requirements[0].state).toBe('not-connected')
+      expect(details.workflow).toEqual(harnessStep.workflow)
+      expect(details.step.instructions).toBe(harnessStep.step.instructions)
+      expect(details.step.requirements[0].state).toBe(capability)
       return done()
     } })
     const created = await (await create()).json() as TaskSnapshot
     const completed = await waitStatus(store, created.id, 'completed')
     expect(completed.tools).toEqual([expect.objectContaining({ name: 'sceneweave_workflow', success: true })])
-    expect(store.read(created.id).workflowBindings).toEqual([workflowBinding('sceneweave-image-items')])
+    expect(store.read(created.id).workflowBindings).toEqual([binding])
     expect((await (await request('/v1/capabilities?authoringVersion=4')).json()).capabilities).not.toHaveProperty('workflowDiscovery')
     expect((await (await request('/v1/capabilities?authoringVersion=4&workflowVersion=1')).json()).capabilities.workflowDiscovery).toBe(1)
-    const stale = { ...taskRequest(), workflow: { ...workflowBinding('sceneweave-image-items'), definitionHash: '0'.repeat(64) } }
+    const stale = { ...taskRequest(), workflow: { ...binding, definitionHash: '0'.repeat(64) } }
     expect((await request('/v1/tasks', 'POST', stale)).status).toBe(400)
     expect(round).toBe(2)
   })

@@ -1,3 +1,4 @@
+import { OperationRejected, type OperationRejectionCode } from '../validation/operation-rejection.js'
 import { currentAuthoringPaint } from './current-authoring-paint.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { inspectDecorationChanges } from '../decorations/commands.js'
@@ -70,7 +71,7 @@ export function authoringSkill(start: AuthoringStart) {
 export const authoringProjectHash = (project: ProjectData): string => sha256Text(canonicalJson(project))
 const sorted = (values: Iterable<string>): string[] => [...new Set(values)].sort()
 const has = (record: object, id: string): boolean => Object.hasOwn(record, id)
-function deny(message: string): never { throw new Error(`AI草稿范围无效：${message}`) }
+function deny(message: string, code: OperationRejectionCode = 'invalid_geometry'): never { throw new OperationRejected(code, `AI草稿范围无效：${message}`) }
 function boundsPoints(b: BoundsMm): PointMm[] {
   if (![b.x + b.width, b.y + b.height].every(Number.isSafeInteger)) deny('矩形边界超出安全整数范围。')
   return [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }]
@@ -84,20 +85,21 @@ function visualPoints(prop: Prop): PointMm[] {
 function assertUnmasked(document: SceneDocument, points: PointMm[]): void {
   for (const mask of Object.values(document.regions).filter(region => region.kind === 'manualMask')) {
     if (polygonsOverlap(points, mask.boundaryMm) || points.some(p => pointInPolygon(p, mask.boundaryMm))
-      || mask.boundaryMm.some(p => pointInPolygon(p, points))) deny('授权公开范围不能包含玩家遮罩。')
+      || mask.boundaryMm.some(p => pointInPolygon(p, points))) deny('授权公开范围不能包含玩家遮罩。', 'outside_scope')
   }
 }
 function assertSupport(document: SceneDocument, floorId: string, ref: SurfaceRef, read?: Set<string>): void {
   read?.add(ref.id)
-  if (!createPublicVisibility(document).surface(ref)) deny('支撑必须为明确的公开表面。')
+  if (!createPublicVisibility(document).surface(ref)) deny('支撑必须为明确的公开表面。', 'outside_scope')
   if (ref.kind === 'floor') { if (ref.id !== floorId || !has(document.floors, ref.id)) deny('支撑Floor不匹配。'); return }
   const support = ref.kind === 'room' ? document.rooms[ref.id] : document.terrainAreas[ref.id]
-  if (!support || support.floorId !== floorId || effectiveEditLocked(document, support.id)) deny('支撑、支撑依赖或图层锁定/不匹配。')
+  if (!support || support.floorId !== floorId) deny('支撑、支撑依赖或图层锁定/不匹配。', 'outside_scope')
+  if (effectiveEditLocked(document, support.id)) deny('支撑、支撑依赖或图层锁定/不匹配。', 'locked_dependency')
   read?.add(document.entityLayers[support.id])
   if (ref.kind === 'room') {
     const room = document.rooms[ref.id]
     const geometry = (id: string) => {
-      if (effectiveEditLocked(document, id)) deny('支撑房间的边界几何、附着开口或对应层已锁定。')
+      if (effectiveEditLocked(document, id)) deny('支撑房间的边界几何、附着开口或对应层已锁定。', 'locked_dependency')
       read?.add(id); read?.add(document.entityLayers[id])
     }
     room.boundaryVertexIds.forEach(geometry)
@@ -110,12 +112,12 @@ function assertSupport(document: SceneDocument, floorId: string, ref: SurfaceRef
 }
 function assertIndependentPublic(project: ProjectData, id: string, read?: Set<string>, capability?: CurrentAuthoringCapability): Prop {
   const document = project.document, prop = document.props[id]
-  if (!has(document.props, id) || !prop || !createPublicVisibility(document).prop(prop)) deny('目标须为现存的公开独立物件。')
+  if (!has(document.props, id) || !prop || !createPublicVisibility(document).prop(prop)) deny('目标须为现存的公开独立物件。', 'outside_scope')
   if ([...Object.values(document.prefabInstances), ...Object.values(document.scatterGroups)].some(group => Object.values(group.members).some(member => member.propId === id))) deny('首批不接受组合或散布成员。')
   if (Object.values(document.notes).some(note => note.anchor.type === 'entity' && note.anchor.entityId === id)
     || document.constraints.pathChecks.some(check => [check.from, check.to].some(anchor => anchor.type === 'entity' && anchor.entityId === id))) deny('首批不接受注记或路径依赖。')
   const layer = document.userLayers[document.entityLayers[id]]
-  if (!layer || effectiveEditLocked(document, id)) deny('目标或图层已锁定。')
+  if (!layer || effectiveEditLocked(document, id)) deny('目标或图层已锁定。', 'locked_dependency')
   assertSupport(document, prop.floorId, prop.supportRef, read)
   if (prop.roomId) assertSupport(document, prop.floorId, { kind: 'room', id: prop.roomId }, read)
   assertUnmasked(document, capability ? currentAuthoringPaint(project, id)!.polygonMm : visualPoints(prop)); assertUnmasked(document, propFootprint(prop))
@@ -126,7 +128,7 @@ function assertDefinition(project: ProjectData, id: string): void {
   const definition = project.document.propDefinitions[id]
   if (!has(project.document.propDefinitions, id) || !definition || !definition.origin.canEmbed) deny('固定物件定义不可用。')
   // Retained appearance roots may originate from GM content and are not a public palette.
-  if (definition.tags.includes('sceneweave:retained-appearance')) deny('内部外观保全定义不作为AI公开素材。')
+  if (definition.tags.includes('sceneweave:retained-appearance')) deny('内部外观保全定义不作为AI公开素材。', 'outside_scope')
 }
 function collectDefinition(project: ProjectData, id: string, read: Set<string>): void {
   const definition = project.document.propDefinitions[id]
@@ -174,37 +176,38 @@ function validateStart(input: AuthoringStart, generatedContinuation = false, bud
   const current = assertCurrentAuthoringCapability(start.project, capability)
   start.project = validateProjectData(start.project)
   if (!current && !generatedContinuation) deny('完整工程的AI编辑须使用当前明确能力协议。')
-  if (!current && !start.scope.scene && !generatedContinuation) deny('完整地形工程的AI写入须明确场景授权范围和操作。')
+  if (!current && !start.scope.scene && !generatedContinuation) deny('完整地形工程的AI写入须明确场景授权范围和操作。', 'outside_scope')
   if (authoringProjectHash(start.project) !== start.baseContentHash) deny('主工程基线hash不匹配。')
   if (!start.scope.targetIds.length && !start.scope.placement && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确目标或新增范围。')
-  if (!start.scope.operations.length && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确允许的操作。')
+  if (!start.scope.operations.length && !start.scope.scene && !start.scope.artwork && !start.scope.visual) deny('必须明确允许的操作。', 'outside_scope')
   if (start.scope.scene) validateSceneScope(start.project, start.scope.scene, budget, capability)
   if (start.scope.visual) validateVisualAuthoringScope(start.project, start.scope.visual, capability)
   if (start.scope.artwork) artworkTargetIds(start.project, start.scope)
   const permittedDefinitions = new Set([...(start.scope.placement?.definitionIds ?? []), ...(start.scope.scene?.definitionIds ?? []), ...(start.scope.visual?.definitionIds ?? [])])
-  if (start.brief?.requiredDefinitionIds?.some(id => !permittedDefinitions.has(id))) deny('制作清单的固定素材不在明确授权范围。')
+  if (start.brief?.requiredDefinitionIds?.some(id => !permittedDefinitions.has(id))) deny('制作清单的固定素材不在明确授权范围。', 'outside_scope')
   const permittedMaterials = new Set([...(start.scope.scene?.materialIds ?? []), ...(start.scope.visual?.materialIds ?? [])])
   const grants = [start.scope.scene, start.scope.visual, start.scope.placement].filter(scope => scope !== undefined && scope !== null)
   for (const check of start.brief?.checks ?? []) {
-    if ('definitionIds' in check && check.definitionIds.some(id => !permittedDefinitions.has(id))) deny('制作证据检查的固定素材未获授权。')
-    if ('materialId' in check && check.materialId && !permittedMaterials.has(check.materialId)) deny('制作证据检查的固定材质未获授权。')
+    if ('definitionIds' in check && check.definitionIds.some(id => !permittedDefinitions.has(id))) deny('制作证据检查的固定素材未获授权。', 'outside_scope')
+    if ('materialId' in check && check.materialId && !permittedMaterials.has(check.materialId)) deny('制作证据检查的固定材质未获授权。', 'outside_scope')
     const bounds = check.kind === 'clearArea' ? [check.boundsMm] : check.kind === 'propCount' ? (check.groups ?? []).map(group => group.boundsMm) : []
-    if (bounds.some(bounds => !grants.some(scope => (!('floorId' in check) || scope.floorId === check.floorId) && contains(scope.boundsMm, boundsPoints(bounds))))) deny('制作证据检查超出冻结范围。')
+    if (bounds.some(bounds => !grants.some(scope => (!('floorId' in check) || scope.floorId === check.floorId) && contains(scope.boundsMm, boundsPoints(bounds))))) deny('制作证据检查超出冻结范围。', 'outside_scope')
     if (check.kind === 'propCount' && bounds.some((a, index) => bounds.slice(index + 1).some(b =>
       Math.max(a.x, b.x) < Math.min(a.x + a.width, b.x + b.width) && Math.max(a.y, b.y) < Math.min(a.y + a.height, b.y + b.height)))) deny('独立物件分组检查的矩形不可重叠。')
   }
   for (const id of start.scope.targetIds) assertIndependentPublic(start.project, id, undefined, capability)
   const placement = start.scope.placement, document = start.project.document
-  if (start.scope.operations.includes('place') && !placement) deny('新增操作须明确授权放置范围。')
+  if (start.scope.operations.includes('place') && !placement) deny('新增操作须明确授权放置范围。', 'outside_scope')
   if (placement) {
     const floor = document.floors[placement.floorId], layer = document.userLayers[placement.layerId]
-    if (!floor || !layer || layer.floorId !== floor.id || layer.editLocked) deny('新增Floor/用户图层无效或锁定。')
+    if (!floor || !layer || layer.floorId !== floor.id) deny('新增Floor/用户图层无效或锁定。', 'outside_scope')
+    if (layer.editLocked) deny('新增Floor/用户图层无效或锁定。', 'locked_dependency')
     if (!contains(floor.boundsMm, boundsPoints(placement.boundsMm))) deny('新增授权范围超出世界。')
     assertSupport(document, floor.id, placement.supportRef)
     assertUnmasked(document, boundsPoints(placement.boundsMm))
     if (placement.supportRef.kind === 'room') assertUnmasked(document, roomPoints(document, document.rooms[placement.supportRef.id]))
     else if (placement.supportRef.kind === 'terrainArea') assertUnmasked(document, terrainPoints(document.terrainAreas[placement.supportRef.id]))
-    if (!placement.definitionIds.length) deny('新增须明确允许的固定物件定义。')
+    if (!placement.definitionIds.length) deny('新增须明确允许的固定物件定义。', 'outside_scope')
     placement.definitionIds.forEach(id => assertDefinition(start.project, id))
   }
   return freezeJson(start)
@@ -264,20 +267,20 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
           || before.document.decorationClusters?.[id] || project.document.decorationClusters?.[id])
         if (changesDressing) {
           const scope = start.scope.scene
-          if (!scope) deny('布景人工记录的真实依赖须明确场景授权。')
+          if (!scope) deny('布景人工记录的真实依赖须明确场景授权。', 'outside_scope')
           const ids = new Set([...impact.affectedIds, ...impact.changedIds,
             ...currentSceneDependencyIds(before.document, impact.affectedIds), ...currentSceneDependencyIds(project.document, impact.affectedIds)])
           for (const id of ids) {
             const exists = (document: SceneDocument) => ['props', 'decorations', 'decorationClusters', 'terrainAreas', 'rooms', 'vertices', 'walls', 'openings', 'paths', 'terrainConnections', 'terrainEdges', 'regions', 'notes', 'prefabInstances', 'scatterGroups']
               .some(key => Object.hasOwn((document as unknown as Record<string, Record<string, unknown>>)[key] ?? {}, id))
             if (exists(before.document)) {
-              if (!sceneAllowed.has(id)) deny('布景人工记录存在未授权依赖，此步骤未采用。')
+              if (!sceneAllowed.has(id)) deny('布景人工记录存在未授权依赖，此步骤未采用。', 'outside_scope')
               try { assertPublicSceneEntity(before, scope, id, capability).forEach(key => read.add(key)) }
-              catch { deny('布景人工记录存在私密、锁定或范围外依赖，此步骤未采用。') }
+              catch { deny('布景人工记录存在私密、锁定或范围外依赖，此步骤未采用。', 'outside_scope') }
             }
             if (exists(project.document)) {
               try { assertPublicSceneEntity(project, scope, id, capability).forEach(key => read.add(key)) }
-              catch { deny('布景人工记录存在私密、锁定或范围外依赖，此步骤未采用。') }
+              catch { deny('布景人工记录存在私密、锁定或范围外依赖，此步骤未采用。', 'outside_scope') }
             }
           }
           impact.changedIds.forEach(id => touched.add(id))
@@ -286,13 +289,13 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
     }
     const complexityCost = operationCost - beforeCost
     if (budget) assertTaskBudget(budget, measureTaskBudget(before.document, project.document, { before, after: project }))
-    if (!budget && complexityCost > 256) deny('本次领域计算展开超过256复杂度保护。')
+    if (!budget && complexityCost > 256) deny('本次领域计算展开超过256复杂度保护。', 'operation_budget')
     inspect?.({ stepIndex, operationIndex, operation, before, after: project, complexityCost, ...(usage ? { usage } : {}) })
   }
   let project = cloneJson(start.project), operationCost = 0
   const read = initialReads(start, capability), touched = new Set<string>(), allowed = new Set(start.scope.targetIds), created = new Set<string>(), sceneAllowed = new Set(start.scope.scene?.entityIds ?? []), stepIds = new Set<string>(), opacityIds = new Map<string, string>()
   const artwork: ArtworkOperation[] = [], newPropBounds = new Map<string, BoundsMm>(), visualInvalidated = new Set<string>()
-  if (!Array.isArray(steps) || steps.length > AUTHORING_LIMITS.steps) deny('任务步骤须为数组且最多256。')
+  if (!Array.isArray(steps) || steps.length > AUTHORING_LIMITS.steps) deny('任务步骤须为数组且最多256。', 'operation_budget')
   for (let i = 0; i < steps.length; i++) {
     const step = (capability ? AuthoringStepV4Schema : AuthoringStepSchema).parse(steps[i]) as AuthoringStep
     if (step.index !== i + 1 || stepIds.has(step.stepId)) deny('步骤必须连续且stepId唯一。')
@@ -301,7 +304,7 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
     for (const [operationIndex, operation] of step.operations.entries()) {
       const beforeOperation = project, beforeCost = operationCost
       if (capability && isCurrentExtraOperation(operation)) {
-        if (!start.scope.scene) deny('当前场景创作未授权。')
+        if (!start.scope.scene) deny('当前场景创作未授权。', 'outside_scope')
         let result: ReturnType<typeof applyCurrentAuthoringOperation>
         try { result = applyCurrentAuthoringOperation(project, start.scope.scene as CurrentSceneAuthoringScope, operation as CurrentExtraOperation, context, sceneAllowed, budget) }
         catch (error) { throw new AuthoringOperationError(operationIndex, error) }
@@ -309,12 +312,12 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
         result.readIds.forEach(id => read.add(id)); result.writeIds.forEach(id => touched.add(id))
         result.createdIds.forEach(id => { sceneAllowed.add(id); created.add(id) })
         operationCost += result.cost
-        if (operationCost > maximum) deny('任务累计真实展开超过预算。')
+        if (operationCost > maximum) deny('任务累计真实展开超过预算。', 'operation_budget')
         record(step.index, operationIndex, operation, beforeOperation, beforeCost)
         continue
       }
       if (isTerrainAuthoringOperation(operation)) {
-        if (!start.scope.scene) deny('地形场景创作未授权。')
+        if (!start.scope.scene) deny('地形场景创作未授权。', 'outside_scope')
         let result: ReturnType<typeof applyTerrainAuthoringOperation>
         try { result = applyTerrainAuthoringOperation(project, start.scope.scene, operation, context, sceneAllowed, budget) }
         catch (error) { throw new AuthoringOperationError(operationIndex, error) }
@@ -323,12 +326,12 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
         result.readIds.forEach(id => read.add(id)); result.writeIds.forEach(id => touched.add(id))
         result.createdIds.forEach(id => { sceneAllowed.add(id); created.add(id) })
         operationCost += result.cost
-        if (operationCost > maximum) deny('任务累计展开超过256条操作。')
+        if (operationCost > maximum) deny('任务累计展开超过256条操作。', 'operation_budget')
         record(step.index, operationIndex, operation, beforeOperation, beforeCost, result.usage)
         continue
       }
       if (isVisualAuthoringOperation(operation)) {
-        if (!start.scope.visual) deny('视觉创作未授权。')
+        if (!start.scope.visual) deny('视觉创作未授权。', 'outside_scope')
         let result: ReturnType<typeof applyVisualAuthoringOperation>
         try { result = applyVisualAuthoringOperation(project, start.scope.visual, operation, context, created, capability) }
         catch (error) { throw new AuthoringOperationError(operationIndex, error) }
@@ -339,7 +342,7 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
         result.createdIds.forEach(id => { sceneAllowed.add(id); created.add(id)
           if (project.document.props[id]) { allowed.add(id); newPropBounds.set(id, start.scope.visual!.boundsMm) } })
         operationCost += result.cost
-        if (operationCost > maximum) deny('任务累计展开超过256条操作。')
+        if (operationCost > maximum) deny('任务累计展开超过256条操作。', 'operation_budget')
         record(step.index, operationIndex, operation, beforeOperation, beforeCost)
         continue
       }
@@ -348,12 +351,12 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
         operationCost += checked.cost
         checked.readIds.forEach(id => read.add(id)); checked.writeIds.forEach(id => touched.add(id))
         artwork.push(cloneJson(operation))
-        if (operationCost > maximum) deny('任务累计展开超过256条操作。')
+        if (operationCost > maximum) deny('任务累计展开超过256条操作。', 'operation_budget')
         record(step.index, operationIndex, operation, beforeOperation, beforeCost)
         continue
       }
       if (!['place', 'transform', 'opacity', 'delete'].includes(operation.kind)) {
-        if (!start.scope.scene) deny('场景创作未授权。')
+        if (!start.scope.scene) deny('场景创作未授权。', 'outside_scope')
         const result = (() => {
           try { return applySceneOperation(project, start.scope.scene!, operation as SceneAuthoringOperation, context, sceneAllowed, budget, capability) }
           catch (error) { throw new AuthoringOperationError(operationIndex, error) }
@@ -366,16 +369,16 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
         // members remain governed by their explicit scene operations.
         if (operation.kind === 'furnish') { allowed.add(operation.id); newPropBounds.set(operation.id, start.scope.scene.boundsMm) }
         operationCost += result.cost
-        if (operationCost > maximum) deny('任务累计展开超过256条操作。')
+        if (operationCost > maximum) deny('任务累计展开超过256条操作。', 'operation_budget')
         record(step.index, operationIndex, operation, beforeOperation, beforeCost)
         continue
       }
-      if (++operationCost > maximum) deny('任务累计展开超过256条操作，重复和无变化操作也计入。')
-      if (!start.scope.operations.includes(operation.kind as 'place' | 'transform' | 'opacity' | 'delete')) deny('操作未获授权。')
+      if (++operationCost > maximum) deny('任务累计展开超过256条操作，重复和无变化操作也计入。', 'operation_budget')
+      if (!start.scope.operations.includes(operation.kind as 'place' | 'transform' | 'opacity' | 'delete')) deny('操作未获授权。', 'outside_scope')
       let command: CompositionCommand, id: string
       if (operation.kind === 'place') {
         const p = start.scope.placement
-        if (!p || !p.definitionIds.includes(operation.definitionId)) deny('新增素材或范围未授权。')
+        if (!p || !p.definitionIds.includes(operation.definitionId)) deny('新增素材或范围未授权。', 'outside_scope')
         assertDefinition(project, operation.definitionId); assertSupport(project.document, p.floorId, p.supportRef, read)
         const renderLayer = project.document.propDefinitions[operation.definitionId].defaultRenderLayer
         for (const other of Object.values(project.document.props)) if (other.floorId === p.floorId && other.renderLayer === renderLayer) read.add(other.id)
@@ -385,7 +388,7 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
           positionMm: operation.positionMm, rotationDeg: operation.rotationDeg ?? 0 }
       } else if (operation.kind === 'transform' || operation.kind === 'delete' || operation.kind === 'opacity') {
         id = operation.id
-        if (!allowed.has(id)) deny('物件不在冻结目标或本任务新增范围。')
+        if (!allowed.has(id)) deny('物件不在冻结目标或本任务新增范围。', 'outside_scope')
         collectProp(project, assertIndependentPublic(project, id, read, capability), read)
         if (operation.kind === 'transform') command = { type: 'updateProp', id, changes: { ...(operation.positionMm ? { positionMm: operation.positionMm } : {}), ...(operation.rotationDeg !== undefined ? { rotationDeg: operation.rotationDeg } : {}) } }
         else if (operation.kind === 'delete') {
@@ -415,11 +418,11 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
         if (!capability && !contains(floor.boundsMm, visualPoints(prop)) || !contains(floor.boundsMm, propFootprint(prop))) deny('物件实际旋转图像/占地超出世界。')
         if (operation.kind === 'place' || !start.scope.targetIds.includes(id)) {
           const bounds = operation.kind === 'place' ? start.scope.placement?.boundsMm : newPropBounds.get(id)
-          if (!bounds) deny('本任务新增物件缺少确切授权范围。')
-          if (!contains(bounds, capability ? currentAuthoringPaint(project, id)!.polygonMm : visualPoints(prop)) || !contains(bounds, propFootprint(prop))) deny('物件实际旋转图像/占地超出新增授权范围。')
+          if (!bounds) deny('本任务新增物件缺少确切授权范围。', 'outside_scope')
+          if (!contains(bounds, capability ? currentAuthoringPaint(project, id)!.polygonMm : visualPoints(prop)) || !contains(bounds, propFootprint(prop))) deny('物件实际旋转图像/占地超出新增授权范围。', 'outside_scope')
         }
         if (capability) for (const grant of [start.scope.scene, start.scope.visual]) if (grant?.entityIds.includes(id)) {
-          if (!contains(grant.boundsMm, currentAuthoringPaint(project, id)!.polygonMm)) deny('物件实际根锚画面超出明确授权范围。')
+          if (!contains(grant.boundsMm, currentAuthoringPaint(project, id)!.polygonMm)) deny('物件实际根锚画面超出明确授权范围。', 'outside_scope')
         }
         collectProp(project, prop, read)
       }
@@ -437,7 +440,7 @@ function replayOwned(start: AuthoringStart, steps: readonly AuthoringStep[], exp
     if (operation.kind === 'svg') finalSvgTargets.add(operation.id)
   }
   if (start.scope.visual) assertFinalVisualAuthoringTargets(project, start.scope.visual, touched)
-  if (read.size > (expanded ? 16384 : 4096)) deny(expanded ? '真实只读依赖超过16384。' : '真实只读依赖超过4096。')
+  if (read.size > (expanded ? 16384 : 4096)) deny(expanded ? '真实只读依赖超过16384。' : '真实只读依赖超过4096。', 'operation_budget')
   const state: AuthoringState = { schemaVersion: 1, draftRevision: steps.length, contentHash: artwork.length ? sha256Text(canonicalJson({ project: authoringProjectHash(project), artwork })) : authoringProjectHash(project), operationCost,
     changedIds: sorted(touched), readIds: sorted(read), writeIds: sorted(touched), steps: cloneJson([...steps]) }
   const expandedIds = (maximum: number) => z.array(z.string().min(1).max(256)).max(maximum)

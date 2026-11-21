@@ -1,6 +1,7 @@
+import type { PublishPathStyleCommand } from '../path-assembly/contracts.js'
 import type { FixedPresentation } from '../terrain-generation/contracts.js'
 import type { SceneCommand } from '../commands/commands.js'
-import type { PointMm, Prop, SceneDocument, ShadowClass, SurfaceRef, SurfaceStyle, VersionRef, Visibility } from './scene.js'
+import type { PointMm, Prop, PropGlow, SceneDocument, ShadowClass, SurfaceRef, SurfaceStyle, VersionRef, Visibility } from './scene.js'
 import type { HistoryIdentity } from './history.js'
 
 export type PropAppearanceSnapshot = Pick<Prop, 'definitionRef' | 'appearance' | 'visualBoundsMm' | 'shadowClass' | 'shadowOverride'>
@@ -12,6 +13,7 @@ export type AppearanceAdjustment = { id: string; enabled: boolean } & (
   | { kind: 'brightness'; value: number }
   | { kind: 'opacity'; value: number }
   | { kind: 'shadowClass'; value: ShadowClass }
+  | { kind: 'propGlow'; value: PropGlow | null }
 )
 export type AdjustmentKind = AppearanceAdjustment['kind']
 export interface BitmapVariant { id: string; sourceAssetId: string; tint: string | null; brightness: number; outputAssetId: string }
@@ -34,7 +36,9 @@ export interface AppearanceGraph {
 export interface CompositionContent { document: SceneDocument; historyIdentity: HistoryIdentity; appearance: AppearanceGraph }
 export type AppearanceScope = { kind: 'targets'; ids: string[] } | { kind: 'layer'; layerId: string }
 export interface AppearanceScopePlan { targetIds: string[]; inapplicableIds: string[]; affectedIds: string[]; commandCost: number }
-export type CompositionCommand = SceneCommand
+export type CompositionCommand = SceneCommand | PublishPathStyleCommand
+  | import('../appearance/prefab-revisions.js').PublishPrefabRevision
+  | import('../appearance/prefab-revisions.js').SyncPrefabRevision
   | { type: 'setAppearanceAdjustment'; scope: AppearanceScope; adjustment: AppearanceAdjustment }
   | { type: 'toggleAppearanceAdjustment'; scope: AppearanceScope; adjustmentId: string; enabled: boolean }
   | { type: 'removeAppearanceAdjustment'; scope: AppearanceScope; adjustmentId: string }

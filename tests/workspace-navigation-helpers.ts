@@ -5,7 +5,7 @@ export type WorkspaceModule = '场景' | '生成' | '地形' | '建筑' | '素�
 type GenerationTask = '室内布局' | '森林与营地' | '火山' | '混合场景' | '自然地形' | '组合地貌' | '区域地图'
 type TerrainTask = '绘制地形' | '修改地形' | '布置植被' | '局部重生成'
 type BuildingTask = '绘制房间' | '文字与线索' | '固定玩家遮罩' | '建筑组' | '拆分与组合结构'
-type OutdoorTask = '地形与高程' | '用途 / 危险区域' | '道路' | '台阶 / 坡道' | '可控散布'
+type OutdoorTask = '地形与高程' | '用途 / 危险区域' | '道路' | '桥梁' | '实体围栏' | '沿线样式' | '台阶 / 坡道' | '可控散布'
 type SceneObjectCategory = '全部' | '物件与装饰' | '组合' | '结构' | '顶点与边缘'
 
 /** Direct module navigation opens the left content pane without changing the active canvas tool. */
@@ -20,7 +20,7 @@ export async function openWorkspaceModule(page: Page, name: WorkspaceModule): Pr
 }
 
 async function openDetails(details: Locator): Promise<void> {
-  if (await details.getAttribute('open') === null) await details.locator('summary').click()
+  if (await details.getAttribute('open') === null) await details.locator(':scope > summary').click()
 }
 
 export async function openGenerationTask(page: Page, task: GenerationTask): Promise<void> {

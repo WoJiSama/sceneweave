@@ -59,6 +59,6 @@ function mayAffectTransition(scene: SceneDocument, prop: Prop): boolean {
 
 export function independentPropUpdateSupported(scene: SceneDocument, before: Prop, after: Prop): boolean {
   const scope = boundary(scene)
-  return !scope.globalGenerationDependency && !scope.excludedIds.has(before.id)
+  return !before.sightOccluder && !before.pipePorts && !scope.globalGenerationDependency && !scope.excludedIds.has(before.id)
     && !mayAffectTransition(scene, before) && !mayAffectTransition(scene, after)
 }

@@ -257,10 +257,10 @@ describe('versioned continuation base-map transport', () => {
     expect(fetcher).not.toHaveBeenCalled()
   })
   it('negotiates exact v2 policy before posting to the server', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(url => Promise.resolve(jsonResponse(String(url).endsWith('/capabilities?authoringVersion=2') ? capabilities() : response)))
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(url => Promise.resolve(jsonResponse(String(url).endsWith('/capabilities?authoringVersion=2&workflowVersion=1') ? capabilities() : response)))
     const { client, createWorker } = setup({ fetcher })
     await expect(client.generate(request, { server })).resolves.toEqual(response)
-    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?authoringVersion=2', 'https://ai.example.test/v1/terrain/basemap'])
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?authoringVersion=2&workflowVersion=1', 'https://ai.example.test/v1/terrain/basemap'])
     expect(fetcher.mock.calls[0][1]?.method).toBe('GET')
     expect(fetcher.mock.calls[1][1]?.body).toBe(canonicalJson(request))
     expect(createWorker).not.toHaveBeenCalled()
@@ -270,7 +270,7 @@ describe('versioned continuation base-map transport', () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilities(changes))), { client, createWorker } = setup({ fetcher })
     await expect(client.generate(request, { server })).rejects.toMatchObject({ code: 'unavailable' })
     expect(fetcher).toHaveBeenCalledTimes(1); expect(createWorker).not.toHaveBeenCalled()
-    expect(String(fetcher.mock.calls[0][0])).toBe('https://ai.example.test/v1/capabilities?authoringVersion=2')
+    expect(String(fetcher.mock.calls[0][0])).toBe('https://ai.example.test/v1/capabilities?authoringVersion=2&workflowVersion=1')
   })
   it('rejects v1 downgrade, foreign flow and changed policy instead of repairing responses', async () => {
     for (const invalid of [terrainResponse, { ...response, flowId: 'other-flow' }, { ...response, policyHash: 'f'.repeat(64) }]) {
@@ -344,14 +344,14 @@ describe('profile-bound v3 base-map transport', () => {
     const request = surfaceRequest(kind), fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(capabilities())), { client, createWorker } = setup({ fetcher })
     await expect(client.generate(request, { server })).rejects.toMatchObject({ code: 'unavailable' })
     expect(fetcher).toHaveBeenCalledTimes(1); expect(createWorker).not.toHaveBeenCalled()
-    expect(String(fetcher.mock.calls[0][0])).toBe('https://ai.example.test/v1/capabilities?authoringVersion=3&surfaceVersion=1')
+    expect(String(fetcher.mock.calls[0][0])).toBe('https://ai.example.test/v1/capabilities?authoringVersion=3&surfaceVersion=1&workflowVersion=1')
   })
   it('sends one unchanged new-surface request only after explicit capability 1 and never retries a server failure', async () => {
     const request = surfaceRequest('terrain'), fetcher = vi.fn<typeof fetch>().mockImplementation(url => Promise.resolve(String(url).includes('/capabilities?')
       ? jsonResponse(capabilities({ surfaceRecipeVersions: [1] })) : new Response('', { status: 503 })))
     const { client, createWorker } = setup({ fetcher })
     await expect(client.generate(request, { server })).rejects.toMatchObject({ code: 'generation_failed' })
-    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?authoringVersion=3&surfaceVersion=1', 'https://ai.example.test/v1/terrain/basemap?baseMapVersion=3'])
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?authoringVersion=3&surfaceVersion=1&workflowVersion=1', 'https://ai.example.test/v1/terrain/basemap?baseMapVersion=3'])
     expect(fetcher.mock.calls[1][1]?.body).toBe(canonicalJson(request)); expect(createWorker).not.toHaveBeenCalled()
   })
   it.each(['terrain', 'composition'] as const)('requires an exact v6 %s selector before posting to the server', async kind => {
@@ -403,7 +403,7 @@ describe('profile-bound v3 base-map transport', () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(url => Promise.resolve(jsonResponse(String(url).includes('/capabilities?') ? capabilities() : response)))
     const { client, createWorker } = setup({ fetcher })
     await expect(client.generate(request, { server })).resolves.toEqual(response)
-    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?authoringVersion=3', 'https://ai.example.test/v1/terrain/basemap?baseMapVersion=3'])
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual(['https://ai.example.test/v1/capabilities?authoringVersion=3&workflowVersion=1', 'https://ai.example.test/v1/terrain/basemap?baseMapVersion=3'])
     expect(fetcher.mock.calls[1][1]?.body).toBe(canonicalJson(request)); expect(createWorker).not.toHaveBeenCalled()
   })
   it.each([{ baseMapVersions: [1, 2] as [1, 2] }, { budgetProfileHashes: undefined },

@@ -2,7 +2,8 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { readFile, writeFile } from 'node:fs/promises'
-import { keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
+import { createServer } from 'vite'
+import { clickKeyboardWorldPoint, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
 import { openBuildingTask, openSceneObjects } from './workspace-navigation-helpers'
 import { mapExportButton } from './workspace-ux-helpers'
 
@@ -130,4 +131,135 @@ test('normal building junction repair preserves a real door through preview, ato
     openingId: opening.id, beforeRevision: before.document.revision, adoptedRevision: adopted.document.revision,
     coldRevision: cold.document.revision, beforeColdPictures, coldPictures, errors }, null, 2))
   expect(errors).toEqual([])
+})
+
+test('shared wall movement and a single-room split preserve opening identity and audience-filtered sight', async ({ page, browser }, info) => {
+  test.setTimeout(180_000)
+  const vite = await createServer({ configFile: false, logLevel: 'error', cacheDir: info.outputPath('ssr-cache'),
+    server: { middlewareMode: true, hmr: false, watch: { ignored: ['**/*'] } }, optimizeDeps: { noDiscovery: true } })
+  let archive: Uint8Array
+  try {
+    const { fixture, runtime, validation } = await vite.ssrLoadModule('/src/application/workspace/test-fixtures.ts')
+    const { createCompositionContent } = await vite.ssrLoadModule('/src/shared/appearance/graph.ts')
+    const { fromBundle, toBundle } = await vite.ssrLoadModule('/src/application/workspace/project.ts')
+    const { prepareCompositionCommands } = await vite.ssrLoadModule('/src/application/workspace/prepare.ts')
+    const { exportProject } = await vite.ssrLoadModule('/src/shared/project/file.ts')
+    const bundle = fixture({ building: true }), scene = bundle.project.document, layerId = scene.entityLayers.room, floorId = 'blank-floor'
+    scene.title = '厨房与餐厅共墙'; scene.units.display = 'm'; scene.rooms.room.purpose = '厨房'
+    scene.props.item.supportRef = { kind: 'room', id: 'room' }; scene.props.item.roomId = 'room'
+    Object.assign(bundle.project, createCompositionContent(scene, runtime))
+    const base = await fromBundle(bundle, validation)
+    const staged = await prepareCompositionCommands(base, [
+      { type: 'createRoom', id: 'dining', floorId, layerId, purpose: '餐厅', thicknessMm: 200,
+        boundaryMm: [{ x: 10000, y: 3000 }, { x: 17000, y: 3000 }, { x: 17000, y: 10000 }, { x: 10000, y: 10000 }] },
+      { type: 'addOpening', id: 'shared-door', wallId: 'wall-1', offsetReferenceVertexId: 'vertex-1', offsetMm: 2000, widthMm: 1200, kind: 'door' },
+      { type: 'addOpening', id: 'shared-window', wallId: 'wall-1', offsetReferenceVertexId: 'vertex-1', offsetMm: 4800, widthMm: 1000, kind: 'window' },
+      { type: 'createNote', id: 'hidden-clue', floorId, layerId, anchor: { type: 'entity', entityKind: 'room', entityId: 'room' }, kind: 'clue', visibility: 'gm', text: '仅主持人可见的厨房线索' },
+    ], { runtime, validation })
+    archive = await exportProject(toBundle(staged), validation)
+  } finally { await vite.close() }
+
+  async function importFile(target: Page, bytes: Uint8Array) {
+    const chooser = target.waitForEvent('filechooser')
+    await target.getByTestId('workspace-home').getByRole('button', { name: '打开工程文件', exact: true }).click()
+    await (await chooser).setFiles({ name: 'adjacent-rooms.sceneweave', mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) })
+    await keyboardWorkspaceSaved(target)
+  }
+  const backup = (phase: string) => keyboardProjectBackup(page, info.outputPath(`${phase}.sceneweave`))
+  await page.goto('./#home')
+  const homeUrl = page.url()
+  await importFile(page, archive)
+  const initial = await backup('initial'), bounds = initial.document.exportBoundsMm
+  const view = page.getByRole('group', { name: '预览受众', exact: true })
+  const sight = page.getByTestId('sight-preview-boundary')
+  const acrossDoor = { x: 12000, y: 5600 }
+  const canSeeAcross = () => sight.evaluate((polygon, point) => (polygon as unknown as SVGPolygonElement).isPointInFill(new DOMPoint(point.x, point.y)), acrossDoor)
+  await page.getByRole('button', { name: '临时视野', exact: true }).click()
+  await clickKeyboardWorldPoint(page, { x: 8000, y: 5600 }, bounds)
+  await expect.poll(canSeeAcross).toBe(false)
+  await select(page, 'wall-1')
+  await detail(page, '通行与视线')
+  await page.getByRole('button', { name: '预览允许视线穿过', exact: true }).click(); await adopt(page)
+  await expect.poll(canSeeAcross).toBe(true)
+  const glass = await backup('glass-wall')
+  expect(glass.document.walls['wall-1']).toMatchObject({ blocksMovement: true, blocksSight: false })
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  await expect.poll(canSeeAcross).toBe(false)
+  await select(page, 'shared-door')
+  await page.getByLabel('门窗状态', { exact: true }).selectOption('open')
+  await page.getByRole('button', { name: '预览门窗修改', exact: true }).click(); await adopt(page)
+  await expect.poll(canSeeAcross).toBe(true)
+  await view.getByRole('button', { name: '玩家', exact: true }).click()
+  await expect.poll(canSeeAcross).toBe(true)
+  await view.getByRole('button', { name: '主持人', exact: true }).click()
+  await select(page, 'shared-door')
+  await page.getByLabel('秘密开口', { exact: true }).check()
+  await page.getByLabel('门通行锁', { exact: true }).check()
+  await page.getByRole('button', { name: '预览门窗修改', exact: true }).click(); await adopt(page)
+  await expect.poll(canSeeAcross).toBe(true)
+  const secretOpen = await backup('secret-open')
+  await view.getByRole('button', { name: '玩家', exact: true }).click()
+  await expect.poll(canSeeAcross).toBe(false)
+  await page.getByRole('button', { name: '退出临时视野', exact: true }).click()
+  await expect(sight).toHaveCount(0)
+  expect((await backup('sight-closed')).hashes).toEqual(secretOpen.hashes)
+  await view.getByRole('button', { name: '主持人', exact: true }).click()
+
+  async function drag(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const canvas = await page.getByLabel('材质场景主持人预览', { exact: true }).boundingBox()
+    if (!canvas) throw new Error('Map canvas must be visible.')
+    const screen = ({ x, y }: typeof from) => ({ x: canvas.x + (x - bounds.x) * canvas.width / bounds.width, y: canvas.y + (y - bounds.y) * canvas.height / bounds.height })
+    const a = screen(from), b = screen(to)
+    await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 5 })
+  }
+  await select(page, 'wall-1')
+  await expect(page.getByTestId('wall-drag-handle')).toBeVisible()
+  await drag({ x: 10000, y: 6500 }, { x: 9500, y: 6500 })
+  await page.mouse.up(); await adopt(page)
+  const shared = await backup('shared-wall-moved')
+  expect(Object.keys(shared.document.walls).sort()).toEqual(Object.keys(initial.document.walls).sort())
+  expect(shared.document.vertices['vertex-1'].xMm).toBe(9500)
+  expect(shared.document.rooms.room.boundaryVertexIds).toContain('vertex-1')
+  expect(shared.document.rooms.dining.boundaryVertexIds).toContain('vertex-1')
+  expect(shared.document.openings).toEqual(secretOpen.document.openings)
+
+  await select(page, 'room')
+  await drag({ x: 6000, y: 6500 }, { x: 6000, y: 14500 })
+  await expect(page.getByTestId('room-shared-wall-split')).toHaveAttribute('stroke', '#c83d36')
+  await expect(page.getByTestId('selection-drag-status')).toContainText('门窗留在原墙')
+  await page.keyboard.press('Escape'); await page.mouse.up()
+  await expect(page.getByRole('region', { name: '候选审阅', exact: true })).toHaveCount(0)
+  await detail(page, '移动这一间房')
+  await number(page, '房间平移 Y', 8)
+  await page.getByRole('checkbox', { name: '门 · shared-door · 秘密', exact: true }).check()
+  await page.getByRole('button', { name: '预览移动这间房', exact: true }).click(); await adopt(page)
+  const splitPath = info.outputPath('split.sceneweave')
+  const split = await keyboardProjectBackup(page, splitPath)
+  const wallId = split.document.openings['shared-door'].wallId, newWall = split.document.walls[wallId]
+  expect(wallId).not.toBe('wall-1')
+  expect(split.document.rooms.room.boundaryVertexIds).toEqual(expect.arrayContaining([newWall.startVertexId, newWall.endVertexId]))
+  expect(split.document.openings['shared-door']).toMatchObject({ kind: 'door', offsetMm: 2000, widthMm: 1200, state: 'open', secret: true, locked: true })
+  expect(split.document.openings['shared-window']).toEqual(shared.document.openings['shared-window'])
+  expect(split.document.rooms.dining).toEqual(shared.document.rooms.dining)
+  expect(split.document.notes['hidden-clue']).toEqual(shared.document.notes['hidden-clue'])
+  expect(split.document.props.item.positionMm.y).toBe(shared.document.props.item.positionMm.y + 8000)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  expect(contents((await backup('undo')).document)).toEqual(contents(shared.document))
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  const redone = await backup('redone')
+  expect(contents(redone.document)).toEqual(contents(split.document))
+  await page.goto('./#home'); await page.reload()
+  await page.getByTestId('workspace-home').locator(`[data-project-key="native:${redone.document.sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  expect((await backup('reopened')).hashes).toEqual(redone.hashes)
+
+  const fresh = await browser.newPage()
+  try {
+    await fresh.goto(homeUrl); await importFile(fresh, await readFile(splitPath))
+    await select(fresh, 'shared-door')
+    await fresh.getByLabel('门窗状态', { exact: true }).selectOption('closed')
+    await fresh.getByRole('button', { name: '预览门窗修改', exact: true }).click(); await adopt(fresh)
+    const reedited = await keyboardProjectBackup(fresh, info.outputPath('reimport-edited.sceneweave'))
+    expect(reedited.document.openings['shared-door']).toEqual({ ...split.document.openings['shared-door'], state: 'closed' })
+  } finally { await fresh.close() }
 })

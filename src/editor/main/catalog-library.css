@@ -48,3 +48,5 @@
 .catalog-read-feedback p { margin: 6px 0; }
 .catalog-read-feedback details { margin: 6px 0; }
 .catalog-read-feedback > button { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; margin-top: 4px; font: inherit; }
+
+.catalog-thumbnail .line-style-preview { margin: 0; border: 0; border-radius: 0; }

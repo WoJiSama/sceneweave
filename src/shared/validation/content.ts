@@ -1,10 +1,12 @@
 import { validatePathAttachmentProofs } from '../path-attachments/validation.js'
+import { createPublicVisibility } from '../geometry/visibility.js'
 import { associateScenePresentations, inheritPropUpdatePresentations, propPresentation, validatePresentations } from '../appearance/presentation.js'
 import { presentationRecordSchema } from '../terrain-generation/contracts.js'
 import { validateCompositionIdentityContracts } from '../terrain-generation/composition-integrity.js'
 import { z } from 'zod'
 import { cloneJson, freezeJson, inspectJsonInput } from './json.js'
 import { sceneSchema } from './scene.js'
+import { propGlowSchema } from './primitives.js'
 import { reviseSceneSnapshot, tryApplyPropUpdatesSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot, validateFreshSceneSnapshot, getPropUpdateTransaction, releasePropUpdateTransaction, type PropUpdateTransaction, type PropUpdateStep } from './snapshots.js'
 import { enumerateLayerEntities } from '../commands/layers.js'
 import type { MaterialPaint, SceneDocument } from '../model/scene.js'
@@ -20,6 +22,7 @@ export const appearanceAdjustmentSchema = z.discriminatedUnion('kind', [
   z.object({ id, kind: z.literal('brightness'), value: z.number().finite().min(.25).max(2), enabled: z.boolean() }).strict(),
   z.object({ id, kind: z.literal('opacity'), value: z.number().finite().min(0).max(1), enabled: z.boolean() }).strict(),
   z.object({ id, kind: z.literal('shadowClass'), value: z.enum(['none', 'furniture', 'vegetation']), enabled: z.boolean() }).strict(),
+  z.object({ id, kind: z.literal('propGlow'), value: propGlowSchema.nullable(), enabled: z.boolean() }).strict(),
 ])
 const adjustments = z.array(appearanceAdjustmentSchema).max(COMPOSITION_LIMITS.adjustmentsPerTarget).superRefine((items, ctx) => {
   if (new Set(items.map(item => item.id)).size !== items.length) ctx.addIssue({ code: 'custom', message: '同一目标的调整记录 ID 不能重复。' })
@@ -333,6 +336,19 @@ function checkGraph(graph: AppearanceGraph, document: SceneDocument): void {
     }
   }
   for (const key of Object.keys(document.prefabDefinitions)) if (!Object.hasOwn(graph.prefabAppearanceTemplates, key)) throw new Error('固定组合定义缺少外观模板。')
+  const privateSections = Object.values(document.paths).filter(path => {
+    const section = path.assembly?.recipe.section
+    return section?.kind === 'prefab' && graph.prefabAppearanceTemplates[section.ref.id]?.visibility === 'gm'
+  })
+  const publicFenceUsesPrivateSection = Object.values(document.visual.base.base.boundaries).some(boundary => {
+    const section = boundary.fence?.recipe.section
+    return boundary.visibility === 'public' && section?.kind === 'prefab' && graph.prefabAppearanceTemplates[section.ref.id]?.visibility === 'gm'
+  })
+  if (publicFenceUsesPrivateSection) throw new Error('主持人专用组合只能用于主持人专用路线。')
+  if (privateSections.length) {
+    const visibility = createPublicVisibility(document)
+    if (privateSections.some(path => visibility.path(path.id))) throw new Error('主持人专用组合只能用于主持人专用路线。')
+  }
 }
 export function validateAppearanceGraph(input: unknown, document: SceneDocument): AppearanceGraph {
   const issue = inspectJsonInput(input)

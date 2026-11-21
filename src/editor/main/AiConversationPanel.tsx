@@ -17,7 +17,7 @@ import { workflowBinding } from '../../shared/ai/workflows/catalog'
 import { toolWorkflowHost } from '../../shared/ai/workflows/hosts'
 
 export interface AiConnection { client: AiClient; info: ConnectionInfo }
-export interface AiConversationPanelProps { context: TaskContext; disabled?: boolean; authoring?: AiAuthoringHost; onConnectionChange?: (connection: AiConnection | null) => void }
+export interface AiConversationPanelProps { context: TaskContext; disabled?: boolean; allowConnectionSetup?: boolean; authoring?: AiAuthoringHost; onConnectionChange?: (connection: AiConnection | null) => void }
 const labels: Record<TaskStatus, string> = { running: '正在回复', paused: '已暂停', completed: '已完成', cancelled: '已取消', failed: '未完成', expired: '已过期', waiting_browser: '等待本机校验', ready: '草稿可审阅采用', applying: '正在采用', applied: '已采用' }
 const defaultUrl = () => import.meta.env.VITE_SCENEWEAVE_AI_URL ?? (import.meta.env.DEV ? 'http://127.0.0.1:8787' : '')
 const sceneOf = (context: TaskContext) => context?.sceneId ?? null
@@ -25,7 +25,7 @@ const cancelled = (error: unknown) => error instanceof Error && error.name === '
 const effortLabel = (effort: ReasoningEffort | null) => effort === null ? '模型默认（未指定等级）' : ({ low: '低 · low', high: '高 · high', max: '最高 · max' })[effort]
 
 /** Conversation stays outside project/history storage. Hidden resource tabs keep this component mounted. */
-export default function AiConversationPanel({ context, disabled: externalDisabled = false, authoring, onConnectionChange }: AiConversationPanelProps) {
+export default function AiConversationPanel({ context, allowConnectionSetup = false, disabled: externalDisabled = false, authoring, onConnectionChange }: AiConversationPanelProps) {
   const [critical, setCritical] = useState(false)
   const disabled = externalDisabled || critical
   const [baseUrl, setBaseUrl] = useState(defaultUrl), [token, setToken] = useState('')
@@ -233,6 +233,7 @@ export default function AiConversationPanel({ context, disabled: externalDisable
   }
   const promptBytes = utf8Size(prompt), additionBytes = utf8Size(addition), activeTask = task && ['running', 'paused', 'waiting_browser', 'ready', 'applying'].includes(task.status)
   const connected = !!client && !!connection
+  const connectionDisabled = busy || !!pending || critical || externalDisabled && !allowConnectionSetup
   const taskConnectionLabel = !task ? '' : streamState === 'reconnecting' ? '连接中断，正在重连'
     : streamState === 'connected' ? '实时连接中'
       : streamState === 'disconnected' ? '连接已断开'
@@ -244,10 +245,10 @@ export default function AiConversationPanel({ context, disabled: externalDisable
     <WorkflowGuide workflowId={workflowId} onSelect={setWorkflowId} host={toolWorkflowHost('conversation', [])} task={task}/>
     <details className="ai-connection" open={!connected}>
       <summary>连接设置{connected ? ` · ${connection.model}` : ' · 尚未连接'}</summary>
-      <label>自有后端地址<input aria-label="AI 后端地址" type="url" disabled={busy || !!pending || disabled} value={baseUrl} placeholder="https://ai.example.com" autoComplete="off" spellCheck={false} onChange={event => { disconnect(); setBaseUrl(event.target.value) }} /></label>
-      <label>后端应用凭据<input aria-label="AI 应用凭据" type="password" disabled={busy || !!pending || disabled} value={token} autoComplete="off" spellCheck={false} onChange={event => { disconnect(); setToken(event.target.value) }} /></label>
+      <label>自有后端地址<input aria-label="AI 后端地址" type="url" disabled={connectionDisabled} value={baseUrl} placeholder="https://ai.example.com" autoComplete="off" spellCheck={false} onChange={event => { disconnect(); setBaseUrl(event.target.value) }} /></label>
+      <label>后端应用凭据<input aria-label="AI 应用凭据" type="password" disabled={connectionDisabled} value={token} autoComplete="off" spellCheck={false} onChange={event => { disconnect(); setToken(event.target.value) }} /></label>
       <details className="workspace-inline-help"><summary>应用凭据与隐私说明</summary><p>填写自有后端签发的应用凭据；模型供应商密钥只配置在服务器。此处凭据仅留在本次页面内存，刷新后清除。</p></details>
-      <div className="ai-actions"><button type="button" className="primary" disabled={disabled || busy || !!pending || !baseUrl.trim() || !token.trim()} onClick={() => void connect()}>连接 AI 后端</button>{connected && <button type="button" disabled={busy || !!pending || disabled} onClick={disconnect}>断开本地连接</button>}</div>
+      <div className="ai-actions"><button type="button" className="primary" disabled={connectionDisabled || !baseUrl.trim() || !token.trim()} onClick={() => void connect()}>连接 AI 后端</button>{connected && <button type="button" disabled={connectionDisabled} onClick={disconnect}>断开本地连接</button>}</div>
     </details>
     <div className="ai-disclosure">
       <dl className="ai-capabilities">

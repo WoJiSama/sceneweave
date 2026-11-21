@@ -1,3 +1,4 @@
+import { ToolRejected } from './tool-rejection.js'
 import { authoringCreatedIds } from './authoring-grant.js'
 import { z } from 'zod'
 import { applyAuthoringStep, publicAuthoringContext, replayAuthoring } from '../../src/shared/ai/authoring.js'
@@ -44,7 +45,7 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
         operation, contentHash: preview.state.contentHash, operationCost: preview.state.operationCost - authoring.state.operationCost })
       void index
     }
-    if (utf8Size(JSON.stringify(candidates)) > 196608) throw new Error('操作预算上限')
+    if (utf8Size(JSON.stringify(candidates)) > 196608) throw new ToolRejected('operation_budget')
     return { output: { candidates: candidates.map(candidate => ({ candidateId: candidate.id, candidateHash: candidate.hash, kind: candidate.operation.kind, atContentHash: candidate.atContentHash, atDraftRevision: candidate.atDraftRevision,
       actualOperationCost: candidate.operationCost, remainingOperationsAfterEdit: remainingAuthoringOperations(authoring.start, authoring.state) - candidate.operationCost })),
       appearance: 'unconfirmed', disposition: 'private bounded replay recipes; no draft step adopted; apply one exact candidate on this baseline' },
@@ -52,8 +53,9 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
   }
   if (call.name === 'sceneweave_terrain_apply_candidate') {
     const parsed = TerrainApplyArgumentsSchema.parse(args), candidate = authoring.terrainCandidates?.find(value => value.id === parsed.candidateId)
-    if (!candidate || candidate.hash !== parsed.candidateHash || candidate.atContentHash !== parsed.atContentHash || candidate.atDraftRevision !== parsed.atDraftRevision
-      || authoring.state.contentHash !== parsed.atContentHash || authoring.state.draftRevision !== parsed.atDraftRevision) throw new TerrainAuthoringRestrictedError()
+    if (!candidate || candidate.hash !== parsed.candidateHash) throw new ToolRejected('invalid_candidate')
+    if (candidate.atContentHash !== parsed.atContentHash || candidate.atDraftRevision !== parsed.atDraftRevision
+      || authoring.state.contentHash !== parsed.atContentHash || authoring.state.draftRevision !== parsed.atDraftRevision) throw new ToolRejected('stale_candidate')
     const result = applyAuthoringStep(authoring.start, authoring.state, [candidate.operation], call.id)
     if (result.state.contentHash !== candidate.contentHash || result.state.operationCost - authoring.state.operationCost !== candidate.operationCost
       || sha256Text(canonicalJson({ operation: candidate.operation, atContentHash: candidate.atContentHash, contentHash: result.state.contentHash })) !== candidate.hash) throw new TerrainAuthoringRestrictedError()
@@ -64,7 +66,7 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
   if (call.name === 'sceneweave_region_scene_candidate') {
     const parsed = RegionSceneCandidateArgumentsSchema.parse(args), replayed = replayAuthoring(authoring.start, authoring.state.steps), allowed = new Set([...scope.entityIds, ...authoringCreatedIds(authoring)])
     const result = regionalSceneCandidate(replayed.project, scope, allowed, parsed.request)
-    if (utf8Size(JSON.stringify(result)) > 524288) throw new Error('操作预算上限')
+    if (utf8Size(JSON.stringify(result)) > 524288) throw new ToolRejected('operation_budget')
     const candidateHash = result.hash, candidateId = `regional-scene-${candidateHash}`
     return { output: { candidateId, candidateHash, atContentHash: authoring.state.contentHash, atDraftRevision: authoring.state.draftRevision,
       scopeHash: sha256Text(canonicalJson(scope)), sourceSceneId: parsed.request.sourceSceneId, sceneId: result.document.sceneId, selectionMm: parsed.request.selectionMm, actualOperationCost: result.cost.total,
@@ -72,5 +74,5 @@ export function prepareTerrainTool(task: StoredTask, call: ProviderToolCall, arg
       install: () => { authoring.regionSceneCandidate = { id: candidateId, hash: candidateHash, atContentHash: authoring.state.contentHash,
         atDraftRevision: authoring.state.draftRevision, scopeHash: sha256Text(canonicalJson(scope)), result } } }
   }
-  throw new Error('未授权工具')
+  throw new ToolRejected('unsupported_tool')
 }

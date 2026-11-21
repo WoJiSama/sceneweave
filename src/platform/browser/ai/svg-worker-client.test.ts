@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { normalizeStaticSvg } from '../../../shared/ai/svg.js'
 import { disposeCanonicalSvgWorkers, rasterizeCanonicalSvgInWorker } from './svg-worker-client.js'
+import { copyCanonicalSvgModule } from './svg-raster.js'
+import type { CanonicalSvgWorkerRequest } from './svg-worker.js'
+
+vi.mock('./svg-raster.js', () => ({ copyCanonicalSvgModule: vi.fn() }))
 
 class FakeWorker {
   static instances: FakeWorker[] = []
@@ -9,7 +13,9 @@ class FakeWorker {
   onerror: ((event: { preventDefault(): void }) => void) | null = null
   onmessageerror: (() => void) | null = null
   terminate = vi.fn()
-  postMessage = vi.fn(() => { if (FakeWorker.failPost) throw new Error('posting failed') })
+  postMessage = vi.fn((_request: CanonicalSvgWorkerRequest, _transfer: Transferable[]) => {
+    if (FakeWorker.failPost) throw new Error('posting failed')
+  })
   constructor() { FakeWorker.instances.push(this) }
   reply(width = 4, height = 2) { this.onmessage?.({ data: { ok: true, width, height, rgba: new Uint8ClampedArray(width * height * 4) } }) }
 }
@@ -18,20 +24,44 @@ const run = (signal?: AbortSignal | { aborted: boolean }) => rasterizeCanonicalS
 const drain = async () => { for (let i = 0; i < 12; i++) await Promise.resolve() }
 
 describe('bounded fixed SVG worker lifecycle', () => {
-  beforeEach(() => { vi.useFakeTimers(); FakeWorker.instances = []; FakeWorker.failPost = false; vi.stubGlobal('Worker', FakeWorker) })
+  beforeEach(() => {
+    vi.useFakeTimers(); FakeWorker.instances = []; FakeWorker.failPost = false
+    vi.stubGlobal('Worker', FakeWorker)
+    vi.mocked(copyCanonicalSvgModule).mockReset().mockImplementation(async () => Uint8Array.of(1, 2, 3))
+  })
   afterEach(async () => { disposeCanonicalSvgWorkers(); await drain(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
   it('serializes canonical WASM work, reuses one idle instance and releases it', async () => {
     const first = run(), second = run(), third = run()
     await drain(); expect(FakeWorker.instances).toHaveLength(1)
     const worker = FakeWorker.instances[0]
+    const [request, transfer] = worker.postMessage.mock.calls[0]
+    expect(request.moduleBytes).toEqual(Uint8Array.of(1, 2, 3))
+    expect(transfer).toEqual([request.moduleBytes!.buffer])
     worker.reply(); expect((await first).rgba).toHaveLength(32)
     await drain(); expect(FakeWorker.instances).toHaveLength(1)
     expect(worker.postMessage).toHaveBeenCalledTimes(2)
     worker.reply(); await second; await drain()
     expect(worker.postMessage).toHaveBeenCalledTimes(3)
+    expect(worker.postMessage.mock.calls.slice(1).map(([message, buffers]) => [message.moduleBytes, buffers])).toEqual([[undefined, []], [undefined, []]])
+    expect(copyCanonicalSvgModule).toHaveBeenCalledOnce()
     worker.reply(); await third; await vi.advanceTimersByTimeAsync(5000)
     expect(worker.terminate).toHaveBeenCalledOnce()
+  })
+
+  it('cancels an in-flight module load and ignores its late result', async () => {
+    let loaded!: (bytes: Uint8Array<ArrayBuffer>) => void
+    vi.mocked(copyCanonicalSvgModule).mockImplementationOnce(() => new Promise(resolve => { loaded = resolve }))
+    const controller = new AbortController(), task = run(controller.signal)
+    const rejected = expect(task).rejects.toMatchObject({ name: 'AbortError' })
+    await drain()
+    const worker = FakeWorker.instances[0], loadSignal = vi.mocked(copyCanonicalSvgModule).mock.calls[0][0]
+    controller.abort(); await rejected
+    expect(loadSignal?.aborted).toBe(true)
+    expect(worker.terminate).toHaveBeenCalledOnce()
+    loaded(Uint8Array.of(1, 2, 3)); await drain()
+    expect(worker.postMessage).not.toHaveBeenCalled()
+    const next = run(); await drain(); FakeWorker.instances.at(-1)!.reply(); await next
   })
 
   it('rejects malformed dimensions and worker messages before returning usable pixels', async () => {

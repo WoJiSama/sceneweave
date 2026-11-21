@@ -1,3 +1,4 @@
+import { OperationRejected, type OperationRejectionCode } from '../validation/operation-rejection.js'
 import { assertCommandBudget, commandSelectionLimit, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
@@ -5,7 +6,7 @@ import { z } from 'zod'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { applyCommandDraft, type BaseSceneCommand } from './base.js'
-import { polygonDistance, propFootprint, roomPoints, supportSurfaceAt, terrainPoints } from '../geometry/geometry.js'
+import { polygonDistance, propFootprint, roomPoints, terrainPoints } from '../geometry/geometry.js'
 import { buildScatterRegeneration } from '../geometry/scatter.js'
 import { SCATTER_ALGORITHM_VERSIONS } from '../geometry/scatter-algorithm.js'
 import { sceneSchema } from '../validation/scene.js'
@@ -16,6 +17,9 @@ import { validateSceneDocument } from '../validation/scene.js'
 import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, type SceneDocument } from '../model/scene.js'
 import { connectionRouteSchema } from '../geometry/connection-route.js'
 import { staircaseSchema } from '../stairs/contracts.js'
+import { removePathAssemblyEntities } from '../path-assembly/commands.js'
+import { bridgeDeckIds } from '../path-assembly/contracts.js'
+import { createSupportQuery } from '../geometry/support-sample.js'
 import { inspectScene5TransitionChanges, refreshScene5TransitionsAfterPhysicalEdit } from '../visual/derived-transitions.js'
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留ID')
@@ -28,9 +32,10 @@ const base = { id, floorId: id, layerId: id.optional() }
 const areaFields = sceneSchema.shape.terrainAreas.valueType.omit({ id: true, floorId: true, editLocked: true, rockBody: true, waterSurface: true })
 const edgeFields = sceneSchema.shape.terrainEdges.valueType.omit({ id: true, floorId: true, editLocked: true })
 const connectionFields = sceneSchema.shape.terrainConnections.valueType.omit({ id: true, floorId: true, editLocked: true, carvedStrip: true, terrainInlay: true }).extend({ route: connectionRouteSchema.optional() })
-const pathFields = sceneSchema.shape.paths.valueType.omit({ id: true, floorId: true, editLocked: true })
+const pathFields = sceneSchema.shape.paths.valueType.omit({ id: true, floorId: true, editLocked: true, assembly: true })
 const scatterFields = sceneSchema.shape.scatterGroups.valueType.omit({ id: true, floorId: true, editLocked: true, members: true, exclusions: true, algorithmVersion: true })
-const regionFields = sceneSchema.shape.regions.valueType.omit({ id: true, floorId: true, editLocked: true }).extend({ kind: z.enum(['terrain', 'hazard']) })
+const regionKind = z.enum(['terrain', 'hazard', 'partition'])
+const regionFields = sceneSchema.shape.regions.valueType.omit({ id: true, floorId: true, editLocked: true, preservePublicRooms: true }).extend({ kind: regionKind })
 
 /** Finite native scene operations; no arbitrary project or entity JSON patch. */
 export const outdoorCommandSchemas = [
@@ -43,13 +48,14 @@ export const outdoorCommandSchemas = [
   z.object({ type: z.literal('updateTerrainConnection'), id, changes: connectionFields.partial().extend({ route: connectionRouteSchema.nullable().optional(), staircase: staircaseSchema.nullable().optional() }).strict() }).strict(),
   z.object({ type: z.literal('createPath'), ...base, ...pathFields.omit({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).shape,
     ...pathFields.pick({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).partial().shape, materialRef: version.optional() }).strict(),
-  z.object({ type: z.literal('updatePath'), id, changes: pathFields.partial().strict() }).strict(),
-  z.object({ type: z.literal('createRegion'), ...base, boundaryMm: z.array(point).min(3).max(512), kind: z.enum(['terrain', 'hazard']), visibility: visibility.optional(), blocksMovement: z.boolean().optional(), movementCostMultiplier: z.number().finite().min(1).max(100).optional() }).strict(),
+  z.object({ type: z.literal('updatePath'), id, changes: pathFields.partial().extend({ widthSections: pathFields.shape.widthSections.nullable(), staircase: staircaseSchema.nullable().optional() }).strict() }).strict(),
+  z.object({ type: z.literal('createRegion'), ...base, boundaryMm: z.array(point).min(3).max(512), kind: regionKind, name: regionFields.shape.name, visibility: visibility.optional(), blocksMovement: z.boolean().optional(), movementCostMultiplier: z.number().finite().min(1).max(100).optional() }).strict(),
   z.object({ type: z.literal('updateRegion'), id, changes: regionFields.partial().strict() }).strict(),
   z.object({ type: z.literal('createScatter'), ...base, ...scatterFields.omit({ visibility: true, gridOriginMm: true, densityFactor: true, minDistanceMm: true, rotationRangeDeg: true }).shape,
     ...scatterFields.pick({ visibility: true, gridOriginMm: true, densityFactor: true, minDistanceMm: true, rotationRangeDeg: true }).partial().shape, algorithmVersion: z.enum(SCATTER_ALGORITHM_VERSIONS).optional() }).strict(),
   z.object({ type: z.literal('configureScatter'), id, changes: scatterFields.partial().strict() }).strict(),
-  z.object({ type: z.literal('upsertScatterExclusion'), groupId: id, exclusion: z.object({ id, boundaryMm: z.array(point).min(3).max(512), reason: z.enum(['manual', 'entrance']) }).strict() }).strict(),
+  z.object({ type: z.literal('upsertScatterExclusion'), groupId: id, clearGenerated: z.literal(true).optional(),
+    exclusion: z.object({ id, boundaryMm: z.array(point).min(3).max(512), reason: z.enum(['manual', 'entrance']) }).strict() }).strict(),
   z.object({ type: z.literal('removeScatterExclusion'), groupId: id, exclusionId: id }).strict(),
   z.object({ type: z.literal('deleteOutdoorEntity'), kind: z.enum(['terrainArea', 'terrainEdge', 'terrainConnection', 'path', 'region', 'scatterGroup']), id }).strict(),
 ] as const
@@ -214,6 +220,7 @@ export function outdoorDependencies(scene: SceneDocument, roots: readonly string
 
 export interface OutdoorImpact {
   rootIds: string[]; affectedIds: string[]; createdIds: string[]; changedIds: string[]; removedIds: string[]; layerIds: string[]; commandCost: number; reason: string | null
+  reasonCode?: OperationRejectionCode
 }
 const emptyImpact = (): OutdoorImpact => ({ rootIds: [], affectedIds: [], createdIds: [], changedIds: [], removedIds: [], layerIds: [], commandCost: 0, reason: null })
 function recordsCost(before: Record<string, unknown>, after: Record<string, unknown>): number {
@@ -278,7 +285,7 @@ export function inspectOutdoorChanges(before: SceneDocument, after: SceneDocumen
 }
 function assertUnlocked(scene: SceneDocument, ids: Iterable<string>) {
   const byId = entities(scene), locked = [...new Set(ids)].filter(id => byId.get(id)?.editLocked || byId.has(id) && scene.userLayers[scene.entityLayers[id]]?.editLocked)
-  if (locked.length) throw new Error(`室外事务涉及锁定实体、图层或真实依赖：${locked.join('、')}。`)
+  if (locked.length) throw new OperationRejected('locked_dependency', `室外事务涉及锁定实体、图层或真实依赖：${locked.join('、')}。`)
 }
 function anchoredNoteIds(scene: SceneDocument, roots: readonly string[]): string[] {
   const ids = new Set(roots)
@@ -292,7 +299,7 @@ function anchoredNoteIds(scene: SceneDocument, roots: readonly string[]): string
 function targetLayer(scene: SceneDocument, floorId: string, layerId?: string): string {
   required(scene.floors, floorId, 'Floor')
   const layer = layerId === undefined ? orderedLayers(scene, floorId)[0] : own(scene.userLayers, layerId)
-  if (!layer || layer.floorId !== floorId || layer.editLocked) throw new Error('新增室外对象须选择同Floor且未锁定的用户图层。')
+  if (!layer || layer.floorId !== floorId || layer.editLocked) throw new OperationRejected(layer?.editLocked && layer.floorId === floorId ? 'locked_dependency' : 'invalid_geometry', '新增室外对象须选择同Floor且未锁定的用户图层。')
   return layer.id
 }
 function fresh(scene: SceneDocument, value: string) {
@@ -314,6 +321,12 @@ function boundary(input: PointMm[]): PointMm[] {
 }
 /** Canonical exposed source; callers see the exact remap before adopting. */
 export function canonicalTerrainEdge(scene: SceneDocument, source: TerrainEdge['source']): { source: TerrainEdge['source']; neighborAreaId: string | null; requiresCliff: boolean } {
+  const edge = findExposedTerrainEdge(scene, source)
+  if (!edge) throw new Error('来源段不是暴露的有效支撑边界。')
+  return edge
+}
+
+export function findExposedTerrainEdge(scene: SceneDocument, source: TerrainEdge['source']): ReturnType<typeof canonicalTerrainEdge> | null {
   const area = required(scene.terrainAreas, source.areaId, '来源地形'), index = area.boundaryMm.findIndex(p => p.segmentId === source.segmentId)
   if (index < 0) throw new Error('来源段不存在。')
   const a = area.boundaryMm[index].positionMm, b = area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm, length = Math.hypot(b.x - a.x, b.y - a.y)
@@ -327,13 +340,15 @@ export function canonicalTerrainEdge(scene: SceneDocument, source: TerrainEdge['
     const distance = Math.hypot(mid.x - c.x - t * dx, mid.y - c.y - t * dy)
     if (distance > 1e-7) offset = Math.min(offset, distance / 4)
   }
-  const inside = supportSurfaceAt(domain, { x: mid.x - (b.y - a.y) / length * offset, y: mid.y + (b.x - a.x) / length * offset }, area.floorId)
-  const outside = supportSurfaceAt(domain, { x: mid.x + (b.y - a.y) / length * offset, y: mid.y - (b.x - a.x) / length * offset }, area.floorId)
-  if (inside?.kind !== 'terrainArea' || inside.id !== area.id || !outside || outside.kind === 'terrainArea' && outside.id === area.id) throw new Error('来源段不是暴露的有效支撑边界。')
+  const decks = bridgeDeckIds(scene)
+  const query = createSupportQuery(domain, area.floorId, decks.has(area.id) ? undefined : decks)
+  const inside = query.rootAt({ x: mid.x - (b.y - a.y) / length * offset, y: mid.y + (b.x - a.x) / length * offset })
+  const outside = query.rootAt({ x: mid.x + (b.y - a.y) / length * offset, y: mid.y - (b.x - a.x) / length * offset })
+  if (inside?.kind !== 'terrainArea' || inside.id !== area.id || !outside || outside.kind === 'terrainArea' && outside.id === area.id) return null
   const neighbor = outside.kind === 'terrainArea' ? scene.terrainAreas[outside.id] : undefined
   if (neighbor && area.id > neighbor.id) {
     const other = neighbor.boundaryMm.find((p, i, all) => same(p.positionMm, b) && same(all[(i + 1) % all.length].positionMm, a))
-    if (other) return canonicalTerrainEdge(scene, { areaId: neighbor.id, segmentId: other.segmentId })
+    if (other) return findExposedTerrainEdge(scene, { areaId: neighbor.id, segmentId: other.segmentId })
   }
   return { source: cloneJson(source), neighborAreaId: neighbor?.id ?? null, requiresCliff: area.groundElevationMm !== (neighbor?.groundElevationMm ?? 0) }
 }
@@ -370,7 +385,8 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       })
       scene.terrainAreas[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, boundaryMm, visibility: command.visibility ?? 'public', groundElevationMm: command.groundElevationMm ?? 0,
         coveragePriority: command.coveragePriority ?? 1, surfaceStyle: cloneJson(command.surfaceStyle === undefined ? styleFor(scene, command.materialRef, 'terrain') : command.surfaceStyle), blocksMovement: command.blocksMovement ?? false, blocksSight: command.blocksSight ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1,
-        ...(command.boundaryBlendMm !== undefined ? { boundaryBlendMm: command.boundaryBlendMm } : {}) }
+        ...(command.boundaryBlendMm !== undefined ? { boundaryBlendMm: command.boundaryBlendMm } : {}),
+        ...(command.facade ? { facade: cloneJson(command.facade) } : {}) }
       scene.entityLayers[command.id] = layer; break
     }
     case 'updateTerrainArea': Object.assign(required(scene.terrainAreas, command.id, '地形'), cloneJson(command.changes)); break
@@ -379,7 +395,7 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       const relation = canonicalTerrainEdge(scene, command.source), area = scene.terrainAreas[relation.source.areaId]
       const layer = targetLayer(scene, area.floorId, command.layerId ?? scene.entityLayers[area.id])
       scene.terrainEdges[command.id] = { id: command.id, floorId: area.floorId, editLocked: false, ...relation, kind: command.kind ?? (relation.requiresCliff ? 'cliff' : 'materialTransition'),
-        visibility: command.visibility ?? area.visibility, shoreline: command.shoreline ?? false, blocksMovement: command.blocksMovement ?? relation.requiresCliff, blocksSight: command.blocksSight ?? false, surfaceStyle: command.surfaceStyle ?? null, styleOverride: command.styleOverride ?? null }
+        visibility: command.visibility ?? area.visibility, shoreline: command.shoreline ?? false, blocksMovement: command.blocksMovement ?? relation.requiresCliff, blocksSight: command.blocksSight ?? false, surfaceStyle: command.surfaceStyle ?? null, styleOverride: command.styleOverride ?? null, ...(command.shoreStyle ? { shoreStyle: cloneJson(command.shoreStyle) } : {}) }
       delete (scene.terrainEdges[command.id] as TerrainEdge & { requiresCliff?: boolean }).requiresCliff
       scene.entityLayers[command.id] = layer; break
     }
@@ -404,18 +420,33 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       fresh(scene, command.id); const layer = targetLayer(scene, command.floorId, command.layerId)
       if (command.materialRef && command.surfaceStyle !== undefined) throw new Error('请明确选择固定材质或完整表面样式，不能同时提供两者。')
       scene.paths[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, centerlineMm: cloneJson(command.centerlineMm), widthMm: command.widthMm, supportRefs: cloneJson(command.supportRefs), visibility: command.visibility ?? 'public',
+        ...(command.widthSections ? { widthSections: cloneJson(command.widthSections) } : {}),
+        ...(command.staircase ? { staircase: cloneJson(command.staircase) } : {}),
         surfaceStyle: cloneJson(command.surfaceStyle === undefined ? styleFor(scene, command.materialRef, 'path') : command.surfaceStyle), movementCostMultiplier: command.movementCostMultiplier ?? 1, renderOrder: command.renderOrder ?? 0 }
       scene.entityLayers[command.id] = layer; break
     }
-    case 'updatePath': Object.assign(required(scene.paths, command.id, '道路'), cloneJson(command.changes)); break
+    case 'updatePath': {
+      const path = required(scene.paths, command.id, '道路')
+      const { widthSections, staircase, ...changes } = command.changes
+      Object.assign(path, cloneJson(changes))
+      if (widthSections === null) delete path.widthSections
+      else if (widthSections) path.widthSections = cloneJson(widthSections)
+      if (staircase === null) delete path.staircase
+      else if (staircase) path.staircase = cloneJson(staircase)
+      break
+    }
     case 'createRegion': {
       fresh(scene, command.id); const layer = targetLayer(scene, command.floorId, command.layerId)
-      scene.regions[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, boundaryMm: boundary(command.boundaryMm), kind: command.kind, visibility: command.visibility ?? 'public', blocksMovement: command.blocksMovement ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1 }
+      scene.regions[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, boundaryMm: boundary(command.boundaryMm), kind: command.kind,
+        ...(command.name ? { name: command.name } : {}), visibility: command.visibility ?? 'public', blocksMovement: command.blocksMovement ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1 }
       scene.entityLayers[command.id] = layer; break
     }
     case 'updateRegion': {
       const region = required(scene.regions, command.id, '用途/危险区域')
       if (region.kind === 'manualMask') throw new Error('秘密遮罩继续使用固定遮罩专用入口。')
+      if (command.changes.kind && command.changes.kind !== region.kind && (region.kind === 'partition' || command.changes.kind === 'partition')) {
+        throw new Error('请单独绘制编辑分区。用途、危险区域继续保留自己的通行属性。')
+      }
       Object.assign(region, cloneJson(command.changes)); break
     }
     case 'createScatter': {
@@ -430,6 +461,16 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       if (previous && (previous.reason === 'delete' || previous.sourceCandidateKey !== null)) throw new Error('人工删除抑制记录只能通过显式历史成员恢复修改。')
       if (!previous) fresh(scene, command.exclusion.id)
       const value = { ...cloneJson(command.exclusion), sourceCandidateKey: null }
+      if (command.clearGenerated) for (const [key, member] of Object.entries(group.members)) {
+        if (member.state !== 'managed' || !member.propId) continue
+        const prop = scene.props[member.propId]
+        if (polygonDistance(propFootprint(prop), value.boundaryMm) > 1e-7) continue
+        assertUnlocked(scene, [prop.id])
+        const hasAttachment = Object.values(scene.attachments ?? {}).some(row => row.child.id === prop.id)
+          || Object.values(scene.attachmentSurfaces ?? {}).some(surface => surface.owner.id === prop.id)
+        if (hasAttachment || referenced(scene, prop.id).some(id => id !== group.id) || member.overrideFields.length) throw new Error(`留空区包含手工修改或被引用的物件 ${prop.id}，请先移动该物件。`)
+        delete scene.props[prop.id]; delete scene.entityLayers[prop.id]; delete group.members[key]
+      }
       if (previous) Object.assign(previous, value); else group.exclusions.push(value)
       break
     }
@@ -460,6 +501,7 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
         if (Object.values(group.members).some(member => member.propId !== null)) throw new Error('删除散布组前须显式删除或退出全部活成员；不隐式级联。')
       }
       if (refs.length) throw new Error(`室外对象仍被引用，须先明确处理：${refs.join('、')}。`)
+      if (command.kind === 'path') removePathAssemblyEntities(scene, scene.paths[command.id])
       delete scene[collection][value.id]; delete scene.entityLayers[value.id]; break
     }
     case 'moveTerrainPoint': {
@@ -498,22 +540,20 @@ export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorComman
   const memberParents = memberCommand ? Object.values(before.scatterGroups).filter(group => Object.values(group.members).some(member => member.propId !== null && roots.includes(member.propId))).map(group => group.id) : []
   const configurationGroup = command.type === 'createScatter' ? scene.scatterGroups[command.id]
     : command.type === 'upsertScatterExclusion' || command.type === 'removeScatterExclusion' ? scene.scatterGroups[command.groupId] : undefined
-  // Creating/configuring an empty group changes no retained scenery. Its
-  // support and target layer remain protected; unrelated locked occupants are
-  // read-only obstacles, as they already are during regeneration.
-  const emptyConfiguration = configurationGroup && !Object.keys(configurationGroup.members).length
-  const domain = emptyConfiguration ? configurationGroup.domain : undefined
+  // Editing an exclusion changes the group's domain rules. Retained scenery
+  // keeps its lock and position, just as it does during regeneration.
+  const domain = configurationGroup?.domain
   const supportIds = domain?.kind === 'area' ? [domain.areaId] : domain?.kind === 'path'
     ? [domain.pathId, ...(scene.paths[domain.pathId]?.supportRefs ?? []).map(ref => ref.id)]
     : domain?.kind === 'edgeBand' ? [domain.edgeId, scene.terrainEdges[domain.edgeId]?.source.areaId, scene.terrainEdges[domain.edgeId]?.neighborAreaId].filter((id): id is string => typeof id === 'string') : []
   const lockIds = command.type === 'regenerateScatter'
     ? [...anchoredNoteIds(before, [command.id, ...impact.changedIds, ...impact.removedIds]), ...[...impact.createdIds, ...impact.changedIds].flatMap(id => scene.props[id] ? [scene.props[id].supportRef.id] : [])]
-    : emptyConfiguration ? [...supportIds, ...anchoredNoteIds(before, [...roots, ...impact.changedIds, ...impact.removedIds])]
+    : configurationGroup ? [...supportIds, ...anchoredNoteIds(before, [...roots, ...impact.changedIds, ...impact.removedIds])]
     : memberCommand ? anchoredNoteIds(before, [...roots, ...memberParents, ...impact.changedIds, ...impact.removedIds])
     : impact.affectedIds
   assertUnlocked(before, lockIds)
   assertUnlocked(before, [...outdoorDependencies(before, derived.affectedIds), ...outdoorDependencies(scene, derived.affectedIds)])
-  if (!budget && impact.commandCost > COMMAND_LIMIT) throw new Error('展开后的室外事务超过256条操作预算，不能拆批绕过。')
+  if (!budget && impact.commandCost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '展开后的室外事务超过256条操作预算，不能拆批绕过。')
   if (budget) assertCommandBudget(budget, measureCommandBudget(before, scene, undefined, undefined, budget))
   return impact
 }
@@ -537,10 +577,13 @@ export function previewOutdoorCommands(input: SceneDocument, commands: readonly 
       }
       catch (error) { cost += diffImpact(before, next, rootsFor(command)).commandCost; throw error }
     }
-    if (!budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体室外事务超过256条操作预算，不能拆批绕过。')
+    if (!budget && cost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '展开后的整体室外事务超过256条操作预算，不能拆批绕过。')
     if (budget) assertCommandBudget(budget, measureCommandBudget(validated.document, next, undefined, undefined, budget))
     const result = validateSceneDocument(next)
     if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
-  } catch (error) { impact.reason = error instanceof Error ? error.message : String(error) }
-  return { ...diffImpact(validated.document, next, roots), commandCost: cost, reason: impact.reason }
+  } catch (error) {
+    impact.reason = error instanceof Error ? error.message : String(error)
+    if (error instanceof OperationRejected) impact.reasonCode = error.code
+  }
+  return { ...diffImpact(validated.document, next, roots), commandCost: cost, reason: impact.reason, ...(impact.reasonCode ? { reasonCode: impact.reasonCode } : {}) }
 }

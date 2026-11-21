@@ -9,6 +9,7 @@ import { verifyDiskDelivery } from '../harness/browser.mjs'
 import { readBounded, replaceResult, writeVerified } from '../harness/io.mjs'
 import { executeLocalSegmentation, LOCAL_SEGMENTATION_TOOL } from './local-tool.mjs'
 import { readWorkflowCompanion, writeWorkflowCompanion } from '../harness/workflow-checkpoint.mjs'
+import { imageToolEffect, runImageRequestQueue } from './request-queue.mjs'
 
 const usage = 'node tools/image-import/server.mjs (--image ABS_IMAGE --license-file ABS_LICENSE --attribution TEXT | --resume ABS_WORK_PACKAGE) --output EXISTING_OUTPUT_DIRECTORY [--local-model-dir ABS_DIR --python ABS_PYTHON [--python-path ABS_DEPENDENCY_DIR]]'
 
@@ -49,7 +50,9 @@ async function executeInBrowser({ name, input }) {
   let result
   try { result = await window.imageImportTools.execute(name, input) }
   catch (error) {
-    return { toolError: { code: typeof error?.code === 'string' ? error.code : error?.name === 'AbortError' ? 'cancelled' : 'image-import-failed', message: error instanceof Error ? error.message : String(error) } }
+    const code = typeof error?.code === 'string' ? error.code : error?.name === 'AbortError' ? 'cancelled' : 'image-import-failed'
+    const nextAction = code === 'stale_generation' ? 'read_current_context' : code === 'stale_candidate' ? 'refresh_candidate' : undefined
+    return { toolError: { code, message: error instanceof Error ? error.message : String(error), ...(nextAction ? { nextAction } : {}) } }
   }
   const encode = bytes => {
     let text = ''
@@ -95,6 +98,7 @@ async function executeInBrowser({ name, input }) {
     previewBase64: encode(preview),
     projectHash: projectContentHash(bundle.project),
     recipe: result.recipe,
+    taskId: result.taskId,
     generation: result.generation,
     sourceFidelity: result.sourceFidelity,
     ...(result.subjectDerivation ? { subjectDerivation: result.subjectDerivation } : {}),
@@ -102,17 +106,18 @@ async function executeInBrowser({ name, input }) {
   }
 }
 
-async function saveCandidate(response, output, context, tooling) {
+async function saveCandidate(response, output, context, tooling, workflow) {
   const directory = path.join(output, 'candidate-' + response.generation + '-' + randomUUID())
   await fs.mkdir(directory, { mode: 0o700 })
-  const record = { status: 'running', generation: response.generation, projectHash: response.projectHash, sourceFidelity: response.sourceFidelity,
+  const record = { status: 'running', workflow, taskId: response.taskId, generation: response.generation,
+    source: response.recipe.image, projectHash: response.projectHash, sourceFidelity: response.sourceFidelity,
     ...(response.subjectDerivation ? { subjectDerivation: response.subjectDerivation } : {}),
     ...(response.surfaceDerivation ? { surfaceDerivation: response.surfaceDerivation } : {}) }
   try {
     await fs.writeFile(path.join(directory, 'result.json'), JSON.stringify(record) + '\n', { flag: 'wx', mode: 0o600 })
     const archive = await writeVerified(directory, 'map.sceneweave', Buffer.from(response.archiveBase64, 'base64'))
     const preview = await writeVerified(directory, 'preview.png', Buffer.from(response.previewBase64, 'base64'))
-    await writeVerified(directory, 'recipe.json', Buffer.from(JSON.stringify(response.recipe, null, 2) + '\n'))
+    const recipe = await writeVerified(directory, 'recipe.json', Buffer.from(JSON.stringify(response.recipe, null, 2) + '\n'))
     const coldPage = await context.newPage()
     let verification
     try {
@@ -125,7 +130,8 @@ async function saveCandidate(response, output, context, tooling) {
     } finally {
       await coldPage.close()
     }
-    const completed = { ...record, status: 'complete', verification }
+    const completed = { ...record, status: 'complete', verification,
+      files: { project: archive.record, preview: preview.record, recipe: recipe.record } }
     await replaceResult(directory, completed)
     return [{ type: 'text', text: JSON.stringify({ ...completed, directory }) }]
   } catch (error) {
@@ -209,24 +215,9 @@ async function serve(options) {
         workflow, workflowCompanion: path.join(options.output, companion.record.file) }
     }
 
-    const handleLine = async line => {
-      if (!line.trim()) return
-      if (Buffer.byteLength(line) > 8 * 1024 * 1024) {
-        sendError(null, -32600, 'Tool request exceeds 8MiB')
-        return
-      }
-      let request
-      try {
-        request = JSON.parse(line)
-      } catch {
-        sendError(null, -32700, 'Invalid JSON')
-        return
-      }
-      if (!request || Array.isArray(request) || typeof request !== 'object'
-        || request.jsonrpc !== '2.0' || typeof request.method !== 'string'
-        || (request.id !== undefined && request.id !== null && !['string', 'number'].includes(typeof request.id))
-        || (typeof request.id === 'number' && !Number.isFinite(request.id))) {
-        sendError(null, -32600, 'Invalid JSON-RPC request')
+    const handleRequest = async ({ request, error }) => {
+      if (error) {
+        sendError(null, error.code, error.message)
         return
       }
       // Notifications do not receive a response, including notifications/initialized.
@@ -316,7 +307,7 @@ async function serve(options) {
           content = [{ type: 'text', text: JSON.stringify({ path: path.join(options.output, filename), sha256: written.record.sha256, generation: response.generation,
             workflow, workflowCompanion: path.join(options.output, companion.record.file) }) }]
         } else if (response.archiveBase64) {
-          content = await saveCandidate(response, options.output, context, tooling)
+          content = await saveCandidate(response, options.output, context, tooling, workflow)
         } else if (response.previewBase64) {
           content = [
             { type: 'image', mimeType: 'image/png', data: response.previewBase64 },
@@ -325,9 +316,7 @@ async function serve(options) {
         } else {
           content = [{ type: 'text', text: JSON.stringify(response.value) }]
         }
-        if (Object.hasOwn(params.arguments ?? {}, 'generation') && params.name !== 'image_import_build_project'
-          && params.name !== 'image_import_vision_boundary'
-          && !(params.name === 'image_import_guided_selection' && !params.arguments?.target)) {
+        if (imageToolEffect(params.name, params.arguments) === 'checkpoint') {
           try { content.push({ type: 'text', text: JSON.stringify({ checkpoint: await saveWork() }) }) }
           catch (error) { content.push({ type: 'text', text: JSON.stringify({ checkpointError: String(error), nextAction: '当前候选仍在进程中；先导出工作包再结束会话。' }) }) }
         }
@@ -337,19 +326,8 @@ async function serve(options) {
         send({ jsonrpc: '2.0', id: request.id, result: { isError: true, content: [{ type: 'text', text: message }] } })
       }
     }
-    // Queue line events before awaiting browser work so EOF cannot discard
-    // pipelined requests. Each tool still observes the previous tool's generation.
-    let pending = Promise.resolve()
     lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity })
-    await new Promise((resolve, reject) => {
-      lines.on('line', line => {
-        pending = pending.then(() => handleLine(line))
-        pending.catch(reject)
-      })
-      lines.once('close', resolve)
-      lines.once('error', reject)
-    })
-    await pending
+    await runImageRequestQueue(lines, handleRequest)
   } finally {
     lines?.close()
     try { await browser?.close() } finally { await tooling.close() }

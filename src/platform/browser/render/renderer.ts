@@ -6,6 +6,12 @@ import { projectEditorScene, projectScene } from '../../../shared/projection/pro
 import { encodePng, renderRasterProjection, EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE } from './canvas-renderer'
 import type { RenderOptions, EditorRenderOptions } from './canvas-renderer'
 import { atmosphereComparison } from './atmosphere-comparison'
+import { floorDisplayStack } from '../../../shared/floors/output.js'
+import type { Projection } from '../../../shared/projection/types.js'
+import { editorViewBounds } from './editor-render-plan.js'
+import { planFloorShadows } from '../../../shared/projection/floor-shadows.js'
+import { drawFloorShadows } from './floor-shadows.js'
+import { resolvePartitionOutput } from '../../../shared/geometry/partitions.js'
 
 export type { RenderMetrics, RenderOptions, WallGeometry } from './canvas-renderer'
 export { EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE, PNG_MAX_PIXELS, wallGeometry, connectionPolygon, terrainFace, terrainShadow } from './canvas-renderer'
@@ -36,13 +42,85 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
   const bundle = await (editor ? validateProjectSnapshot(input, validation) : validateProjectBundle(input, validation)), project = bundle.project, scene = project.document
   checkCancelled(options.signal)
   const sources = { assetRefs: scene.assets, assets: project.assets, resources: bundle.resources }
+  const partition = options.partitionId ? resolvePartitionOutput(scene, options.partitionId, options.audience) : undefined
+  if (partition && (editor || options.floorId !== undefined && options.floorId !== partition.region.floorId)) throw new Error('分区输出需要使用它所在的楼层。')
   // The unhidden audience closure is verified before session hiding, crop or LOD.
-  const projection = projectScene(scene, options.audience, project.appearance, { floorId: options.floorId })
-  const drawing = options.audience === 'gm' && editor?.hiddenLayerIds?.size
-    ? projectEditorScene(scene, { floorId: options.floorId, hiddenLayerIds: new Set(editor.hiddenLayerIds) }, project.appearance) : projection
-  const comparison = options.audience === 'gm' && editor?.atmosphereBypass ? atmosphereComparison(drawing) : drawing
-  const preview = editor && { ...editor, hiddenLayerIds: undefined, drawingProjection: options.audience === 'gm' && editor.groundView ? { ...comparison, groundView: true } : comparison }
-  return renderRasterProjection(sources, projection, options, preview, started)
+  const projection = projectScene(scene, options.audience, project.appearance, { floorId: partition?.region.floorId ?? options.floorId })
+  const finishPartition = (result: HTMLCanvasElement) => {
+    if (!partition) return result
+    const { bounds, region } = partition, sx = result.width / bounds.width, sy = result.height / bounds.height
+    const ctx = result.getContext('2d')!
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out'
+    ctx.beginPath()
+    ctx.rect(0, 0, result.width, result.height)
+    for (const [index, point] of region.boundaryMm.entries()) {
+      const x = (point.x - bounds.x) * sx, y = (point.y - bounds.y) * sy
+      if (index === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.closePath(); ctx.fill('evenodd'); ctx.restore()
+    return result
+  }
+  function drawable(source: Projection): Projection {
+    const drawing = options.audience === 'gm' && editor?.hiddenLayerIds?.size
+      ? projectEditorScene(scene, { floorId: source.floorId ?? options.floorId, hiddenLayerIds: new Set(editor.hiddenLayerIds) }, project.appearance) : source
+    return options.audience === 'gm' && editor?.atmosphereBypass ? atmosphereComparison(drawing) : drawing
+  }
+  function renderFloor(source: Projection, drawing: Projection, stacked = false) {
+    const linkedFloor = source.floorId !== projection.floorId
+    const bounds = stacked ? projection.bounds : source.bounds
+    const align = (floor: Projection): Projection => stacked ? {
+      ...floor, bounds, outputBackground: { mode: 'transparent' }, gridSizeMm: linkedFloor ? null : floor.gridSizeMm,
+    } : floor
+    // The unhidden audience closure is verified before session hiding, crop or LOD.
+    const preview = editor && { ...editor, hiddenLayerIds: undefined, drawingProjection: align(options.audience === 'gm' && editor.groundView && !linkedFloor ? { ...drawing, groundView: true } : drawing) }
+    return renderRasterProjection(sources, align(source), { ...options, floorId: source.floorId ?? options.floorId,
+      onMetrics: linkedFloor ? undefined : options.onMetrics }, preview, started, partition?.bounds)
+  }
+  const floorId = projection.floorId ?? options.floorId ?? Object.keys(scene.floors)[0]
+  if (!scene.floors[floorId].underlayFloorId) return finishPartition(await renderFloor(projection, drawable(projection)))
+  const stack = floorDisplayStack(scene, floorId)
+  const view = partition?.bounds ?? (editor ? editorViewBounds(projection.bounds, editor.viewBoundsMm) : projection.bounds)
+  const lower: Projection[] = []
+  let result: HTMLCanvasElement | undefined, context: CanvasRenderingContext2D | undefined
+  try {
+    for (const floor of stack) {
+      const layer = floor.id === floorId ? projection : projectScene(scene, options.audience, project.appearance, { floorId: floor.id })
+      const left = Math.max(view.x, layer.bounds.x), top = Math.max(view.y, layer.bounds.y)
+      const right = Math.min(view.x + view.width, layer.bounds.x + layer.bounds.width)
+      const bottom = Math.min(view.y + view.height, layer.bounds.y + layer.bounds.height)
+      if (right <= left || bottom <= top) continue
+      const drawing = drawable(layer)
+      const canvas = await renderFloor(layer, drawing, true)
+      try {
+        checkCancelled(options.signal)
+        if (!result) {
+          result = document.createElement('canvas')
+          result.width = canvas.width
+          result.height = canvas.height
+          context = result.getContext('2d', { willReadFrequently: !editor && options.longEdgePx === PNG_MAX_LONG_EDGE }) ?? undefined
+          if (!context) throw new Error('无法创建楼层叠绘缓冲。')
+          if (projection.outputBackground?.mode !== 'transparent') {
+            context.fillStyle = projection.outputBackground?.mode === 'solid' ? projection.outputBackground.color : '#D8D5C5'
+            context.fillRect(0, 0, result.width, result.height)
+          }
+        }
+        const ctx = context!, sx = result.width / view.width, sy = result.height / view.height
+        drawFloorShadows(ctx, view, planFloorShadows(drawing, lower, view, options.signal))
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect((left - view.x) * sx, (top - view.y) * sy, (right - left) * sx, (bottom - top) * sy)
+        ctx.clip()
+        ctx.drawImage(canvas, 0, 0)
+        ctx.restore()
+        lower.push(drawing)
+      } finally { canvas.width = canvas.height = 0 }
+    }
+    return finishPartition(result!)
+  } catch (error) {
+    if (result) result.width = result.height = 0
+    throw error
+  }
 }
 
 export async function exportPng(input: ProjectBundle, options: RenderOptions): Promise<Blob> {

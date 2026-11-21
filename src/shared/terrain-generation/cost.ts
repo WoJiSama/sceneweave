@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { structureIdentityDescriptors } from '../history/structure-identity.js'
 import { legacyTerrainView, terrainIdentityDescriptors } from './composition-integrity.js'
 import { outdoorIdentityDescriptors } from '../history/identity.js'
@@ -96,7 +97,7 @@ export function terrainCommandCost(before:SceneDocument,after:SceneDocument,meta
 export function assertTerrainBudget(before:SceneDocument,after:SceneDocument,metadata?:TerrainCostMetadata) {
   if((before.generation?.version===5||after.generation?.version===5)&&!metadata)throw new Error('完整工程采用预算缺少真实历史身份与外观来源；仅SceneDocument草稿估算不能用于安装。')
   const cost=terrainCommandCost(before,after,metadata)
-  if(cost.total>256)throw new Error(`地形候选实际展开${cost.total}，超过256；请减少细节或缩小范围。`)
+  if(cost.total>256)throw new OperationRejected('operation_budget', `地形候选实际展开${cost.total}，超过256；请减少细节或缩小范围。`)
   return cost
 }
 

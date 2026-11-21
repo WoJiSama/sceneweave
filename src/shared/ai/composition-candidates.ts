@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { visualBase } from '../visual/base.js'
 import { z } from 'zod'
 import type { ProjectData } from '../model/project.js'
@@ -34,7 +35,7 @@ export const CompositionCandidateSchema = z.discriminatedUnion('kind', [
 export type CompositionCandidate = z.infer<typeof CompositionCandidateSchema>
 export type CompositionCandidateResult = { candidateOperations: AuthoringOperation[]; guidance: string[]; details: unknown; appearance: 'unconfirmed' }
 const rectangle = (b: BoundsMm): PointMm[] => [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }]
-function deny(): never { throw new Error('构图候选须使用明确授权的公开范围、固定定义和操作。') }
+function deny(): never { throw new OperationRejected('outside_scope', '构图候选须使用明确授权的公开范围、固定定义和操作。') }
 const publicIds = (start: AuthoringStart, ids: ReadonlySet<string>) => new Set([...start.scope.targetIds, ...(start.scope.scene?.entityIds ?? []), ...(start.scope.visual?.entityIds ?? []), ...ids])
 function layout(start: AuthoringStart, query: Extract<CompositionCandidate, { kind: 'layout' }>): CompositionCandidateResult {
   const scope = start.scope.scene

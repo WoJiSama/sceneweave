@@ -4,6 +4,7 @@ import { propPresentation } from '../../shared/appearance/presentation'
 import { Layers3, LockKeyhole, Move, PencilRuler, Sprout } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { SceneCommand } from '../../shared/commands/commands'
+import { partitionAt } from '../../shared/geometry/partitions'
 import { createPublicVisibility } from '../../shared/geometry/visibility'
 import type { EditableProject } from '../../application/workspace/project'
 import { NumberInput } from '../native-canvas/controls'
@@ -15,6 +16,9 @@ import { assertDecorationMemberUnlocked } from '../../shared/decorations/command
 import { appearanceSwapInfo } from './appearance-swap-info'
 import EntityLockNotice from './EntityLockNotice'
 import AttachmentTools from './AttachmentTools'
+import SightOccluderTools from './SightOccluderTools'
+import PipePortTools from './PipePortTools'
+import type { PipePort } from '../../shared/path-assembly/pipe-geometry'
 import { WaterPropTools } from './OceanTools'
 
 export const propName = (project: EditableProject, id: string) => {
@@ -36,6 +40,8 @@ type Props = {
   onFillCopyNumeric?: (sourceId: string, count: number, allowOverlap: boolean, stepMm: { x: number; y: number }) => void
   fillCopyBusy?: boolean
   onOpenLayers?: () => void
+  onDrawSight?: (id: string) => void
+  onMarkPipePort?: (id: string, port: PipePort) => void
 }
 
 function FillCopyControls({ scene, sourceId, busy, onFill, onNumeric }: { scene: SceneDocument; sourceId: string; busy: boolean; onFill: NonNullable<Props['onFillCopy']>; onNumeric?: Props['onFillCopyNumeric'] }) {
@@ -59,7 +65,14 @@ function FillCopyControls({ scene, sourceId, busy, onFill, onNumeric }: { scene:
 }
 
 export default function SceneInspector(props: Props) {
-  return <><EntityLockNotice scene={props.project.document} id={props.selected} onSelect={props.onSelect} onOpenLayers={props.onOpenLayers}/><SceneInspectorContent {...props}/>{props.project.document.props[props.selected] && <AttachmentTools key={props.selected} scene={props.project.document} id={props.selected} disabled={props.busy} onPreview={(commands, label) => props.onPreview(commands, label)}/>}</>
+  const scene = props.project.document, id = props.selected
+  return <><EntityLockNotice scene={scene} id={id} onSelect={props.onSelect} onOpenLayers={props.onOpenLayers}/><SceneInspectorContent {...props}/>
+    {scene.props[id] && <>
+      {props.onDrawSight && <SightOccluderTools scene={scene} id={id} disabled={props.busy || effectiveEditLocked(scene, id)} onDraw={props.onDrawSight} onPreview={props.onPreview}/>}
+      {props.onMarkPipePort && <PipePortTools prop={scene.props[id]} disabled={props.busy || effectiveEditLocked(scene, id)} onMark={props.onMarkPipePort} onPreview={props.onPreview}/>}
+      <AttachmentTools key={id} scene={scene} id={id} disabled={props.busy} onPreview={props.onPreview}/>
+    </>}
+  </>
 }
 
 function SceneInspectorContent({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey, onFillCopy, onFillCopyNumeric, fillCopyBusy = false }: Props) {
@@ -93,6 +106,7 @@ function SceneInspectorContent({ project, selected, busy, workspace, onSelect, o
   if (scene.scatterGroups[selected]) return <ScatterInspector {...{ project, selected, busy, onSelect, onPreview }} onCommit={commands => onCommit(() => workspace.execute(commands))}/>
   if (scene.terrainEdges[selected] || scene.terrainConnections[selected] || area && area.id !== 'terrace-area' || terrain && terrain.id !== 'terrace-area') return <TerrainInspector {...{ project, selected, busy, onSelect, onPreview }} onCommit={commands => onCommit(() => workspace.execute(commands))}/>
   if (prop) {
+    const partition = partitionAt(scene, prop.floorId, prop.positionMm)
     const effectivelyLocked = effectiveEditLocked(scene, selected)
     let lockChangeReason: string | null = effectiveLayerLocked(scene, selected) ? '请先在图层中解除所属图层锁。'
       : [owner, scatterOwner].some(parent => parent && (parent.editLocked || effectiveLayerLocked(scene, parent.id))) ? '请先解除所属组合或散布的编辑锁。' : null
@@ -105,6 +119,7 @@ function SceneInspectorContent({ project, selected, busy, workspace, onSelect, o
     return <><div className="asset-section-heading"><Move size={16}/><h2>物件属性</h2></div><div className="workspace-object-title"><h3>{propName(project, selected)}</h3>
       <button className="secondary workspace-object-lock" aria-label={lockLabel} disabled={busy || !!lockChangeReason} title={lockChangeReason ?? lockLabel} onClick={() => onCommit(() => workspace.execute([{ type: 'setEditLock', kind: 'prop', id: selected, locked: !prop.editLocked }]))}><LockKeyhole size={14}/><span>{prop.editLocked ? '解锁' : scatterOwner ? '固定' : '锁定'}</span></button></div>
       {owner && <button className="asset-group-link" onClick={() => onSelect(owner.id)}><Layers3 size={14}/>选择整个{groupName(project, owner.id)}</button>}
+      {partition && <button className="asset-group-link" onClick={() => onSelect(partition.id)}>所在分区 · {partition.name}</button>}
       {scatterOwner && <button className="asset-group-link" disabled={busy} onClick={() => onSelect(scatterOwner.id)}><Sprout size={14}/>管理{scatterName(scene, scatterOwner)}</button>}
       <fieldset disabled={busy || effectivelyLocked}>
         <button className="secondary asset-wide" onClick={() => onPreview([{ type: 'setPropBlocking', id: selected, blocksMovement: !prop.blocksMovement }], prop.blocksMovement ? '物件改为不阻挡移动' : '物件改为阻挡移动')}>{prop.blocksMovement ? '预览改为不阻挡移动' : '预览改为阻挡移动'}</button>

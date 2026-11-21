@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
-import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
+import { polygonDistance, propFootprint } from '../src/shared/geometry/geometry'
+import { clickKeyboardWorldPoint, createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
 import { openSamples, openSceneObjects } from './workspace-navigation-helpers'
+import { openDetailsBySummary } from './workspace-ux-helpers'
 
 async function select(page: Page, id: string, category: '组合' | '物件与装饰') {
   const objects = await openSceneObjects(page, category)
@@ -36,18 +38,41 @@ test('ordinary scatter regeneration retains a fixed member while group and layer
   await expect(inspector.getByLabel('对象散布密度', { exact: true })).toBeEnabled()
   await expect(inspector.getByRole('button', { name: '预览重新散布', exact: true })).toBeEnabled()
   await inspector.getByLabel('对象散布密度', { exact: true }).fill('.65')
+  await inspector.getByRole('button', { name: '预览重新散布', exact: true }).click(); await adopt(page)
+  const planted = await keyboardProjectBackup(page, info.outputPath('planted.sceneweave'))
+  const pinned = fixed.document.props[member.propId!]
+  const clearingTarget = Object.values(planted.document.scatterGroups[group.id].members).filter(row => row.state === 'managed' && row.propId && row.propId !== pinned.id)
+    .map(row => planted.document.props[row.propId!]).sort((a, b) => Math.hypot(b.positionMm.x - pinned.positionMm.x, b.positionMm.y - pinned.positionMm.y)
+      - Math.hypot(a.positionMm.x - pinned.positionMm.x, a.positionMm.y - pinned.positionMm.y))[0]
+  const { x, y } = clearingTarget.positionMm, radius = 600
+  await openDetailsBySummary(inspector, /^留空区 ·/)
+  await inspector.getByLabel('散布排除用途', { exact: true }).selectOption('entrance')
+  await inspector.getByRole('button', { name: '在画布圈出留空区', exact: true }).click()
+  for (const point of [{ x: x - radius, y: y - radius }, { x: x + radius, y: y - radius }, { x: x + radius, y: y + radius }, { x: x - radius, y: y + radius }]) {
+    await clickKeyboardWorldPoint(page, point, fixed.document.exportBoundsMm)
+  }
+  await page.getByRole('button', { name: '预览留空区', exact: true }).click(); await adopt(page)
+  const cleared = await keyboardProjectBackup(page, info.outputPath('cleared.sceneweave'))
+  const clearing = cleared.document.scatterGroups[group.id].exclusions.find(row => !group.exclusions.some(previous => previous.id === row.id))!
+  expect(clearing.reason).toBe('entrance')
+  expect(cleared.document.props[clearingTarget.id]).toBeUndefined()
+  expect(cleared.document.props[pinned.id]).toEqual(pinned)
+  await inspector.getByLabel('对象散布密度', { exact: true }).fill('.85')
   await inspector.getByRole('button', { name: '预览重新散布', exact: true }).click()
   await page.getByRole('button', { name: '取消室外预览', exact: true }).click()
   await keyboardWorkspaceSaved(page)
-  expect((await keyboardProjectBackup(page, info.outputPath('cancelled.sceneweave'))).hashes).toEqual(fixed.hashes)
+  expect((await keyboardProjectBackup(page, info.outputPath('cancelled.sceneweave'))).hashes).toEqual(cleared.hashes)
   await inspector.getByRole('button', { name: '预览重新散布', exact: true }).click(); await adopt(page)
   const regenerated = await keyboardProjectBackup(page, info.outputPath('regenerated.sceneweave'))
   expect(regenerated.document.props[member.propId!]).toEqual(fixed.document.props[member.propId!])
-  expect(regenerated.document.scatterGroups[group.id].densityFactor).toBe(.65)
+  expect(regenerated.document.scatterGroups[group.id].densityFactor).toBe(.85)
   expect(Object.values(regenerated.document.scatterGroups[group.id].members).filter(row => row.propId).length).toBeGreaterThan(Object.values(group.members).filter(row => row.propId).length)
+  for (const entry of Object.values(regenerated.document.scatterGroups[group.id].members)) if (entry.state === 'managed' && entry.propId) {
+    expect(polygonDistance(propFootprint(regenerated.document.props[entry.propId]), clearing.boundaryMm)).toBeGreaterThan(0)
+  }
   await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
   const undone = await keyboardProjectBackup(page, info.outputPath('undone.sceneweave'))
-  expect(undone.document.props).toEqual(fixed.document.props); expect(undone.document.scatterGroups).toEqual(fixed.document.scatterGroups)
+  expect(undone.document.props).toEqual(cleared.document.props); expect(undone.document.scatterGroups).toEqual(cleared.document.scatterGroups)
   await page.getByRole('button', { name: '重做编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
   expect((await keyboardProjectBackup(page, info.outputPath('redone.sceneweave'))).document.props).toEqual(regenerated.document.props)
   await select(page, group.id, '组合')

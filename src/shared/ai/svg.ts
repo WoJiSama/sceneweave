@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { encodeUtf8 } from '../validation/json.js'
 import { sha256Bytes } from '../validation/hash.js'
 
@@ -81,7 +82,7 @@ const ATTRS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   polygon: PAINT.concat(['points']),
 })
 
-function invalid(message: string): never { throw new Error(`SVG不受支持：${message}`) }
+function invalid(message: string): never { throw new OperationRejected('invalid_svg', `SVG不受支持：${message}`) }
 function finiteNumber(value: string, label: string, maximum: number = STATIC_SVG_LIMITS.coordinate): number {
   if (!NUMBER.test(value)) return invalid(`${label}必须是有限十进制数。`)
   const number = Number(value)

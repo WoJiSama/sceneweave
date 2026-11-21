@@ -1,9 +1,10 @@
 import { rebindPathAttachmentProofs } from '../../shared/path-attachments/state.js'
-import { prepareSceneTemplatePlacement, type SceneTemplatePlacement, type SceneTemplatePreparationControl } from '../../shared/scene-templates/content.js'
+import { prepareSceneTemplatePlacement, type SceneTemplateEntry, type SceneTemplatePlacement, type SceneTemplatePreparationControl } from '../../shared/scene-templates/content.js'
+import { prepareBridgeTemplateSync } from './bridge-template-revisions.js'
 import { isDecorationCommand } from '../../shared/decorations/commands.js'
 import type { AggregateEditBoundaryImpact } from './aggregate-boundary.js'
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
-import { emptyBudgetUsage, parseTaskBudgetProfile, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
+import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, parseTaskBudgetProfile, type BudgetUsage, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
 import { assertCommandBudget, measureCommandBudget, retainLocalCommandBudget, selectManualTransactionBudget, MANUAL_TRANSACTION_BUDGETS, type ManualTransactionBudget, type CommandBudgetUsage } from '../../shared/budget/command-budget.js'
 import { selectManualCommandBudget } from '../../shared/budget/manual-request.js'
 import { ProfiledAuthoringScopeSchema } from '../../shared/ai/authoring-profile.js'
@@ -49,7 +50,7 @@ import { visualBindingEntityIds } from '../../shared/visual/diagnostics.js'
 import { planTerrainDressing, type TerrainDressingReport } from '../../shared/visual/terrain-dressing.js'
 import type { CompositionCommand, CompositionContent } from '../../shared/model/appearance.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
-import type { CompleteValidationOptions } from '../../shared/ports/resources.js'
+import type { CancellationSignal, CompleteValidationOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
 import type { SceneDocument, SurfaceRef } from '../../shared/model/scene.js'
 import type { LicenseBinding, SnapshotSummary } from '../../shared/model/project.js'
@@ -81,7 +82,7 @@ import { assertAtomicLease, atomicChanges, captureAtomicDraft, captureAtomicStar
   type AtomicAuthorization, type AtomicCandidate, type AtomicCandidateRecord, type AtomicAdoptionResult, type AtomicCandidateStatus } from './atomic.js'
 import { materializeAuthoringArtwork } from './artwork.js'
 import { assertAssetQualityAccepted, type AssetQualityAssessment } from '../../shared/assets/quality-review.js'
-import { combineManualPreparationUsage, materializeProject, prepareCompositionCommands } from './prepare.js'
+import { combineManualPreparationUsage, materializeProject, measurePreparedCommandBudget, prepareCompositionCommands, prepareFloorArtwork, type FloorArtworkImportRequest } from './prepare.js'
 import { captureEditableDraft, consumeEditableSnapshot, fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
 
 type GeneratedAtomicStart = Extract<AuthoringStart, { schemaVersion: 2 | 3 }> | (AuthoringStartV4 & { source: BaseMapSourceV3 })
@@ -173,6 +174,13 @@ export interface MixedPreview extends MixedCandidate {
   currentSceneId: string | null
   currentRevision: number | null
   baseContentHash: string | null
+}
+export interface ForestGenerationReplay {
+  preparedAt: string
+  identityAllocation: readonly string[]
+}
+type DomainGenerationWitness = ForestGenerationReplay & {
+  domain: DomainGenerationKind; status: PreviewStatus; base: EditableProject; repairs: string[]; forestDiagnostics?: boolean
 }
 export interface DomainPreviewMap { interior: InteriorPreview; forest: ForestPreview; volcano: VolcanoPreview; mixed: MixedPreview }
 export interface GenerationPreviewOptions extends ResourceOptions { execute?: DomainGenerationExecutor; epoch?: number }
@@ -420,12 +428,13 @@ export class Workspace {
   private state: WorkspaceState = { project: null, status: 'empty', error: null, canUndo: false, canRedo: false, lastTransaction: null }
   private readonly listeners = new Set<() => void>()
   private readonly terrainPreviews = new WeakMap<TerrainPreview, PreviewStatus>()
-  private readonly domainPreviews = new WeakMap<object, { domain: DomainGenerationKind; status: PreviewStatus; base: EditableProject; preparedAt: string; identityAllocation: string[]; repairs: string[]; forestDiagnostics?: boolean }>()
+  private readonly domainPreviews = new WeakMap<object, DomainGenerationWitness>()
   private readonly terrainEditPreviews = new WeakMap<TerrainEditPreview, PreviewStatus>()
   private readonly terrainLocalPreviews = new WeakMap<TerrainLocalPreview, PreviewStatus>()
   private readonly localGenerationPreviews = new WeakMap<LocalGenerationPreview, PreviewStatus>()
   private readonly regionalPreviews = new WeakMap<RegionalPreview, { status: PreviewStatus; base: EditableProject; sourceBase?: EditableProject; sourceResult?: RegionalDrillDownResult; sceneBase?: EditableProject }>()
   private readonly compositionPreviews = new WeakMap<CompositionPreview, PreviewStatus>()
+  private readonly floorArtworkBaselines = new WeakMap<EditableProject, EditableProject>()
   private readonly compositionBudgetProofs = new WeakMap<CompositionPreview, {
     baseline: EditableProject; candidate: EditableProject; profile: ManualTransactionBudget; usage: CommandBudgetUsage
   }>()
@@ -638,7 +647,10 @@ export class Workspace {
       if (this.saving) await this.saving.catch(() => {})
       this.assertCheckpoint(checkpoint)
       const project = await validateEditableProject(draft, this.validation())
-      await this.repository.save(toBundle(project), null)
+      this.assertCheckpoint(checkpoint)
+      // Save the already checked immutable copy, with a fresh-ID CAS in storage.
+      const save = this.repository.saveSnapshot ?? this.repository.save
+      await save.call(this.repository, toBundle(project), null)
       this.assertCheckpoint(checkpoint)
       this.install(project)
     } finally {
@@ -688,6 +700,25 @@ export class Workspace {
     const witness = this.domainPreviews.get(preview)
     if (witness?.domain === domain && (witness.status === 'active' || witness.status === 'applying')) witness.status = 'cancelled'
   }
+  private async replayDomainGeneration(witness: DomainGenerationWitness, input: unknown, profile: TaskBudgetProfile,
+    signal: CancellationSignal, assertCurrent: () => void) {
+    let allocationIndex = 0
+    const runtime = { clock: { now: () => witness.preparedAt }, ids: { nextId: () => {
+      const id = witness.identityAllocation[allocationIndex++]
+      if (!id) throw new Error('生成候选身份分配与确定性重放不同。')
+      return id
+    } } }
+    let replay = await prepareDomainProject(witness.domain, witness.base, input, { runtime, validation: this.validation(), signal, profile })
+    if (witness.forestDiagnostics) replay = prepareForestCandidateDiagnostics(replay as MixedCandidate, signal)
+    for (const roomId of witness.repairs) {
+      if (witness.domain !== 'mixed') throw new Error('家具修正只属于本会话的混合生成候选。')
+      replay = await prepareMixedForestFurnitureRepair(replay as MixedCandidate, roomId, { runtime, validation: this.validation(), signal })
+      assertCurrent()
+    }
+    assertCurrent()
+    if (allocationIndex !== witness.identityAllocation.length) throw new Error('生成候选身份分配次数与确定性重放不同。')
+    return replay
+  }
   private async adoptDomainGeneration(domain: DomainGenerationKind, preview: DomainPreviewMap[DomainGenerationKind], options: ResourceOptions = {}) {
     this.assertWritable()
     const witness = this.domainPreviews.get(preview)
@@ -703,21 +734,7 @@ export class Workspace {
     witness.status = 'applying'; this.atomicLock = token
     try {
       assertActive()
-      let allocationIndex = 0
-      const runtime = { clock: { now: () => witness.preparedAt }, ids: { nextId: () => {
-        const id = witness.identityAllocation[allocationIndex++]
-        if (!id) throw new Error('生成候选身份分配与确定性重放不同。')
-        return id
-      } } }
-      let replay = await prepareDomainProject(domain, witness.base, preview.input, { runtime, validation: this.validation(), signal, profile: preview.profile })
-      if (witness.forestDiagnostics) replay = prepareForestCandidateDiagnostics(replay as MixedCandidate, signal)
-      for (const roomId of witness.repairs) {
-        if (domain !== 'mixed') throw new Error('家具修正只属于本会话的混合生成候选。')
-        replay = await prepareMixedForestFurnitureRepair(replay as MixedCandidate, roomId, { runtime, validation: this.validation(), signal })
-        assertActive()
-      }
-      assertActive()
-      if (allocationIndex !== witness.identityAllocation.length) throw new Error('生成候选身份分配次数与确定性重放不同。')
+      const replay = await this.replayDomainGeneration(witness, preview.input, preview.profile, signal, assertActive)
       const project = await consumeEditableSnapshot(preview.project, { ...this.validation(), signal })
       assertActive()
       const review = (candidate: DomainPreviewMap[DomainGenerationKind] | typeof replay) => ({ resultHash: candidate.resultHash,
@@ -770,6 +787,49 @@ export class Workspace {
       this.cancelMixedGeneration(parent)
       return preview
     } catch (error) { this.cancelMixedGeneration(parent); throw error }
+  }
+  captureForestGenerationReplay(preview: MixedPreview): ForestGenerationReplay & { base: EditableProject } {
+    const witness = this.domainPreviews.get(preview)
+    if (witness?.domain !== 'mixed' || !witness.forestDiagnostics || witness.status !== 'active' || witness.repairs.length) {
+      throw new Error('缺少林中建筑候选的原始生成凭证。')
+    }
+    return { base: witness.base, preparedAt: witness.preparedAt, identityAllocation: [...witness.identityAllocation] }
+  }
+  async restoreForestLoopPreview(archived: EditableProject, usage: BudgetUsage, evidence:
+    | { kind: 'generate'; request: NewGenerationRequest<'mixed'>; replay: ForestGenerationReplay }
+    | { kind: 'repair-furniture'; parent: MixedPreview; roomId: string }, options: ResourceOptions = {}): Promise<MixedPreview> {
+    this.assertWritable()
+    const checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    const assertCurrent = () => { checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint) }
+    const project = await consumeEditableSnapshot(archived, { ...this.validation(), signal })
+    assertCurrent()
+    let witness: DomainGenerationWitness, candidate: MixedCandidate
+    if (evidence.kind === 'generate') {
+      const base = await consumeEditableSnapshot(evidence.request.base, { ...this.validation(), signal })
+      assertCurrent()
+      witness = { ...captureJson(evidence.replay), domain: 'mixed', status: 'active', base, repairs: [], forestDiagnostics: true }
+      candidate = await this.replayDomainGeneration(witness, evidence.request.input, evidence.request.profile, signal, assertCurrent) as MixedCandidate
+    } else {
+      const parent = this.domainPreviews.get(evidence.parent)
+      if (parent?.status !== 'active' || parent.domain !== 'mixed' || !parent.forestDiagnostics) throw new Error('缺少家具修正的已恢复父候选。')
+      this.assertCheckpoint(evidence.parent.checkpoint)
+      candidate = await prepareMixedForestFurnitureRepair(evidence.parent, evidence.roomId, { runtime: this.options.runtime, validation: this.validation(), signal })
+      witness = { ...parent, repairs: [...parent.repairs, evidence.roomId] }
+    }
+    assertCurrent()
+    if (candidate.report.environment !== 'forest' || projectContentHash(toBundle(candidate.project).project) !== projectContentHash(toBundle(project).project)) {
+      throw new Error('保存的林中建筑候选与完整重放不符。')
+    }
+    // Keep the prior measured work when a replay runs faster than the original.
+    const measured = { ...assertTaskBudget(candidate.profile, usage) }
+    for (const key of BUDGET_DIMENSIONS) measured[key] = Math.max(measured[key], candidate.usage[key])
+    const current = this.state.project
+    this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
+    const preview: MixedPreview = freeze({ ...candidate, project, usage: assertTaskBudget(candidate.profile, measured),
+      checkpoint, currentSceneId: current?.document.sceneId ?? null, currentRevision: current?.document.revision ?? null,
+      baseContentHash: current ? projectContentHash(toBundle(current).project) : null })
+    this.domainPreviews.set(preview, witness)
+    return preview
   }
   async previewForestFurnitureRepair(parent: MixedPreview, roomId: string, options: ResourceOptions = {}): Promise<MixedPreview> {
     this.assertWritable()
@@ -1223,7 +1283,12 @@ export class Workspace {
       const after = candidate.historyIdentity.structureTokens?.[id]
       if (!after || after.kind !== record.kind || after.token !== record.token) throw new Error(`候选不能丢弃或改写结构出生身份：${id}。`)
     }
-    if (Object.entries(current.authoringSources).some(([id, value]) => canonical(value) !== canonical(candidate.authoringSources[id]))) throw new Error('候选不能替换工程创作源。')
+    const floorArtworkEdit = this.floorArtworkBaselines.get(candidate) === current
+    for (const [id, value] of Object.entries(current.authoringSources)) {
+      const retained = candidate.authoringSources[id]
+      if (floorArtworkEdit && !retained && !Object.hasOwn(candidate.document.assets, id)) continue
+      if (canonical(value) !== canonical(retained)) throw new Error('候选不能替换工程创作源。')
+    }
   }
   private assertCatalogImport(candidate: EditableProject, checkpoint: number) {
     this.assertCandidateBaseline(candidate, checkpoint)
@@ -1277,6 +1342,18 @@ export class Workspace {
     if (!input.length || !input.every(isDecorationCommand)) throw new Error('轻量布景候选只接受当前工程的明确布景命令。')
     return this.previewCatalogCommands(catalogInput, input, options)
   }
+  async previewFloorArtwork(floorId: string, request: FloorArtworkImportRequest | null, options: ResourceOptions = {}): Promise<CompositionPreview> {
+    this.assertWritable()
+    const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    const preparation = this.manualPreparation()
+    const candidate = await prepareFloorArtwork(current, floorId, request, { ...preparation, signal })
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    // Only this prepared, immutable Floor edit may release an unused fixed source.
+    this.floorArtworkBaselines.set(candidate, current)
+    const preview = await this.registerPrepared(candidate, request ? '更换楼层底图' : '清除楼层底图', checkpoint, [], preparation.budget)
+    if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
+    return preview
+  }
   /** Fixed sources and mixed physical/decoration edits share one complete candidate and adoption. */
   async previewCatalogCommands(catalogInput: EditableProject, input: readonly CompositionCommand[], options: { checkpoint?: number; signal?: ResourceOptions['signal'] } = {}): Promise<CompositionPreview> {
     this.assertWritable()
@@ -1328,6 +1405,18 @@ export class Workspace {
     if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
     return { preview, addedIds: result.addedIds, operationCost: result.operationCost }
   }
+  async previewBridgeTemplateSync(bridgeId: string, original: SceneTemplateEntry, next: SceneTemplateEntry, options: ResourceOptions = {}) {
+    this.assertWritable()
+    const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    let usage: CommandBudgetUsage | undefined
+    const result = await prepareBridgeTemplateSync(current, bridgeId, original, next, {
+      ...this.manualPreparation(), signal, onBudgetUsage: value => { usage = value },
+    })
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const preview = await this.registerPrepared(result.project, '同步桥梁模板新版', checkpoint, [], result.budget, undefined, usage)
+    if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
+    return { preview, applied: result.applied, preserved: result.preserved }
+  }
   /** Only trusted bounded preparation paths may register candidates that change scene semantics. */
   private async registerPrepared(input: EditableProject, description: string, checkpoint: number, commands: readonly CompositionCommand[] = [], budget?: ManualTransactionBudget, aggregateBoundaryImpact?: AggregateEditBoundaryImpact, preparedUsage?: CommandBudgetUsage, executionReceipt?: TransactionReceipt): Promise<CompositionPreview> {
     this.assertCandidateBaseline(input, checkpoint)
@@ -1337,7 +1426,7 @@ export class Workspace {
     assertAllFloorPlayerProjections(candidate.document)
     this.assertCheckpoint(checkpoint)
     const current = this.requireProject()
-    const measured = budget ? measureCommandBudget(current.document, candidate.document, { before: current, after: candidate }, undefined, budget) : undefined
+    const measured = budget ? measurePreparedCommandBudget(current, candidate, budget) : undefined
     const budgetUsage = budget && measured ? assertCommandBudget(budget,
       preparedUsage ? combineManualPreparationUsage(measured, preparedUsage, emptyBudgetUsage()) : measured) : undefined
     const project = freeze(candidate)

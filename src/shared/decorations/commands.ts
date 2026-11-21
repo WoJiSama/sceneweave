@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { z } from 'zod'
 import { assertCommandBudget, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import type { Decoration, DecorationCluster, Editable, PointMm, SceneDocument } from '../model/scene.js'
@@ -35,7 +36,7 @@ export const isDecorationCommand = (command: { type: string }): command is Decor
 const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null)
 const allEntities = (scene: Readonly<SceneDocument>): Editable[] => ['vertices','rooms','walls','openings','props','regions','notes','terrainAreas','terrainEdges','terrainConnections','paths','prefabInstances','scatterGroups','decorations','decorationClusters'].flatMap(key => Object.values((scene as unknown as Record<string, Record<string, Editable>>)[key] ?? {}))
 function unlocked(scene: Readonly<SceneDocument>, row: Editable) {
-  if (row.editLocked || scene.userLayers[scene.entityLayers[row.id]]?.editLocked) throw new Error(`簇状布景涉及已锁定的实体或图层：${row.id}。`)
+  if (row.editLocked || scene.userLayers[scene.entityLayers[row.id]]?.editLocked) throw new OperationRejected('locked_dependency', `簇状布景涉及已锁定的实体或图层：${row.id}。`)
 }
 export function assertDecorationMemberUnlocked(scene: Readonly<SceneDocument>, id: string): void {
   const owner = decorationMemberOwner(scene, id)
@@ -146,7 +147,7 @@ export function applyDecorationCommand(scene: SceneDocument, command: Decoration
     case 'createDecorationCluster': {
       if (geometryIdentityIds(scene).has(command.id) || scene.userLayers[command.id]) throw new Error('新布景簇必须使用未分配的独立ID。')
       const layer = scene.userLayers[command.layerId]
-      if (!layer || layer.floorId !== command.floorId || layer.editLocked) throw new Error('簇状布景须选择同Floor未锁定的用户图层。')
+      if (!layer || layer.floorId !== command.floorId || layer.editLocked) throw new OperationRejected(layer?.editLocked && layer.floorId === command.floorId ? 'locked_dependency' : 'invalid_geometry', '簇状布景须选择同Floor未锁定的用户图层。')
       const { type: _type, layerId, ...fields } = command
       const cluster: DecorationCluster = { ...cloneJson(fields), editLocked: false, algorithmVersion: 'cluster-v1', members: {} }
       supportUnlocked(before, cluster); clusters[cluster.id] = cluster; scene.entityLayers[cluster.id] = layerId; install(cluster)
@@ -210,7 +211,7 @@ export function applyDecorationCommand(scene: SceneDocument, command: Decoration
     const row = allEntities(before).find(row => row.id === id)
     if (row) unlocked(before, row)
   }
-  if (!isManualTransactionBudget(budget) && impact.commandCost > 256) throw new Error('轻量装饰、成员和人工记录实际展开超过256，不能拆批绕过。')
+  if (!isManualTransactionBudget(budget) && impact.commandCost > 256) throw new OperationRejected('operation_budget', '轻量装饰、成员和人工记录实际展开超过256，不能拆批绕过。')
   if (isManualTransactionBudget(budget)) assertCommandBudget(budget, measureCommandBudget(before, scene, undefined, undefined, budget))
   return impact
 }

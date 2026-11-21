@@ -7,10 +7,12 @@ import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import readline from 'node:readline'
 import { chromium } from '@playwright/test'
+import { unzipSync } from 'fflate'
+import { digest } from '../harness/io.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
-test('real MCP discovery, checkpoint export and resume bind the archive and preserve advancing generations', { timeout: 120000 }, async t => {
+test('real image MCP extracts, resumes and delivers an editable project under one workflow binding', { timeout: 120000 }, async t => {
   const output = await fs.mkdtemp(path.join(tmpdir(), 'sceneweave-workflow-host-')), children = new Set()
   t.after(async () => {
     for (const child of children) if (child.exitCode === null) child.kill()
@@ -66,20 +68,85 @@ test('real MCP discovery, checkpoint export and resume bind the archive and pres
   assert.ok((await first.call('tools/list')).tools.some(tool => tool.name === 'sceneweave_workflow'))
   const found = await first.tool('sceneweave_workflow', { action: 'read', workflowId: 'sceneweave-image-items' })
   assert.equal(found.steps[0].requirements[0].state, 'available')
-  assert.equal(found.steps[2].requirements[0].state, 'missing-input')
-  await first.tool('image_import_set_checkpoint', { generation: 0, notes: 'Unresolved edge', nextAction: 'Review synthetic square', scaleStatus: 'provisional' })
+  assert.equal(found.steps.find(step => step.id === 'review').requirements[0].state, 'missing-input')
+  assert.equal(found.steps.find(step => step.id === 'review-repair').requirements[0].state, 'missing-input')
+  const source = await first.tool('image_import_workflow')
+  const point = (x, y) => ({ x, y })
+  const rectangle = (left, top, right, bottom) => [point(left, top), point(right, top), point(right, bottom), point(left, bottom)]
+  const beforeScale = first.tool('image_import_inspect')
+  const beforeProgress = first.tool('sceneweave_workflow', { action: 'progress' })
+  const changeScale = first.tool('image_import_set_scale', { generation: source.generation, first: point(4, 4), second: point(60, 4), distanceMm: 5600 })
+  const afterScale = first.tool('image_import_inspect')
+  const afterProgress = first.tool('sceneweave_workflow', { action: 'progress' })
+  const [before, oldProgress, scaled, after, newProgress] = await Promise.all([beforeScale, beforeProgress, changeScale, afterScale, afterProgress])
+  assert.equal(before.generation, source.generation)
+  assert.equal(oldProgress.progress.generation, source.generation)
+  assert.equal(after.generation, scaled.generation)
+  assert.equal(newProgress.progress.generation, scaled.generation)
+  const room = await first.tool('image_import_set_room', { generation: scaled.generation, points: rectangle(1, 1, 63, 63) })
+  const target = 'synthetic-crate'
+  const extracted = await first.tool('image_import_extract_item', { generation: room.generation, id: target,
+    name: 'Synthetic crate', polygon: rectangle(16, 16, 48, 48), donor: { x: 1, y: 1, width: 12, height: 12 }, renderLayer: 'object', blocksMovement: true })
+  const item = await first.tool('image_import_item_preview', { target })
+  assert.equal(item.generation, extracted.generation)
+  const review = await first.tool('image_import_review_item', { generation: item.generation, target, inputHash: item.inputHash, verdict: 'needs-work', note: 'Synthetic edge awaiting visual review' })
+  await first.tool('image_import_set_checkpoint', { generation: review.generation, notes: 'Unresolved edge', nextAction: 'Review synthetic square', scaleStatus: 'measured' })
   const exported = await first.tool('image_import_export_work')
   assert.ok(exported.workflowCompanion)
   const companion = JSON.parse(await fs.readFile(exported.workflowCompanion, 'utf8'))
   assert.equal(companion.generation, exported.generation)
+  assert.deepEqual(companion.binding, found.workflow)
   assert.equal((await first.close()).code, 0)
 
   const resumed = host(['--resume', exported.path])
   const progress = await resumed.tool('sceneweave_workflow', { action: 'progress' })
   assert.equal(progress.resumeBindingStatus, 'bound')
   assert.equal(progress.progress.generation, exported.generation + 1)
+  assert.equal(progress.progress.taskId, source.id)
   const actual = await resumed.tool('image_import_workflow')
   assert.equal(actual.notes, 'Unresolved edge'); assert.equal(actual.nextAction, 'Review synthetic square')
+  assert.deepEqual(actual.image, source.image)
+  assert.equal(actual.reviews[0].verdict, 'needs-work')
+  assert.equal(actual.reviews[0].matchesInput, true)
+  const resumedItem = await resumed.tool('image_import_item_preview', { target })
+  for (const field of ['inputHash', 'itemSha256', 'backgroundSha256']) assert.equal(resumedItem[field], item[field], field)
+  const { id, version, definitionHash, instructions, surfaceAppearance } = actual.workflow
+  assert.deepEqual({ id, version, definitionHash }, companion.binding)
+  const readStep = stepId => resumed.tool('sceneweave_workflow', { action: 'step', workflowId: id, definitionHash, stepId })
+  for (const { id: stepId } of found.steps) {
+    const { step } = await readStep(stepId)
+    if (stepId === 'refine-surface') assert.equal(surfaceAppearance, step.instructions)
+    else assert.ok(instructions.includes(step.instructions), stepId)
+  }
+  const staleBuild = await resumed.call('tools/call', { name: 'image_import_build_project', arguments: { generation: exported.generation } })
+  assert.equal(staleBuild.isError, true)
+  const staleReceipt = JSON.parse(staleBuild.content[0].text)
+  assert.equal(staleReceipt.code, 'stale_generation')
+  assert.equal(staleReceipt.nextAction, 'read_current_context')
+  const delivery = await resumed.tool('image_import_build_project', { generation: actual.generation, title: 'Image workflow acceptance fixture' })
+  assert.equal(delivery.status, 'complete')
+  assert.equal(delivery.taskId, source.id)
+  assert.equal(delivery.generation, actual.generation)
+  assert.deepEqual(delivery.workflow, companion.binding)
+  assert.deepEqual(delivery.source, source.image)
+  assert.equal(delivery.verification.projectHash, delivery.projectHash)
+  assert.equal(delivery.verification.changedPixels, 0)
+  for (const { file, byteLength, sha256 } of Object.values(delivery.files)) {
+    const bytes = await fs.readFile(path.join(delivery.directory, file))
+    assert.equal(bytes.length, byteLength)
+    assert.equal(digest(bytes), sha256)
+  }
+  const { directory: candidateDirectory, ...deliveryRecord } = delivery
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(candidateDirectory, 'result.json'), 'utf8')), deliveryRecord)
+  const archive = unzipSync(await fs.readFile(path.join(candidateDirectory, delivery.files.project.file)))
+  const decoder = new TextDecoder()
+  const scene = JSON.parse(decoder.decode(archive['scene.json']))
+  const manifest = JSON.parse(decoder.decode(archive['manifest.json']))
+  const prop = scene.props[target]
+  assert.equal(prop.blocksMovement, true)
+  const asset = scene.assets[scene.propDefinitions[prop.definitionRef.id].defaultAppearance.assetId]
+  const resource = manifest.entries.find(entry => entry.sha256 === asset.sha256)
+  assert.equal(digest(archive[resource.path]), asset.sha256)
   assert.equal((await resumed.close()).code, 0)
 
   await fs.writeFile(exported.workflowCompanion, JSON.stringify({ ...companion, binding: { ...companion.binding, definitionHash: '0'.repeat(64) } }))

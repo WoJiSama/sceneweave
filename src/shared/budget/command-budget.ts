@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { z } from 'zod'
 import type { AppearanceGraph, CompositionContent } from '../model/appearance.js'
 import { LAYER_ENTITY_COLLECTIONS, type SceneDocument } from '../model/scene.js'
@@ -8,9 +9,9 @@ import { worldToLocalPoint } from '../aggregates/coordinates.js'
 import { aggregateEntityRelations } from '../aggregates/relations.js'
 import { definitionPresentation, propPresentation } from '../appearance/presentation.js'
 import { visualBase } from '../visual/base.js'
-import { canonicalJson, captureJson, encodeUtf8, equalOwnedJson, freezeJson } from '../validation/json.js'
-import { getCertifiedCompositionContent, getPropUpdateCompositionTransaction, getCompositionRevisionTransaction } from '../validation/content.js'
-import { BUDGET_DIMENSIONS, BudgetUsageSchema, TASK_BUDGET_PROFILES, assertTaskBudget, measureTaskBudget,
+import { canonicalJson, captureJson, encodeUtf8, equalCheckedJson, equalOwnedJson, freezeJson } from '../validation/json.js'
+import { getCertifiedCompositionContent, getCertifiedCompositionDraft, getPropUpdateCompositionTransaction, getCompositionRevisionTransaction } from '../validation/content.js'
+import { BUDGET_DIMENSIONS, BudgetUsageSchema, TASK_BUDGET_PROFILES, accountBudgetExecution, assertTaskBudget, measureDocumentBudget, measureTaskBudget,
   measureBudgetDependencies, measureBudgetGeometry, measuredRetainedSegments, parseTaskBudgetProfile, semanticTargetEntries, type BudgetUsage, type TaskBudgetMetadata, type TaskBudgetProfile } from './task-budget.js'
 
 /** Runtime admission policy only; never changes a saved document or an AI ledger. */
@@ -83,7 +84,7 @@ export function parseCommandBudgetProfile(input: CommandBudgetProfile): CommandB
   return registered
 }
 
-const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null)
+const same = (a: unknown, b: unknown) => equalCheckedJson(a ?? null, b ?? null)
 const effectiveAdjustments = (graph: AppearanceGraph, layerId: string | undefined, id: string) => {
   const result: Record<string, unknown> = {}
   for (const adjustment of [...(layerId ? graph.layerAdjustments[layerId] ?? [] : []), ...(graph.instanceAdjustments[id] ?? [])]) {
@@ -137,6 +138,10 @@ function manualEntries(document: SceneDocument, graph?: AppearanceGraph) {
 
 /** Complete physical/effective appearance changes, with container/member deduplication. */
 export function manualChangedTargets(before: SceneDocument, after: SceneDocument, metadata?: CommandBudgetMetadata): string[] {
+  return changedManualTargets(before, after, metadata, same)
+}
+
+function changedManualTargets(before: SceneDocument, after: SceneDocument, metadata: CommandBudgetMetadata | undefined, same: (a: unknown, b: unknown) => boolean): string[] {
   const a = manualEntries(before, metadata?.before.appearance), b = manualEntries(after, metadata?.after.appearance)
   const changed = new Set([...new Set([...a.keys(), ...b.keys()])].filter(key => !same(a.get(key)?.value, b.get(key)?.value)))
   const oldGroups = before.aggregateCoordinates?.groups ?? {}, newGroups = after.aggregateCoordinates?.groups ?? {}
@@ -208,7 +213,7 @@ function localSurface(snapshot: Extract<AppearanceGraph['sources'][string], { ki
  * parameters must still be identical in the owning local coordinate system.
  * Source IDs or the caller's declaration alone never authorize compression. */
 function unchangedMemberAppearance(ref: AggregateEntityRef, before: SceneDocument, after: SceneDocument,
-  first: AppearanceGraph | undefined, second: AppearanceGraph | undefined, oldFrame: AggregateFrame, newFrame: AggregateFrame): boolean {
+  first: AppearanceGraph | undefined, second: AppearanceGraph | undefined, oldFrame: AggregateFrame, newFrame: AggregateFrame, same: (a: unknown, b: unknown) => boolean): boolean {
   if (!first || !second) return first === second
   const aLayer = before.entityLayers[ref.id], bLayer = after.entityLayers[ref.id]
   if (!same(effectiveAdjustments(first, aLayer, ref.id), effectiveAdjustments(second, bLayer, ref.id))) return false
@@ -230,7 +235,7 @@ function unchangedMemberAppearance(ref: AggregateEntityRef, before: SceneDocumen
 /** An admission classification only: locks, geometry, resources, secrecy,
  * identities and CAS continue through their full existing owning validators.
  * Any local/member/ownership change disables this whole subtree's exemption. */
-function manualCoreImpact(before: SceneDocument, after: SceneDocument, metadata: CommandBudgetMetadata | undefined, targets: readonly string[]) {
+function manualCoreImpact(before: SceneDocument, after: SceneDocument, metadata: CommandBudgetMetadata | undefined, targets: readonly string[], same: (a: unknown, b: unknown) => boolean) {
   const oldGroups = before.aggregateCoordinates?.groups, newGroups = after.aggregateCoordinates?.groups
   const ordinary = { semanticTargets: targets.length, groupMembers: 0, externalDependencies: 0 }
   if (!oldGroups || !newGroups || before.aggregateCoordinates?.encoding !== 'world' || after.aggregateCoordinates?.encoding !== 'world') return ordinary
@@ -295,7 +300,7 @@ function manualCoreImpact(before: SceneDocument, after: SceneDocument, metadata:
         // Raw rows above include every member field. Entries additionally
         // include actual wall/room support geometry, layer order and filters.
         if (aKey && !equalOwnedJson(oldEntries.get(aKey)?.value ?? null, newEntries.get(aKey)?.value ?? null)) return false
-        return unchangedMemberAppearance(ref, before, after, aGraph, bGraph, oldFrames.get(owner)!, newFrames.get(owner)!)
+        return unchangedMemberAppearance(ref, before, after, aGraph, bGraph, oldFrames.get(owner)!, newFrames.get(owner)!, same)
       })
       if (!unchanged) continue
       edits.add(`aggregate:${root}`)
@@ -372,26 +377,30 @@ function measureProvenPropBudget(before: SceneDocument, after: SceneDocument, me
       usage.assetBytes += record.sizeBytes; usage.decodePixels += record.pixelWidth * record.pixelHeight
     }
   }
-  for (const [key, value] of Object.entries(execution) as [keyof BudgetUsage, number][]) {
-    if (!BUDGET_DIMENSIONS.includes(key) || !Number.isSafeInteger(value) || value < 0) throw new Error('任务执行计量无效。')
-    usage[key] = ['gridNodes', 'fieldEvaluations', 'intersectionPairs', 'candidateAttempts', 'activeExecutionMs'].includes(key)
-      ? usage[key] + value : Math.max(usage[key], value)
-  }
+  const measured = accountBudgetExecution(usage, execution)
   retainedPropBudgets.set(after, { ...retained, identity: witness.result.historyIdentity, appearance: witness.result.appearance })
-  return freezeJson({ ...BudgetUsageSchema.parse(usage), groupMembers: 0, externalDependencies: 0 })
+  return freezeJson({ ...measured, groupMembers: 0, externalDependencies: 0 })
 }
 
 export function measureCommandBudget(before: SceneDocument, after: SceneDocument, metadata?: CommandBudgetMetadata, execution: Partial<BudgetUsage> = {}, profile: CommandBudgetProfile = MANUAL_TRANSACTION_BUDGET): CommandBudgetUsage {
-  if (isManualTransactionBudget(profile)) {
-    const proven = measureProvenPropBudget(before, after, metadata, execution)
-    if (proven) return proven
+  if (!isManualTransactionBudget(profile)) return measureTaskBudget(before, after, metadata as TaskBudgetMetadata | undefined, execution)
+  const proven = measureProvenPropBudget(before, after, metadata, execution)
+  if (proven) return proven
+  // Manual admission has its own semantic and metadata counts. Share only the
+  // actual geometry, dependency and resource accounting with the task policy.
+  const usage = accountBudgetExecution(measureDocumentBudget(before, after, metadata?.after),
+    { ...execution, geometryPoints: 0, geometrySegments: 0 })
+  const findCertified = (document: SceneDocument, fields: CommandBudgetMetadata['before'] | undefined) => {
+    const input = { document, historyIdentity: fields?.historyIdentity, appearance: fields?.appearance }
+    return getCertifiedCompositionContent(input) ?? getCertifiedCompositionDraft(input)
   }
-  // The task meter reads absent identity/appearance branches as empty metadata.
-  const measuredExecution = isManualTransactionBudget(profile) ? { ...execution, geometryPoints: 0, geometrySegments: 0 } : execution
-  const usage = measureTaskBudget(before, after, metadata as TaskBudgetMetadata | undefined, measuredExecution)
-  if (!isManualTransactionBudget(profile)) return usage
-  const targets = manualChangedTargets(before, after, metadata)
-  const impact = manualCoreImpact(before, after, metadata, targets)
+  const first = findCertified(before, metadata?.before), second = findCertified(after, metadata?.after)
+  // Exact owned composition branches can be compared directly. For other
+  // inputs the same comparison still captures and checks all caller JSON.
+  const comparison = first && second ? { metadata: { before: first, after: second }, equal: (a: unknown, b: unknown) => equalOwnedJson(a ?? null, b ?? null) }
+    : { metadata, equal: same }
+  const targets = changedManualTargets(before, after, comparison.metadata, comparison.equal)
+  const impact = manualCoreImpact(before, after, comparison.metadata, targets, comparison.equal)
   const recordData = (document: SceneDocument, identity?: CommandBudgetMetadata['before']) => ({
     generation: document.generation ?? null, identity: identity?.historyIdentity ?? null, appearance: identity?.appearance ?? null,
     pathAttachments: document.pathAttachments ?? null,
@@ -403,13 +412,13 @@ export function measureCommandBudget(before: SceneDocument, after: SceneDocument
   })
   let metadataRecords = 0, metadataBytes = 0
   const recordDelta = (first: unknown, second: unknown) => {
-    if (same(first, second)) return
+    if (equalOwnedJson(first ?? null, second ?? null)) return
     const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
     if (record(first) && record(second)) {
       metadataRecords++
       metadataBytes += 2 // Changed record braces; unchanged children cost no delta bytes.
       for (const key of new Set([...Object.keys(first), ...Object.keys(second)])) {
-        if (same(first[key], second[key])) continue
+        if (equalOwnedJson(first[key] ?? null, second[key] ?? null)) continue
         metadataBytes += encodeUtf8(canonicalJson(key)).length + 2 // Key, colon and separator.
         recordDelta(first[key], second[key])
       }
@@ -420,7 +429,9 @@ export function measureCommandBudget(before: SceneDocument, after: SceneDocument
       metadataBytes += Math.max(encodeUtf8(canonicalJson(first ?? null)).length, encodeUtf8(canonicalJson(second ?? null)).length)
     }
   }
-  recordDelta(recordData(before, metadata?.before), recordData(after, metadata?.after))
+  // Own and check each metadata tree once before comparing its branches.
+  // Canonical UTF-8 sizes are still charged for changed keys and values.
+  recordDelta(captureJson(recordData(before, metadata?.before)), captureJson(recordData(after, metadata?.after)))
   let implicitPoints = 0, implicitSegments = 0
   for (const target of targets) {
     const separator = target.indexOf(':'), kind = target.slice(0, separator), id = target.slice(separator + 1)
@@ -433,7 +444,7 @@ export function measureCommandBudget(before: SceneDocument, after: SceneDocument
   }
   const retainedSegments = Object.keys(after.walls).length + Object.values(after.rooms).reduce((sum, room) => sum + room.boundaryVertexIds.length, 0)
     + Object.values(after.terrainAreas).reduce((sum, area) => sum + area.boundaryMm.length, 0)
-    + Object.values(after.paths).reduce((sum, path) => sum + Math.max(0, path.centerlineMm.length - 1), 0)
+    + Object.values(after.paths).reduce((sum, path) => sum + Math.max(0, path.centerlineMm.length - 1) + (path.widthSections?.length ?? 0) * 8, 0)
   return freezeJson({ ...usage, semanticTargets: Math.max(impact.semanticTargets, execution.semanticTargets ?? 0),
     groupMembers: impact.groupMembers, externalDependencies: impact.externalDependencies,
     metadataRecords: Math.max(metadataRecords, execution.metadataRecords ?? 0), metadataBytes: Math.max(metadataBytes, execution.metadataBytes ?? 0),
@@ -450,9 +461,9 @@ export function assertCommandBudget(input: CommandBudgetProfile, raw: CommandBud
   const extra = z.object({ groupMembers: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
     externalDependencies: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional() }).strict().parse({ groupMembers, externalDependencies })
   const usage = BudgetUsageSchema.parse(base)
-  if ((extra.groupMembers ?? 0) > profile.groupMemberLimit) throw new Error(`普通事务预算超限[groupMembers]：${extra.groupMembers}/${profile.groupMemberLimit}，保留当前成果。`)
+  if ((extra.groupMembers ?? 0) > profile.groupMemberLimit) throw new OperationRejected('operation_budget', `普通事务预算超限[groupMembers]：${extra.groupMembers}/${profile.groupMemberLimit}，保留当前成果。`)
   for (const key of BUDGET_DIMENSIONS) if (usage[key] > profile.limits[key]) {
-    throw new Error(`普通事务预算超限[${key}]：${usage[key]}/${profile.limits[key]}，保留当前成果。`)
+    throw new OperationRejected('operation_budget', `普通事务预算超限[${key}]：${usage[key]}/${profile.limits[key]}，保留当前成果。`)
   }
   return freezeJson({ ...usage, ...Object.fromEntries(Object.entries(extra).filter(([, value]) => value !== undefined)) })
 }

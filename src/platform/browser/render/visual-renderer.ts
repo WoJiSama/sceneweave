@@ -1,8 +1,7 @@
 import type { BoundsMm, PointMm } from '../../../shared/model/scene.js'
 import type { ProjectedVisualBoundary, ProjectedVisualFilter, Projection } from '../../../shared/projection/types.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
-import { bandRings, intersectsVisualBounds, lightVisibilityPolygon, offsetPolyline, polygonSegments, visualRandom } from './visual-geometry'
-import type { VisualSegment } from './visual-geometry'
+import { bandRings, intersectsVisualBounds, lightVisibilityPolygon, occluderSegments, offsetPolyline, visualRandom } from './visual-geometry'
 import { visualSampleAtDistance } from '../../../shared/visual/geometry.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { cliffRelief } from './cliff-relief.js'
@@ -462,11 +461,6 @@ export function drawVisualContacts(ctx: CanvasRenderingContext2D, projection: Pr
   } finally { release(buffer.surface) }
 }
 
-/** Wall gaps are real apertures; a closed door seals its gap. Windows transmit this static light. */
-export function projectedLightBlockers(projection: Projection, _wallRings: PointMm[][] = []): VisualSegment[] {
-  return projection.visual?.occluderRings.flatMap(polygonSegments) ?? []
-}
-
 function applyExposure(ctx: CanvasRenderingContext2D, projection: Projection, exposure: number, readFrequently: boolean): void {
   if (exposure === 1) return
   const buffer = localBuffer(ctx, projection, projection.bounds, readFrequently)
@@ -475,13 +469,14 @@ function applyExposure(ctx: CanvasRenderingContext2D, projection: Projection, ex
 }
 
 /** Atmosphere only sees the audience-filtered projection. Final opaque masks run afterwards. */
-export function drawVisualAtmosphere(ctx: CanvasRenderingContext2D, projection: Projection, wallRings: PointMm[][], signal?: AbortSignal, readFrequently = false): void {
+export function drawVisualAtmosphere(ctx: CanvasRenderingContext2D, projection: Projection, signal?: AbortSignal, readFrequently = false): void {
   const visual = projection.visual
   if (!visual) return
   const b = projection.bounds, env = visual.environment
   if (env.ambientOpacity > 0) { ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = env.ambientOpacity; ctx.fillStyle = env.ambientColor; ctx.fillRect(b.x, b.y, b.width, b.height); ctx.restore() }
   applyExposure(ctx, projection, env.exposure, readFrequently)
-  const blockers = visual.lights.some(light => light.wallOcclusion) ? projectedLightBlockers(projection, wallRings) : []
+  const blockers = visual.lights.some(light => light.wallOcclusion) || visual.fixtureGlows?.some(light => light.wallOcclusion)
+    ? occluderSegments(visual) : []
   for (const light of visual.lights) {
     checkCancelled(signal)
     if (!light.intensity) continue
@@ -492,6 +487,23 @@ export function drawVisualAtmosphere(ctx: CanvasRenderingContext2D, projection: 
     const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius)
     gradient.addColorStop(0, rgba(light.color, Math.min(1, light.intensity * .8))); gradient.addColorStop(.35, rgba(light.color, Math.min(1, light.intensity * .38))); gradient.addColorStop(1, rgba(light.color, 0))
     ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = gradient; ctx.fillRect(p.x - radius, p.y - radius, radius * 2, radius * 2); ctx.restore()
+  }
+  for (const { positionMm: p, radiusMm: radius, color, intensity, wallOcclusion } of visual.fixtureGlows ?? []) {
+    checkCancelled(signal)
+    const footprint = { x: p.x - radius, y: p.y - radius, width: radius * 2, height: radius * 2 }
+    if (!intersectsVisualBounds(footprint, b)) continue
+    const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius)
+    gradient.addColorStop(0, rgba(color, Math.min(1, intensity * .93)))
+    gradient.addColorStop(.13, rgba(color, Math.min(1, intensity * .66)))
+    gradient.addColorStop(.38, rgba(color, intensity * .24))
+    gradient.addColorStop(.72, rgba(color, intensity * .057))
+    gradient.addColorStop(1, rgba(color, 0))
+    ctx.save()
+    if (wallOcclusion) ctx.clip(ringsPath([lightVisibilityPolygon(p, radius, blockers)]))
+    ctx.globalCompositeOperation = 'screen'
+    ctx.fillStyle = gradient
+    ctx.fillRect(footprint.x, footprint.y, footprint.width, footprint.height)
+    ctx.restore()
   }
   for (const fog of visual.fogs) {
     checkCancelled(signal)

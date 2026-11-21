@@ -10,6 +10,9 @@ export interface ProjectedMaterialPatch {
 }
 export interface ProjectedSurface { id: string; points: PointMm[]; style: SurfaceStyle | null; elevationMm: number; priority: number; materialPatches?: ProjectedMaterialPatch[]
   boundaryBlendMm?: number
+  facade?: import('../appearance/terrain-facade.js').TerrainFacade
+  /** Generated solid support, with the default paint supplied by its bridge. */
+  bridgeSupport?: true
   waterSurface?: import('../ocean/contracts.js').WaterSurface
   /** Actual audience-owned top after visible cuts; source footprint stays in points for selection. */
   regionsMm?: { outerMm: PointMm[]; holesMm: PointMm[][] }[]
@@ -42,8 +45,45 @@ export interface ProjectedTerrainInlay {
    * preserved in the source and explicitly listed for candidate review. */
   scopedPaintIds?: string[]
 }
-export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null }
-export interface ProjectedPath { id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle }
+export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null
+  /** A declared band width is an explicit paint dimension. */
+  customFinish?: true
+  /** Derived from this audience's declared edge and its visible neighboring terrain. */
+  shorePaint?: { style: EdgeStyle; waterSide: 'source' | 'neighbor' }
+}
+export interface ProjectedBridge {
+  outline: PointMm[]
+  centerlineMm: PointMm[]
+  widthMm: number
+  finish: 'steel' | 'timber'
+  relief?: { depthMm: number; shadowOpacity: number; elevationMm: number; ribSpacingMm: number }
+  structure?: { palette: 'riveted' | 'alloy'; landings: { side: 'start' | 'end'; outline: [PointMm, PointMm, PointMm, PointMm] }[] }
+}
+export interface ProjectedFloorShadow {
+  caster: NonNullable<ProjectedSurface['regionsMm']>
+  receiver: NonNullable<ProjectedSurface['regionsMm']>
+  offsetMm: PointMm
+  blurMm: number
+  opacity: number
+}
+export interface ProjectedDoorThreshold {
+  end: 'start' | 'end'
+  cap: [PointMm, PointMm]
+  inside: [PointMm, PointMm]
+}
+export interface ProjectedPath {
+  id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle; bridge?: ProjectedBridge
+  stairs?: { centerlineMm: PointMm[]; widthMm: number; widthSections?: import('../geometry/route-width.js').RouteWidthSection[]; config: import('../stairs/contracts.js').StaircaseConfig }
+  /** Paint-only continuation through an audience-visible attached doorway. */
+  doorThresholds?: ProjectedDoorThreshold[]
+}
+/** Paint for a supported terminal. References are only to visible public geometry. */
+export interface ProjectedBridgeEntrance {
+  bridgeId: string
+  end: 'start' | 'end'
+  platform?: { id: string; contactMm: PointMm; shoulderCut: NonNullable<ProjectedSurface['regionsMm']>; edgeOpening: NonNullable<ProjectedSurface['regionsMm']>; laneReachMm?: number }
+  approach?: { pathId: string; end: 'start' | 'end'; cap: [PointMm, PointMm]; sides: [PointMm[], PointMm[]]; from: PointMm; to: PointMm }
+}
 export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null
   staircase?: import('../stairs/contracts.js').StaircaseConfig
   staircaseCenterlineMm?: PointMm[]
@@ -79,6 +119,7 @@ export interface Projection {
   floorId?: string
   /** Shared preview/export background, independent of physical ground and masks. */
   outputBackground?: import('../model/scene.js').SceneOutputBackground
+  floorArtwork?: import('../model/scene.js').FloorArtwork
   rooms: ProjectedSurface[]; terrain: ProjectedSurface[]; walls: ProjectedWall[]
   /** Canonical ground/object/canopy, renderOrder, id order; independent copies of source props. */
   props: Prop[]
@@ -96,6 +137,7 @@ export interface Projection {
   /** Same-floor/elevation public paths across visible editing layers, after audience and editor filtering.
    * Only visible IDs survive; style/filter compatibility is checked at paint time. */
   pathJoinGroups?: string[][]
+  bridgeEntrances?: ProjectedBridgeEntrance[]
   /** Public paths in actual paint order, including incompatible covers.
    * Private paths never participate in public seam decisions. */
   pathJoinPaintOrder?: string[]
@@ -112,6 +154,9 @@ export interface Projection {
   /** Disposable symbol-band order; only projected public IDs appear in player output. */
   openingPaintOrder?: string[]
   notes: ProjectedNote[]; regions: ProjectedRegion[]; masks: PointMm[][]
+  /** Per-mask holes derived exclusively from this audience's public room
+   * interiors. No private room IDs, rings, props or source metadata survive. */
+  maskPublicRooms?: PointMm[][][]
   regional?: { areas: ProjectedRegionalArea[]; lines: ProjectedRegionalLine[]; landmarks: ProjectedRegionalLandmark[]; symbols: ProjectedRegionalSymbol[] }
   theme: Pick<StyleTheme, 'outline' | 'openingStyle' | 'shadowPresets' | 'edgeStyles' | 'terrainCliff'> | null
   materials: Record<string, Pick<MaterialRef, 'id' | 'version' | 'textureAssetId'>>
@@ -169,10 +214,13 @@ export interface ProjectedVisualSystem {
   transitions?: ProjectedVisualTransition[]
   edgeLooks: import('../visual/types.js').VisualEdgeLook[]
   lights: import('../visual/types.js').VisualLight[]
+  /** Ground glow derived from actual visible fixtures after audience filtering. */
+  fixtureGlows?: (import('../path-assembly/contracts.js').FixtureGlow & { positionMm: PointMm; wallOcclusion?: true })[]
   fogs: import('../visual/types.js').VisualFog[]
   filters: ProjectedVisualFilter[]
   /** Full visible physical occluders and contact footprints, independent of editor LOD/crop. */
   occluderRings: PointMm[][]
+  occluderLines?: PointMm[][]
   contactRings: PointMm[][]
   /** Default edge paint replaced by continuous boundary decoration. */
   suppressedTerrainEdgeIds: string[]

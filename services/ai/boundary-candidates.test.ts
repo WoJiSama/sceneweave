@@ -85,7 +85,7 @@ describe('short boundary candidate adoption through the ordinary strict ledger',
     if (mode === 'edited-draft') expect(run('sceneweave_edit_scene', { operations: [receipts[0].candidateOperation] }).success).toBe(true)
     const before = canonicalJson(task), result = run('sceneweave_apply_boundary_candidates', args)
     expect(result.success).toBe(false)
-    expect(JSON.parse(result.output)).toMatchObject({ error: { code: 'stale_candidate' } })
+    expect(JSON.parse(result.output)).toMatchObject({ error: { code: 'stale_candidate', nextAction: 'refresh_candidate' } })
     expect(canonicalJson(task)).toBe(before)
   })
 

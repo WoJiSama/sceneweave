@@ -5,6 +5,7 @@ import { createServer } from 'vite'
 const TITLE = '建筑组整体操作开发自检'
 const ROOM = '建筑组测试房间'
 const NOTE = '建筑组主持人线索'
+const detailIds = Array.from({ length: 101 }, (_, index) => `zz-group-review-item-${index}`)
 
 async function saved(page: Page) {
   await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 30000 })
@@ -60,6 +61,13 @@ test('create a building group, transform its members, undo and reopen the saved 
     scene.props.item.positionMm = { x: 4500, y: 4500 }
     scene.props.item.supportRef = { kind: 'room', id: 'room' }
     scene.props.item.roomId = 'room'
+    detailIds.forEach((id, index) => {
+      scene.props[id] = { ...structuredClone(scene.props.item), id,
+        positionMm: { x: 3600 + (index % 11) * 400, y: 5500 + Math.floor(index / 11) * 400 },
+        visualBoundsMm: { x: -80, y: -80, width: 160, height: 160 }, footprintMm: { width: 120, height: 120 }, footprintOffsetMm: { x: 0, y: 0 },
+        blocksMovement: false, blocksSight: false, appearance: { ...scene.props.item.appearance, symbol: 'rug' } }
+      scene.entityLayers[id] = scene.entityLayers.item
+    })
     scene.props.other.positionMm = { x: 16000, y: 16000 }
     // Distinct readable names also expose an accidental inclusion of the
     // unrelated Floor-supported object in the building's moving closure.
@@ -95,7 +103,7 @@ test('create a building group, transform its members, undo and reopen the saved 
   const tools = await buildingTools(page)
   await tools.getByRole('button', { name: '创建建筑组', exact: true }).click()
   await expect(review).toBeVisible()
-  await expect(review.getByLabel('分组变化', { exact: true })).toContainText('创建分组 · 13 个直接成员')
+  await expect(review.getByLabel('分组变化', { exact: true })).toContainText(`创建分组 · ${13 + detailIds.length} 个直接成员`)
   const scope = review.getByLabel('关联对象', { exact: true })
   await expect(scope).toContainText(ROOM)
   await expect(scope).toContainText('桌子')
@@ -138,11 +146,28 @@ test('create a building group, transform its members, undo and reopen the saved 
   await expect(review).toContainText('整栋建筑变换')
   await expect(review.getByLabel('关联对象', { exact: true })).toContainText('桌子')
   const actualChanges = review.locator('.composition-preview-details')
+  const cards = actualChanges.locator('.composition-diff-item')
+  await expect(cards).toHaveCount(0)
   await actualChanges.locator(':scope > summary').click()
+  const pages = actualChanges.getByRole('combobox', { name: '变化记录页码', exact: true })
+  await expect(pages).toHaveValue('0')
+  await expect(cards).toHaveCount(100)
+  const firstPage = await cards.allTextContents()
+  await pages.selectOption('1')
+  await expect(cards).not.toHaveCount(100)
+  const secondPage = await cards.allTextContents()
+  expect(secondPage.length).toBeGreaterThan(0)
+  expect(secondPage.length).toBeLessThan(100)
+  const reviewedIds = [...firstPage, ...secondPage].flatMap(text => text.match(/对象 ID：(zz-group-review-item-[0-9]+) · props/)?.[1] ?? [])
+  expect(reviewedIds.sort()).toEqual(detailIds.slice().sort())
+  await actualChanges.locator(':scope > summary').click()
+  await expect(cards).toHaveCount(0)
+  await actualChanges.locator(':scope > summary').click()
+  await expect(pages).toHaveValue('1')
   const budget = review.getByLabel('普通事务保护详情', { exact: true })
   await budget.locator('summary').click()
   await expect(budget).toContainText('编辑目标1 / 256')
-  await expect(budget).toContainText('组内影响13 / 4096')
+  await expect(budget).toContainText(`组内影响${13 + detailIds.length} / 4096`)
   await expect(budget).toContainText('组外依赖')
   await expect(workbench).toHaveAttribute('data-revision', '1')
   await expect(review.getByRole('button', { name: '采用结构修改', exact: true })).toBeDisabled()

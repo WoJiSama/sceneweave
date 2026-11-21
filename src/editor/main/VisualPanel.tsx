@@ -22,7 +22,7 @@ import { TERRAIN_CLIFF_STYLES } from '../../shared/visual/terrain-cliff-style'
 export type VisualTab = 'surface' | 'edge' | 'background' | 'environment' | 'light' | 'fog' | 'filter'
 export interface VisualBoundaryEditor { boundary: VisualBoundary; onChange: (value: VisualBoundary) => void }
 const line = (a: PointMm, b: PointMm) => ({ id: newId(), start: { ...a }, control1: { x: Math.round((2 * a.x + b.x) / 3), y: Math.round((2 * a.y + b.y) / 3) }, control2: { x: Math.round((a.x + 2 * b.x) / 3), y: Math.round((a.y + 2 * b.y) / 3) }, end: { ...b } })
-const names = { shore: '海岸 · 湿沙与泡沫', cliff: '连续崖面', grass: '草沿', path: '道路边带', fence: '围栏' }
+const names = { shore: '海岸 · 湿沙与泡沫', cliff: '连续崖面', grass: '草沿', path: '道路边带', fence: '围栏 · 装饰' }
 export default function VisualPanel({ scene, appearance, historyIdentity, layerId, selectedIds, disabled, onPreview, onBoundaryEditor, onDraftChange, surfaceRequest, detailsTarget, detailsActive = true, activeTab, onTabChange, onInspect }: {
   scene: SceneDocument; appearance: AppearanceGraph; historyIdentity?: HistoryIdentity; layerId: string; selectedIds: readonly string[]; disabled: boolean
   onPreview: (commands: SceneCommand[], label: string) => void
@@ -111,7 +111,7 @@ export default function VisualPanel({ scene, appearance, historyIdentity, layerI
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
   }
   const parameters = <section className="visual-panel workspace-tool-parameters" aria-label="外观与氛围参数" hidden={split && !detailsActive} inert={split && !detailsActive}>
-    <p className="workspace-panel-intro">{({ edge: '选择已有曲线或建立草稿，再调整边带效果。', surface: '选择房间、地形、墙面、道路、边缘或台阶坡道，调整材质与铺装比例。', background: '选择地图底色或透明背景，预览和导出共同使用。', environment: '调整当前楼层的色调、光照方向与接触阴影。', light: '设置局部灯光的位置、范围与颜色。', fog: '选择区域，再调整雾的颜色和浓淡。', filter: '选择作用范围，用预设和参数调整画面。' })[tab]}</p>
+    <p className="workspace-panel-intro">{({ edge: '选择已有曲线或建立草稿，再调整边带效果。需要阻挡通行的围栏可在地形的绘制工具中创建。', surface: '选择房间、地形、墙面、道路、边缘或台阶坡道，调整材质与铺装比例。', background: '选择地图底色或透明背景，预览和导出共同使用。', environment: '调整当前楼层的色调、光照方向与接触阴影。', light: '设置局部灯光的位置、范围与颜色。', fog: '选择区域，再调整雾的颜色和浓淡。', filter: '选择作用范围，用预设和参数调整画面。' })[tab]}</p>
     <p className="asset-muted">{tab === 'background' ? '作用范围：全图输出背景。' : tab === 'environment' ? '作用范围：当前楼层环境。' : tab === 'surface' ? '作用范围：下方明确指定的单个表面。' : tab === 'filter' ? '作用范围由下方范围选择确定。' : tab === 'light' ? `作用范围：局部灯光 · 图层 ${scene.userLayers[light.layerId]?.name ?? light.layerId}。` : tab === 'fog' ? `作用范围：明确雾区 · 图层 ${scene.userLayers[fog.layerId]?.name ?? fog.layerId}。` : `作用范围：当前曲线及其已列出的绑定对象 · 图层 ${scene.userLayers[boundary?.layerId ?? layerId]?.name ?? boundary?.layerId ?? layerId}。`}</p>
     <fieldset disabled={disabled}>
     {tab === 'background' && <SceneBackgroundTools scene={scene} disabled={disabled} onPreview={submit} onDraftChange={active => { if (active) onDraftChange?.() }}/>}

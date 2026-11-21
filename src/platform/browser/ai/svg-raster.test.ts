@@ -6,7 +6,7 @@ import { decodeCanonicalPng, encodeCanonicalPng } from '../../../shared/project/
 import { REFINED_INTERIOR_ART } from '../../../shared/visual/interior-art.js'
 import { REFINED_COAST_ART } from '../../../shared/visual/coast-art.js'
 import { REFINED_ISLAND_ART } from '../../../shared/visual/island-art.js'
-import { initializeCanonicalSvgRasterizer, rasterizeNormalizedSvg } from './svg-raster.js'
+import { copyCanonicalSvgModule, initializeCanonicalSvgRasterizer, rasterizeNormalizedSvg } from './svg-raster.js'
 import { createBrowserSvgPort } from './svg-port.js'
 import { svgProjectFixture } from '../../../../tests/helpers/m24-svg-fixtures.js'
 import { bitmapVariant, resolveAppearance } from '../../../shared/appearance/graph.js'
@@ -26,6 +26,20 @@ describe('fixed software SVG processor 2', () => {
     const changed = moduleBytes.slice(); changed[64] ^= 1
     expect(() => initializeCanonicalSvgRasterizer(changed)).toThrow(/SHA256/)
     expect(() => initializeCanonicalSvgRasterizer(changed.subarray(1))).toThrow(/长度/)
+  })
+
+  it('retries invalid module bytes and keeps the verified bytes through worker transfers', async () => {
+    const changed = moduleBytes.slice(); changed[64] ^= 1
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(changed)).mockResolvedValueOnce(new Response(moduleBytes))
+    vi.stubGlobal('fetch', fetch)
+    try {
+      await expect(copyCanonicalSvgModule()).rejects.toThrow(/SHA256/)
+      const first = await copyCanonicalSvgModule()
+      structuredClone(first, { transfer: [first.buffer] })
+      expect(first.byteLength).toBe(0)
+      expect(sha256Bytes(await copyCanonicalSvgModule())).toBe(CANONICAL_SVG_PROCESSOR.rasterizer.moduleSha256)
+      expect(fetch).toHaveBeenCalledTimes(2)
+    } finally { vi.unstubAllGlobals() }
   })
 
   it.each([

@@ -15,6 +15,9 @@ export function pageWorkflowHost(): WorkflowHost {
     'page-adopt': available('候选审阅 → 采用/保存新副本'),
     'image-read': available('素材 → 图片拆解'), 'image-select': available('图片拆解 → 辅助选区/切割'),
     'image-preview': available('图片/素材预览 → 黑白棋盘与移转审阅'), 'image-build': available('图片拆解 → 制作工作包/完整工程候选'),
+    'image-repair': available('图片拆解 → 移除范围与底材'),
+    'image-repair-analysis': available('图片拆解 → 补底分析'),
+    'image-surface-refine': available('图片拆解 → 地面外观细修'),
     'asset-refine': available('素材 → 编辑素材副本 → 图像处理'),
     'ocean-generation': available('生成 → 自然地形 → 岩岛/海岸 → 添加静态海面与布景 → 预览'),
     'floor-navigation': available('场景 → 楼层入口与定位；楼层管理创建普通Floor'),
@@ -34,6 +37,10 @@ export function harnessWorkflowHost(): WorkflowHost {
   } }
 }
 
+const requirementsWithImageItem = new Set<WorkflowRequirement>([
+  'image-preview', 'image-repair', 'image-repair-analysis', 'image-surface-refine', 'asset-refine',
+])
+
 /** Only tools actually exposed by this session can satisfy a tool requirement. */
 export function toolWorkflowHost(name: 'conversation' | 'authoring' | 'image-mcp', tools: WorkflowHost['tools'],
   options: { remainingToolCalls?: number; progress?: WorkflowHost['progress']; hasImageItems?: boolean } = {}): WorkflowHost {
@@ -48,17 +55,20 @@ export function toolWorkflowHost(name: 'conversation' | 'authoring' | 'image-mcp
     'floor-navigation': page('场景 → 楼层入口与定位', '当前模型工具没有跨层入口执行命令；由用户在页面操作。'),
   }
   const requirements: Partial<Record<WorkflowRequirement, string[]>> = {
-    'draft-read': ['sceneweave_read_scene'], 'draft-edit': ['sceneweave_edit_scene', 'sceneweave_edit_props', 'sceneweave_apply_stage'],
-    'draft-check': ['sceneweave_check_draft'], 'image-read': ['image_import_workflow'],
+    'draft-read': ['sceneweave_read_scene'], 'draft-edit': ['sceneweave_edit_scene', 'sceneweave_edit_props', 'sceneweave_apply_stage', 'sceneweave_apply_visual_correction'],
+    'draft-check': ['sceneweave_check_draft', 'sceneweave_visual_review'], 'image-read': ['image_import_workflow'],
     'image-select': ['image_import_extract_item', 'image_import_set_selection'],
     'image-preview': ['image_import_item_preview'], 'image-build': ['image_import_build_project', 'image_import_export_work'],
-    'asset-refine': ['image_import_enhancement_candidates', 'image_import_subject_candidates'],
+    'image-repair': ['image_import_set_repair_scope', 'image_import_set_surfaces'],
+    'image-repair-analysis': ['image_import_analyze_repair'],
+    'image-surface-refine': ['image_import_surface_candidate', 'image_import_set_surface_refinement'],
+    'asset-refine': ['image_import_enhancement_candidates', 'image_import_subject_candidates', 'image_import_matte_candidates'],
   }
   for (const [requirement, alternatives] of Object.entries(requirements) as Array<[WorkflowRequirement, string[]]>) {
     const found = alternatives.filter(tool => names.has(tool))
     capabilities[requirement] = found.length ? options.remainingToolCalls !== undefined && options.remainingToolCalls <= 0
       ? { state: 'budget-exhausted', entry: found.join(' / '), reason: '本任务工具预算已耗尽；保留已有结果，不自动创建新任务。', toolNames: found }
-      : options.hasImageItems === false && (requirement === 'image-preview' || requirement === 'asset-refine')
+      : options.hasImageItems === false && requirementsWithImageItem.has(requirement)
         ? { state: 'missing-input', entry: found.join(' / '), reason: '当前还没有已拆物件；先检查原图并建立有效item，再预览或优化。', toolNames: found }
         : available(found.join(' / '), found)
       : { state: 'not-connected', entry: name === 'conversation' ? '页面相应制作入口或另行授权的工具宿主' : '', reason: '本次真实工具目录未开放此操作。' }

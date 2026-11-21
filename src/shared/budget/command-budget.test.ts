@@ -121,6 +121,8 @@ describe('ordinary transaction admission', () => {
     expect(usage.semanticTargets).toBe(1)
     expect(usage.groupMembers).toBe(grouped.aggregateCoordinates!.groups.building.members.length)
     expect(usage.geometrySegments).toBeGreaterThan(4)
+    const ownedBefore = certifyCompositionContent(before), ownedAfter = certifyCompositionContent(after)
+    expect(measureCommandBudget(ownedBefore.document, ownedAfter.document, { before: ownedBefore, after: ownedAfter })).toEqual(usage)
     const changed = cloneJson(after)
     changed.document.props.item.rotationDeg++
     expect(measureCommandBudget(before.document, changed.document, { before, after: changed }).groupMembers).toBe(0)

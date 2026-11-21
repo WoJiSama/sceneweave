@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { z } from 'zod'
 import { sha256Text } from '../validation/hash.js'
 import { canonicalJson, captureJson, freezeJson } from '../validation/json.js'
@@ -68,5 +69,5 @@ export function accumulateContinuationUsage(before: BudgetUsage, delta: BudgetUs
     retained.has(key) ? Math.max(before[key], delta[key]) : before[key] + delta[key]])))
 }
 export function assertContinuationUsage(policy: BudgetPolicyV2, usage: BudgetUsage): void {
-  for (const key of BUDGET_DIMENSIONS) if (usage[key] > policy.cumulativeLimits[key]) throw new Error(`AI累计预算超限[${key}]：${usage[key]}/${policy.cumulativeLimits[key]}。`)
+  for (const key of BUDGET_DIMENSIONS) if (usage[key] > policy.cumulativeLimits[key]) throw new OperationRejected('operation_budget', `AI累计预算超限[${key}]：${usage[key]}/${policy.cumulativeLimits[key]}。`)
 }

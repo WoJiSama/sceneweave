@@ -20,7 +20,12 @@ test('workflow discovery is read-only and rejects ambiguous selectors', () => {
   assert.deepEqual(parseArguments(['workflows', '--id', 'sceneweave-image-items', '--step', 'review']), {
     command: 'workflows', query: { action: 'step', workflowId: 'sceneweave-image-items', stepId: 'review' },
   })
-  for (const args of [['--step', 'review'], ['--id', 'image', '--step', 'review', '--effects'], ['--id', 'image', '--query', 'forest'], ['--schema'], ['--output', '/tmp/out']]) {
+  const definitionHash = 'a'.repeat(64)
+  assert.deepEqual(parseArguments(['workflows', '--id', 'sceneweave-image-items', '--definition-hash', definitionHash, '--step', 'review']), {
+    command: 'workflows', query: { action: 'step', workflowId: 'sceneweave-image-items', stepId: 'review', definitionHash },
+  })
+  for (const args of [['--step', 'review'], ['--id', 'image', '--step', 'review', '--effects'], ['--id', 'image', '--query', 'forest'],
+    ['--schema'], ['--output', '/tmp/out'], ['--definition-hash', definitionHash], ['--id', 'image', '--definition-hash', 'wrong']]) {
     assert.throws(() => parseArguments(['workflows', ...args]))
   }
 })

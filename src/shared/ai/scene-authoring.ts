@@ -1,3 +1,4 @@
+import { OperationRejected, type OperationRejectionCode } from '../validation/operation-rejection.js'
 import { currentAuthoringPaint } from './current-authoring-paint.js'
 import { connectionFootprint } from '../geometry/geometry.js'
 import { decorationFootprint, decorationRecords, decorationClusterRecords } from '../decorations/geometry.js'
@@ -25,7 +26,7 @@ import { terrainExtendedEntity, assertTerrainExtendedEntity } from './terrain-co
 
 const sorted = (values: Iterable<string>): string[] => [...new Set(values)].sort()
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
-function deny(message: string): never { throw new Error(`AI场景草稿范围无效：${message}`) }
+function deny(message: string, code: OperationRejectionCode = 'invalid_geometry'): never { throw new OperationRejected(code, `AI场景草稿范围无效：${message}`) }
 const same = (a: unknown, b: unknown): boolean => a === undefined || b === undefined ? a === b : canonicalJson(a) === canonicalJson(b)
 const allEntities = (scene: SceneDocument): Map<string, Editable> => new Map([...LAYER_ENTITY_COLLECTIONS.flatMap(key => Object.values(scene[key]) as Editable[]), ...Object.values(decorationRecords(scene)), ...Object.values(decorationClusterRecords(scene))].map(value => [value.id, value]))
 const entity = (scene: SceneDocument, id: string): Editable | undefined => LAYER_ENTITY_COLLECTIONS.map(key => own<Editable>(scene[key], id)).find(Boolean) ?? decorationRecords(scene)[id] ?? decorationClusterRecords(scene)[id]
@@ -96,7 +97,7 @@ function shapes(scene: SceneDocument, id: string, visited = new Set<string>(), p
 }
 function unmasked(scene: SceneDocument, floorId: string, polygons: PointMm[][]): void {
   for (const mask of Object.values(scene.regions)) if (mask.floorId === floorId && mask.kind === 'manualMask') for (const polygon of polygons) {
-    if (polygonsOverlap(polygon, mask.boundaryMm) || polygon.some(p => pointInPolygon(p, mask.boundaryMm)) || polygon.length >= 3 && mask.boundaryMm.some(p => pointInPolygon(p, polygon))) deny('明确公开范围不能包含玩家遮罩。')
+    if (polygonsOverlap(polygon, mask.boundaryMm) || polygon.some(p => pointInPolygon(p, mask.boundaryMm)) || polygon.length >= 3 && mask.boundaryMm.some(p => pointInPolygon(p, polygon))) deny('明确公开范围不能包含玩家遮罩。', 'outside_scope')
   }
 }
 function isPublic(scene: SceneDocument, id: string, visited = new Set<string>()): boolean {
@@ -122,12 +123,12 @@ function isPublic(scene: SceneDocument, id: string, visited = new Set<string>())
 }
 function assertGeometry(scene: SceneDocument, scope: SceneScope, id: string, paintProject?: ProjectData): void {
   const polygons = shapes(scene, id, new Set(), paintProject)
-  if (!polygons.length || polygons.some(polygon => !inside(scope.boundsMm, polygon))) deny(`实体或真实物理/图像边界超出明确授权范围：${id}。`)
+  if (!polygons.length || polygons.some(polygon => !inside(scope.boundsMm, polygon))) deny(`实体或真实物理/图像边界超出明确授权范围：${id}。`, 'outside_scope')
   unmasked(scene, scope.floorId, polygons)
 }
 function definition(project: ProjectData, id: string): void {
   const value = own(project.document.propDefinitions, id)
-  if (!value?.origin.canEmbed || value.tags.includes('sceneweave:retained-appearance')) deny('固定物件定义不可用或不是公开素材。')
+  if (!value?.origin.canEmbed || value.tags.includes('sceneweave:retained-appearance')) deny('固定物件定义不可用或不是公开素材。', 'outside_scope')
 }
 
 /** Validate a fixed, explicit grant. Dependencies never silently enlarge this grant. */
@@ -137,17 +138,19 @@ export function validateSceneScope(project: ProjectData, input: SceneScope, budg
   const scope = (current ? CurrentSceneAuthoringScopeSchema : budget ? ProfiledSceneAuthoringScopeSchema : SceneAuthoringScopeSchema).parse(captureJson(input)), scene = project.document
   if (current && scope.operations.some(kind => !currentAuthoringOperationSupported(project, kind))) deny('场景操作不支持当前工程的实际能力。')
   const floor = own(scene.floors, scope.floorId), layer = own(scene.userLayers, scope.layerId)
-  if (!floor || !layer || layer.floorId !== floor.id || layer.editLocked) deny('创作Floor或用户图层无效/锁定。')
+  if (!floor || !layer || layer.floorId !== floor.id) deny('创作Floor或用户图层无效/锁定。', 'outside_scope')
+  if (layer.editLocked) deny('创作Floor或用户图层无效/锁定。', 'locked_dependency')
   if (!inside(floor.boundsMm, rectangle(scope.boundsMm))) deny('创作范围超出世界。')
   unmasked(scene, scope.floorId, [rectangle(scope.boundsMm)])
   for (const id of scope.entityIds) {
     if (terrainExtendedEntity(scene, id)) { assertTerrainExtendedEntity(project, scope, id); continue }
     const value = entity(scene, id)
-    if (!value || value.floorId !== scope.floorId || !isPublic(scene, id) || effectiveEditLocked(scene, id)) deny(`既有实体须为同Floor的公开、未锁定对象：${id}。`)
+    if (!value || value.floorId !== scope.floorId || !isPublic(scene, id)) deny(`既有实体须为同Floor的公开、未锁定对象：${id}。`, 'outside_scope')
+    if (effectiveEditLocked(scene, id)) deny(`既有实体须为同Floor的公开、未锁定对象：${id}。`, 'locked_dependency')
     assertGeometry(scene, scope, id, current ? project : undefined)
   }
-  for (const id of scope.generationLayerIds ?? []) if (!scene.userLayers[id] || scene.userLayers[id].floorId !== floor.id || scene.userLayers[id].editLocked) deny('地形生成图层未授权或锁定。')
-  for (const id of scope.regionalDefinitionIds ?? []) if (!scene.regional?.symbolDefinitions[id]?.origin.canEmbed) deny('区域图符固定定义未授权。')
+  for (const id of scope.generationLayerIds ?? []) if (!scene.userLayers[id] || scene.userLayers[id].floorId !== floor.id || scene.userLayers[id].editLocked) deny('地形生成图层未授权或锁定。', 'outside_scope')
+  for (const id of scope.regionalDefinitionIds ?? []) if (!scene.regional?.symbolDefinitions[id]?.origin.canEmbed) deny('区域图符固定定义未授权。', 'outside_scope')
   scope.definitionIds.forEach(id => definition(project, id))
   for (const id of scope.prefabDefinitionIds) {
     const value = own(scene.prefabDefinitions, id)
@@ -206,7 +209,8 @@ function collectEntity(project: ProjectData, id: string, read: Set<string>): voi
 /** Visual tools share exactly the public geometry/lock/resource boundary of scene tools. */
 export function assertPublicSceneEntity(project: ProjectData, scope: Pick<SceneAuthoringScope, 'floorId' | 'boundsMm'>, id: string, capability?: CurrentAuthoringCapability): string[] {
   const scene = project.document, value = entity(scene, id), read = new Set<string>()
-  if (!value || value.floorId !== scope.floorId || !isPublic(scene, id) || effectiveEditLocked(scene, id)) deny('视觉目标须为明确公开、同Floor且未锁定的实体。')
+  if (!value || value.floorId !== scope.floorId || !isPublic(scene, id)) deny('视觉目标须为明确公开、同Floor且未锁定的实体。', 'outside_scope')
+  if (effectiveEditLocked(scene, id)) deny('视觉目标须为明确公开、同Floor且未锁定的实体。', 'locked_dependency')
   assertGeometry(scene, scope as SceneAuthoringScope, id, capability ? project : undefined); collectEntity(project, id, read)
   return sorted(read)
 }
@@ -227,18 +231,19 @@ function materialStyle(scene: SceneDocument, id: string): SurfaceStyle {
 }
 function commandsFor(project: ProjectData, scope: SceneScope, operation: SceneAuthoringOperation, context: PreparationContext, allowed: ReadonlySet<string>): CompositionCommand[] {
   const scene = project.document
-  const required = (id: string) => { if (!allowed.has(id) || !entity(scene, id)) deny(`实体/支撑/锚点未明确授权：${id}。`) }
+  const required = (id: string) => { if (!allowed.has(id) || !entity(scene, id)) deny(`实体/支撑/锚点未明确授权：${id}。`, 'outside_scope') }
   const fresh = (id: string) => {
     if (entity(scene, id) || Object.hasOwn(scene.userLayers, id) || Object.hasOwn(scene.floors, id) || Object.hasOwn(project.historyIdentity.propTokens, id) || Object.hasOwn(project.historyIdentity.prefabTokens, id) || Object.hasOwn(project.historyIdentity.outdoorTokens, id)) deny('新增ID已占用或带历史出生身份。')
   }
   const support = (ref: SurfaceRef) => {
-    if (ref.kind === 'floor') { if (ref.id !== scope.floorId) deny('支撑Floor未获授权。'); return }
+    if (ref.kind === 'floor') { if (ref.id !== scope.floorId) deny('支撑Floor未获授权。', 'outside_scope'); return }
     required(ref.id)
-    if (!createPublicVisibility(scene).surface(ref) || effectiveEditLocked(scene, ref.id)) deny('支撑必须公开且未锁定。')
+    if (!createPublicVisibility(scene).surface(ref)) deny('支撑必须公开且未锁定。', 'outside_scope')
+    if (effectiveEditLocked(scene, ref.id)) deny('支撑必须公开且未锁定。', 'locked_dependency')
   }
   const material = (id: string | undefined, kind: 'room' | 'wall' | 'terrain' | 'path') => {
     if (id === undefined) return {}
-    if (!scope.materialIds.includes(id) || !scene.materials[id]?.applicableSurfaces.includes(kind)) deny('固定材质未获授权或不适用。')
+    if (!scope.materialIds.includes(id) || !scene.materials[id]?.applicableSurfaces.includes(kind)) deny('固定材质未获授权或不适用。', 'outside_scope')
     return { materialRef: { id, version: scene.materials[id].version } }
   }
   const common = { floorId: scope.floorId, layerId: scope.layerId }
@@ -303,16 +308,16 @@ function commandsFor(project: ProjectData, scope: SceneScope, operation: SceneAu
     case 'scatter': {
       fresh(operation.id)
       required(operation.domain.kind === 'area' ? operation.domain.areaId : operation.domain.kind === 'path' ? operation.domain.pathId : operation.domain.edgeId)
-      for (const value of operation.palette) if (!scope.definitionIds.includes(value.definitionId)) deny('散布素材未获明确授权。')
+      for (const value of operation.palette) if (!scope.definitionIds.includes(value.definitionId)) deny('散布素材未获明确授权。', 'outside_scope')
       return [{ type: 'createScatter', id: operation.id, ...common, domain: operation.domain, palette: operation.palette.map(value => ({ key: value.definitionId, propDefinitionRef: { id: value.definitionId, version: scene.propDefinitions[value.definitionId].version }, weight: value.weight })), seed: operation.seed, cellSizeMm: operation.cellSizeMm, densityFactor: operation.densityFactor ?? .25, minDistanceMm: operation.minDistanceMm, rotationRangeDeg: { min: operation.rotationMinDeg ?? 0, max: operation.rotationMaxDeg ?? 359 } }, { type: 'regenerateScatter', id: operation.id }]
     }
     case 'scatterRegenerate':
       required(operation.id)
-      if (!scene.scatterGroups[operation.id] || scene.scatterGroups[operation.id].palette.some(value => !scope.definitionIds.includes(value.propDefinitionRef.id))) deny('散布组或其固定素材未获授权。')
+      if (!scene.scatterGroups[operation.id] || scene.scatterGroups[operation.id].palette.some(value => !scope.definitionIds.includes(value.propDefinitionRef.id))) deny('散布组或其固定素材未获授权。', 'outside_scope')
       return [{ type: 'regenerateScatter', id: operation.id, ...(operation.densityFactor !== undefined ? { densityFactor: operation.densityFactor } : {}) }]
     case 'prefab': {
       fresh(operation.id); support(operation.supportRef)
-      if (!scope.prefabDefinitionIds.includes(operation.definitionId)) deny('固定组合未获授权。')
+      if (!scope.prefabDefinitionIds.includes(operation.definitionId)) deny('固定组合未获授权。', 'outside_scope')
       const value = scene.prefabDefinitions[operation.definitionId]
       if (!value) deny('固定组合不存在。')
       const memberIds = Object.fromEntries(value.members.map(member => [member.key, context.ids.nextId()]))
@@ -320,7 +325,7 @@ function commandsFor(project: ProjectData, scope: SceneScope, operation: SceneAu
     }
     case 'furnish':
       fresh(operation.id); support(operation.supportRef)
-      if (!scope.definitionIds.includes(operation.definitionId)) deny('家具固定素材未获明确授权。')
+      if (!scope.definitionIds.includes(operation.definitionId)) deny('家具固定素材未获明确授权。', 'outside_scope')
       return [{ type: 'addProp', id: operation.id, ...common, definitionRef: { id: operation.definitionId, version: scene.propDefinitions[operation.definitionId].version }, positionMm: operation.positionMm, rotationDeg: operation.rotationDeg ?? 0, supportRef: operation.supportRef }]
     case 'gmNote': {
       fresh(operation.id)
@@ -395,14 +400,22 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneScope
   const current = assertCurrentAuthoringCapability(project, capability)
   if (!current) deny('完整工程的AI场景编辑须使用当前明确能力协议。')
   const scope = (current ? CurrentSceneAuthoringScopeSchema : budget ? ProfiledSceneAuthoringScopeSchema : SceneAuthoringScopeSchema).parse(captureJson(inputScope)), operation = SceneAuthoringOperationSchema.parse(captureJson(inputOperation))
-  if (!scope.operations.includes(operation.kind)) deny('场景操作未获明确授权。')
+  if (!scope.operations.includes(operation.kind)) deny('场景操作未获明确授权。', 'outside_scope')
   const allowed = new Set([...scope.entityIds, ...allowedEntityIds]), scene = project.document, read = new Set([scope.floorId, scope.layerId])
-  const guarded = <T>(prepare: () => T): T => { try { return prepare() } catch (error) { if (!(error instanceof Error)) deny('候选未通过完整校验。'); deny(diagnostic(scene, scope, allowed, error.message)) } }
+  const rejectNative = (message: string, code?: OperationRejectionCode): never => {
+    const safe = diagnostic(scene, scope, allowed, message)
+    return deny(safe, safe === message ? code : 'outside_scope')
+  }
+  const guarded = <T>(prepare: () => T): T => {
+    try { return prepare() } catch (error) {
+      return rejectNative(error instanceof Error ? error.message : '候选未通过完整校验。', error instanceof OperationRejected ? error.code : undefined)
+    }
+  }
   const commands = commandsFor(project, scope, operation, context, allowed), affected = new Set<string>()
   let previewCost = 0, prepared: CompositionContent | undefined
   if (commands.every(isBuildingCommand)) {
     const preview = previewBuildingCommands(scene, commands, budget)
-    if (preview.reason) deny(diagnostic(scene, scope, allowed, preview.reason))
+    if (preview.reason) rejectNative(preview.reason, preview.reasonCode)
     preview.affectedIds.forEach(id => affected.add(id)); previewCost = preview.commandCost
   } else if (commands.every(isOutdoorCommand)) {
     // Replay each command with the exact preview IDs before allocating its history tokens.
@@ -411,7 +424,7 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneScope
     for (const command of commands) {
       const tape: string[] = [], previewContext: PreparationContext = { clock: context.clock, ids: { nextId: () => { const id = context.ids.nextId(); tape.push(id); return id } } }
       const preview = previewOutdoorCommands(outdoorContent.document, [command], previewContext, budget)
-      if (preview.reason) deny(diagnostic(scene, scope, allowed, preview.reason))
+      if (preview.reason) rejectNative(preview.reason, preview.reasonCode)
       let position = 0
       const replayContext: PreparationContext = { clock: context.clock, ids: { nextId: () => position < tape.length ? tape[position++] : context.ids.nextId() } }
       const current: CompositionContent = outdoorContent
@@ -452,20 +465,21 @@ export function applySceneOperation(project: ProjectData, inputScope: SceneScope
   for (const id of affected) {
     const existing = before.get(id), current = after.get(id)
     if (existing) {
-      if (!allowed.has(id)) deny('真实依赖未明确授权；请缩小或重新明确授权范围。')
-      if (existing.floorId !== scope.floorId || effectiveEditLocked(scene, id) || !isPublic(scene, id) && !(scene.notes[id]?.visibility === 'gm' && !scope.entityIds.includes(id))) deny('真实依赖跨Floor、私密或锁定。')
+      if (!allowed.has(id)) deny('真实依赖未明确授权；请缩小或重新明确授权范围。', 'outside_scope')
+      if (existing.floorId !== scope.floorId || !isPublic(scene, id) && !(scene.notes[id]?.visibility === 'gm' && !scope.entityIds.includes(id))) deny('真实依赖跨Floor、私密或锁定。', 'outside_scope')
+      if (effectiveEditLocked(scene, id)) deny('真实依赖跨Floor、私密或锁定。', 'locked_dependency')
       assertGeometry(scene, scope, id, current ? project : undefined); collectEntity(project, id, read)
     }
     if (current) {
-      if (current.floorId !== scope.floorId) deny('场景候选跨越授权Floor。')
+      if (current.floorId !== scope.floorId) deny('场景候选跨越授权Floor。', 'outside_scope')
       assertGeometry(next.document, scope, id, current ? next : undefined); collectEntity(next, id, read)
-      if (!existing && next.document.entityLayers[id] !== scope.layerId) deny('新增实体越过授权用户图层。')
+      if (!existing && next.document.entityLayers[id] !== scope.layerId) deny('新增实体越过授权用户图层。', 'outside_scope')
     }
   }
   if (!same(scene.constraints, next.document.constraints)) { read.add('constraints'); writeIds.push('constraints') }
   const cost = Math.max(1, commands.length, previewCost, expansionCost(scene, next.document))
   if (budget) assertTaskBudget(budget, measureTaskBudget(project.document, content.document, { before: project, after: content }))
-  if (!budget && cost > 256) deny('本次真实展开超过256条累计预算。')
+  if (!budget && cost > 256) deny('本次真实展开超过256条累计预算。', 'operation_budget')
   return { project: next, readIds: sorted(read), writeIds: sorted(writeIds), cost, createdIds }
 }
 
@@ -485,7 +499,9 @@ export function publicSceneContext(project: ProjectData, scope: SceneScope, allo
     if (shapes(document, id, new Set(), current ? project : undefined).some(polygon => !inside(scope.boundsMm, polygon))) continue
     assertGeometry(document, scope, id, current ? project : undefined)
     const kind = Object.entries(collectionFor).find(([, collection]) => Object.hasOwn(document[collection] ?? {}, id))![0]
-    entities.push({ entityKind: kind, ...cloneJson(value) })
+    const row = cloneJson(value)
+    if ('assembly' in row) delete row.assembly
+    entities.push({ entityKind: kind, ...row })
   }
   return { floor: { id: scope.floorId, boundsMm: cloneJson(document.floors[scope.floorId].boundsMm) }, layer: { id: scope.layerId }, boundsMm: cloneJson(scope.boundsMm), entities,
     definitions: scope.definitionIds.map(id => cloneJson(document.propDefinitions[id])),

@@ -1,6 +1,6 @@
 // Normal production UI journeys. Complete facts come from actual project/PNG
 // downloads; no editor test API or direct browser workspace mutation is used.
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Download, type Locator, type Page } from '@playwright/test'
 import { readFile, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
@@ -12,8 +12,8 @@ import { visualBase } from '../src/shared/visual/base'
 import type { ProjectManifest } from '../src/shared/project/file'
 import type { SceneDocument } from '../src/shared/model/scene'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
-import { openWorkspaceModule } from './workspace-navigation-helpers'
-import { mapExportButton, openDetailsBySummary, reloadSaved } from './workspace-ux-helpers'
+import { closeWorkspaceDrawers, openSceneSettings, openWorkspaceModule } from './workspace-navigation-helpers'
+import { mapExportButton, openDetailsBySummary, openVttExport, reloadSaved } from './workspace-ux-helpers'
 
 const { PNG } = createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js')
 test.use({ actionTimeout: 15_000 })
@@ -297,4 +297,37 @@ test('closed locked doorway binds through ordinary UI and preserves real road ta
     await target.screenshot({ path: info.outputPath('attachment-cold-ui.png'), animations: 'disabled' })
     expect(errors).toEqual([])
   } finally { await context.close() }
+})
+
+test('VTT PNG fallback downloads the selected floor in a multi-floor project at 390px', async ({ page }, info) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await createKeyboardProject(page, '多层 VTT 玩家图')
+  const settings = await openSceneSettings(page)
+  await openDetailsBySummary(settings, /^楼层管理 ·/)
+  const floors = settings.getByLabel('楼层管理', { exact: true })
+  await floors.getByLabel('新楼层名称', { exact: true }).fill('阁楼')
+  await number(floors, '新楼层宽度', '12')
+  await number(floors, '新楼层高度', '15')
+  await floors.getByRole('button', { name: '预览新建楼层', exact: true }).click()
+  await adopt(page, '结构修改')
+  await closeWorkspaceDrawers(page)
+  await page.getByRole('combobox', { name: '当前楼层', exact: true }).selectOption({ label: '阁楼' })
+  await keyboardWorkspaceSaved(page)
+  const original = await png(page, 'player', info.outputPath('attic-player.png'))
+  dimensions(original.image, { x: 0, y: 0, width: 12000, height: 15000 })
+
+  await openVttExport(page)
+  const dialog = page.getByRole('dialog', { name: 'VTT 导出预检', exact: true })
+  await expect(dialog.getByRole('button', { name: '下载 VTT 导入包', exact: true })).toBeDisabled()
+  let downloaded: Download | undefined
+  page.once('download', download => { downloaded = download })
+  await dialog.getByRole('button', { name: '下载玩家 PNG 回退', exact: true }).click()
+  await expect(dialog.getByRole('status')).toHaveText('玩家 PNG 已生成。', { timeout: 12_000 })
+  await expect.poll(() => downloaded?.suggestedFilename()).toBe('sceneweave-player-map.png')
+  const filename = info.outputPath('attic-fallback.png')
+  await downloaded!.saveAs(filename)
+  const fallback = PNG.sync.read(await readFile(filename)) as Image
+  dimensions(fallback, { x: 0, y: 0, width: 12000, height: 15000 })
+  expect(createHash('sha256').update(fallback.data).digest('hex')).toBe(original.hash)
 })

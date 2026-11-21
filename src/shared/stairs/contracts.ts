@@ -14,6 +14,10 @@ export const staircaseSchema = z.object({ algorithm: z.literal('staircase1'),
     z.object({ kind: z.literal('repeat'), treadDepthMm: z.number().int().min(50).max(2000) }).strict(),
     z.object({ kind: z.literal('stretch'), stepCount: z.number().int().min(1).max(512) }).strict(),
   ]),
+  range: z.object({
+    startPpm: z.number().int().min(0).max(999_999),
+    endPpm: z.number().int().min(1).max(1_000_000),
+  }).strict().refine(range => range.startPpm < range.endPpm, '铺阶终点须在起点之后。').optional(),
   textureScaleMm: z.number().int().min(50).max(4000),
   covers: z.array(staircaseCoverSchema).max(32).refine(rows => new Set(rows.map(row => row.id)).size === rows.length, '覆盖标识不能重复'),
 }).strict()

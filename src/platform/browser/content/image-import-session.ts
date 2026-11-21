@@ -1,4 +1,6 @@
 import type { EditableProject } from '../../../application/workspace/project.js'
+import { isContextBlendRepair } from '../../../shared/image-import/repair-mode.js'
+import { OperationRejected } from '../../../shared/validation/operation-rejection.js'
 import { captureJson, freezeJson } from '../../../shared/validation/json.js'
 import { cropImageRegion, imagePolygonMask, suggestImageRegion, type ImagePixels, type PixelBounds } from '../../../shared/image-import/pixels.js'
 import { encodeSelectionMask, decodeSelectionMask, assertSelectionMaskBudget } from '../../../shared/image-import/selection-mask.js'
@@ -170,9 +172,10 @@ export async function prepareImageImportRecipe(source: ImageImportSource, input:
   }
   const project = await createImageImportProject({ title: replay.recipe.title, calibration: { ...replay.recipe.calibration,
     pixelWidth: replay.recipe.image.pixelWidth, pixelHeight: replay.recipe.image.pixelHeight }, roomPointsPx: replay.recipe.roomPointsPx,
-    floor, layers, sourceArtwork: { kind: 'preserve-original', roomBoundaryPx: replay.recipe.roomPointsPx }, licenseText: credits.licenseText,
+    floor, layers, ...(replay.recipe.roomPointsPx.length ? { sourceArtwork: { kind: 'preserve-original', roomBoundaryPx: replay.recipe.roomPointsPx } } : {}),
+    licenseText: credits.licenseText,
     attribution: credits.attribution + (subjectReplay ? '\n采用了显式外观推断配方。主体轮廓可能外扩1像素；净毯内部明暗、细纹及隐藏连接为推断，可见原布缝另有角色依据。原图、原裁片与制作输入在独立制作包保全，派生不作为原图像素保真结论。' : '') }, signal)
-  assertNativeSourceAppearance(project)
+  if (replay.recipe.roomPointsPx.length) assertNativeSourceAppearance(project)
   return project
 }
 
@@ -205,7 +208,7 @@ export class ImageImportToolSession {
   private canEmbed = true
   private workId: string = crypto.randomUUID()
   private notes = ''
-  private nextAction = '确认房间范围与暂定/实测比例，再建立第一个item。'
+  private nextAction = '确认原图范围与暂定或实测比例。按需要标注房间或拆出物件。'
   private scaleStatus: 'provisional' | 'measured' = 'provisional'
   private journal: ImageWorkState['journal'] = []
   private reviews: ImageWorkState['reviews'] = []
@@ -253,7 +256,7 @@ export class ImageImportToolSession {
     const index = this.draft.layers.findIndex(layer => layer.id === target)
     if (index < 0) throw new Error('物件不存在。')
     const prefix = this.draft.layers.slice(0, index + 1)
-    const neighborhood = prefix.some(layer => layer.renderLayer === 'ground' || layer.subjectRefinement || layer.surfaceRefinement || layer.repair === 'context-blend' || layer.repair === 'surfaces' && layer.repairSurfaceIds?.some(id => this.draft.repairSurfaces?.some(surface => surface.id === id && (surface.kind.startsWith('neighbors-') || surface.kind === 'guided'))))
+    const neighborhood = prefix.some(layer => layer.renderLayer === 'ground' || layer.subjectRefinement || layer.surfaceRefinement || isContextBlendRepair(layer.repair) || layer.repair === 'surfaces' && layer.repairSurfaceIds?.some(id => this.draft.repairSurfaces?.some(surface => surface.id === id && (surface.kind.startsWith('neighbors-') || surface.kind === 'guided'))))
     return hashJson({ image: this.source.image, calibration: this.draft.calibration, outputScale: this.draft.outputScale ?? 1,
       algorithm: 'image-item-review@1/guided-geodesic@1', layers: prefix,
       ...(neighborhood ? { neighborhoodAlgorithm: 'neighborhood-surface-v1', neighborhoodEvidenceLayers: this.draft.layers } : {}),
@@ -289,8 +292,8 @@ export class ImageImportToolSession {
     if (!Object.hasOwn(imageImportToolArguments, name)) throw new Error('不支持的图片拆解工具。')
     const args = imageImportToolArguments[name].parse(captureJson(input))
     const startedGeneration = this.generation
-    const assertCurrent = () => { signal?.throwIfAborted(); if (this.generation !== startedGeneration) throw new Error('拆解草稿在处理期间已变化，请重新预览。') }
-    if ('generation' in args && args.generation !== this.generation) throw new Error('拆解草稿已变化，请读取新代次后重试。')
+    const assertCurrent = () => { signal?.throwIfAborted(); if (this.generation !== startedGeneration) throw new OperationRejected('stale_generation', '拆解草稿在处理期间已变化，请重新预览。') }
+    if ('generation' in args && args.generation !== this.generation) throw new OperationRejected('stale_generation', '拆解草稿已变化，请读取新代次后重试。')
     if (name === 'image_import_inspect') return this.inspect()
     if (name === 'image_import_workflow') return { ...this.inspect(), workflow: IMAGE_ITEM_WORKFLOW, projectWorkflow: PROJECT_CREATION_WORKFLOW, id: this.workId,
       notes: this.notes, nextAction: this.nextAction, scaleStatus: this.scaleStatus, active: this.restoredActive ?? null,
@@ -571,7 +574,7 @@ export class ImageImportToolSession {
       const project = await prepareImageImportRecipe(this.source, recipe, { ...this.rights, attribution: `${this.rights.attribution}\n图片制作任务：${this.workId}` }, signal)
       const sourceFidelity = (await prepareImageImportFidelityPreview(this.source, recipe, signal)).report
       assertCurrent()
-      return { project, recipe, sourceFidelity, generation: startedGeneration,
+      return { project, recipe, sourceFidelity, taskId: this.workId, generation: startedGeneration,
         ...(recipe.layers.some(layer => layer.surfaceRefinement) ? { surfaceDerivation: { fidelityScope: 'baseline-source-only', inferredInterior: true, visualQualityPassed: false } } : {}),
         ...(recipe.layers.some(layer => layer.subjectRefinement) ? { subjectDerivation: { fidelityScope: 'baseline-source-only', derivedAppearanceIsNotCertified: true, targetIds: recipe.layers.filter(layer => layer.subjectRefinement).map(layer => layer.id) } } : {}) }
     }
@@ -591,12 +594,12 @@ export class ImageImportToolSession {
       const review = args as { target: string; inputHash: string; verdict: 'reviewed' | 'needs-work'; note: string }
       const actual = await this.itemPreview(review.target, signal)
       assertCurrent()
-      if (actual.inputHash !== review.inputHash) throw new Error('复核对应旧候选，请重新打开当前PNG查看。')
+      if (actual.inputHash !== review.inputHash) throw new OperationRejected('stale_candidate', '复核对应旧候选，请重新打开当前PNG查看。')
       nextReviews = [...this.reviews, { target: review.target, inputHash: review.inputHash, verdict: review.verdict, note: review.note,
         itemSha256: actual.itemSha256, backgroundSha256: actual.backgroundSha256, reviewer: 'assistant' as const }]
     } else if (name === 'image_import_set_subject_refinement') {
       const options = args as import('zod').infer<typeof imageImportToolArguments.image_import_set_subject_refinement>
-      if (this.itemInputHash(options.target) !== options.inputHash) throw new Error('主体候选对应旧输入，请重新生成并看图。')
+      if (this.itemInputHash(options.target) !== options.inputHash) throw new OperationRejected('stale_candidate', '主体候选对应旧输入，请重新生成并看图。')
       const index = next.layers.findIndex(layer => layer.id === options.target)
       next = { ...next, layers: next.layers.map((layer, i) => {
         if (i !== index) return layer
@@ -606,7 +609,7 @@ export class ImageImportToolSession {
       replayImageSubjectLayers(this.source.pixels, next.layers, next.repairSurfaces, { signal })
     } else if (name === 'image_import_set_surface_refinement') {
       const options = args as import('zod').infer<typeof imageImportToolArguments.image_import_set_surface_refinement>
-      if (this.itemInputHash(options.target) !== options.inputHash) throw new Error('净毯候选对应旧输入，请重新生成并看图。')
+      if (this.itemInputHash(options.target) !== options.inputHash) throw new OperationRejected('stale_candidate', '净毯候选对应旧输入，请重新生成并看图。')
       next = { ...next, layers: next.layers.map(layer => {
         if (layer.id !== options.target) return layer
         const { surfaceRefinement: ignored, ...original } = layer
@@ -632,10 +635,10 @@ export class ImageImportToolSession {
       // Validate source binding even when room and scale are still unfinished.
       assertImageSelectionOrigin(selectionOrigin, this.source.image, selectionMask)
       const original = next.layers[index].appearanceSource === 'original'
-      if (selectionOrigin.priorLayersHash !== hashJson(original ? [] : next.layers.slice(0, index))) throw new Error('候选依赖的先前拆分已变化，请重新生成。')
+      if (selectionOrigin.priorLayersHash !== hashJson(original ? [] : next.layers.slice(0, index))) throw new OperationRejected('stale_candidate', '候选依赖的先前拆分已变化，请重新生成。')
       const base = index && !original ? await encodeImageImportPixels(replayImageLayers(this.source.pixels, next.layers.slice(0, index), next.repairSurfaces, { evidenceLayers: next.layers, signal }).remaining, signal)
         : this.source.normalizedBytes ?? await encodeImageImportPixels(this.source.pixels, signal)
-      if (sha256Bytes(base) !== selectionOrigin.inputSha256) throw new Error('候选实际输入像素摘要不匹配，请重新生成。')
+      if (sha256Bytes(base) !== selectionOrigin.inputSha256) throw new OperationRejected('stale_candidate', '候选实际输入像素摘要不匹配，请重新生成。')
       assertCurrent()
       // Later silhouettes can constrain earlier neighborhood repairs. Validate the
       // model's real input before changing that silhouette, then replay the new one.
@@ -672,10 +675,10 @@ export class ImageImportToolSession {
         if (!layer.selectionMask) throw new Error('本机候选来源必须伴随确切选区。')
         assertImageSelectionOrigin(layer.selectionOrigin, this.source.image, layer.selectionMask)
         const original = layer.appearanceSource === 'original'
-        if (layer.selectionOrigin.priorLayersHash !== hashJson(original ? [] : next.layers)) throw new Error('候选依赖的先前拆分已变化，请重新生成。')
+        if (layer.selectionOrigin.priorLayersHash !== hashJson(original ? [] : next.layers)) throw new OperationRejected('stale_candidate', '候选依赖的先前拆分已变化，请重新生成。')
         const base = next.layers.length && !original ? await encodeImageImportPixels(replayImageLayers(this.source.pixels, next.layers, next.repairSurfaces).remaining, signal)
           : this.source.normalizedBytes ?? await encodeImageImportPixels(this.source.pixels, signal)
-        if (sha256Bytes(base) !== layer.selectionOrigin.inputSha256) throw new Error('候选实际输入像素摘要不匹配，请重新生成。')
+        if (sha256Bytes(base) !== layer.selectionOrigin.inputSha256) throw new OperationRejected('stale_candidate', '候选实际输入像素摘要不匹配，请重新生成。')
         assertCurrent()
       }
       if (next.layers.length >= 64 || next.layers.some(item => item.id === layer.id)) throw new Error('物件数量超限或身份重复。')
@@ -685,7 +688,7 @@ export class ImageImportToolSession {
       }
       replayImageLayers(this.source.pixels, [...next.layers, layer], next.repairSurfaces)
       next = { ...next, layers: [...next.layers, layer] }
-      if (next.calibration && next.roomPointsPx.length >= 3) replayImageImportRecipe(this.source, this.recipe(next))
+      if (next.calibration && (next.roomPointsPx.length === 0 || next.roomPointsPx.length >= 3)) replayImageImportRecipe(this.source, this.recipe(next))
       if (this.restoredActive?.id === layer.id) nextActive = undefined
     } else if (name === 'image_import_set_repair_scope') {
       const options = args as import('zod').infer<typeof imageImportToolArguments.image_import_set_repair_scope>
@@ -697,7 +700,7 @@ export class ImageImportToolSession {
         ...(options.donor ? { donor: options.donor } : {}), ...(options.repair ? { repair: options.repair } : {}) }
       next = { ...next, layers: next.layers.map((row, position) => position === index ? updated : row) }
       replayImageLayers(this.source.pixels, next.layers, next.repairSurfaces)
-      if (next.calibration && next.roomPointsPx.length >= 3) replayImageImportRecipe(this.source, this.recipe(next))
+      if (next.calibration && (next.roomPointsPx.length === 0 || next.roomPointsPx.length >= 3)) replayImageImportRecipe(this.source, this.recipe(next))
     } else if (name === 'image_import_refine_selection') {
       const { target, strokes, contour } = args as { target: string; strokes: ImageSelectionStroke[];
         contour?: { points: ImageImportRecipe['roomPointsPx']; radiusPx?: number } }
@@ -719,7 +722,7 @@ export class ImageImportToolSession {
       // Recompute every following occlusion before committing one atomic undo step.
       assertCurrent()
       replayImageLayers(this.source.pixels, next.layers, next.repairSurfaces)
-      if (next.calibration && next.roomPointsPx.length >= 3) replayImageImportRecipe(this.source, this.recipe(next))
+      if (next.calibration && (next.roomPointsPx.length === 0 || next.roomPointsPx.length >= 3)) replayImageImportRecipe(this.source, this.recipe(next))
     } else if (name === 'image_import_set_vector') {
       const { target, options } = args as { target: string; options: ImageVectorOptions | null }
       if (options) assertSourcePreservingRecipe({ floorVector: options, layers: [] })
@@ -741,7 +744,7 @@ export class ImageImportToolSession {
     }
     assertCurrent()
     if (['image_import_guided_selection', 'image_import_set_selection', 'image_import_set_room', 'image_import_set_source_boundary'].includes(name)
-      && next.layers.length && next.calibration && next.roomPointsPx.length >= 3) replayImageImportRecipe(this.source, this.recipe(next))
+      && next.calibration && (next.roomPointsPx.length === 0 || next.roomPointsPx.length >= 3)) replayImageImportRecipe(this.source, this.recipe(next))
     if (next.layers.some(layer => layer.subjectRefinement || layer.surfaceRefinement)) replayImageSubjectLayers(this.source.pixels, next.layers, next.repairSurfaces, { signal })
     assertSelectionMaskBudget([...next.layers.flatMap(layer => [layer.selectionMask, layer.removalMask, layer.protectionMask, layer.surfaceRefinement?.protectionMask, ...imageSubjectRefinementMasks(layer.subjectRefinement)]), ...(next.repairSurfaces ?? []).flatMap(s => [s.mask, s.excludedEvidenceMask])])
     if (next.layers.length + 1 > 64) throw new Error('地板材质与拆出物件合计最多64项，请收窄采用范围。')

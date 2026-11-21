@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import type { ProjectData } from '../model/project.js'
 import { LAYER_ENTITY_COLLECTIONS, type SceneDocument } from '../model/scene.js'
 import { visualBase } from '../visual/base.js'
@@ -5,7 +6,6 @@ import { canonicalJson } from '../validation/json.js'
 import { CONTINUATION_POLICY } from './budget-policy.js'
 const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null)
 const sorted = (values: Iterable<string>) => [...new Set(values)].sort()
-const deny = (message: string): never => { throw new Error(`AI接续无效：${message}`) }
 const kindFor = { vertices: 'vertex', rooms: 'room', walls: 'wall', openings: 'opening', props: 'prop', regions: 'region', notes: 'note',
   terrainAreas: 'terrainArea', terrainEdges: 'terrainEdge', terrainConnections: 'terrainConnection', paths: 'path', prefabInstances: 'prefab', scatterGroups: 'scatter' } as const
 
@@ -80,6 +80,6 @@ export function groupMemberIds(before: SceneDocument, after: SceneDocument, targ
 export const semanticChangedTargets = (before: ProjectData, after: ProjectData) => semanticChangedDocumentTargets(before.document, after.document)
 export function assertContinuationAdoptionBudget(before: ProjectData, after: ProjectData): string[] {
   const targets = semanticChangedTargets(before, after)
-  if (targets.length > CONTINUATION_POLICY.finalAdoptionTargets) deny('完整采用超过512语义目标。')
+  if (targets.length > CONTINUATION_POLICY.finalAdoptionTargets) throw new OperationRejected('operation_budget', 'AI接续无效：完整采用超过512语义目标。')
   return targets
 }

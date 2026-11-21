@@ -2,7 +2,7 @@ import { commandSelectionLimit, type CommandBudgetProfile } from '../../shared/b
 import { scenePresentation } from '../../shared/appearance/presentation.js'
 import { roundMm as roundMmV2 } from '../../shared/commands/base.js'
 import { orderedPropsV2 } from './projection'
-import type { SceneCommand as SceneCommandV2 } from '../../shared/commands/commands.js'
+import type { CompositionCommand } from '../../shared/model/appearance.js'
 import type { PointMm, SceneDocument as SceneDocumentV2 } from '../../shared/model/scene.js'
 import { effectiveEditLockedV2, normalizeSelectionV2, selectionGeometryV2 } from './selection'
 
@@ -26,14 +26,14 @@ export function selectionActionReasonV2(scene: SceneDocumentV2, ids: readonly st
       if (prop && prop.editLocked !== (action === 'lock') && [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)].some(parent => parent.editLocked && Object.values(parent.members).some(member => member.propId === id))) return '物件受组合或散布锁定，请选择其容器调整编辑锁。'
       continue
     }
-    if (!prop && !(decoration && (action === 'move' || action === 'rotate' || action === 'delete')) && !(prefab && (action === 'move' || action === 'rotate'))) return '此操作只支持物件；组合可整体移动和旋转，删除或复制前请先拆开。结构请使用专用属性工具。'
+    if (!prop && !(decoration && (action === 'move' || action === 'rotate' || action === 'delete')) && !(prefab && (action === 'move' || action === 'rotate' || action === 'delete'))) return '此操作支持物件。组合可移动、旋转或删除，结构可在对应详情中编辑。'
     if (effectiveEditLockedV2(scene, id)) return '选择含锁定对象或锁定成员，请先解除对应编辑锁。'
     if (prop && action === 'copy' && (Object.values(scene.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === id)) || Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === id)) || Object.values(scene.decorationClusters ?? {}).some(group => Object.values(group.members).some(member => member.kind === 'prop' && member.entityId === id && member.state !== 'detached' && member.state !== 'deleted')))) return '复制只支持独立物件，请先拆开组合、退出散布或布景簇。'
   }
   return null
 }
 const degrees = (value: number) => ((value % 360) + 360) % 360
-export function selectionCommandsV2(scene: SceneDocumentV2, ids: readonly string[], action: SelectionActionV2, values: { dx?: number; dy?: number; angle?: number } = {}, budget?: CommandBudgetProfile): SceneCommandV2[] {
+export function selectionCommandsV2(scene: SceneDocumentV2, ids: readonly string[], action: SelectionActionV2, values: { dx?: number; dy?: number; angle?: number } = {}, budget?: CommandBudgetProfile): CompositionCommand[] {
   const reason = selectionActionReasonV2(scene, ids, action, budget)
   if (reason) throw new Error(reason)
   const dx = values.dx ?? 0, dy = values.dy ?? 0, angle = values.angle ?? 0
@@ -46,7 +46,10 @@ export function selectionCommandsV2(scene: SceneDocumentV2, ids: readonly string
   return orderedIds.map(id => {
     const prop = scene.props[id], group = scene.prefabInstances[id], decoration = scene.decorations?.[id], cluster = scene.decorationClusters?.[id]
     if (action === 'lock' || action === 'unlock') return { type: 'setEditLock', kind: decoration ? 'decoration' : cluster ? 'decorationCluster' : prop ? 'prop' : group ? 'prefabInstance' : scene.scatterGroups[id] ? 'scatterGroup' : scene.terrainAreas[id] ? 'terrainArea' : 'terrainConnection', id, locked: action === 'lock' }
-    if (action === 'delete') return decoration ? { type: 'deleteDecoration', id } : { type: 'deleteProp', id }
+    if (action === 'delete') {
+      if (group) return { type: 'deletePrefab', id, memberIds: Object.values(group.members).flatMap(member => member.propId ?? []) }
+      return decoration ? { type: 'deleteDecoration', id } : { type: 'deleteProp', id }
+    }
     if (action === 'copy') return { type: 'copyProp', id, newId: crypto.randomUUID(), offsetMm: { x: 300, y: 300 } }
     if (decoration) return { type: 'updateDecoration', id, changes: action === 'move' ? { positionMm: { x: decoration.positionMm.x + dx, y: decoration.positionMm.y + dy } } : { positionMm: rotate(decoration.positionMm), rotationDeg: degrees(decoration.rotationDeg + angle) } }
     if (group) return { type: 'transformPrefab', id, anchorMm: action === 'move' ? { x: group.anchorMm.x + dx, y: group.anchorMm.y + dy } : rotate(group.anchorMm), ...(action === 'rotate' ? { rotationDeg: degrees(group.rotationDeg + angle) } : {}) }

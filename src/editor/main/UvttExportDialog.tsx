@@ -9,7 +9,7 @@ function download(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob), link = document.createElement('a')
   link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-export default function UvttExportDialog({ project, onClose }: { project: EditableProject; onClose: () => void }) {
+export default function UvttExportDialog({ project, floorId, onClose }: { project: EditableProject; floorId: string; onClose: () => void }) {
   const [acknowledged, setAcknowledged] = useState(false), [working, setWorking] = useState(false), [message, setMessage] = useState('')
   const controller = useRef<AbortController | null>(null), dialog = useRef<HTMLDivElement>(null)
   const close = useRef(onClose); close.current = onClose
@@ -34,7 +34,10 @@ export default function UvttExportDialog({ project, onClose }: { project: Editab
     if (controller.current) return
     const abort = new AbortController(); controller.current = abort; setWorking(true); setMessage('正在验证完整资源并生成图片…')
     try {
-      const blob = fallback ? await exportPng(toBundle(project), { audience: 'player', longEdgePx: 4096, signal: abort.signal }) : await exportUvtt(toBundle(project), abort.signal)
+      const blob = fallback
+        ? await exportPng(toBundle(project), { audience: 'player', floorId, longEdgePx: 4096, signal: abort.signal })
+        : await exportUvtt(toBundle(project), abort.signal)
+      abort.signal.throwIfAborted()
       download(blob, fallback ? 'sceneweave-player-map.png' : 'sceneweave-vtt.zip')
       setMessage(fallback ? '玩家 PNG 已生成。' : '导入包已生成；请按包内说明在目标软件核对。')
     } catch (error) { setMessage(abort.signal.aborted ? '已取消，工程保持不变。' : (error as Error).message) }
@@ -44,7 +47,7 @@ export default function UvttExportDialog({ project, onClose }: { project: Editab
   return <div className="modal-scrim workspace-modal-scrim"><div ref={dialog} className="modal workspace-modal uvtt-export-dialog" tabIndex={-1} role="dialog" aria-modal="true" aria-label="VTT 导出预检">
     <h2>VTT 导出预检</h2>
     <p>{UVTT_TARGET.software} · {UVTT_TARGET.importer}</p>
-    <p className="asset-muted">{UVTT_TARGET.verification}。当前工程 r{project.document.revision} 的独立导出副本。</p>
+    <p className="asset-muted">{UVTT_TARGET.verification}。当前工程 r{project.document.revision} 的独立导出副本。玩家 PNG 使用「{project.document.floors[floorId].name}」的导出范围。</p>
     {result.error && <p role="alert">{result.error}</p>}
     {plan && <>
       <p>{plan.widthPx} × {plan.heightPx} px · 每格 {plan.pixelsPerGrid} px · 每格 {plan.units.distancePerGrid} {plan.units.distanceUnit}</p>

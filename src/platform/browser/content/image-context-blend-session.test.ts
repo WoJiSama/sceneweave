@@ -43,13 +43,19 @@ describe('explicit complete patch boundary blending session', () => {
     expect(session.captureWorkState()).toEqual(state)
   })
 
-  it('cold-replays the same current-v1 work bytes, preserves source pixels, and continues editing with undo', async () => {
-    const { source, session, rights } = await fixture(), firstState = session.inspect()
-    const first = await session.execute('image_import_item_preview', { target: 'stool' }) as Preview
-    const scope = { removalMask: firstState.draft.layers[0].removalMask!, protectionMask: firstState.draft.layers[0].protectionMask! }
-    await session.execute('image_import_set_repair_scope', { generation: 1, target: 'stool', ...scope, repair: 'context' })
+  it.each(['context-blend', 'context-blend-v2'] as const)('cold-replays %s work bytes and continues editing with undo', async repair => {
+    const { source, session, rights } = await fixture()
+    const layer = session.inspect().draft.layers[0]
+    const scope = { removalMask: layer.removalMask!, protectionMask: layer.protectionMask! }
+    const initial = await session.execute('image_import_item_preview', { target: 'stool' }) as Preview
+    if (repair !== layer.repair) await session.execute('image_import_set_repair_scope', { generation: session.inspect().generation, target: 'stool', ...scope, repair })
+    const firstState = session.inspect(), first = await session.execute('image_import_item_preview', { target: 'stool' }) as Preview
+    expect(firstState.draft.layers[0].repair).toBe(repair)
+    expect(first.itemSha256).toBe(initial.itemSha256)
+    if (repair !== layer.repair) expect(first.inputHash).not.toBe(initial.inputHash)
+    await session.execute('image_import_set_repair_scope', { generation: session.inspect().generation, target: 'stool', ...scope, repair: 'context' })
     expect(session.inspect().draft.layers[0].repair).toBe('context')
-    await session.execute('image_import_undo', { generation: 2 })
+    await session.execute('image_import_undo', { generation: session.inspect().generation })
     expect(session.inspect().draft).toEqual(firstState.draft)
     const work = await readImageWorkPackage(await session.exportWork())
     expect(work.state.version).toBe(1)

@@ -43,6 +43,11 @@ export interface AiAuthoringHost {
   onCritical: (busy: boolean) => void
 }
 interface Props { client: AiClient | null; connected: boolean; task: TaskSnapshot | null; host?: AiAuthoringHost; disabled: boolean; reasoningEffort?: ReasoningEffort; visionEnabled?: boolean; continuationSupported?: boolean; currentAuthoringSupported?: boolean; workflowDiscovery?: boolean; onTask: (task: TaskSnapshot, client: AiClient) => void }
+type AdoptionUpdate = { taskId: string; claim: DraftClaim; client: AiClient } & (
+  { kind: 'release' } | { kind: 'confirm'; sceneId: string; revision: number }
+)
+type PendingAdoptionUpdate = AdoptionUpdate & { sending: boolean }
+
 const message = (error: unknown) => error instanceof Error && error.name !== 'AiClientError' ? error.message : safeAiError(error)
 const budgetFields = (value: unknown) => {
   const identity = continuationIdentity(value)
@@ -86,7 +91,7 @@ export default function AiAuthoringPane({ client, connected, task, host, disable
   const [candidate, setCandidate] = useState<AtomicCandidate | null>(null), [reviewed, setReviewed] = useState(false), [regionalBusy, setRegionalBusy] = useState(false)
   const [qualityAcknowledgments, setQualityAcknowledgments] = useState<string[]>([])
   const [pending, setPending] = useState<CreateTaskRequest | null>(null)
-  const [receipt, setReceipt] = useState<{ taskId: string; claim: DraftClaim; sceneId: string; revision: number; client: AiClient } | null>(null)
+  const [adoptionUpdates, setAdoptionUpdates] = useState<PendingAdoptionUpdate[]>([])
   const grants = useRef(new Map<string, AtomicAuthorization>()), lastHost = useRef(host), lastTask = useRef(task), lastClient = useRef(client), candidateRef = useRef(candidate)
   const controller = useRef<AbortController | null>(null), regionalController = useRef<AbortController | null>(null), mounted = useRef(true), serial = useRef(0)
   lastHost.current = host; lastTask.current = task; lastClient.current = client; candidateRef.current = candidate
@@ -96,7 +101,7 @@ export default function AiAuthoringPane({ client, connected, task, host, disable
   const preview = (next: AtomicCandidate | null) => { setCandidate(next); setReviewed(false); setQualityAcknowledgments([]); lastHost.current?.onPreview(next?.changes.length ? next : null) }
   useEffect(() => {
     if (candidateRef.current) host?.workspace.cancelAtomicCandidate(candidateRef.current)
-    controller.current?.abort(); regionalController.current?.abort(); regionalController.current = null; serial.current++; grants.current.clear(); setBusy(false); setActivity(''); setRegionalBusy(false); setPending(null); setReceipt(previous => previous?.client === client ? previous : null); setTargets([]); setDefinitions([]); setConsent(false); setSendVision(false); setChecks([]); setExtended(initialExtendedScope()); preview(null); host?.onRegionalPreview(null)
+    controller.current?.abort(); regionalController.current?.abort(); regionalController.current = null; serial.current++; grants.current.clear(); setBusy(false); setActivity(''); setRegionalBusy(false); setPending(null); setAdoptionUpdates(previous => previous.filter(value => value.client === client)); setTargets([]); setDefinitions([]); setConsent(false); setSendVision(false); setChecks([]); setExtended(initialExtendedScope()); preview(null); host?.onRegionalPreview(null)
   }, [host?.project.document.sceneId, host?.sessionKey, host?.baseMapPreview, client])
   const source = host?.baseMapPreview?.continuationSource
   const needsCurrentAuthoring = !!host
@@ -210,35 +215,66 @@ export default function AiAuthoringPane({ client, connected, task, host, disable
         try { local.workspace.assertCheckpoint(grant.checkpoint) }
         catch { throw new AiClientError('stale_baseline', '能力检查期间工程已变化，本次请求尚未发送；请基于当前工程重新授权。') }
       })
-      if (valid()) { setPending(null); setSendVision(false); setReceipt(null); onTask(value, active); setNotice('独立草稿任务已创建。模型步骤不会写入主工程。') }
+      if (valid()) { setPending(null); setSendVision(false); onTask(value, active); setNotice('独立草稿任务已创建。模型步骤不会写入主工程。') }
     } catch (failure) { if (valid()) { setError(message(failure)); if (failure instanceof AiClientError && failure.requestState === 'not_sent') { setPending(null); setNotice('请求尚未发送。原工程与合法底图保留。') } else setNotice('创建结果不明时，保留同一请求重试或查询最近任务；不会自动再调用模型。') } }
     finally { if (mounted.current && current === serial.current) finishActivity() }
   }
-  const ack = async (value: NonNullable<typeof receipt>) => {
-    const active = value.client
-    const updated = await active.appliedDraft(value.taskId, { ...value.claim, sceneId: value.sceneId, revision: value.revision })
-    if (lastTask.current?.id === updated.id) onTask(updated, active)
-    setReceipt(previous => previous?.taskId === value.taskId && previous.claim.claimId === value.claim.claimId ? null : previous)
+  const pendingAdoption = adoptionUpdates.find(value => value.taskId === task?.id && value.client === client)
+  const canAdopt = task?.status === 'ready' && !!task.authoring && !task.authoring.claim && !pendingAdoption && !!candidate
+    && !disabled && !busy && reviewed && !candidate.reviewOnly && !!candidate.changes.length && !!candidate.operationCost
+    && candidate.taskId === task.id && candidate.generation === task.generation && candidate.draftRevision === task.authoring.draftRevision
+    && candidate.contentHash === task.authoring.contentHash && sameBudgetIdentity(candidateIdentity(candidate), task.authoring)
+    && host?.workspace.getAtomicCandidateStatus(candidate) === 'active'
+    && assetQualityAcknowledgmentsComplete(candidate.assetQuality, qualityAcknowledgments)
+  const syncAdoption = async (value: AdoptionUpdate) => {
+    const { taskId, claim, client: active } = value
+    const matches = (item: PendingAdoptionUpdate) => item.client === active && item.taskId === taskId && item.claim.claimId === claim.claimId
+    setAdoptionUpdates(previous => [...previous.filter(item => !matches(item)), { ...value, sending: true }])
+    try {
+      let updated: TaskSnapshot
+      if (value.kind === 'confirm') {
+        updated = await active.appliedDraft(taskId, { ...claim, sceneId: value.sceneId, revision: value.revision })
+        if (updated.status !== 'applied') throw new Error('服务器尚未确认采用结果。')
+      } else {
+        try { updated = await active.releaseDraft(taskId, claim) }
+        catch (error) {
+          // A lost reply may already have ended this exact attempt.
+          updated = await active.snapshot(taskId, undefined, continuationIdentity(claim)?.schemaVersion ?? 1)
+          if (updated.authoring?.claim?.claimId === claim.claimId) throw error
+        }
+      }
+      if (lastClient.current === active && lastTask.current?.id === updated.id) onTask(updated, active)
+      setAdoptionUpdates(previous => previous.filter(item => !matches(item)))
+    } catch {
+      setAdoptionUpdates(previous => previous.map(item => matches(item) ? { ...item, sending: false } : item))
+    }
   }
   const adopt = async () => {
-    if (!host || !client || !candidate || candidate.reviewOnly || !candidate.changes.length || !candidate.operationCost || !task || task.status !== 'ready' || !reviewed || !assetQualityAcknowledgmentsComplete(candidate.assetQuality, qualityAcknowledgments) || busy || disabled || !sameBudgetIdentity(candidateIdentity(candidate), task.authoring)) return
+    if (!host || !client || !candidate || !canAdopt) return
     const selected = candidate, active = client, local = host, claim: DraftClaim = { ...stamp(selected), claimId: crypto.randomUUID() }
-    beginActivity('正在保护当前工程并一次采用 AI 草稿…'); local.onCritical(true); let committed = false, claimAttempted = false
+    const attempt = { taskId: selected.taskId, claim, client: active }
+    beginActivity('正在保护当前工程并一次采用 AI 草稿…')
+    local.onCritical(true)
+    let committed = false, claimAttempted = false
     try {
-      const result = await local.workspace.adoptAtomicCandidate(selected, { qualityAcknowledgments, claim: () => { claimAttempted = true; return active.claimDraft(selected.taskId, claim) } })
+      const result = await local.workspace.adoptAtomicCandidate(selected, { qualityAcknowledgments, claim: () => {
+        claimAttempted = true
+        return active.claimDraft(selected.taskId, claim)
+      } })
       committed = true
-      // Observe save rejection immediately while the independent server receipt is sent.
-      const saved = result.save.then(() => null, failure => failure as unknown)
-      const value = { taskId: selected.taskId, claim, sceneId: selected.project.document.sceneId, revision: result.revision, client: active }
-      setReceipt(value); preview(null); local.onAdopted()
-      let acknowledged = true
-      try { await ack(value) } catch { acknowledged = false }
-      const failed = await saved
-      if (failed) throw new Error(`主工程已在内存中采用，撤销和保护点保留；保存未完成：${message(failed)}`)
-      setNotice(`已作为一次事务采用到 r${result.revision}，保护快照和保存已完成。${acknowledged ? '' : '服务器回执未确认，请仅重发采用回执。'}`)
+      void syncAdoption({ ...attempt, kind: 'confirm', sceneId: selected.project.document.sceneId, revision: result.revision })
+      preview(null)
+      local.onAdopted()
+      await result.save
+      setNotice(`已作为一次事务采用到 r${result.revision}，保护快照和保存已完成。`)
     } catch (failure) {
-      setError(message(failure))
-      if (!committed && claimAttempted) { try { const updated = await active.releaseDraft(selected.taskId, claim); if (lastTask.current?.id === updated.id) onTask(updated, active) } catch { setNotice('本机未采用。租约释放未确认，请刷新任务；租约到期后可明确释放。') } }
+      setError(committed ? `地图已应用草稿，撤销和保护点仍可用。保存未完成：${message(failure)}` : message(failure))
+      if (!committed && claimAttempted) {
+        setNotice('这次采用未修改本机地图。重新检查草稿后可以再尝试。')
+        setReviewed(false)
+        local.onPreview(null)
+        void syncAdoption({ ...attempt, kind: 'release' })
+      }
     } finally { finishActivity(); local.onCritical(false) }
   }
   const finishPaused = async () => {
@@ -250,14 +286,12 @@ export default function AiAuthoringPane({ client, connected, task, host, disable
       if (lastClient.current === active && lastTask.current?.id === selected.id) { onTask(updated, active); setNotice('已结束生成，当前有效草稿可审阅采用；没有发起新的模型请求。') }
     } catch (failure) { setError(message(failure)) } finally { finishActivity() }
   }
-  const release = async () => {
-    if (!client || !task?.authoring?.claim || busy) return
-    beginActivity('正在确认释放旧采用租约…')
-    try {
-      const claim = task.authoring.claim
-      onTask(await client.releaseDraft(task.id, { expectedGeneration: claim.generation, draftRevision: claim.draftRevision, contentHash: claim.contentHash, claimId: claim.claimId, ...budgetFields(claim) }), client)
-      setNotice('已明确释放旧采用租约；它以后不能再确认采用。')
-    } catch (failure) { setError(message(failure)) } finally { finishActivity() }
+  const recoverInterruptedAdoption = () => {
+    const claim = task?.authoring?.claim
+    if (!client || !task || task.status !== 'paused' || !claim || pendingAdoption || busy || disabled) return
+    setError('')
+    void syncAdoption({ kind: 'release', taskId: task.id, client, claim: { expectedGeneration: claim.generation,
+      draftRevision: claim.draftRevision, contentHash: claim.contentHash, claimId: claim.claimId, ...budgetFields(claim) } })
   }
   const backup = async () => {
     if (!candidate || busy) return
@@ -279,7 +313,12 @@ export default function AiAuthoringPane({ client, connected, task, host, disable
   else if (!currentAuthoringSupported || (host.baseMapPreview && !continuationSupported)) draftStatus = '当前后端未声明此工程所需的草稿协议、工程版本和预算支持。'
   const whole = scene ? Object.values(scene.props).filter(prop => prop.visibility === 'public' && !Object.values(scene.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === prop.id)) && !Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === prop.id))).map(prop => prop.id) : []
   const toggleDefinition = (id: string) => setDefinitions(values => values.includes(id) ? values.filter(value => value !== id) : [...values, id])
-  const claimRecovery = task?.authoring?.claim && task.status !== 'applied' && !receipt && <><p>有尚未确认的采用租约。若当前工程已经采用，请保留任务并核对工程；释放后不能再补认旧租约。</p><button disabled={busy || disabled} onClick={() => void release()}>确认本机未采用并释放租约</button></>
+  const claimRecovery = task?.authoring?.claim && task.status !== 'applied' && !pendingAdoption && !busy && (
+    task.status === 'paused' ? <>
+      <p>上次采用结果未确认。请先核对地图。若地图已应用这些修改，请保留任务。</p>
+      <button disabled={disabled} onClick={recoverInterruptedAdoption}>地图未应用这些修改，恢复草稿审阅</button>
+    </> : <p>服务器仍在等待采用结果。可以继续查看地图，稍后刷新任务。</p>
+  )
   const feedback = <>
     {busy && activity && <p className="ai-operation-status" role="status" aria-label="AI 草稿操作状态" aria-live="polite" aria-atomic="true">{activity}</p>}{notice && <p role="status">{notice}</p>}{error && <p role="alert" className="ai-error">{error}</p>}
   </>
@@ -309,12 +348,17 @@ export default function AiAuthoringPane({ client, connected, task, host, disable
     {task?.authoring && <><p>草稿 {task.authoring.draftRevision} · {currentBaselineTask && 'budget' in task.authoring ? `当前工程实际操作 ${task.authoring.operationCost}/${AUTHORING_LIMITS.operations} · 最终采用 ${task.authoring.budget.finalAdoptionCost}/${AUTHORING_LIMITS.operations}` : 'budget' in task.authoring ? `生成 ${task.authoring.budget.generationCost}/${policy.generationTargets} · AI ${task.authoring.budget.aiCost}/${policy.aiTargets} · 最终采用 ${task.authoring.budget.finalAdoptionCost}/${policy.finalAdoptionTargets}` : `实际操作 ${task.authoring.operationCost}/${AUTHORING_LIMITS.operations}`} · 改动目标 {task.authoring.changedIds.length} 件。主工程只在最终采用时改变。</p>
       {'closeout' in task.authoring && task.authoring.closeout && <div className="ai-closeout" aria-label="AI 预算收束"><strong>{task.authoring.closeout.reviewable ? '已保留可供本机校验的合法草稿' : '已保留任务检查点'}</strong><p>收束原因：{({ time: '执行时间', request_budget: '模型请求预算', tool_budget: '工具调用预算', operation_budget: '实际操作预算', work_budget: '实际计算预算', completed: '本轮生成结束', cancelled: '用户取消' } as const)[task.authoring.closeout.reason]}；剩余实际操作 {task.authoring.closeout.remainingOperations}、模型请求 {task.authoring.closeout.remainingModelRequests}、工具调用 {task.authoring.closeout.remainingToolCalls}。</p><p>付费请求结果：{({ not_sent: '尚未发送', finished: '已结束', unknown: '未知，不会自动重发' } as const)[task.authoring.closeout.requestOutcome]}。本机重放和真实资源检查通过后，可检查差异、备份或保护当前并一次采用。</p><ol>{task.authoring.closeout.requirements.map(item => <li key={item.index}>清单第 {item.index + 1} 项：{({ pending: '待完成', claimed: 'AI 已声明，待核对', unsupported: '暂不支持', needs_human_review: '待人工核对' } as const)[item.status]}</li>)}</ol><small>外观仍未确认；收束与结构检查均不代表视觉验收或采用。</small></div>}
       {task.authoring.plan && <div aria-label="AI 制作进度"><p>当前阶段：{phaseLabel[task.authoring.plan.phase]}。清单状态来自 AI 的工具记录，画面效果仍需人工核对。</p><ol>{task.authoring.plan.requirements.map(item => <li key={item.index}>清单第 {item.index + 1} 项 · {requirementLabel[item.state]}{item.note && <p>{item.note}</p>}{!!item.evidenceIds.length && <small>关联 {item.evidenceIds.length} 项对象或素材</small>}</li>)}</ol></div>}
-      <button disabled={!client || !host || busy || disabled || !hasReviewableDraftRevision(task.authoring) && !regionArtifact} onClick={() => void fetchPreview(true, !!regionArtifact)}>重新绑定并校验草稿</button>
-      {candidate && <WorkspaceReview kind="ai"><section className="ai-conversation workspace-review-panel" aria-label="AI 草稿审阅">{feedback}<div className="ai-authoring"><div className="workspace-review-body"><h3>AI 草稿 · 当前修改</h3><p>本机完整校验通过，读依赖 {candidate.readIds.length} 项，写目标 {candidate.writeIds.length} 项。</p><AssetQualityReview resources={candidate.project.resources} assessments={candidate.assetQuality} acknowledgedKeys={qualityAcknowledgments} onAcknowledgedKeysChange={setQualityAcknowledgments} disabled={busy || disabled}/><ul aria-label="AI 草稿差异">{candidate.changes.map(change => { const collection = change.collection ?? 'props', prop = rowProp(change.after) ?? rowProp(change.before), action = changeAction(collection, change); return <li key={`${collection}:${change.id}`}><strong>{collectionLabel[collection] ?? collection} · {prop?.definitionRef ? candidate.project.document.propDefinitions[prop.definitionRef.id]?.name ?? '物件' : change.id} · {action}</strong>{collection === 'props' && <><p>原：{describeProp(rowProp(change.before))}</p><p>新：{describeProp(rowProp(change.after))}</p></>}<p>变化字段：{change.fields.join('、') || '关系'}</p><details><summary>对象 ID 与完整差异</summary><small>{change.id}</small><pre>{JSON.stringify({ before: change.before, after: change.after }, null, 2)}</pre></details></li> })}</ul></div><div className="workspace-review-actions"><button disabled={busy} onClick={() => void backup()}>下载完整草稿备份</button>{(['paused', 'failed'].includes(task.status) || task.status === 'cancelled' && continuationIdentity(task.authoring)?.schemaVersion === 4) && !task.authoring.claim && <button disabled={disabled || busy} onClick={() => void finishPaused()}>结束生成并审阅当前草稿</button>}<label className="ai-check"><input type="checkbox" checked={reviewed} disabled={busy} onChange={e => setReviewed(e.target.checked)}/>已检查范围和差异，采用前创建保护快照</label><button disabled={disabled || busy || candidate.reviewOnly || !reviewed || !assetQualityAcknowledgmentsComplete(candidate.assetQuality, qualityAcknowledgments) || task.status !== 'ready' || candidate.contentHash !== task.authoring.contentHash || candidate.generation !== task.generation || !sameBudgetIdentity(candidateIdentity(candidate), task.authoring) || !candidate.changes.length} onClick={() => void adopt()}>保护当前并一次采用 AI 草稿</button>{claimRecovery}<button type="button" disabled={busy || !!task.authoring.claim} onClick={() => { host?.workspace.cancelAtomicCandidate(candidate); preview(null); setNotice('暂不采用此草稿。任务继续保留，可重新绑定并校验后审阅。') }}>暂不采用此草稿</button></div></div></section></WorkspaceReview>}
+      <button disabled={!client || !host || busy || disabled || pendingAdoption?.kind === 'release' && pendingAdoption.sending || !hasReviewableDraftRevision(task.authoring) && !regionArtifact} onClick={() => void fetchPreview(true, !!regionArtifact)}>重新检查草稿</button>
+      {candidate && <WorkspaceReview kind="ai"><section className="ai-conversation workspace-review-panel" aria-label="AI 草稿审阅">{feedback}<div className="ai-authoring"><div className="workspace-review-body"><h3>AI 草稿 · 当前修改</h3><p>本机完整校验通过，读依赖 {candidate.readIds.length} 项，写目标 {candidate.writeIds.length} 项。</p><AssetQualityReview resources={candidate.project.resources} assessments={candidate.assetQuality} acknowledgedKeys={qualityAcknowledgments} onAcknowledgedKeysChange={setQualityAcknowledgments} disabled={busy || disabled}/><ul aria-label="AI 草稿差异">{candidate.changes.map(change => { const collection = change.collection ?? 'props', prop = rowProp(change.after) ?? rowProp(change.before), action = changeAction(collection, change); return <li key={`${collection}:${change.id}`}><strong>{collectionLabel[collection] ?? collection} · {prop?.definitionRef ? candidate.project.document.propDefinitions[prop.definitionRef.id]?.name ?? '物件' : change.id} · {action}</strong>{collection === 'props' && <><p>原：{describeProp(rowProp(change.before))}</p><p>新：{describeProp(rowProp(change.after))}</p></>}<p>变化字段：{change.fields.join('、') || '关系'}</p><details><summary>对象 ID 与完整差异</summary><small>{change.id}</small><pre>{JSON.stringify({ before: change.before, after: change.after }, null, 2)}</pre></details></li> })}</ul></div><div className="workspace-review-actions"><button disabled={busy} onClick={() => void backup()}>下载完整草稿备份</button>{(['paused', 'failed'].includes(task.status) || task.status === 'cancelled' && continuationIdentity(task.authoring)?.schemaVersion === 4) && !task.authoring.claim && <button disabled={disabled || busy} onClick={() => void finishPaused()}>结束生成并审阅当前草稿</button>}<label className="ai-check"><input type="checkbox" checked={reviewed} disabled={busy} onChange={e => setReviewed(e.target.checked)}/>已检查范围和差异，采用前创建保护快照</label><button disabled={!canAdopt} onClick={() => void adopt()}>保护当前并一次采用 AI 草稿</button>{claimRecovery}<button type="button" disabled={busy || !!task.authoring.claim} onClick={() => { host?.workspace.cancelAtomicCandidate(candidate); preview(null); setNotice('暂不采用此草稿。任务继续保留，可重新绑定并校验后审阅。') }}>暂不采用此草稿</button></div></div></section></WorkspaceReview>}
       {regionArtifact && task?.authoring && host && <div className="ai-region-candidate"><p>模型准备了独立区域下钻候选 · {regionArtifact.selectionMm.width / 1000} × {regionArtifact.selectionMm.height / 1000} m · 展开 {regionArtifact.actualOperationCost}/256</p><button disabled={disabled || regionalBusy || !candidate || !['ready', 'completed'].includes(task.status) || host.project.document.mapMode !== 'regional' || candidate.contentHash !== regionArtifact.atContentHash || candidate.draftRevision !== regionArtifact.atDraftRevision} onClick={() => void fetchRegionalPreview()}>{regionalBusy ? '正在本机验证完整候选…' : '取回并审阅独立区域候选'}</button><p>候选由本机按当前公开授权范围重放；完整制品会验证来源、资源、许可和实际几何，确认后才保存为独立工程。</p></div>}
       {!candidate && claimRecovery}
     </>}
-    {receipt && <button disabled={busy} onClick={() => { void ack(receipt).catch(failure => setError(message(failure))) }}>仅向原后端重发采用回执</button>}
+    {adoptionUpdates.filter(value => value.client === client).map(value => <div key={value.claim.claimId}>
+      <p role="status">{value.kind === 'confirm'
+        ? value.sending ? '正在向服务器确认采用结果。' : `草稿已在 r${value.revision} 应用。服务器尚未确认这次操作，重试只同步结果。`
+        : value.sending ? '正在恢复草稿审阅。' : '草稿仍保留。服务器暂未确认上次采用已经结束。'}</p>
+      {!value.sending && <button disabled={busy} onClick={() => void syncAdoption(value)}>{value.kind === 'confirm' ? '重试确认采用结果' : '重试恢复草稿审阅'}</button>}
+    </div>)}
     {!candidate && feedback}
   </section>
 }

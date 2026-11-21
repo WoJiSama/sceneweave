@@ -3,6 +3,7 @@ import type { BoundsMm, Opening, PointMm, SceneDocument } from '../model/scene.j
 import type { Projection } from '../projection/types.js'
 import { resolveFloorOutput } from '../floors/output.js'
 import { openingEndpoints, propFootprint } from '../geometry/geometry.js'
+import { propSightLine } from '../geometry/sight-occluder.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { projectScene } from '../projection/projection.js'
 import { validateAppearanceGraph } from '../validation/content.js'
@@ -270,12 +271,17 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
   if (report.counts.walls) add(report.warnings, '墙厚仅保留在底图，原生墙使用中心线；通道净宽、碰撞与墙角需在目标端复核。')
   if (report.counts.hiddenSecretOpenings) add(report.warnings, '未揭示秘密门安全降级为连续普通墙，不导出秘密门位置或可操作门；需要时在主持人目标工程中另行配置。')
   for (const prop of delivered.props) {
-    if (!prop.blocksMovement && !prop.blocksSight) continue
-    const footprint = propFootprint(prop), before = geometry.line_of_sight.length
-    for (let index = 0; index < footprint.length; index++) appendLine(footprint[index], footprint[(index + 1) % footprint.length])
+    const sightLine = propSightLine(prop), before = geometry.line_of_sight.length
+    if (prop.blocksMovement || prop.blocksSight && !sightLine.length) {
+      const footprint = propFootprint(prop)
+      for (let index = 0; index < footprint.length; index++) appendLine(footprint[index], footprint[(index + 1) % footprint.length])
+    }
+    for (let index = 1; index < sightLine.length; index++) appendLine(sightLine[index - 1], sightLine[index])
     if (geometry.line_of_sight.length > before) report.counts.blockingProps++
     if (prop.blocksMovement !== prop.blocksSight && geometry.line_of_sight.length > before)
       add(report.warnings, '部分物件仅阻挡移动或视线；按旋转后的物理占地边界保守映射为同时阻挡两者的薄墙。')
+    if (sightLine.length && geometry.line_of_sight.length > before)
+      add(report.warnings, '自定义遮挡线映射为 UVTT 薄墙，可能同时影响通行。')
   }
   report.counts.terrainBlockersOmitted = unmappedUvttBlockers(scene)
   if (Object.keys(scene.terrainAreas).length || Object.keys(scene.terrainEdges).length || Object.keys(scene.terrainConnections).length || Object.keys(scene.paths).length || Object.keys(scene.regions).length || Object.keys(scene.rooms).length)

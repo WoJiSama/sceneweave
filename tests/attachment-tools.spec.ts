@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'vite'
 import { keyboardProjectBackup, keyboardWorkspaceSaved, selectKeyboardProp } from './keyboard-ux-helpers'
@@ -34,15 +35,21 @@ async function coldOpen(page: Page, sceneId: string) {
   await page.getByTestId('workspace-home').locator(`[data-project-key="native:${sceneId}"]`).getByRole('button', { name: '打开', exact: true }).click()
   await keyboardWorkspaceSaved(page)
 }
+async function downloadMapPng(page: Page, info: TestInfo, phase: string, audience: 'gm' | 'player') {
+  const downloading = page.waitForEvent('download')
+  await (await mapExportButton(page, audience)).click()
+  const path = info.outputPath(`${phase}-${audience}.png`)
+  await (await downloading).saveAs(path)
+  await keyboardWorkspaceSaved(page)
+  await page.locator('.workspace-export-menu > summary').click()
+  const bytes = await readFile(path)
+  expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
+  return bytes
+}
 async function pngHashes(page: Page, info: TestInfo, phase: string) {
   const result = []
   for (const audience of ['gm', 'player'] as const) {
-    const downloading = page.waitForEvent('download'); await (await mapExportButton(page, audience)).click()
-    const path = info.outputPath(`${phase}-${audience}.png`)
-    await (await downloading).saveAs(path); await keyboardWorkspaceSaved(page)
-    await page.locator('.workspace-export-menu > summary').click()
-    const bytes = await readFile(path)
-    expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10])
+    const bytes = await downloadMapPng(page, info, phase, audience)
     result.push({ audience, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') })
   }
   return result
@@ -186,32 +193,69 @@ test('ordinary mountain tools explain and disable carving when every source edge
   await page.screenshot({ path: info.outputPath('all-slanted-source-disabled.png') })
 })
 
-test('ordinary attachment tools bind to a real table face and preserve local placement while moving and rotating the host', async ({ page }, info) => {
-  test.setTimeout(240000)
-  // SSR creates a legal ordinary archive only; the browser imports, reviews,
-  // edits and saves through the same public UI as a user.
+async function tableAttachmentArchive(visibility: 'public' | 'gm', banquet = false) {
   const vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' })
-  let archive: Uint8Array
   try {
     const { fixture, runtime, validation } = await vite.ssrLoadModule('/src/application/workspace/test-fixtures.ts')
     const { createCompositionContent } = await vite.ssrLoadModule('/src/shared/appearance/graph.ts')
     const { exportProject } = await vite.ssrLoadModule('/src/shared/project/file.ts')
-    const source = fixture(), scene = source.project.document
+    const source = fixture({ image: banquet }), scene = source.project.document
     scene.title = '桌面实际承托 UI 自检'; scene.units.display = 'm'
     Object.assign(scene.props.item, { positionMm: { x: 6000, y: 6000 }, rotationDeg: 0, footprintMm: { width: 2400, height: 1600 }, footprintOffsetMm: { x: 0, y: 0 },
       visualBoundsMm: { x: -1200, y: -800, width: 2400, height: 1600 }, blocksMovement: false })
     Object.assign(scene.props.other, { positionMm: { x: 6200, y: 6000 }, rotationDeg: 0, footprintMm: { width: 400, height: 200 }, footprintOffsetMm: { x: 0, y: 0 },
       visualBoundsMm: { x: -200, y: -100, width: 400, height: 200 }, blocksMovement: false })
     scene.props.other.appearance.symbol = 'crate'
+    scene.props.item.visibility = visibility
+    scene.props.other.visibility = visibility
+    if (visibility === 'gm') {
+      scene.title = '私密桌子上的线索'
+      scene.props['public-clue'] = { ...scene.props.other, id: 'public-clue', visibility: 'public', positionMm: { x: 9000, y: 6000 } }
+      scene.entityLayers['public-clue'] = scene.entityLayers.other
+      scene.regions['table-mask'] = { id: 'table-mask', floorId: 'blank-floor', visibility: 'gm', editLocked: false,
+        kind: 'manualMask', boundaryMm: [{ x: 4500, y: 4900 }, { x: 7500, y: 4900 }, { x: 7500, y: 7100 }, { x: 4500, y: 7100 }],
+        blocksMovement: false, movementCostMultiplier: 1 }
+      scene.entityLayers['table-mask'] = scene.entityLayers.item
+    }
+    if (banquet) {
+      const extras = [['candle', 5900, 5700], ['chair-north', 6000, 4900], ['chair-south', 6000, 7100], ['chair-west', 4400, 6000], ['chair-east', 7600, 6000]] as const
+      for (const [id, x, y] of extras) {
+        scene.props[id] = { ...structuredClone(scene.props.other), id, positionMm: { x, y },
+          appearance: { ...scene.props.other.appearance, symbol: id === 'candle' ? 'crate' : 'chair' } }
+        scene.entityLayers[id] = scene.entityLayers.item
+      }
+    }
     Object.assign(source.project, createCompositionContent(scene, runtime))
-    archive = await exportProject(source, validation)
+    if (banquet) {
+      const { fromBundle, toBundle } = await vite.ssrLoadModule('/src/application/workspace/project.ts')
+      const { prepareCompositionCommands } = await vite.ssrLoadModule('/src/application/workspace/prepare.ts')
+      const project = await fromBundle(source, validation), context = { runtime, validation }
+      const grouped = await prepareCompositionCommands(project, [{ type: 'createPrefab', id: 'dinner', definitionId: 'dinner-source', name: '宴席',
+        ids: Object.keys(scene.props).filter(id => id !== 'other'), anchorMm: scene.props.item.positionMm }], context)
+      const attached = await prepareCompositionCommands(grouped, [
+        { type: 'addAttachmentSurface', id: 'dinner-tabletop', owner: { kind: 'prop', id: 'item' }, capabilities: ['support'],
+          feature: { kind: 'propTop', heightLocalMm: 800, polygonLocalMm: [{ x: -1200, y: -800 }, { x: 1200, y: -800 }, { x: 1200, y: 800 }, { x: -1200, y: 800 }] } },
+        ...[['candle', -100, -300], ['other', 200, 0]].map(([id, x, y]) => ({ type: 'bindPropAttachment', id: `on-table-${id}`, childId: id, surfaceId: 'dinner-tabletop', mode: 'support', follow: 'follow', anchorState: 'manual',
+          anchor: { kind: 'horizontal', localMm: { x, y }, heightOffsetMm: 0, rotationOffsetDeg: 0 } })),
+      ], context)
+      return exportProject(toBundle(attached), validation)
+    }
+    return await exportProject(source, validation)
   } finally { await vite.close() }
-  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
+}
+
+async function importTableAttachment(page: Page, archive: Uint8Array) {
   await page.goto('./#home')
   const choosing = page.waitForEvent('filechooser')
   await page.getByTestId('workspace-home').getByRole('button', { name: '打开工程文件', exact: true }).click()
   await (await choosing).setFiles({ name: 'table-attachment.sceneweave', mimeType: 'application/octet-stream', buffer: Buffer.from(archive) })
   await keyboardWorkspaceSaved(page)
+}
+
+test('ordinary attachment tools bind to a real table face and preserve local placement while moving and rotating the host', async ({ page }, info) => {
+  test.setTimeout(240000)
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
+  await importTableAttachment(page, await tableAttachmentArchive('public'))
   await selectKeyboardProp(page, 'item')
   const tools = page.locator('[data-attachment-tools]')
   await open(tools); await number(page, '承托面离底高度', '0.8')
@@ -254,7 +298,143 @@ test('ordinary attachment tools bind to a real table face and preserve local pla
     actualContactElevationMm: 800, followedPositionMm: cold.document.props.other.positionMm, undoRedo: true, coldArchiveExact: true, errors }, null, 2))
 })
 
-test('ordinary wall attachment tools reject a doorway overlap and keep a lamp on its wall face through thickness edits and cold reopen', async ({ page }, info) => {
+test('moving or deleting a tavern table and its group preserves the corresponding attachments and outside item', async ({ page }, info) => {
+  test.setTimeout(120_000)
+  await importTableAttachment(page, await tableAttachmentArchive('public', true))
+  const backup = (phase: string) => keyboardProjectBackup(page, info.outputPath(`${phase}.sceneweave`))
+  const original = await backup('banquet'), bounds = original.document.exportBoundsMm
+  const viewport = page.getByRole('group', { name: '地图视口', exact: true })
+  const adoptBatch = async () => {
+    await review(page).getByRole('button', { name: '采用批量修改', exact: true }).click()
+    await keyboardWorkspaceSaved(page)
+  }
+  const chooseGroup = async () => {
+    const list = await openSceneObjects(page, '组合')
+    await list.getByLabel('搜索场景对象', { exact: true }).fill('dinner')
+    await list.locator('[data-entity-id="dinner"]').click()
+  }
+  const drag = async () => {
+    const box = await page.getByLabel('材质场景主持人预览', { exact: true }).boundingBox()
+    if (!box) throw new Error('Map canvas must be visible.')
+    const x = box.x + (5500 - bounds.x) * box.width / bounds.width, y = box.y + (6200 - bounds.y) * box.height / bounds.height
+    await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 1200 * box.width / bounds.width, y, { steps: 5 })
+    await expect(page.getByTestId('selection-drag-preview')).toBeVisible()
+    await page.mouse.up(); await adoptBatch()
+  }
+  const undo = async () => {
+    await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  }
+
+  await selectKeyboardProp(page, 'item'); await drag()
+  const movedTable = (await backup('moved-table')).document, before = original.document
+  const dx = movedTable.props.item.positionMm.x - before.props.item.positionMm.x
+  expect(dx).toBeGreaterThan(900)
+  for (const id of ['candle', 'other']) expect(movedTable.props[id].positionMm.x).toBe(before.props[id].positionMm.x + dx)
+  expect(movedTable.props['chair-north']).toEqual(before.props['chair-north'])
+  await undo()
+  await chooseGroup(); await drag()
+  const movedGroup = (await backup('moved-group')).document
+  for (const id of Object.keys(before.props)) expect(movedGroup.props[id].positionMm.x).toBe(before.props[id].positionMm.x + dx)
+  await undo()
+
+  await selectKeyboardProp(page, 'item'); await viewport.press('Delete'); await adoptBatch()
+  const deletedTable = (await backup('deleted-table')).document
+  expect(deletedTable.props.item).toBeUndefined()
+  expect(deletedTable.props.other).toEqual(before.props.other)
+  expect(deletedTable.props.candle).toEqual(before.props.candle)
+  expect(deletedTable.prefabInstances.dinner).toBeDefined()
+  expect(deletedTable.attachments).toEqual({})
+  await undo()
+  await chooseGroup(); await viewport.press('Delete'); await adoptBatch()
+  const deletedGroup = (await backup('deleted-group')).document
+  expect(deletedGroup.prefabInstances.dinner).toBeUndefined()
+  expect(deletedGroup.props).toEqual({ other: before.props.other })
+  await undo()
+  const restored = await backup('banquet-restored')
+  expect(restored.document.props).toEqual(before.props)
+  expect(restored.document.prefabInstances).toEqual(before.prefabInstances)
+  for (const [id, { proofs, ...relation }] of Object.entries(before.attachments!)) {
+    const actual = restored.document.attachments![id], surface = restored.identity.structureTokens!['dinner-tabletop']
+    expect(actual).toMatchObject(relation)
+    expect(actual.proofs.surfaces[0]).toMatchObject({ birthToken: surface.token, topologyToken: surface.topologyToken, topologyHash: surface.topologyHash })
+    expect(actual.proofs.surfaces[0].topologyToken).not.toBe(proofs.surfaces[0].topologyToken)
+  }
+  await coldOpen(page, restored.document.sceneId)
+  expect((await backup('banquet-reopened')).hashes).toEqual(restored.hashes)
+})
+
+test('private table attachments reject an exposed clue and keep a secret clue out of player PNGs through detach, undo, redo and cold reopen', async ({ page }, info) => {
+  test.setTimeout(240000)
+  const { PNG } = createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js')
+  const rgbaHash = async (phase: string, audience: 'gm' | 'player' = 'player') => {
+    const png = PNG.sync.read(await downloadMapPng(page, info, phase, audience))
+    expect(png.width).toBe(4096)
+    expect(png.height).toBe(4096)
+    return createHash('sha256').update(png.data).digest('hex')
+  }
+  await importTableAttachment(page, await tableAttachmentArchive('gm'))
+  const tools = page.locator('[data-attachment-tools]')
+  await selectKeyboardProp(page, 'item')
+  await open(tools)
+  await tools.getByRole('button', { name: '预览建立顶面', exact: true }).click()
+  await adopt(page)
+  const withSurface = await keyboardProjectBackup(page, info.outputPath('private-table.sceneweave'))
+  const surfaceId = Object.keys(withSurface.document.attachmentSurfaces!)[0]
+  const previewBinding = async (id: string) => {
+    await selectKeyboardProp(page, id)
+    await open(tools)
+    await tools.getByRole('combobox', { name: '物件附着表面', exact: true }).selectOption(surfaceId)
+    await number(page, '面上相对 X', '0.2')
+    await tools.getByRole('button', { name: '预览附着', exact: true }).click()
+  }
+
+  await previewBinding('public-clue')
+  await expect(page.getByRole('alert').filter({ hasText: '公开子物件不能依赖私密宿主或附着链' })).toBeVisible()
+  await expect(review(page)).toBeHidden()
+  const rejected = await keyboardProjectBackup(page, info.outputPath('public-binding-rejected.sceneweave'))
+  expect(rejected.hashes).toEqual(withSurface.hashes)
+
+  await previewBinding('other')
+  await adopt(page)
+  const attached = await keyboardProjectBackup(page, info.outputPath('secret-clue-attached.sceneweave'))
+  const [relation] = Object.values(attached.document.attachments ?? {})
+  expect(relation).toMatchObject({ child: { kind: 'prop', id: 'other' }, surfaceId, materialized: { contactElevationMm: 800 } })
+  const attachedPlayer = await rgbaHash('secret-clue-attached')
+
+  await open(tools)
+  await tools.getByRole('button', { name: '预览解除附着', exact: true }).click()
+  await adopt(page)
+  const detached = await keyboardProjectBackup(page, info.outputPath('secret-clue-detached.sceneweave'))
+  expect(detached.document.attachments?.[relation.id]).toBeUndefined()
+  expect(detached.document.props.other).toMatchObject({ visibility: 'gm', positionMm: { x: 6200, y: 6000 }, supportRef: { kind: 'floor', id: 'blank-floor' } })
+  expect(await rgbaHash('secret-clue-detached')).toBe(attachedPlayer)
+
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  const undone = await keyboardProjectBackup(page, info.outputPath('secret-clue-undo.sceneweave'))
+  expect(undone.document.attachments?.[relation.id]).toEqual(relation)
+  expect(await rgbaHash('secret-clue-undo')).toBe(attachedPlayer)
+
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  expect(await rgbaHash('secret-clue-redo')).toBe(attachedPlayer)
+  const redone = await keyboardProjectBackup(page, info.outputPath('secret-clue-redo.sceneweave'))
+  expect(redone.document.attachments?.[relation.id]).toBeUndefined()
+  await coldOpen(page, redone.document.sceneId)
+  const reopened = await keyboardProjectBackup(page, info.outputPath('secret-clue-reopened.sceneweave'))
+  expect(reopened.hashes).toEqual(redone.hashes)
+  expect(reopened.document.props.other).toEqual(detached.document.props.other)
+  expect(await rgbaHash('secret-clue-reopened')).toBe(attachedPlayer)
+
+  const reopenedGm = await rgbaHash('secret-clue-reopened', 'gm')
+  await selectKeyboardProp(page, 'other')
+  await page.getByTestId('workspace-inspector').getByRole('button', { name: '删除物件', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  expect(await rgbaHash('secret-clue-removed', 'gm')).not.toBe(reopenedGm)
+  expect(await rgbaHash('secret-clue-removed')).toBe(attachedPlayer)
+})
+
+test('ordinary wall attachment tools reject a doorway overlap and carry a locked lamp with its wall', async ({ page }, info) => {
   test.setTimeout(240000)
   // The legal image-backed lamp starts unattached. Its root lies on the
   // wall-facing physical edge, so the UI's zero normal offset is real contact.
@@ -271,6 +451,7 @@ test('ordinary wall attachment tools reject a doorway overlap and keep a lamp on
     const lamp = scene.props.item, definition = scene.propDefinitions.definition
     Object.assign(lamp, { positionMm: { x: 5000, y: 4500 }, rotationDeg: 0, footprintMm: { width: 400, height: 200 }, footprintOffsetMm: { x: 0, y: 100 },
       visualBoundsMm: { x: -200, y: 0, width: 400, height: 200 }, blocksMovement: false, visibility: 'public', supportRef: { kind: 'floor', id: 'blank-floor' } })
+    lamp.appearance.glow = { color: '#FFD68A', radiusMm: 1500, intensity: 1, anchor: { u: .5, v: .5 } }
     Object.assign(definition, { name: '壁灯', defaultVisualBoundsMm: lamp.visualBoundsMm, defaultFootprintMm: lamp.footprintMm,
       defaultFootprintOffsetMm: lamp.footprintOffsetMm, defaultBlocksMovement: false })
     // A public, non-secret door makes the refused along-wall interval explicit.
@@ -348,6 +529,22 @@ test('ordinary wall attachment tools reject a doorway overlap and keep a lamp on
   await selectKeyboardProp(page, 'item'); await open(tools)
   await expect(tools).toContainText('已挂接 · 跟随宿主')
   await page.screenshot({ path: info.outputPath('wall-lamp-cold.png') })
+  await page.getByRole('button', { name: '锁定物件编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  await selectStructure(page, 'wall-0')
+  await openDetailsBySummary(page.getByLabel('建筑属性', { exact: true }), /^平移整面墙$/)
+  await number(page, '墙平移 Y', '1')
+  await page.getByRole('button', { name: '预览整墙平移', exact: true }).click()
+  await expect(review(page).getByLabel('关联对象', { exact: true })).toContainText('壁灯')
+  await adopt(page)
+  const carried = await keyboardProjectBackup(page, info.outputPath('wall-lamp-carried.sceneweave'))
+  expect(carried.document.props.item).toMatchObject({ editLocked: true, positionMm: { x: 5000, y: 4200 } })
+  expect(carried.document.props.item.appearance.glow).toEqual(cold.document.props.item.appearance.glow)
+  expect(carried.document.attachments![relation.id]).toMatchObject({ anchor: relation.anchor, proofs: relation.proofs })
+  expect(carried.document.openings.door).toEqual(cold.document.openings.door)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click(); await keyboardWorkspaceSaved(page)
+  const anchorRestored = await keyboardProjectBackup(page, info.outputPath('wall-lamp-translation-undone.sceneweave'))
+  expect(anchorRestored.document.props.item).toEqual({ ...cold.document.props.item, editLocked: true })
+  expect(anchorRestored.document.attachments![relation.id]).toEqual(cold.document.attachments![relation.id])
   expect(errors).toEqual([])
   await writeFile(info.outputPath('wall-lamp-result.json'), JSON.stringify({ formalAcceptance: false, ordinaryProductionUI: true, surfaceId: surface.id, relationId: relation.id,
     rootSupportPreserved: true, doorwayOverlapRejected: true, archivePreservedOnRefusal: true, contactHeightMm: 1800, heightExtentMm: 400,

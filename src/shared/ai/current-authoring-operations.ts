@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { applyCompositionCommands } from '../appearance/commands.js'
 import { inspectOutdoorChanges } from '../commands/outdoor.js'
 import { inspectDecorationChanges } from '../decorations/commands.js'
@@ -19,7 +20,7 @@ const entities = (scene: SceneDocument): Map<string, Editable> => new Map([
   ...LAYER_ENTITY_COLLECTIONS.flatMap(key => Object.values(scene[key]) as Editable[]), ...Object.values(scene.decorations ?? {}), ...Object.values(scene.decorationClusters ?? {}),
 ].map(row => [row.id, row]))
 const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null)
-const deny = (): never => { throw new Error('当前场景候选涉及未授权、私密、锁定或无效依赖，此步骤未采用。') }
+const deny = (): never => { throw new OperationRejected('outside_scope', '当前场景候选涉及未授权、私密、锁定或无效依赖，此步骤未采用。') }
 /** New protocol only: same manual commands, with a frozen public grant around every real dependency. */
 export function applyCurrentAuthoringOperation(project: ProjectData, scope: CurrentSceneAuthoringScope, raw: CurrentExtraOperation,
   context: PreparationContext, allowedIds: ReadonlySet<string>, budget?: TaskBudgetProfile) {
@@ -54,7 +55,10 @@ export function applyCurrentAuthoringOperation(project: ProjectData, scope: Curr
   try {
     const content = applyCompositionCommands({ document: before, appearance: project.appearance, historyIdentity: project.historyIdentity }, [command], context, { budget })
     next = validateProjectData({ ...project, ...content, document: { ...content.document, revision: before.revision, updatedAt: before.updatedAt } })
-  } catch { return deny() }
+  } catch (error) {
+    if (error instanceof OperationRejected && error.code === 'operation_budget') throw error
+    return deny()
+  }
   const after = entities(next.document), createdIds = sorted([...after.keys()].filter(id => !old.has(id)))
   const writeIds = sorted([...new Set([...old.keys(), ...after.keys()])].filter(id => !same(old.get(id), after.get(id)) || before.entityLayers[id] !== next.document.entityLayers[id]))
   const impact = operation.kind.startsWith('decoration') ? inspectDecorationChanges(before, next.document)

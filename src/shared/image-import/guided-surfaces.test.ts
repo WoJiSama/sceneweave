@@ -81,3 +81,49 @@ describe('explicit guided repair surfaces', () => {
     expect(image.data).toEqual(before)
   })
 })
+
+describe('context-blended guided surfaces', () => {
+  const updatedLayer = { ...layer, polygon: rectangle(28, 18, 20, 24), selectionMask: encodeSelectionMask(box(28, 18, 20, 24)) }
+  const declared = surface()
+  const donor = { x: 52, y: 34, width: 26, height: 28 }
+  const nativeGuide = {
+    ...guide, points: [{ x: 26, y: 30 }, { x: 50, y: 30 }], reference: { x: 1, y: 24, width: 25, height: 13 },
+    stroke: 'original-segment' as const, paper: 'two-sided' as const, registration: 'complete-profile' as const,
+  }
+  const contextSurface = { ...declared, donor, guided: { base: 'context-blend-v2' as const, orientation: 'horizontal' as const, guides: [nativeGuide] } }
+
+  it('keeps the translated texture and the item while joining a local original stroke', () => {
+    const image = fixture(), before = image.data.slice()
+    const plain = replayImageLayers(image, [{ ...updatedLayer, repair: 'context-blend-v2', repairSurfaceIds: undefined, donor }])
+    const joined = replayImageLayers(image, [updatedLayer], [contextSurface])
+    const gray = (pixels: ImagePixels, x: number, y: number) => pixels.data[(y * pixels.width + x) * 4]
+    expect(gray(plain.remaining, 37, 30)).toBeGreaterThan(gray(joined.remaining, 37, 30) + 20)
+    expect(joined.layers[0].extracted.layer).toEqual(plain.layers[0].extracted.layer)
+    expect(joined.provenance).toEqual(plain.provenance)
+    expect(image.data).toEqual(before)
+    for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+      if (y === 30 && x >= 28 && x < 48) continue
+      const at = (y * image.width + x) * 4
+      for (let c = 0; c < 4; c++) if (joined.remaining.data[at + c] !== plain.remaining.data[at + c]) throw new Error(`Unrelated pixel changed at ${x}, ${y}`)
+    }
+    const roundTrip = JSON.parse(JSON.stringify(contextSurface))
+    expect(replayImageLayers(image, [updatedLayer], [roundTrip]).remaining).toEqual(joined.remaining)
+    const analysis = analyzeImageImportRepair(image, [updatedLayer], [roundTrip], 'chair', undefined, 'wood')
+    expect(analysis.surfaces[0].strokeRegistration?.runs[0].registrationMode).toBe('complete-profile')
+    expect(analysis.surfaces[0].report.summary).toEqual(expect.arrayContaining([expect.stringContaining('完整同材质补片')]))
+  })
+
+  it('rejects ambiguous guidance and never reads protected or inferred reference pixels', () => {
+    const image = fixture(), repair = box(28, 18, 20, 24)
+    expect(imageRepairSurfaceSchema.parse(contextSurface)).toEqual(contextSurface)
+    expect(() => imageRepairSurfaceSchema.parse({ ...contextSurface, guided: { ...contextSurface.guided, guides: [guide] } })).toThrow(/完整截面/)
+    const protect = box(3, 30, 1, 1)
+    expect(() => repairImageSurfaces(image, repair, [contextSurface], protect)).toThrow(/不可信像素/)
+    const priorInference = new Uint8Array(image.width * image.height)
+    priorInference[30 * image.width + 3] = 1
+    expect(() => repairImageSurfaces(image, repair, [contextSurface], undefined, { priorInference })).toThrow(/不可信像素/)
+    priorInference.fill(0)
+    priorInference[40 * image.width + 57] = 1
+    expect(() => repairImageSurfaces(image, repair, [contextSurface], undefined, { priorInference })).toThrow(/可信原图/)
+  })
+})

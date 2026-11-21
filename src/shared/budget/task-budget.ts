@@ -1,10 +1,12 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { z } from 'zod'
 import type { SceneDocument } from '../model/scene.js'
 import type { CompositionContent } from '../model/appearance.js'
 import { LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS } from '../model/scene.js'
 import { visualBase } from '../visual/base.js'
-import { canonicalJson, captureJson, encodeUtf8, freezeJson } from '../validation/json.js'
+import { canonicalJson, captureJson, encodeUtf8, equalCheckedJson, equalOwnedJson, freezeJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
+import { isCertifiedSceneSnapshot } from '../validation/snapshots.js'
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 export const BudgetUsageSchema = z.object({ semanticTargets: count, geometryPoints: count, geometrySegments: count,
@@ -49,7 +51,7 @@ export const selectTaskBudget = (input: { task: 'generation' | 'local-edit' | 'a
 }
 export function assertTaskBudget(profileInput: TaskBudgetProfile, raw: BudgetUsage): BudgetUsage {
   const profile = parseTaskBudgetProfile(profileInput), usage = BudgetUsageSchema.parse(captureJson(raw))
-  for (const key of BUDGET_DIMENSIONS) if (usage[key] > profile.limits[key]) throw new Error(`任务预算超限[${key}]：${usage[key]}/${profile.limits[key]}，保留当前成果。`)
+  for (const key of BUDGET_DIMENSIONS) if (usage[key] > profile.limits[key]) throw new OperationRejected('operation_budget', `任务预算超限[${key}]：${usage[key]}/${profile.limits[key]}，保留当前成果。`)
   return freezeJson(usage)
 }
 const observedWorkDimensions = ['gridNodes','fieldEvaluations','intersectionPairs','dependencyRefs','candidateAttempts'] as const
@@ -80,7 +82,7 @@ export function captureExecutionBudget(profileInput: TaskBudgetProfile) {
       if (!BUDGET_DIMENSIONS.includes(key) || !Number.isSafeInteger(amount) || amount < 0 || !Number.isSafeInteger(next[key] + amount)) throw new Error('任务工作计量无效。')
       next[key] += amount
     }
-    for(const key of BUDGET_DIMENSIONS)if(next[key]>profile.limits[key])throw new Error(`任务预算超限[${key}]：${next[key]}/${profile.limits[key]}，保留当前成果。`)
+    for(const key of BUDGET_DIMENSIONS)if(next[key]>profile.limits[key])throw new OperationRejected('operation_budget', `任务预算超限[${key}]：${next[key]}/${profile.limits[key]}，保留当前成果。`)
     Object.assign(usage, next)
     if(executionWorkObserver){
       const work=Object.fromEntries(observedWorkDimensions.filter(key=>(delta[key]??0)>0).map(key=>[key,delta[key]])) as Partial<BudgetUsage>
@@ -89,7 +91,7 @@ export function captureExecutionBudget(profileInput: TaskBudgetProfile) {
   }, snapshot: () => freezeJson({ ...usage }) })
 }
 export type ExecutionBudget = ReturnType<typeof captureExecutionBudget>
-const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null)
+const same = (a: unknown, b: unknown) => equalCheckedJson(a ?? null, b ?? null)
 const sorted = (values: Iterable<string>) => [...new Set(values)].sort()
 const kindFor = { vertices: 'vertex', rooms: 'room', walls: 'wall', openings: 'opening', props: 'prop', regions: 'region', notes: 'note',
   terrainAreas: 'terrainArea', terrainEdges: 'terrainEdge', terrainConnections: 'terrainConnection', paths: 'path', prefabInstances: 'prefab', scatterGroups: 'scatter' } as const
@@ -154,7 +156,8 @@ export function semanticTargetEntries(document: SceneDocument): Map<string, { id
 }
 export function semanticChangedDocumentTargets(before: SceneDocument, after: SceneDocument): string[] {
   const a = semanticTargetEntries(before), b = semanticTargetEntries(after)
-  const changed = sorted([...a.keys(), ...b.keys()].filter(key => !same(a.get(key)?.value, b.get(key)?.value)))
+  const keys = new Set([...a.keys(), ...b.keys()])
+  const changed = [...keys].filter(key => !same(a.get(key)?.value, b.get(key)?.value)).sort()
   return changed.filter(key => {
     if (key.startsWith('visual.filters:')) {
       const id = key.slice('visual.filters:'.length), first = visualBase(before)?.filters[id], second = visualBase(after)?.filters[id]
@@ -195,6 +198,13 @@ export const measureBudgetGeometry = (value: unknown): Pick<BudgetUsage,'geometr
     const ring=row.boundaryMm as unknown[] | undefined, path=(row.centerlineMm ?? row.pointsMm) as unknown[] | undefined
     if (Array.isArray(ring)) { result.geometryPoints+=ring.length; result.geometrySegments+=ring.length }
     if (Array.isArray(path)) { result.geometryPoints+=path.length; result.geometrySegments+=Math.max(0,path.length-1) }
+    const sightLine = (row.sightOccluder as { pointsLocalMm?: unknown[] } | undefined)?.pointsLocalMm
+    if (Array.isArray(sightLine)) { result.geometryPoints += sightLine.length; result.geometrySegments += sightLine.length - 1 }
+    if (Array.isArray(row.widthSections)) {
+      const additionalOutlinePoints = row.widthSections.length * 8
+      result.geometryPoints += additionalOutlinePoints
+      result.geometrySegments += additionalOutlinePoints
+    }
     if (typeof row.xMm==='number'&&typeof row.yMm==='number') result.geometryPoints++
     if (Array.isArray(row.boundaryVertexIds)) {result.geometryPoints+=row.boundaryVertexIds.length;result.geometrySegments+=row.boundaryVertexIds.length}
     if (row.positionMm && !ring && !path) result.geometryPoints++
@@ -250,12 +260,14 @@ export function measureBudgetDependencies(value: unknown): number {
   return count
 }
 
-/** Structural delta and retained closures. Runtime decodes/time must be metered by their executor. */
-export function measureTaskBudget(before: SceneDocument, after: SceneDocument, metadata?: TaskBudgetMetadata, execution: Partial<BudgetUsage> = {}): BudgetUsage {
-  const usage = emptyBudgetUsage(); usage.semanticTargets = taskSemanticTargets(before,after).length
+/** Geometry delta, retained references and resources shared by both budget policies. */
+export function measureDocumentBudget(before: SceneDocument, after: SceneDocument, metadata?: Partial<TaskBudgetMetadata['after']>): BudgetUsage {
+  const usage = emptyBudgetUsage()
+  const equal = isCertifiedSceneSnapshot(before) && isCertifiedSceneSnapshot(after)
+    ? (first: unknown, second: unknown) => equalOwnedJson(first ?? null, second ?? null) : same
 
   const addChanged=(first:unknown,second:unknown)=>{
-    if(same(first,second))return
+    if(equal(first,second))return
     const a=measureBudgetGeometry(first),b=measureBudgetGeometry(second)
     // Removing or simplifying complex geometry still checks its old closure.
     for(const key of ['geometryPoints','geometrySegments','curveSegments'] as const)usage[key]+=Math.max(a[key],b[key])
@@ -297,13 +309,31 @@ export function measureTaskBudget(before: SceneDocument, after: SceneDocument, m
   // geometry. Executors add repeated clipping/search/validation work through
   // executionUsage; this bound is independent of the editable target count.
   usage.intersectionPairs=usage.geometrySegments*(retainedSegments+usage.geometrySegments)
+  usage.dependencyRefs = measureBudgetDependencies(after) + measureBudgetDependencies(metadata?.historyIdentity)
+    + measureBudgetDependencies(metadata?.appearance)
+  const assets=metadata?.assets
+  if(assets){for(const record of Object.values(assets)){usage.assetBytes+=record.sizeBytes;usage.decodePixels+=record.pixelWidth*record.pixelHeight}}
+  else{const unique=new Map(Object.values(after.assets).map(record=>[record.sha256,record]));for(const record of unique.values())usage.decodePixels+=record.pixelWidth*record.pixelHeight}
+  return usage
+}
+
+export function accountBudgetExecution(usage: BudgetUsage, execution: Partial<BudgetUsage>): BudgetUsage {
+  for(const [key,value] of Object.entries(execution) as [keyof BudgetUsage,number][]) {
+    if(!BUDGET_DIMENSIONS.includes(key)||!Number.isSafeInteger(value)||value<0)throw new Error('任务执行计量无效。')
+    usage[key]=(['gridNodes','fieldEvaluations','intersectionPairs','candidateAttempts','activeExecutionMs'] as string[]).includes(key)
+      ?usage[key]+value:Math.max(usage[key],value)
+  }
+  return freezeJson(BudgetUsageSchema.parse(usage))
+}
+/** Task policy counts all retained metadata and its own semantic targets. */
+export function measureTaskBudget(before: SceneDocument, after: SceneDocument, metadata?: TaskBudgetMetadata, execution: Partial<BudgetUsage> = {}): BudgetUsage {
+  const usage = measureDocumentBudget(before, after, metadata?.after)
+  usage.semanticTargets = taskSemanticTargets(before, after).length
   const tree = (value:unknown) => {
     if(!value||typeof value!=='object')return
     if(Array.isArray(value)){for(const row of value)tree(row);return}
     usage.metadataRecords++
-    for(const [key,row]of Object.entries(value)){
-      tree(row)
-    }
+    for (const row of Object.values(value)) tree(row)
   }
   const data={generation:after.generation??null,historyIdentity:metadata?.after.historyIdentity??null,appearance:metadata?.after.appearance??null,
     attachmentSurfaces: after.attachmentSurfaces ?? null, attachments: after.attachments ?? null,
@@ -311,17 +341,7 @@ export function measureTaskBudget(before: SceneDocument, after: SceneDocument, m
     sources:{materials:after.materials,propDefinitions:after.propDefinitions,prefabDefinitions:after.prefabDefinitions,assets:after.assets,styleThemes:after.styleThemes,
       regionalSymbolDefinitions:after.regional?.symbolDefinitions??{}}}
   tree(data);usage.metadataBytes=encodeUtf8(canonicalJson(data)).length
-  usage.dependencyRefs = measureBudgetDependencies(after) + measureBudgetDependencies(metadata?.after.historyIdentity)
-    + measureBudgetDependencies(metadata?.after.appearance)
-  const assets=metadata?.after.assets
-  if(assets){for(const record of Object.values(assets)){usage.assetBytes+=record.sizeBytes;usage.decodePixels+=record.pixelWidth*record.pixelHeight}}
-  else{const unique=new Map(Object.values(after.assets).map(record=>[record.sha256,record]));for(const record of unique.values())usage.decodePixels+=record.pixelWidth*record.pixelHeight}
-  for(const [key,value] of Object.entries(execution) as [keyof BudgetUsage,number][]) {
-    if(!BUDGET_DIMENSIONS.includes(key)||!Number.isSafeInteger(value)||value<0)throw new Error('任务执行计量无效。')
-    usage[key]=(['gridNodes','fieldEvaluations','intersectionPairs','candidateAttempts','activeExecutionMs'] as string[]).includes(key)
-      ?usage[key]+value:Math.max(usage[key],value)
-  }
-  return freezeJson(BudgetUsageSchema.parse(usage))
+  return accountBudgetExecution(usage, execution)
 }
 /** Explicit selection never applies automatic device/area downshifting. */
 export const getTaskBudgetProfile = taskBudgetProfile

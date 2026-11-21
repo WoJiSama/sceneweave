@@ -48,23 +48,23 @@ function generatedTaskWithNarrowScope(): StoredTask {
   input.brief = { recipe: 'custom', requirements: ['仅修改明确选择的物件及新建局部灯光'] }
   return taskFixture(createGeneratedAuthoringStartV4(input))
 }
-const call = (name: string, args: unknown, id = randomUUID()): ProviderToolCall => ({ id, name, arguments: JSON.stringify(args) })
+const call = (name: string, args: unknown, id: string = randomUUID()): ProviderToolCall => ({ id, name, arguments: JSON.stringify(args) })
 function tool(task: StoredTask, name: string, args: unknown, id = randomUUID()) {
   const result = executeAuthoringTool(task, call(name, args, id), args)
   return { result, output: JSON.parse(result.output) as Record<string, any> }
 }
 const completion = (toolCalls: ProviderToolCall[] = []): ProviderCompletion => ({ text: '', toolCalls, finishReason: toolCalls.length ? 'tool_calls' : 'stop', usage: { inputTokens: 10, outputTokens: 8 }, requestId: 'unit-only' })
-function setup(provider: ProviderAdapter, limits?: Partial<ReturnType<TaskStore['limits']>>) {
+function setup(provider: ProviderAdapter, limits?: Partial<ReturnType<TaskStore['limits']>>, vision = 'unverified') {
   const directory = mkdtempSync(join(tmpdir(), 'sceneweave-authoring4-'))
   const config = loadAiConfig({ SCENEWEAVE_AI_DATA_DIR: directory, SCENEWEAVE_AI_ALLOWED_ORIGINS: origin, SCENEWEAVE_AI_ACCESS_TOKEN: token,
-    SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:9999/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'unit-only-private', SCENEWEAVE_AI_PROVIDER_MODEL: 'mock' })
+    SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:9999/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'unit-only-private', SCENEWEAVE_AI_PROVIDER_MODEL: 'mock', SCENEWEAVE_AI_PROVIDER_VISION: vision })
   const store = new TaskStore(directory), engine = new TaskEngine(store, provider, connectionInfo(config))
   if (limits) { const defaults = store.limits.bind(store); vi.spyOn(store, 'limits').mockImplementation(task => ({ ...defaults(task), ...limits })) }
   const app = createAiApp(config, { store, engine })
   const request = (path: string, method = 'GET', body?: unknown) => app.request(path, { method, headers: {
     Authorization: `Bearer ${token}`, Origin: origin, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })
-  const create = (start = source()) => request('/v1/tasks?authoringVersion=4', 'POST', { schemaVersion: 1, clientRequestId: randomUUID(), prompt: '仅调整明确授予的物件。',
-    context: { sceneId: start.source.preservation.sceneId, revision: start.source.preservation.revision, audience: 'public' }, authoring: start })
+  const create = (start = source(), image?: ReturnType<typeof createPublicVisionInput>) => request('/v1/tasks?authoringVersion=4', 'POST', { schemaVersion: 1, clientRequestId: randomUUID(), prompt: '仅调整明确授予的物件。',
+    context: { sceneId: start.source.preservation.sceneId, revision: start.source.preservation.revision, audience: 'public' }, authoring: start, ...(image ? { vision: image } : {}) })
   let closed = false
   const shutdown = () => { if (!closed) { closed = true; engine.close(); store.close() } }
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }), shutdown)
@@ -116,7 +116,9 @@ describe('explicit authoring4 stage and review tools (metadata fixtures, no real
     expect(proposed.output).toMatchObject({ appearance: 'unconfirmed', observation: 'unverified', applied: false, omissions: [{ status: 'unreviewed' }, { status: 'unreviewed' }] })
     expect(proposed.result.output).not.toContain('pngBase64')
     const applyArgs = { ...args, expected: proposed.output.expected, candidateHash: proposed.output.candidateHash }
-    expect(tool(task, 'sceneweave_apply_visual_correction', applyArgs).result.success).toBe(false)
+    const unprepared = tool(task, 'sceneweave_apply_visual_correction', applyArgs)
+    expect(unprepared.result.success).toBe(false)
+    expect(unprepared.output.error).toMatchObject({ code: 'invalid_candidate', nextAction: 'refresh_candidate' })
     task.snapshot.tools.push(proposed.result)
     expect(tool(task, 'sceneweave_apply_visual_correction', applyArgs).result.success).toBe(true)
     expect(task.authoring!.state.draftRevision).toBe(1)
@@ -126,6 +128,34 @@ describe('explicit authoring4 stage and review tools (metadata fixtures, no real
 })
 
 describe('authoring4 service budget finish and persisted proof', () => {
+  it('uses the current screenshot for provider tools, workflow discovery and dispatch in the same batch', async () => {
+    const start = source(), id = start.scope.targetIds[0]
+    const image = createPublicVisionInput(svgFixturePng(), { sceneId: start.project.document.sceneId, revision: start.project.document.revision,
+      boundsMm: start.scope.scene!.boundsMm, draft: { draftRevision: 0, contentHash: start.baseContentHash } })
+    const schema = { action: 'schema', workflowId: 'sceneweave-scene-edit' }
+    const reviewNames = ['sceneweave_visual_review', 'sceneweave_apply_visual_correction']
+    const complete = vi.fn(async (_input: ProviderInput) => complete.mock.calls.length === 1 ? completion([
+      call('sceneweave_workflow', schema, 'before-edit'),
+      call('sceneweave_edit_props', { operations: [{ kind: 'opacity', id, value: .4 }] }, 'edit'),
+      call('sceneweave_visual_review', {}, 'stale-review'),
+      call('sceneweave_workflow', schema, 'after-edit'),
+    ]) : completion())
+    const subject = setup({ complete }, undefined, 'enabled'), response = await subject.create(start, image)
+    expect(response.status).toBe(201)
+    const { id: taskId } = await response.json() as { id: string }
+    await vi.waitFor(() => expect(subject.store.read(taskId).snapshot.status).toBe('waiting_browser'), { timeout: 15000 })
+    const [first, second] = complete.mock.calls.map(([input]) => input.tools.map(tool => tool.name))
+    const { tools, authoring } = subject.store.read(taskId).snapshot
+    const result = (id: string) => JSON.parse(tools.find(tool => tool.callId === id)!.output)
+    expect(first).toEqual(expect.arrayContaining(reviewNames))
+    expect(result('before-edit')).toMatchObject({ tools: expect.arrayContaining(reviewNames.map(name => ({ name }))) })
+    expect(result('stale-review').error).toMatchObject({ code: 'stale_screenshot', nextAction: 'request_current_screenshot' })
+    for (const name of reviewNames) {
+      expect(second).not.toContain(name)
+      expect(result('after-edit').tools).not.toContainEqual({ name })
+    }
+    expect(authoring?.draftRevision).toBe(1)
+  })
   it('negotiates new fields only on version4 and rejects a new task through an old route', async () => {
     const subject = setup({ complete: vi.fn(async () => completion()) })
     for (const path of ['/v1/capabilities', '/v1/capabilities?authoringVersion=2', '/v1/capabilities?authoringVersion=3&surfaceVersion=1']) {

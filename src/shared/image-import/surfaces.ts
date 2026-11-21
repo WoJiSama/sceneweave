@@ -11,6 +11,7 @@ import { repairGuidedImageSurface } from './guided-surface-repair.js'
 const binary = imageSelectionMaskSchema.refine(mask => mask.runs.every((v, i) => i % 2 === 0 || v === 0 || v === 255), '表面与取证排除范围须为二值蒙版。')
 const reference = z.strictObject({ x: z.number().int().nonnegative(), y: z.number().int().nonnegative(), width: z.number().int().positive(), height: z.number().int().positive() })
 export const imageSurfaceGuidanceSchema = z.strictObject({
+  base: z.literal('context-blend-v2').optional(),
   orientation: z.enum(['horizontal', 'vertical', 'soft']),
   guides: z.array(z.strictObject({ points: z.array(z.strictObject({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() })).min(2).max(16),
     reference, axis: z.enum(['horizontal', 'vertical']), stroke: z.literal('original-segment').optional(), paper: z.literal('two-sided').optional(), registration: z.literal('complete-profile').optional(), reason: z.string().trim().min(1).max(400) })
@@ -23,6 +24,8 @@ export const imageSurfaceGuidanceSchema = z.strictObject({
     .refine(value => value.blendPx === undefined || value.mode === 'replace-ink' && Math.min(value.reference.width, value.reference.height) >= value.blendPx * 2 + 3,
       '笔迹过渡须显式用于替换模式，且宽高各保留至少3像素不混合核心。')).max(16).optional(),
 }).refine(value => value.guides.length + (value.detailPatches?.length ?? 0) <= 32, '路径与二维笔迹合计最多32项。')
+  .refine(value => !value.base || value.guides.length > 0 && !value.detailPatches?.length && value.guides.every(guide => guide.registration === 'complete-profile'),
+    '完整补片结构辅助需要至少一条完整截面原尺寸接缝，不能同时写入二维笔迹。')
 export const imageRepairSurfaceSchema = z.strictObject({
   id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), name: z.string().min(1).max(120),
   kind: z.enum(['soft', 'planks', 'patches', 'neighbors-soft', 'neighbors-planks', 'guided']), mask: binary,
@@ -99,7 +102,7 @@ export function repairImageSurfaces(image: ImagePixels, repair: ImagePixelMask, 
               || neighborhood.priorInference?.[y * image.width + x] || image.data[(y * image.width + x) * 4 + 3] !== 255) throw new Error(`结构参考${index + 1}整块须为可见可信原像素，不能取自移除、保护、排除、前序推断或未移走的物件；不可信像素(${x}, ${y})。`)
           }
         }
-        return repairGuidedImageSurface(image, part, surface.donor, { ...neighborhoodEvidence, pattern: surface.guided!.orientation === 'soft' ? 'soft' : 'planks', orientation: surface.guided!.orientation, guides: surface.guided!.guides, detailPatches: surface.guided!.detailPatches })
+        return repairGuidedImageSurface(image, part, surface.donor, { ...neighborhoodEvidence, pattern: surface.guided!.orientation === 'soft' ? 'soft' : 'planks', orientation: surface.guided!.orientation, base: surface.guided!.base, guides: surface.guided!.guides, detailPatches: surface.guided!.detailPatches })
       } catch (error) {
         if (neighborhood.signal?.aborted || error instanceof Error && error.name === 'AbortError') throw error
         const references = surface.guided!.guides.map((guide, index) => `${index + 1}:(${guide.reference.x}, ${guide.reference.y}) ${guide.reference.width}×${guide.reference.height}px ${guide.axis}`).join('；')

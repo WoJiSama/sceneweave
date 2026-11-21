@@ -14,6 +14,19 @@ export type ConnectionRoute = z.infer<typeof routeShape>
 export const CONNECTION_ROUTE_LIMITS = Object.freeze({ segments: 16, samples: 256, treads: 512 })
 const same = (a: PointMm, b: PointMm) => a.x === b.x && a.y === b.y
 
+/** Interpolate through authored points. Keep the endpoints and every turn in order. */
+export function smoothConnectionControls(points: readonly PointMm[]): Omit<ConnectionRoute['segments'][number], 'id'>[] {
+  return points.slice(1).map((end, index) => {
+    const start = points[index], previous = points[Math.max(0, index - 1)], next = points[Math.min(points.length - 1, index + 2)]
+    return {
+      start: { ...start },
+      control1: { x: Math.round(start.x + (end.x - previous.x) / 6), y: Math.round(start.y + (end.y - previous.y) / 6) },
+      control2: { x: Math.round(end.x - (next.x - start.x) / 6), y: Math.round(end.y - (next.y - start.y) / 6) },
+      end: { ...end },
+    }
+  })
+}
+
 /** Saved controls deterministically materialize the complete integer-mm route.
  * The sampler is shared with visual boundaries; no viewport/raster state enters. */
 export function sampleConnectionRoute(route: Pick<ConnectionRoute, 'kind' | 'segments' | 'sampleSpacingMm' | 'toleranceMm'>): PointMm[] {

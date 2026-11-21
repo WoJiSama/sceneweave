@@ -23,6 +23,7 @@ import type { PixelBounds } from '../../../shared/image-import/pixels.js'
 import { IMAGE_IMPORT_VECTOR_LONG_EDGE, materializeImageImportSvg } from './image-import-vector.js'
 import { prepareSourceBuildingArt, SOURCE_BUILDING_ART_ID } from './image-import-source-art.js'
 import { pointInPolygon } from '../../../shared/geometry/geometry.js'
+import { wallEnvelopePolygons } from '../../../shared/geometry/doorway-clearance.js'
 
 export interface ImageImportRaster extends ImageRoomRaster {
   sourceSvg?: string
@@ -50,11 +51,17 @@ export interface ImageImportProjectInput {
   now?: string
   sourceArtwork?: { kind: 'preserve-original'; roomBoundaryPx: ImagePoint[] }
 }
-export const IMAGE_IMPORT_IDS = { room: 'image-import-room', floor: 'visual-floor', floorMaterial: 'image-import-floor-material' } as const
-const GROUND = 'visual-layer-ground', PROPS = 'visual-layer-props', LICENSE = 'image-import-source'
+export const IMAGE_IMPORT_IDS = { room: 'image-import-room', floor: 'visual-floor' } as const
+const GROUND = 'visual-layer-ground', PROPS = 'visual-layer-props'
 const hashJson = (value: unknown) => sha256Bytes(encodeUtf8(canonicalJson(value)))
-function rasterAssetId(sha256: string, logicalSizeMm: { width: number; height: number }, sourceSvg?: string): string {
-  const identity = sourceSvg === undefined ? logicalSizeMm : { logicalSizeMm, sourceSha256: normalizeStaticSvg(sourceSvg).sourceSha256 }
+function imageImportSource(input: ImageImportProjectInput) {
+  const licenseHash = sha256Bytes(encodeUtf8(input.licenseText))
+  return { licenseHash, licenseRef: `image-import-source-${licenseHash}`,
+    origin: { kind: 'imported' as const, attribution: input.attribution, canEmbed: true } }
+}
+function rasterAssetId(sha256: string, logicalSizeMm: { width: number; height: number },
+  { licenseRef, origin }: ReturnType<typeof imageImportSource>, sourceSvg?: string): string {
+  const identity = { logicalSizeMm, licenseRef, origin, ...(sourceSvg && { sourceSha256: normalizeStaticSvg(sourceSvg).sourceSha256 }) }
   return `image-import-art-${sha256}-${hashJson(identity)}`
 }
 const pixelBoundsSchema = z.object({ x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative(),
@@ -94,62 +101,86 @@ function captureInput(input: ImageImportProjectInput): ImageImportProjectInput {
     ...(sourceArtwork ? { sourceArtwork } : {}) }
 }
 
-function buildDocument(input: ImageImportProjectInput, sourceArt?: ImageImportRaster): SceneDocument {
+function buildDocument(input: ImageImportProjectInput, source: ReturnType<typeof imageImportSource>, sourceArt?: ImageImportRaster): SceneDocument {
   const calibration = createImageCalibration(input.calibration)
-  if (!Array.isArray(input.roomPointsPx) || input.roomPointsPx.length < 3 || input.roomPointsPx.length > 257) throw new Error('房间轮廓需要3–256个顶点。')
-  let points = input.roomPointsPx.map(point => imagePointToWorldMm(calibration, point))
-  if (points[0].x === points.at(-1)!.x && points[0].y === points.at(-1)!.y) points = points.slice(0, -1)
-  if (points.length < 3 || points.length > 256) throw new Error('房间轮廓需要3–256个顶点。')
+  if (!Array.isArray(input.roomPointsPx) || input.roomPointsPx.length > 257) throw new Error('房间轮廓需要3–256个顶点。')
+  const points = input.roomPointsPx.map(point => imagePointToWorldMm(calibration, point))
+  if (points.length) {
+    const first = points[0], last = points.at(-1)!
+    if (first.x === last.x && first.y === last.y) points.pop()
+    if (points.length < 3 || points.length > 256) throw new Error('房间轮廓需要3–256个顶点。')
+  }
   if (signedVisualArea(points) < 0) points.reverse()
   const topLeft = imagePointToWorldMm(calibration, { x: 0, y: 0 })
-  const width = Math.max(1000, imageDistanceToMm(calibration, calibration.pixelWidth)), height = Math.max(1000, imageDistanceToMm(calibration, calibration.pixelHeight))
+  const bottomRight = imagePointToWorldMm(calibration, { x: calibration.pixelWidth, y: calibration.pixelHeight })
+  const width = Math.max(1000, bottomRight.x - topLeft.x, imageDistanceToMm(calibration, calibration.pixelWidth))
+  const height = Math.max(1000, bottomRight.y - topLeft.y, imageDistanceToMm(calibration, calibration.pixelHeight))
   const scene = createVisualBlankDocument({ title: input.title, widthMm: width, heightMm: height, preset: 'narrative', gridVisible: false,
     sceneId: input.sceneId ?? runtime.ids.nextId(), now: input.now ?? runtime.clock.now() })
   scene.floors[IMAGE_IMPORT_IDS.floor].boundsMm = { ...topLeft, width, height }
   const visualLayers = sourceArt ? [...input.layers, { ...sourceArt, id: SOURCE_BUILDING_ART_ID, name: '原图建筑墙沿', renderLayer: 'ground' as const, blocksMovement: false }] : input.layers
-  const visiblePoints = [...points, ...visualLayers.flatMap(layer => [
-    imagePointToWorldMm(calibration, { x: layer.boundsPx.x, y: layer.boundsPx.y }),
-    imagePointToWorldMm(calibration, { x: layer.boundsPx.x + layer.boundsPx.width, y: layer.boundsPx.y + layer.boundsPx.height }),
-  ])]
-  const left = Math.min(...visiblePoints.map(point => point.x)) - 250, top = Math.min(...visiblePoints.map(point => point.y)) - 250
-  scene.exportBoundsMm = { x: left, y: top, width: Math.max(1000, Math.max(...visiblePoints.map(point => point.x)) + 250 - left),
-    height: Math.max(1000, Math.max(...visiblePoints.map(point => point.y)) + 250 - top) }
   scene.assets = {}; scene.materials = {}; scene.propDefinitions = {}; scene.styleThemes = {}; scene.activeStyleThemeRef = null
-  scene.outputBackground = { mode: 'solid', color: '#E9E5DC' }
+  scene.outputBackground = points.length ? { mode: 'solid', color: '#E9E5DC' } : { mode: 'transparent' }
   scene.presetSnapshot = { presetId: 'image-import-manual', presetVersion: 1, distanceMode: 'metric', gridSizeMm: 1000,
-    source: `本地图片拆解；两点标定${calibration.distanceMm}毫米；轮廓人工确认；遮挡补底属于推断。` }
-  const origin = { kind: 'imported' as const, attribution: input.attribution, canEmbed: true }
+    source: `本地图片拆解；两点标定${calibration.distanceMm}毫米；${points.length ? '轮廓人工确认' : '以原图为底图'}；遮挡补底属于推断。` }
+  const { licenseRef, origin } = source
   const addAsset = (raster: ImageImportRaster): string => {
     assertImagePoint(calibration, { x: raster.boundsPx.x, y: raster.boundsPx.y })
     assertImagePoint(calibration, { x: raster.boundsPx.x + raster.boundsPx.width, y: raster.boundsPx.y + raster.boundsPx.height })
     const sha256 = sha256Bytes(raster.pngBytes)
     const logicalSizeMm = { width: imageDistanceToMm(calibration, raster.boundsPx.width), height: imageDistanceToMm(calibration, raster.boundsPx.height) }
-    // Asset identity includes logical scale because identical pixels can serve different placements.
-    const id = rasterAssetId(sha256, logicalSizeMm, raster.sourceSvg)
-    scene.assets[id] = { id, sha256, mimeType: 'image/png', pixelWidth: raster.pixelWidth, pixelHeight: raster.pixelHeight, logicalSizeMm, licenseRef: LICENSE, origin: { ...origin } }
+    // Identical pixels can carry distinct scale or provenance while sharing stored bytes.
+    const id = rasterAssetId(sha256, logicalSizeMm, source, raster.sourceSvg)
+    scene.assets[id] = { id, sha256, mimeType: 'image/png', pixelWidth: raster.pixelWidth, pixelHeight: raster.pixelHeight, logicalSizeMm, licenseRef, origin: { ...origin } }
     return id
   }
   const floorAsset = addAsset(input.floor), floorSize = scene.assets[floorAsset].logicalSizeMm
-  scene.materials[IMAGE_IMPORT_IDS.floorMaterial] = { id: IMAGE_IMPORT_IDS.floorMaterial,
-    catalogId: `material.image-import.${hashJson({ asset: scene.assets[floorAsset], licenseText: input.licenseText })}`, version: 1, licenseRef: LICENSE, origin: { ...origin },
-    name: '图片地板 · 遮挡补全', tags: ['图片拆解', '补全', ...(sourceArt ? ['原图保真'] : [])], textureAssetId: floorAsset, defaultTileSizeMm: { ...floorSize }, applicableSurfaces: sourceArt ? ['room', 'wall'] : ['room'] }
-  const vertexIds = points.map((point, index) => {
-    const id = `image-import-vertex-${index}`
-    scene.vertices[id] = { id, floorId: IMAGE_IMPORT_IDS.floor, editLocked: false, xMm: point.x, yMm: point.y }; scene.entityLayers[id] = GROUND
-    return id
-  })
-  for (const [index, startVertexId] of vertexIds.entries()) {
-    const id = `image-import-wall-${index}`
-    scene.walls[id] = { id, floorId: IMAGE_IMPORT_IDS.floor, editLocked: false, startVertexId, endVertexId: vertexIds[(index + 1) % vertexIds.length],
-      thicknessMm: Math.max(1, imageDistanceToMm(calibration, 5)), blocksMovement: true, blocksSight: true, topStyle: null }
-    scene.entityLayers[id] = GROUND
+  const floorHash = hashJson({ floorAsset, preservesSource: !!sourceArt }), floorMaterial = `image-import-floor-material-${floorHash}`
+  if (points.length) {
+    const visiblePoints = [...points, ...visualLayers.flatMap(layer => [
+      imagePointToWorldMm(calibration, { x: layer.boundsPx.x, y: layer.boundsPx.y }),
+      imagePointToWorldMm(calibration, { x: layer.boundsPx.x + layer.boundsPx.width, y: layer.boundsPx.y + layer.boundsPx.height }),
+    ])]
+    const left = Math.min(...visiblePoints.map(point => point.x)) - 250, top = Math.min(...visiblePoints.map(point => point.y)) - 250
+    scene.exportBoundsMm = { x: left, y: top, width: Math.max(1000, Math.max(...visiblePoints.map(point => point.x)) + 250 - left),
+      height: Math.max(1000, Math.max(...visiblePoints.map(point => point.y)) + 250 - top) }
+    scene.materials[floorMaterial] = { id: floorMaterial,
+      catalogId: `material.image-import.${floorHash}`, version: 1, licenseRef, origin: { ...origin },
+      name: '图片地板 · 遮挡补全', tags: ['图片拆解', '补全', ...(sourceArt ? ['原图保真'] : [])], textureAssetId: floorAsset, defaultTileSizeMm: { ...floorSize }, applicableSurfaces: sourceArt ? ['room', 'wall'] : ['room'] }
+    const vertexIds = points.map((point, index) => {
+      const id = `image-import-vertex-${index}`
+      scene.vertices[id] = { id, floorId: IMAGE_IMPORT_IDS.floor, editLocked: false, xMm: point.x, yMm: point.y }; scene.entityLayers[id] = GROUND
+      return id
+    })
+    for (const [index, startVertexId] of vertexIds.entries()) {
+      const id = `image-import-wall-${index}`
+      scene.walls[id] = { id, floorId: IMAGE_IMPORT_IDS.floor, editLocked: false, startVertexId, endVertexId: vertexIds[(index + 1) % vertexIds.length],
+        thicknessMm: Math.max(1, imageDistanceToMm(calibration, 5)), blocksMovement: true, blocksSight: true, topStyle: null }
+      scene.entityLayers[id] = GROUND
+    }
+    // A room can reach the image edge. Its wall bodies and joins still need a
+    // flat physical Floor around their centre lines, independent of output crop.
+    const wallPoints = wallEnvelopePolygons(scene).flatMap(wall => wall.polygon)
+    const floorLeft = Math.floor(Math.min(topLeft.x, ...wallPoints.map(point => point.x)))
+    const floorTop = Math.floor(Math.min(topLeft.y, ...wallPoints.map(point => point.y)))
+    const floorRight = Math.ceil(Math.max(topLeft.x + width, ...wallPoints.map(point => point.x)))
+    const floorBottom = Math.ceil(Math.max(topLeft.y + height, ...wallPoints.map(point => point.y)))
+    scene.floors[IMAGE_IMPORT_IDS.floor].boundsMm = { x: floorLeft, y: floorTop, width: floorRight - floorLeft, height: floorBottom - floorTop }
+    scene.rooms[IMAGE_IMPORT_IDS.room] = { id: IMAGE_IMPORT_IDS.room, floorId: IMAGE_IMPORT_IDS.floor, editLocked: false, visibility: 'public',
+      purpose: '图片拆解房间', accessExpectation: 'intentionalIsolation', boundaryVertexIds: vertexIds,
+      supportRef: { kind: 'floor', id: IMAGE_IMPORT_IDS.floor }, groundElevationMm: 0,
+      floorStyle: { base: { materialRef: { id: floorMaterial, version: 1 }, tileSizeMm: { ...floorSize }, rotationDeg: 0, alignment: 'world',
+        originMm: imagePointToWorldMm(calibration, { x: input.floor.boundsPx.x, y: input.floor.boundsPx.y }), tint: null, opacity: 1 }, overlays: [] } }
+    scene.entityLayers[IMAGE_IMPORT_IDS.room] = GROUND
+  } else {
+    const { x, y, width: pixelWidth, height: pixelHeight } = input.floor.boundsPx
+    const start = imagePointToWorldMm(calibration, { x, y })
+    const end = imagePointToWorldMm(calibration, { x: x + pixelWidth, y: y + pixelHeight })
+    const boundsMm = { ...start, width: end.x - start.x, height: end.y - start.y }
+    scene.floors[IMAGE_IMPORT_IDS.floor].artwork = { assetId: floorAsset, boundsMm }
+    scene.exportBoundsMm = { ...boundsMm }
   }
-  scene.rooms[IMAGE_IMPORT_IDS.room] = { id: IMAGE_IMPORT_IDS.room, floorId: IMAGE_IMPORT_IDS.floor, editLocked: false, visibility: 'public',
-    purpose: '图片拆解房间', accessExpectation: 'intentionalIsolation', boundaryVertexIds: vertexIds,
-    supportRef: { kind: 'floor', id: IMAGE_IMPORT_IDS.floor }, groundElevationMm: 0,
-    floorStyle: { base: { materialRef: { id: IMAGE_IMPORT_IDS.floorMaterial, version: 1 }, tileSizeMm: { ...floorSize }, rotationDeg: 0, alignment: 'world',
-      originMm: imagePointToWorldMm(calibration, { x: input.floor.boundsPx.x, y: input.floor.boundsPx.y }), tint: null, opacity: 1 }, overlays: [] } }
-  scene.entityLayers[IMAGE_IMPORT_IDS.room] = GROUND
+  const supportRef = points.length ? { kind: 'room' as const, id: IMAGE_IMPORT_IDS.room } : { kind: 'floor' as const, id: IMAGE_IMPORT_IDS.floor }
   for (const [index, layer] of visualLayers.entries()) {
     if (Object.hasOwn(scene.entityLayers, layer.id) || Object.hasOwn(scene.floors, layer.id) || Object.hasOwn(scene.userLayers, layer.id)) throw new Error('图片物件身份与工程实体冲突。')
     const assetId = addAsset(layer), size = scene.assets[assetId].logicalSizeMm
@@ -185,24 +216,25 @@ function buildDocument(input: ImageImportProjectInput, sourceArt?: ImageImportRa
     const appearance = { kind: 'image' as const, assetId, tint: null, opacity: 1 }
     const defaultFields = { name: layer.name, tags: ['图片拆解', ...(buildingArt ? ['source-building-art'] : [])], defaultAppearance: appearance, defaultVisualBoundsMm: visualBoundsMm, defaultFootprintMm: footprintMm,
       defaultFootprintOffsetMm: footprintOffsetMm, defaultBlocksMovement: layer.blocksMovement, defaultBlocksSight: false, defaultRenderLayer: layer.renderLayer, defaultShadowClass: 'none' as const }
-    const definitionHash = hashJson({ ...defaultFields, origin, licenseText: input.licenseText }), definitionId = `image-import-definition-${definitionHash}`
+    const definitionHash = hashJson({ ...defaultFields, origin, licenseRef }), definitionId = `image-import-definition-${definitionHash}`
     scene.propDefinitions[definitionId] = { id: definitionId, catalogId: `prop.image-import.${definitionHash}`,
-      version: 1, licenseRef: LICENSE, origin: { ...origin }, ...defaultFields }
+      version: 1, licenseRef, origin: { ...origin }, ...defaultFields }
     scene.props[layer.id] = { id: layer.id, floorId: IMAGE_IMPORT_IDS.floor, editLocked: buildingArt, visibility: 'public', definitionRef: { id: definitionId, version: 1 },
       appearance: { ...appearance }, visualBoundsMm: { ...visualBoundsMm }, footprintMm: { ...footprintMm }, footprintOffsetMm: { ...footprintOffsetMm },
       positionMm, rotationDeg: 0,
-      blocksMovement: layer.blocksMovement, blocksSight: false, supportRef: { kind: 'room', id: IMAGE_IMPORT_IDS.room }, roomId: IMAGE_IMPORT_IDS.room,
+      blocksMovement: layer.blocksMovement, blocksSight: false, supportRef: { ...supportRef },
+      ...(supportRef.kind === 'room' ? { roomId: supportRef.id } : {}),
       renderLayer: layer.renderLayer, renderOrder: index, shadowClass: 'none', shadowOverride: null }
     scene.entityLayers[layer.id] = PROPS
   }
   if (sourceArt) {
     const paint = scene.rooms[IMAGE_IMPORT_IDS.room].floorStyle!
     for (const wall of Object.values(scene.walls)) wall.topStyle = structuredClone(paint)
-    const themeId = 'image-import-source-preserving-theme'
+    const themeId = `image-import-source-preserving-theme-${floorHash}`
     const zeroShadow = () => ({ directionDeg: 0, offsetMm: 0, blurMm: 0, opacity: 0, color: '#000000' })
     const zeroEdge = () => ({ strokeWidthMm: 0, bandWidthMm: 0, color: '#000000' })
-    scene.styleThemes[themeId] = { id: themeId, catalogId: `theme.image-import.${hashJson({ floorAsset, license: input.licenseText })}`, version: 1,
-      licenseRef: LICENSE, origin: { ...origin }, name: '原图外观保留', materialSuggestions: [], propSuggestions: [], prefabSuggestions: [],
+    scene.styleThemes[themeId] = { id: themeId, catalogId: `theme.image-import.${floorHash}`, version: 1,
+      licenseRef, origin: { ...origin }, name: '原图外观保留', materialSuggestions: [], propSuggestions: [], prefabSuggestions: [],
       outline: { widthMm: 0, color: '#000000' }, openingStyle: { doorStrokeWidthMm: 0, windowStrokeWidthMm: 0, frameWidthMm: 0, doorFill: '#000000', windowFill: '#000000' },
       edgeStyles: { shore: zeroEdge(), cliff: zeroEdge(), materialTransition: zeroEdge(), path: zeroEdge() },
       shadowPresets: { none: zeroShadow(), furniture: zeroShadow(), vegetation: zeroShadow(), wall: zeroShadow() },
@@ -218,7 +250,7 @@ function buildDocument(input: ImageImportProjectInput, sourceArt?: ImageImportRa
 export function createImageImportDocument(input: ImageImportProjectInput): SceneDocument {
   const captured = captureInput(input)
   if (captured.sourceArtwork || [captured.floor, ...captured.layers].some(raster => raster.sourceSvg !== undefined)) throw new Error('SVG或原图建筑外观请使用异步工程准备入口。')
-  return buildDocument(captured)
+  return buildDocument(captured, imageImportSource(captured))
 }
 
 /** Pure preparation. Persistence and automatic library installation happen after user adoption. */
@@ -238,19 +270,20 @@ export async function createImageImportProject(input: ImageImportProjectInput, s
   for (let index = 0; index < captured.layers.length; index++) captured.layers[index] = await materialize(captured.layers[index])
   if (captured.sourceArtwork && captured.layers.some(layer => layer.id === SOURCE_BUILDING_ART_ID)) throw new Error('图片物件身份与源建筑外观冲突。')
   const sourceArt = captured.sourceArtwork ? await prepareSourceBuildingArt(captured.floor, captured.sourceArtwork.roomBoundaryPx, capabilities, signal) : undefined
-  const scene = buildDocument(captured, sourceArt), authoringSources: Record<string, SvgAuthoringSource> = {}
+  const source = imageImportSource(captured), { licenseHash } = source
+  const scene = buildDocument(captured, source, sourceArt), authoringSources: Record<string, SvgAuthoringSource> = {}
   const calibration = createImageCalibration(captured.calibration)
   for (const raster of [captured.floor, ...captured.layers, ...(sourceArt ? [sourceArt] : [])]) {
     if (raster.sourceSvg === undefined) continue
-    const source = svgSources.get(normalizeStaticSvg(raster.sourceSvg).sourceSha256)!
+    const svgSource = svgSources.get(normalizeStaticSvg(raster.sourceSvg).sourceSha256)!
     const size = { width: imageDistanceToMm(calibration, raster.boundsPx.width), height: imageDistanceToMm(calibration, raster.boundsPx.height) }
-    authoringSources[rasterAssetId(source.rasterSha256, size, raster.sourceSvg)] = source
+    authoringSources[rasterAssetId(svgSource.rasterSha256, size, source, raster.sourceSvg)] = svgSource
   }
   for (const raster of [captured.floor, ...captured.layers, ...(sourceArt ? [sourceArt] : [])]) {
     const sha256 = sha256Bytes(raster.pngBytes)
     bytes.set(sha256, raster.pngBytes); assets[sha256] = { sha256, mimeType: 'image/png', sizeBytes: raster.pngBytes.length, pixelWidth: raster.pixelWidth, pixelHeight: raster.pixelHeight }
   }
-  const licenseHash = sha256Bytes(encodeUtf8(captured.licenseText)), content = createCompositionContent(scene, runtime)
+  const content = createCompositionContent(scene, runtime)
   const project: ProjectData = { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets,
     licenses: { [licenseHash]: { sha256: licenseHash, text: captured.licenseText } }, authoringSources,
     licenseBindings: inspectDependencies(content.document).subjects.map(subject => ({ ...subject, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' as const })) }

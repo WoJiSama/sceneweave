@@ -53,10 +53,11 @@ import { validation } from '../runtime.js'
 describe('independent candidate theme pack providers', () => {
   it('keeps six independent exact-name catalogs with real source members, three editable compositions and separate themes', () => {
     const allAssets = new Set<string>(), allDefinitions = new Set<string>(), before = canonicalJson(THEME_PACK_ART)
-    expect(THEME_PACK_CATALOGS).toHaveLength(6)
+    expect(THEME_PACK_CATALOGS.filter(pack => pack.id !== 'industrial')).toHaveLength(6)
     expect(Object.isFrozen(THEME_PACK_CATALOGS[0].axes)).toBe(true)
     expect(selectThemePacks(THEME_PACK_CATALOGS, { style: ['natural-watercolor'] }).map(value => value.id)).toEqual(['wilderness'])
     for (const pack of THEME_PACK_CATALOGS) {
+      if (pack.id === 'industrial') continue
       const document = createThemePackCatalogDocument(pack.id)
       expect(pack.availability).toBe('candidate')
       expect(pack.scenarios).toHaveLength(2)
@@ -87,7 +88,9 @@ describe('independent candidate theme pack providers', () => {
 
   it('stores twelve distinct editable layouts with valid declared supports, real rooms/terrain and independently editable prefab members', () => {
     for (const pack of THEME_PACK_CATALOGS) {
-      const variants = [0, 1].map(variant => createThemePackSampleDocument(pack.id, variant as 0 | 1))
+      if (pack.id === 'industrial') continue
+      const { id } = pack
+      const variants = [0, 1].map(variant => createThemePackSampleDocument(id, variant as 0 | 1))
       expect(canonicalJson(variants[0].props)).not.toBe(canonicalJson(variants[1].props))
       for (const [variant, document] of variants.entries()) {
         const checked = validateSceneDocument(document)

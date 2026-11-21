@@ -1,4 +1,5 @@
 import { openWorkspaceModule, openGenerationTask, openGenerationSettings } from './workspace-navigation-helpers'
+import type { Workspace } from '../src/application/workspace/workspace'
 import { mapExportButton, projectBackupButton, reloadSaved } from './workspace-ux-helpers'
 import { visualBase } from '../src/shared/visual/base.js'
 import { test, expect, type Page, type Locator, type TestInfo } from '@playwright/test'
@@ -23,6 +24,11 @@ import { CONTINUATION_POLICY, createContinuationPolicyV2 } from '../src/shared/a
 // deterministic in-process provider never reads .env.ai or calls a paid model.
 let backendUrl: string, token: string, directory: string, store: TaskStore, engine: TaskEngine
 let server: ReturnType<typeof serve>, modelRequests = 0
+function currentCapabilities(raw: string, surfaceVersion: string | null = null): boolean {
+  const { pathname, searchParams } = new URL(raw, backendUrl)
+  return pathname === '/v1/capabilities' && searchParams.get('authoringVersion') === '4'
+    && searchParams.get('surfaceVersion') === surfaceVersion
+}
 const tool = (id: string, name: string, input: unknown): ProviderToolCall => ({ id, name, arguments: JSON.stringify(input) })
 const completion = (calls: ProviderToolCall[] = [], text = ''): ProviderCompletion => ({ text, toolCalls: calls,
   finishReason: calls.length ? 'tool_calls' : 'stop', usage: { inputTokens: 12, outputTokens: 9 }, requestId: 'base-map-continuation-browser-fixture' })
@@ -74,14 +80,14 @@ test.afterAll(async () => {
 
 async function state(page: Page) {
   return page.evaluate(async () => {
-    const workspacePath = '/src/editor/main/Workbench.tsx', projectPath = '/src/application/workspace/project.ts', hashPath = '/src/shared/project/validate.ts'
-    const { nativeWorkspace } = await import(workspacePath) as typeof import('../src/editor/main/Workbench')
+    const projectPath = '/src/application/workspace/project.ts', hashPath = '/src/shared/project/validate.ts'
+    const { workspace } = Reflect.get(window, '__sceneweaveOutdoorDev') as { workspace: Workspace }
     const { toBundle } = await import(projectPath) as typeof import('../src/application/workspace/project')
     const { projectContentHash } = await import(hashPath) as typeof import('../src/shared/project/validate')
-    const value = nativeWorkspace.getState(), project = value.project
+    const value = workspace.getState(), project = value.project
     if (!project) throw new Error('Expected an active native project.')
     return { schemaVersion: project.schemaVersion, document: structuredClone(project.document), hash: projectContentHash(toBundle(project).project),
-      canUndo: value.canUndo, canRedo: value.canRedo, checkpoint: nativeWorkspace.checkpoint(), status: value.status }
+      canUndo: value.canUndo, canRedo: value.canRedo, checkpoint: workspace.checkpoint(), status: value.status }
   })
 }
 async function persisted(page: Page, sceneId: string) {
@@ -204,7 +210,7 @@ test('UI generates a profile-bound v3 island, continues one authorized prop and 
   if (draft.state.schemaVersion !== 4) throw new Error('Expected the persisted authoring4 ledger.')
   expect(start.policy.policyHash).toBe(createContinuationPolicyV2(source.request.profile).policyHash); expect(source.request.version).toBe(3)
   expect(source.request.profile.profileId).toBe('standard'); expect(source.request.generation.kind === 'terrain' && source.request.generation.input.algorithmVersion).toBe(5); expect(start.policy.generationTargets).toBe(1024)
-  expect(capabilities).toContain(backendUrl + '/v1/capabilities?authoringVersion=4&surfaceVersion=1')
+  expect(capabilities.some(url => currentCapabilities(url, '1'))).toBe(true)
   await expect(page.getByLabel('程序底图本次预算', { exact: true })).toContainText(`编辑目标 ${source.response.generationBudget.semanticCost}/${start.policy.generationTargets}`)
   await expect(page.getByLabel('程序底图本次预算', { exact: true })).toContainText(`轮廓点 ${source.response.generationBudget.usage.geometryPoints}/${source.request.profile.limits.geometryPoints}`)
   expect(source.response.generationBudget.usage.geometryPoints).toBeGreaterThan(256)
@@ -276,10 +282,10 @@ test('cancelled authoring4 with A=0 preserves its generated baseline for explici
   page.on('request', request => { if (request.url().startsWith(backendUrl + '/v1/capabilities?')) capabilities.push(request.url()) })
   await openWorkspaceModule(page, 'AI')
   const panel = await connectAi(page)
-  expect(capabilities).toContain(backendUrl + '/v1/capabilities?authoringVersion=4')
+  expect(capabilities.some(url => currentCapabilities(url))).toBe(true)
   await generateIsland(page)
   await page.getByRole('button', { name: '继续用 AI 修改底图', exact: true }).click()
-  await expect.poll(() => capabilities.includes(backendUrl + '/v1/capabilities?authoringVersion=4&surfaceVersion=1')).toBe(true)
+  await expect.poll(() => capabilities.some(url => currentCapabilities(url, '1'))).toBe(true)
   await beginContinuation(panel, '取消接续测试：读授权后等待，不要修改物件。')
   await expect(panel.getByLabel('AI 回复文字', { exact: true })).toContainText('等待用户取消', { timeout: 90_000 })
   await panel.getByRole('button', { name: '取消任务', exact: true }).click()
@@ -287,7 +293,7 @@ test('cancelled authoring4 with A=0 preserves its generated baseline for explici
   expect(await state(page)).toEqual(before); expect((await persisted(page, before.document.sceneId)).snapshots).toEqual([])
   await expect(page.getByRole('button', { name: '继续用 AI 修改底图', exact: true })).toBeEnabled()
   const authoring = panel.page().getByRole('region', { name: 'AI 场景草稿', exact: true })
-  await authoring.getByRole('button', { name: '重新绑定并校验草稿', exact: true }).click()
+  await authoring.getByRole('button', { name: '重新检查草稿', exact: true }).click()
   await expect(page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true }).getByLabel('AI 草稿差异', { exact: true })).toContainText('地形区域', { timeout: 90000 })
   await page.getByTestId('workspace-inspector').getByRole('region', { name: 'AI 草稿审阅', exact: true }).getByRole('button', { name: '结束生成并审阅当前草稿', exact: true }).click()
   await expect(panel.locator('.ai-task-heading > strong')).toHaveText('草稿可审阅采用', { timeout: 90000 })
@@ -335,7 +341,7 @@ test('explicit legacy v2 fixture remains readable through the v2 connection with
     await expect(panel.page().getByRole('region', { name: 'AI 场景草稿', exact: true })).toContainText('AI 0/256')
     expect(store.read(created.snapshot.id).snapshot.authoring).toMatchObject({ schemaVersion: 2, policyHash: CONTINUATION_POLICY.policyHash })
     // The current workspace negotiates authoring4; explicit lookup still retains the task's legacy identity.
-    expect(requests).toContainEqual({ path: '/v1/capabilities?authoringVersion=4', method: 'GET' })
+    expect(requests.some(request => request.method === 'GET' && currentCapabilities(request.path))).toBe(true)
     expect(requests.every(request => request.method === 'GET')).toBe(true)
     expect(modelRequests).toBe(initialRequests); expect(await state(page)).toEqual(before)
   } finally { store.delete(created.snapshot.id, 'maintainer') }

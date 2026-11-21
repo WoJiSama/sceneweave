@@ -113,6 +113,33 @@ describe('native complete-v1 browser rendering boundary (Node primitives)', () =
     expect(read).not.toHaveBeenCalled()
   })
 
+  it('aligns and clips off-center underlays in formal output and in a cropped editor view', async () => {
+    const input = await multiFloorFixture(), browser = primitives(), scene = input.project.document
+    const lower = Object.values(scene.floors)[0], upper = scene.floors.upper
+    lower.outputBoundsMm = { x: 2000, y: 500, width: 10000, height: 7000 }
+    upper.outputBoundsMm = { x: 1000, y: 1500, width: 8000, height: 10000 }
+    upper.underlayFloorId = lower.id
+    scene.outputBackground = { mode: 'transparent' }
+    const options = { audience: 'gm' as const, floorId: upper.id, longEdgePx: 256 }
+    const formal = await renderProject(input, options)
+    expect([formal.width, formal.height]).toEqual([205, 256])
+    const formalSurface = browser.canvases.find(canvas => Object.is(canvas, formal))!
+    expect(formalSurface.context.rect).toHaveBeenNthCalledWith(1, 205 / 8, 0, 205 * 7 / 8, 256 * .6)
+    expect(formalSurface.context.rect).toHaveBeenNthCalledWith(2, 0, 0, 205, 256)
+    expect(formalSurface.context.fillRect).not.toHaveBeenCalled()
+    expect(formalSurface.context.drawImage).toHaveBeenCalledTimes(2)
+    for (const [layer] of vi.mocked(formalSurface.context.drawImage as CanvasRenderingContext2D['drawImage']).mock.calls) {
+      expect(layer).toMatchObject({ width: 0, height: 0 })
+    }
+
+    const editor = await renderEditorProject(input, { ...options, viewBoundsMm: { x: 0, y: 2500, width: 5000, height: 6000 } })
+    expect([editor.width, editor.height]).toEqual([171, 256])
+    const editorSurface = browser.canvases.find(canvas => Object.is(canvas, editor))!
+    expect(editorSurface.context.rect).toHaveBeenNthCalledWith(1, 171 / 4, 0, 171 * 3 / 4, 5000 * (256 / 6000))
+    expect(editorSurface.context.rect).toHaveBeenNthCalledWith(2, 0, 0, 171, 256)
+    expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
+  })
+
   it('renders and encodes only an explicit Floor while preserving full validation and same-target editor hiding', async () => {
     const input = await multiFloorFixture(), browser = primitives(), floorId = Object.keys(input.project.document.floors)[0], metrics = vi.fn()
     const lower = await renderProject(input, { audience: 'gm', longEdgePx: 256, floorId, onMetrics: metrics })

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fenceAssemblySchema } from '../path-assembly/contracts.js'
 import { angle, color, id, int, opacity, point, visibility } from '../validation/primitives.js'
 import { VISUAL_LIMITS } from './types.js'
 
@@ -16,7 +17,7 @@ export const visualBoundarySchema = z.object({ ...entity, closed: z.boolean(), s
     z.object({ kind: z.literal('terrain'), sides: z.array(terrainBoundarySideSchema).min(1).max(2) }).strict(),
     z.object({ kind: z.literal('path'), pathId: id }).strict(),
     z.object({ kind: z.literal('decoration') }).strict(),
-  ]),
+  ]), fence: fenceAssemblySchema.optional(),
 }).strict()
 export const visualEdgeLookSchema = z.object({ ...entity, boundaryId: id, kind: z.enum(['shore', 'cliff', 'grass', 'path', 'fence']), side: z.enum(['left', 'right', 'both']),
   widthMm: mm(1, 5000), color, accentColor: color, opacity, intensity: finite(0, 2), seed, repeatMm: mm(20, 20_000), enabled: z.boolean(),

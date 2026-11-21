@@ -40,6 +40,11 @@ export function requestsPathAttachmentTransaction(scene: SceneDocument, commands
     if (!rows.length) return false
     switch (command.type) {
       case 'deleteOutdoorEntity': return command.kind === 'path' && paths.has(command.id)
+      case 'setFenceAssembly': case 'removeFenceAssembly': return false
+      case 'setPathAssembly': {
+        const deck = scene.paths[command.id]?.assembly?.bridge
+        return paths.has(command.id) || !!deck && supports.has(deck.deckId)
+      }
       case 'updatePath': return paths.has(command.id) && ['floorId', 'centerlineMm', 'widthMm', 'supportRefs', 'visibility'].some(key => Object.hasOwn(command.changes, key))
       case 'updateOpening': return openings.has(command.id) && ['wallId', 'offsetReferenceVertexId', 'offsetMm', 'widthMm', 'kind', 'secret', 'revealed'].some(key => Object.hasOwn(command.changes, key))
       case 'setWallThickness': case 'reverseWall': case 'splitWall': case 'deleteWall': return walls.has(command.id)

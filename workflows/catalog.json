@@ -3,7 +3,7 @@
   "workflows": [
     {
       "id": "sceneweave-forest-building",
-      "version": 2,
+      "version": 3,
       "title": "生成林中建筑",
       "summary": "用规范参数生成一个同楼层林中建筑，审阅真实预览后交付可编辑工程。",
       "tags": [
@@ -161,7 +161,7 @@
     },
     {
       "id": "sceneweave-image-items",
-      "version": 1,
+      "version": 2,
       "title": "从图片制作可编辑item",
       "summary": "核对原图与比例，辅助选区、切割和补底，查看换底/移转预览，保存制作工作包。",
       "tags": [
@@ -185,7 +185,7 @@
         },
         {
           "id": "extract",
-          "title": "选区、切割与补底",
+          "title": "选区与切割",
           "requires": [
             "image-select"
           ],
@@ -198,6 +198,46 @@
             "image-preview"
           ],
           "produces": "原色/黑白/棋盘预览、缺陷和绑定确切输入的审核"
+        },
+        {
+          "id": "refine-subject",
+          "title": "主体边带与裁片增强（按需）",
+          "requires": [
+            "asset-refine"
+          ],
+          "produces": "使用真实原图及当前蒙版的比较候选、缺陷和审核结果"
+        },
+        {
+          "id": "repair-background",
+          "title": "修正移除范围与补底（按需）",
+          "requires": [
+            "image-repair"
+          ],
+          "produces": "明确来源和推断范围的原尺寸补底"
+        },
+        {
+          "id": "repair-structure",
+          "title": "接续底材结构（按需）",
+          "requires": [
+            "image-repair"
+          ],
+          "produces": "绑定同材质参考、路径与实际移除范围的结构补底"
+        },
+        {
+          "id": "review-repair",
+          "title": "定位补底和结构缺陷（按需）",
+          "requires": [
+            "image-repair-analysis"
+          ],
+          "produces": "绑定当前输入的补底诊断及下一处修正证据"
+        },
+        {
+          "id": "refine-surface",
+          "title": "独立地面 Item 的表面细修（按需）",
+          "requires": [
+            "image-surface-refine"
+          ],
+          "produces": "绑定真实底材和当前代次的地面外观候选"
         },
         {
           "id": "deliver",

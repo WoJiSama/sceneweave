@@ -3,11 +3,17 @@ import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
-import { cloneJson } from '../../shared/validation/json.js'
+import { cloneJson, encodeUtf8 } from '../../shared/validation/json.js'
+import { normalizeStaticSvg } from '../../shared/ai/svg.js'
+import { sha256Bytes } from '../../shared/project/binary.js'
+import { encodeCanonicalPng } from '../../shared/project/png-rgba.js'
+import { createMemoryResources } from '../../shared/project/resources.js'
+import { projectEditorScene, projectScene } from '../../shared/projection/projection.js'
+import { ARTWORK_SVG, artworkValidation } from '../../../tests/helpers/m24-artwork-fixtures.js'
 import { projectContentHash } from '../../shared/project/validate.js'
 import { fromBundle, getVerifiedEditableProject, toBundle } from './project.js'
 import { Workspace } from './workspace.js'
-import { fixture, runtime, validation } from './test-fixtures.js'
+import { fixture, pixelPng, runtime, validation } from './test-fixtures.js'
 import type { CompositionCommand } from '../../shared/model/appearance.js'
 
 const repos: ProjectRepository[] = [], sessions: Workspace[] = [], names: string[] = []
@@ -27,6 +33,102 @@ afterEach(async () => {
 })
 
 describe('native complete-v1 workspace and repository boundary', () => {
+  it('keeps an edited fixture glow with the prop during motion, copy and cold reopen', async () => {
+    const { workspace, repo, owner } = await setup({ image: true })
+    const before = workspace.getDocument()!, item = before.props.item, layerId = before.entityLayers.item
+    const glow = { color: '#63F0D3', radiusMm: 1800, intensity: .55, anchor: { u: .75, v: .25 } }
+    const change = { type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: [item.id] },
+      adjustment: { id: 'fixture-glow-test', kind: 'propGlow', value: glow, enabled: true } } satisfies CompositionCommand
+    const preview = await workspace.preview([change])
+    expect(preview.document.props.item).toEqual({ ...item, appearance: { ...item.appearance, glow } })
+    await workspace.adoptPreview(preview)
+    const { x, y, width, height } = item.visualBoundsMm
+    const local = { x: x + width * .75, y: y + height * .25 }
+    const { anchor: _anchor, ...paint } = glow
+    const read = () => projectScene(workspace.getDocument()!, 'player').visual?.fixtureGlows
+    expect(read()).toEqual([{ ...paint, wallOcclusion: true,
+      positionMm: { x: Math.round(item.positionMm.x + local.x), y: Math.round(item.positionMm.y + local.y) } }])
+    const positionMm = { x: 4980, y: 5200 }, newId = 'fixture-copy'
+    await workspace.execute([{ type: 'updateProp', id: item.id, changes: { positionMm, rotationDeg: 90 } }])
+    const after = { x: Math.round(positionMm.x - local.y), y: Math.round(positionMm.y + local.x) }
+    expect(read()).toEqual([{ ...paint, wallOcclusion: true, positionMm: after }])
+    expect(projectEditorScene(workspace.getDocument()!, { hiddenLayerIds: new Set([layerId]) }).visual?.fixtureGlows).toBeUndefined()
+    await workspace.execute([{ type: 'copyProp', id: item.id, newId, offsetMm: { x: 2000, y: 0 } }])
+    expect(read()?.map(light => light.positionMm)).toEqual([after, { x: after.x + 2000, y: after.y }])
+    await workspace.execute([{ type: 'setEditLock', kind: 'prop', id: item.id, locked: true }])
+    await expect(workspace.preview([{ ...change, adjustment: { ...change.adjustment, value: null } }])).rejects.toThrow(/锁/)
+    await workspace.undo()
+    await workspace.execute([{ type: 'deleteProp', id: item.id }])
+    expect(read()?.map(light => light.positionMm)).toEqual([{ x: after.x + 2000, y: after.y }])
+    await workspace.undo()
+    expect(read()).toHaveLength(2)
+    const hidden = cloneJson(workspace.getDocument()!)
+    hidden.props.item.visibility = 'gm'
+    const maskInput = { type: 'upsertManualMask' as const, id: 'fixture-mask', floorId: item.floorId, layerId,
+      boundsMm: { x: 2500, y: 2600, width: 5000, height: 5200 } }
+    const mask = await workspace.preview([maskInput])
+    hidden.regions[maskInput.id] = cloneJson(mask.document.regions[maskInput.id])
+    hidden.entityLayers[maskInput.id] = layerId
+    workspace.cancelPreview(mask)
+    expect(projectScene(hidden, 'gm').visual?.fixtureGlows).toHaveLength(2)
+    expect(projectScene(hidden, 'player').visual?.fixtureGlows).toBeUndefined()
+    await workspace.flush()
+    const cold = await fromBundle((await repo.load(owner))!, validation)
+    expect(projectScene(cold.document, 'player', cold.appearance).visual?.fixtureGlows).toEqual(read())
+  })
+  it.each([false, true])('swaps, clears and restores a Floor image with a fixed SVG source (shared %s)', async shared => {
+    const ports = artworkValidation(), source = normalizeStaticSvg(ARTWORK_SVG)
+    const image = await ports.svg!.rasterize(source, { width: 1, height: 1 })
+    const bytes = encodeCanonicalPng(image), hash = sha256Bytes(bytes)
+    const bundle = fixture({ image: shared }), data = bundle.project, scene = data.document
+    const floorId = Object.keys(scene.floors)[0], boundsMm = scene.floors[floorId].boundsMm
+    if (shared) delete data.assets[scene.assets.image.sha256]
+    const licenseText = 'Original SVG fixture licensed for embedding.', licenseHash = sha256Bytes(encodeUtf8(licenseText))
+    scene.assets.image = { id: 'image', sha256: hash, mimeType: 'image/png', pixelWidth: 1, pixelHeight: 1,
+      logicalSizeMm: { width: 200, height: 200 }, licenseRef: 'fixture-license',
+      origin: { kind: 'original', attribution: 'Sceneweave floor artwork test', canEmbed: true } }
+    if (!shared) {
+      data.licenses[licenseHash] = { sha256: licenseHash, text: licenseText }
+      data.licenseBindings.push({ subjectKind: 'asset', subjectId: 'image', licenseRef: 'fixture-license',
+        licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })
+    }
+    data.assets[hash] = { sha256: hash, sizeBytes: bytes.length, mimeType: 'image/png', pixelWidth: 1, pixelHeight: 1 }
+    data.authoringSources.image = { kind: 'svg', ...ports.svg!.processor, rasterSha256: hash,
+      sourceSha256: source.sourceSha256, normalizedSha256: source.normalizedSha256,
+      sourceSizeBytes: source.sourceSizeBytes, normalizedSizeBytes: source.normalizedSizeBytes }
+    scene.floors[floorId].artwork = { assetId: 'image', boundsMm }
+    bundle.resources = createMemoryResources(new Map([[hash, bytes], [source.sourceSha256, encodeUtf8(source.sourceSvg)],
+      [source.normalizedSha256, encodeUtf8(source.normalizedSource)]]))
+    const repo = new ProjectRepository({ name: `floor-artwork-${crypto.randomUUID()}`, runtime, validation: ports })
+    repos.push(repo); names.push(repo.database.name)
+    const workspace = new Workspace(repo, { runtime, validation: ports })
+    sessions.push(workspace)
+    await workspace.adoptNew(await fromBundle(bundle, ports))
+    const baseline = workspace.getState().project!
+    const preview = await workspace.previewFloorArtwork(floorId, { file: new Blob([new Uint8Array(pixelPng([71, 86, 99, 255]))], { type: 'image/png' }),
+      licenseText: 'Permitted replacement pixels.', attribution: 'Workspace test', canEmbed: true })
+    await workspace.adoptPreview(preview)
+    const replaced = workspace.getState().project!, artwork = replaced.document.floors[floorId].artwork!
+    expect(replaced.document.revision).toBe(baseline.document.revision + 1)
+    expect(artwork.assetId).not.toBe('image')
+    expect(Object.hasOwn(replaced.document.assets, 'image')).toBe(shared)
+    expect(Object.hasOwn(replaced.authoringSources, 'image')).toBe(shared)
+    expect(Object.hasOwn(replaced.assets, hash)).toBe(shared)
+    workspace.undo()
+    const restored = workspace.getState().project!
+    expect(restored.document.floors[floorId].artwork?.assetId).toBe('image')
+    expect(await restored.resources.read(source.sourceSha256)).toEqual(encodeUtf8(source.sourceSvg))
+    workspace.redo()
+    const clear = await workspace.previewFloorArtwork(floorId, null)
+    await workspace.adoptPreview(clear)
+    await workspace.flush()
+    const saved = (await repo.load(scene.sceneId))!.project
+    expect(saved.document.floors[floorId].artwork).toBeUndefined()
+    expect(saved.document.assets[artwork.assetId]).toBeUndefined()
+    expect(saved.authoringSources).toEqual(shared ? data.authoringSources : {})
+    expect(saved.licenses).toEqual(shared ? data.licenses : {})
+    expect(saved.document.props).toEqual(scene.props)
+  })
   it('renames the complete project atomically with undo, redo, no-op and cold persistence', async () => {
     const { workspace, repo, owner } = await setup()
     const original = workspace.getDocument()!.title
@@ -59,6 +161,20 @@ describe('native complete-v1 workspace and repository boundary', () => {
     const cold = await repo.load(project.document.sceneId)
     expect(decode).toHaveBeenCalledTimes(2)
     expect(cold!.project.document).toEqual(project.document)
+  })
+
+  it('validates the copy’s real pixels once and preserves both projects in storage', async () => {
+    const { workspace, repo, owner, project } = await setup({ image: true })
+    const decode = vi.spyOn(validation.images, 'decode')
+    await workspace.saveAsCopy()
+    expect(decode).toHaveBeenCalledTimes(1)
+    const copy = workspace.getState().project!
+    expect(copy.document.sceneId).not.toBe(owner)
+    expect(copy.document.title).toBe(`${project.document.title} · 副本`)
+    expect(copy.assets).toEqual(project.assets)
+    expect((await repo.load(owner))!.project.document).toEqual(project.document)
+    expect((await repo.load(copy.document.sceneId))!.project.document).toEqual(copy.document)
+    expect(decode).toHaveBeenCalledTimes(3)
   })
 
   it('fully validates unowned frozen wrappers instead of reusing a replaced resource port', async () => {

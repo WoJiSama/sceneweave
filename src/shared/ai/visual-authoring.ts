@@ -1,3 +1,4 @@
+import { OperationRejected, type OperationRejectionCode } from '../validation/operation-rejection.js'
 import { assertCurrentAuthoringCapability, type CurrentAuthoringCapability } from './current-authoring-capability.js'
 import { visualBase } from '../visual/base.js'
 import type { ProjectData } from '../model/project.js'
@@ -28,7 +29,7 @@ export class VisualBoundaryConnectionError extends Error {
     this.name = 'VisualBoundaryConnectionError'
   }
 }
-function deny(message: string): never { throw new Error(`AI视觉草稿范围无效：${message}`) }
+function deny(message: string, code: OperationRejectionCode = 'invalid_geometry'): never { throw new OperationRejected(code, `AI视觉草稿范围无效：${message}`) }
 function inside(bounds: BoundsMm, points: PointMm[], padding = 0) {
   return points.length > 0 && points.every(point => point.x - padding >= bounds.x && point.y - padding >= bounds.y
     && point.x + padding <= bounds.x + bounds.width && point.y + padding <= bounds.y + bounds.height)
@@ -55,12 +56,13 @@ function shapes(project: ProjectData, id: string): { points: PointMm[]; padding:
 }
 function assertVisual(project: ProjectData, scope: VisualAuthoringScope, id: string): string[] {
   const value = visualEntity(project, id), shape = shapes(project, id), scene = project.document
-  if (!value || value.visibility !== 'public' || value.floorId !== scope.floorId || value.editLocked || scene.userLayers[value.layerId]?.editLocked) deny('视觉对象私密、跨Floor或已锁定。')
+  if (!value || value.visibility !== 'public' || value.floorId !== scope.floorId) deny('视觉对象私密、跨Floor或已锁定。', 'outside_scope')
+  if (value.editLocked || scene.userLayers[value.layerId]?.editLocked) deny('视觉对象私密、跨Floor或已锁定。', 'locked_dependency')
   if (shape && !inside(scope.boundsMm, shape.points, shape.padding)) deny('视觉实际外扩超出明确范围。')
   if (shape) for (const mask of Object.values(scene.regions).filter(value => value.kind === 'manualMask' && value.floorId === scope.floorId)) {
     const xs = shape.points.map(point => point.x), ys = shape.points.map(point => point.y), band = rectangle({ x: Math.min(...xs) - shape.padding, y: Math.min(...ys) - shape.padding,
       width: Math.max(1, Math.max(...xs) - Math.min(...xs) + shape.padding * 2), height: Math.max(1, Math.max(...ys) - Math.min(...ys) + shape.padding * 2) })
-    if (polygonsOverlap(band, mask.boundaryMm) || band.some(point => pointInPolygon(point, mask.boundaryMm)) || mask.boundaryMm.some(point => pointInPolygon(point, band))) deny('视觉范围包含玩家遮罩。')
+    if (polygonsOverlap(band, mask.boundaryMm) || band.some(point => pointInPolygon(point, mask.boundaryMm)) || mask.boundaryMm.some(point => pointInPolygon(point, band))) deny('视觉范围包含玩家遮罩。', 'outside_scope')
   }
   return [id, value.floorId, value.layerId]
 }
@@ -75,21 +77,22 @@ export function validateVisualAuthoringScope(project: ProjectData, input: Visual
   const current = assertCurrentAuthoringCapability(project, capability)
   if (!current || scene.visual?.version !== 3) deny('完整工程的视觉创作须使用当前明确能力协议。')
   const floor = scene.floors[scope.floorId], layer = scene.userLayers[scope.layerId]
-  if (!floor || !layer || layer.floorId !== floor.id || layer.editLocked || !inside(floor.boundsMm, rectangle(scope.boundsMm))) deny('视觉Floor、图层或范围无效/锁定。')
+  if (!floor || !layer || layer.floorId !== floor.id || !inside(floor.boundsMm, rectangle(scope.boundsMm))) deny('视觉Floor、图层或范围无效/锁定。', 'outside_scope')
+  if (layer.editLocked) deny('视觉Floor、图层或范围无效/锁定。', 'locked_dependency')
   for (const id of scope.entityIds) {
     if (visualEntity(project, id)) {
       assertVisual(project, scope, id)
-      if (visualReferences(project, id).some(id => !scope.entityIds.includes(id))) deny('现存视觉引用须一起明确授权。')
+      if (visualReferences(project, id).some(id => !scope.entityIds.includes(id))) deny('现存视觉引用须一起明确授权。', 'outside_scope')
       const target = visualBase(scene)?.filters[id]?.target
       if (target?.kind === 'layer') deny('AI不采用持续图层滤镜，请明确选择冻结实体。')
       if (target?.kind === 'scene' && !scope.allowGlobalEnvironment) deny('现存全图滤镜须单独授权全图。')
     }
     else assertPublicSceneEntity(project, scope, id, capability)
   }
-  for (const id of scope.definitionIds) if (!scene.propDefinitions[id]?.origin.canEmbed || scene.propDefinitions[id].tags.includes('sceneweave:retained-appearance')) deny('视觉布景固定素材未获授权。')
-  for (const id of scope.materialIds) if (!scene.materials[id]?.origin.canEmbed) deny('视觉固定材质未获授权。')
+  for (const id of scope.definitionIds) if (!scene.propDefinitions[id]?.origin.canEmbed || scene.propDefinitions[id].tags.includes('sceneweave:retained-appearance')) deny('视觉布景固定素材未获授权。', 'outside_scope')
+  for (const id of scope.materialIds) if (!scene.materials[id]?.origin.canEmbed) deny('视觉固定材质未获授权。', 'outside_scope')
   if (scope.allowGlobalEnvironment && (Object.keys(scene.floors).length !== 1 || floor.environment !== undefined)) deny('按楼层隔离的环境暂不支持AI全景环境操作；请使用当前楼层的环境工具。')
-  if (scope.allowGlobalEnvironment && (scope.boundsMm.x !== floor.boundsMm.x || scope.boundsMm.y !== floor.boundsMm.y || scope.boundsMm.width !== floor.boundsMm.width || scope.boundsMm.height !== floor.boundsMm.height)) deny('全图环境须明确授权整个Floor范围。')
+  if (scope.allowGlobalEnvironment && (scope.boundsMm.x !== floor.boundsMm.x || scope.boundsMm.y !== floor.boundsMm.y || scope.boundsMm.width !== floor.boundsMm.width || scope.boundsMm.height !== floor.boundsMm.height)) deny('全图环境须明确授权整个Floor范围。', 'outside_scope')
   return scope
 }
 
@@ -100,7 +103,7 @@ export function validateVisualAuthoringScope(project: ProjectData, input: Visual
  */
 export function proposeAuthoringTerrainBoundary(project: ProjectData, scope: VisualAuthoringScope, allowed: ReadonlySet<string>, input: TerrainBoundaryProposal) {
   const query = TerrainBoundaryProposalSchema.parse(captureJson(input)), scene = project.document
-  if (!scope.operations.includes('visualBoundary') || !allowed.has(query.areaId)) deny('曲线建议须明确授权视觉边界及真实地形。')
+  if (!scope.operations.includes('visualBoundary') || !allowed.has(query.areaId)) deny('曲线建议须明确授权视觉边界及真实地形。', 'outside_scope')
   assertPublicSceneEntity(project, scope, query.areaId)
   const area = scene.terrainAreas[query.areaId]
   if (!area || area.boundaryMm.length < 3 || area.boundaryMm.length > 16) deny('曲线建议只接受3–16个真实锚点；已有密集采样环请读取并编辑原曲线。')
@@ -201,11 +204,11 @@ function physicalScope(project: ProjectData, scope: VisualAuthoringScope): Scene
 }
 export function applyVisualAuthoringOperation(project: ProjectData, scope: VisualAuthoringScope, input: VisualAuthoringOperation, context: PreparationContext, created: ReadonlySet<string>, capability?: CurrentAuthoringCapability): Result {
   const operation = VisualAuthoringOperationSchema.parse(captureJson(input)), allowed = new Set([...scope.entityIds, ...created])
-  if (!scope.operations.includes(operation.kind)) deny('视觉操作未获授权。')
-  const required = (id: string) => { if (!allowed.has(id)) deny('视觉实体或真实依赖未明确授权。'); if (visualEntity(project, id)) assertVisual(project, scope, id); else assertPublicSceneEntity(project, scope, id, capability) }
+  if (!scope.operations.includes(operation.kind)) deny('视觉操作未获授权。', 'outside_scope')
+  const required = (id: string) => { if (!allowed.has(id)) deny('视觉实体或真实依赖未明确授权。', 'outside_scope'); if (visualEntity(project, id)) assertVisual(project, scope, id); else assertPublicSceneEntity(project, scope, id, capability) }
   if (operation.kind === 'furnishAlong') {
     required(operation.source.id)
-    if (!scope.definitionIds.includes(operation.definitionId)) deny('沿边布景素材未获授权。')
+    if (!scope.definitionIds.includes(operation.definitionId)) deny('沿边布景素材未获授权。', 'outside_scope')
     const wall = project.document.walls[operation.source.id]
     let boundary: Pick<VisualBoundary, 'closed' | 'segments' | 'sampleSpacingMm' | 'toleranceMm'>
     if (operation.source.kind === 'wall') {
@@ -233,7 +236,7 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
         }
       }
       current = result.project; result.readIds.forEach(id => read.add(id)); result.writeIds.forEach(id => write.add(id)); result.createdIds.forEach(id => fresh.add(id)); cost += result.cost
-      if (cost > 256) deny('沿边真实成员展开超过256预算。')
+      if (cost > 256) deny('沿边真实成员展开超过256预算。', 'operation_budget')
     }
     return { project: current, readIds: sorted(read), writeIds: sorted(write), createdIds: sorted(fresh), cost }
   }
@@ -241,7 +244,7 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
     required(operation.id)
     if (operation.style) for (const paint of [operation.style.base, ...operation.style.overlays.map(overlay => overlay.paint)]) {
       const material = project.document.materials[paint.materialRef.id]
-      if (!scope.materialIds.includes(paint.materialRef.id) || !material || material.version !== paint.materialRef.version) deny('视觉固定材质未授权或版本不符。')
+      if (!scope.materialIds.includes(paint.materialRef.id) || !material || material.version !== paint.materialRef.version) deny('视觉固定材质未授权或版本不符。', 'outside_scope')
     }
     if (operation.style?.overlays.some(overlay => !inside(scope.boundsMm, overlay.boundaryMm, overlay.blendWidthMm))) deny('材质叠加层和羽化超出明确范围。')
     const command: VisualCommand = { type: 'setVisualSurface', kind: operation.surfaceKind, id: operation.id, style: operation.style }
@@ -251,7 +254,7 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
     return { project: next, readIds: sorted([...impact.affectedIds, ...visualAuthoringReadIds(project, scope, capability), ...visualAuthoringReadIds(next, scope, capability)]), writeIds: impact.changedIds, createdIds: [], cost: Math.max(1, impact.commandCost) }
   }
   if (operation.kind === 'visualEnvironment' || operation.kind === 'visualFilter' && operation.target.kind === 'scene') {
-    if (!scope.allowGlobalEnvironment) deny('全图环境或全图滤镜须单独明确授权。')
+    if (!scope.allowGlobalEnvironment) deny('全图环境或全图滤镜须单独明确授权。', 'outside_scope')
   }
   if (operation.kind === 'visualFilter') {
     if (operation.target.kind === 'layer') deny('AI滤镜须冻结明确目标，不能持续传播到图层后来对象。')
@@ -287,7 +290,7 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
     if (LAYER_ENTITY_COLLECTIONS.some(key => Object.hasOwn(project.document[key], id)) || visualEntity(project, id)) required(id)
     if (visualEntity(next, id)) {
       assertVisual(next, scope, id)
-      if (!visualEntity(project, id) && visualEntity(next, id)!.layerId !== scope.layerId) deny('视觉新增对象越过授权图层。')
+      if (!visualEntity(project, id) && visualEntity(next, id)!.layerId !== scope.layerId) deny('视觉新增对象越过授权图层。', 'outside_scope')
     } else if (LAYER_ENTITY_COLLECTIONS.some(key => Object.hasOwn(next.document[key], id))) assertPublicSceneEntity(next, scope, id, capability)
   }
   if (operation.kind === 'visualEnvironment') { writeIds.push('visual.environment'); read.add('visual.environment') }
@@ -308,6 +311,6 @@ export function assertFinalVisualAuthoringTargets(project: ProjectData, scope: V
   const allowed = new Set([...scope.entityIds, ...touched])
   for (const id of allowed) if (visualEntity(project, id)) {
     assertVisual(project, scope, id)
-    for (const reference of visualReferences(project, id)) if (!allowed.has(reference)) deny('视觉引用超出冻结的最终目标。')
+    for (const reference of visualReferences(project, id)) if (!allowed.has(reference)) deny('视觉引用超出冻结的最终目标。', 'outside_scope')
   }
 }

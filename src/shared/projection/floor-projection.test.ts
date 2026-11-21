@@ -92,8 +92,8 @@ describe('explicit target Floor projections', () => {
     const scene = createDetailedIslandDocument({ sceneId: 'floor-projection-single-fixed', now: '2026-11-10T00:00:00.000Z' })
     const hashes = (['gm', 'player'] as const).map(audience => [audience, sha256Text(canonicalJson(projectScene(scene, audience)))])
     expect(hashes).toEqual([
-      ['gm', 'ddf432dd326951bb9881b1048183e5c2255eb6b7bc4f48f596e0a4e714ff10d9'],
-      ['player', 'e14bb0e4629fa0c850bbed563e961041ed346dc20b711858d04d15499e6f5aee'],
+      ['gm', 'efcbd937da80cab2cf99892fc9c0034869baf222a9ebfd75d6a2b2d5f6385820'],
+      ['player', '058b8240f03cff1c197eb026a4df18b6262c2a9e48b188729a29b100427294c2'],
     ])
     expect(projectScene(scene, 'gm', undefined, { floorId: Object.keys(scene.floors)[0] })).toEqual({ ...projectScene(scene, 'gm'), floorId: Object.keys(scene.floors)[0] })
   })

@@ -1,3 +1,4 @@
+import { OperationRejected, type OperationRejectionCode } from '../validation/operation-rejection.js'
 import { semanticChangedTargets, semanticTargetEntries, groupMemberIds, assertContinuationAdoptionBudget } from './semantic-budget.js'
 export { semanticChangedTargets, assertContinuationAdoptionBudget } from './semantic-budget.js'
 import type { ProjectData, LicenseSubjectKind } from '../model/project.js'
@@ -22,7 +23,7 @@ import { AuthoringStartV2Schema, AuthoringStateV2Schema, BaseMapSourceSchema, Le
 const digest = (value: unknown) => sha256Text(canonicalJson(value))
 const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null)
 const sorted = (values: Iterable<string>) => [...new Set(values)].sort()
-const deny = (message: string): never => { throw new Error(`AI接续无效：${message}`) }
+const deny = (message: string, code: OperationRejectionCode = 'invalid_geometry'): never => { throw new OperationRejected(code, `AI接续无效：${message}`) }
 function targetIds(project: ProjectData, keys: string[]): string[] {
   const rows = semanticTargetEntries(project.document)
   return sorted(keys.flatMap(key => rows.get(key)?.id ?? []))
@@ -110,7 +111,7 @@ export function replayBaseMapSource(input: BaseMapSource) {
   if (!same(project, source.project) || authoringProjectHash(project) !== source.projectHash
     || baseMapResourceClosureHash(project) !== source.resourceClosureHash) deny('实际物化工程、身份、资源或来源指纹不同。')
   const generationTargets = semanticChangedTargets(blank, project)
-  if (generationTargets.length > request.policy.generationTargets) deny('程序生成超过语义目标额度。')
+  if (generationTargets.length > request.policy.generationTargets) deny('程序生成超过语义目标额度。', 'operation_budget')
   if (!same(response.generationBudget, { semanticTargets: generationTargets, semanticCost: generationTargets.length, complexityCost: response.domainCost.total })) deny('完整物化后的生成分类额度与领域回执不同。')
   return { source: freezeJson(source), project, generationTargets, generationIds: targetIds(project, generationTargets), generationComplexity: response.domainCost.total }
 }
@@ -156,7 +157,7 @@ export function replayAuthoringV2(input: AuthoringStartV2, inputSteps: readonly 
     }
     const { targets, semanticCost: cost } = continuationOperationBudget(trace.operation, trace.before, trace.after)
     aiCost += cost; complexityCost += trace.complexityCost
-    if (cost > start.policy.aiTargets || aiCost > start.policy.aiTargets || complexityCost > start.policy.cumulativeComplexity) deny('AI语义累计或计算复杂度超过冻结策略。')
+    if (cost > start.policy.aiTargets || aiCost > start.policy.aiTargets || complexityCost > start.policy.cumulativeComplexity) deny('AI语义累计或计算复杂度超过冻结策略。', 'operation_budget')
     append(ledger, { operationId: `ai-${digest([steps[trace.stepIndex - 1].stepId, trace.operationIndex])}`, category: 'ai', operationHash: digest(trace.operation),
       beforeHash: authoringProjectHash(trace.before), afterHash: authoringProjectHash(trace.after), targets,
       semanticCost: cost, complexityCost: trace.complexityCost }, root)

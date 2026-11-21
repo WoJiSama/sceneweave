@@ -229,6 +229,14 @@ for (const width of [1512, 390]) test(`complete export journey and actual secret
     await importedPage.screenshot({ path: info.outputPath('export-import-journey.png') })
     const dimensions = await importedPage.evaluate(() => ({ viewport: innerWidth, root: document.documentElement.scrollWidth, body: document.body.scrollWidth }))
     expect(dimensions.root).toBeLessThanOrEqual(width); expect(dimensions.body).toBeLessThanOrEqual(width)
+
+    const continuedNote = 'EDIT AFTER IMPORT'
+    await note(importedPage, continuedNote, 'public', 4, 8)
+    await reopen(importedPage, imported.document.sceneId)
+    const edited = await keyboardProjectBackup(importedPage, info.outputPath('fresh-import-edited.sceneweave'))
+    expect(edited.document.revision).toBeGreaterThan(cold.document.revision)
+    expect(Object.values(edited.document.notes)).toContainEqual(expect.objectContaining({ text: continuedNote, visibility: 'public' }))
+
     await writeFile(info.outputPath('export-privacy-facts.json'), JSON.stringify({ width, browserVersion: browser.version(), control, player, gm, coldPlayer, coldGm, files: complete.hashes, dimensions, unexpectedDownloads, errors, excluded: ['all terrain privacy variants', 'VTT software import', 'user visual P3'] }, null, 2))
   } finally { await context.close() }
   expect(errors).toEqual([])

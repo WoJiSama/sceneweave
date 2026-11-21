@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import { createCarvedStrip, type CarvedRockHost } from '../carved-rock/index.js'
-import type { Prop, SceneDocument, TerrainArea } from '../model/scene.js'
-import { connectionFootprint, pointOnSurface, supportedPolygon, supportSurfaceAt, validateGeometry, validatePropGeometry } from './geometry.js'
+import type { PointMm, Prop, SceneDocument, TerrainArea } from '../model/scene.js'
+import { connectionFootprint, coveredEverywhere, pointOnSurface, supportedPolygon, supportSurfaceAt, validateGeometry, validatePropGeometry } from './geometry.js'
 import { createSupportQuery, levelGroundPolygon, supportSampleAt } from './support-sample.js'
 import { assertTerrainConnectionClearances, checkTerrainRoute, checkTerrainTravel } from './terrain-travel.js'
 import { deriveAggregatePortGeometry } from '../aggregates/ports.js'
@@ -117,6 +117,17 @@ describe('actual carved ground support and complete-width travel', () => {
     // The actual full-width strip remains walkable while the untouched cliff
     // away from its landing still requires a height connection.
     expect(checkTerrainTravel(scene, { floorId, from: { x: 5000, y: 8000 }, to: { x: 8000, y: 8000 }, widthMm: 200 }).ok).toBe(false)
+  })
+
+  it('retains sample offsets from a neighboring edge just outside the footprint', () => {
+    const polygon = rect(0, 0, 10, 10)
+    const neighboringEdge = rect(3, -1, 4, 15 / 16)
+    const samples: PointMm[] = []
+    expect(coveredEverywhere(polygon, [neighboringEdge, rect(200, 100, 50, 20)], point => {
+      samples.push(point)
+      return true
+    })).toBe(true)
+    expect(samples).toContainEqual({ x: 5, y: 1 / 64 })
   })
 
   it('checks an apron sliver reached only by the outside of the requested full-width band', () => {

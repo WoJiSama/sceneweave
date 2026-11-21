@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import type { AppearanceGraph } from '../model/appearance.js'
-import type { Floor, SceneDocument, UserLayer } from '../model/scene.js'
+import type { Floor, FloorArtwork, SceneDocument, UserLayer } from '../model/scene.js'
 import { geometryIdentityIds } from '../commands/domain.js'
-import { bounds, id } from '../validation/primitives.js'
+import { bounds, floorArtwork, id } from '../validation/primitives.js'
 import { canonicalJson, captureJson } from '../validation/json.js'
 import { visualEnvironmentSchema } from '../visual/schema.js'
 import { resolveFloorOutput, validateFloorSettings } from './output.js'
@@ -16,6 +16,7 @@ export const floorCommandSchemas = [
   z.object({type:z.literal('setFloorEnvironment'),id,environment:visualEnvironmentSchema.nullable()}).strict(),
   z.object({type:z.literal('deleteEmptyFloor'),id}).strict(),
   z.object({type:z.literal('setFloorLinks'),id,links:floorLinksSchema}).strict(),
+  z.object({type:z.literal('setFloorUnderlay'),id,underlayFloorId:id.nullable()}).strict(),
 ] as const
 export type FloorCommand = z.infer<typeof floorCommandSchemas[number]>
 export interface FloorCommandOptions { appearance?: AppearanceGraph }
@@ -41,6 +42,23 @@ function assertFloorUnlocked(scene:SceneDocument,floorId:string):void {
   visit(scene)
   if(locked.size)throw new Error(`Floor事务涉及该层锁定实体、图层或视觉依赖：${[...locked].sort().join('、')}。`)
 }
+/** Update a complete draft. The project transaction owns the bitmap and license closure. */
+export function applyFloorArtwork(scene: SceneDocument, floorId: string, input: FloorArtwork | null): void {
+  const floor = Object.hasOwn(scene.floors, floorId) ? scene.floors[floorId] : undefined
+  if (!floor) throw new Error('请选择现存的底图楼层。')
+  assertFloorUnlocked(scene, floorId)
+  const artwork = floorArtwork.nullable().parse(captureJson(input))
+  if (artwork && !Object.hasOwn(scene.assets, artwork.assetId)) throw new Error('底图须引用当前工程的固定图片。')
+  if (same(floor.artwork, artwork)) return
+  const updated = { ...floor }
+  if (artwork) updated.artwork = artwork
+  else delete updated.artwork
+  const floors = { ...scene.floors, [floorId]: updated }
+  const issues = validateFloorSettings({ ...scene, floors })
+  if (issues.length) throw new Error(issues.map(issue => issue.message).join('；'))
+  scene.floors = floors
+}
+
 function assertEmpty(scene:SceneDocument,floorId:string,appearance:AppearanceGraph|undefined):string[] {
   if(!appearance)throw new Error('删除空Floor必须提供完整外观图以检查图层外观依赖。')
   const layers=Object.values(scene.userLayers).filter(layer=>layer.floorId===floorId).map(layer=>layer.id),layerIds=new Set(layers)
@@ -57,6 +75,8 @@ function assertEmpty(scene:SceneDocument,floorId:string,appearance:AppearanceGra
   }
   if(references(content))throw new Error('Floor仍有物理、视觉、注记、生成或聚合依赖，不能作为空层删除。')
   if(scene.floors[floorId].links?.length || Object.values(scene.floors).some(floor=>floor.links?.some(link=>link.targetFloorId===floorId)))throw new Error('Floor仍有跨层入口关联，请先移除入口。')
+  if (scene.floors[floorId].artwork) throw new Error('Floor仍有底图，不能作为空层删除。')
+  if (scene.floors[floorId].underlayFloorId || Object.values(scene.floors).some(floor => floor.underlayFloorId === floorId)) throw new Error('Floor仍参与楼层叠绘，请先解除关联。')
   return layers
 }
 
@@ -87,6 +107,17 @@ export function applyFloorCommand(scene:SceneDocument,input:FloorCommand,options
     if(!floor)throw new Error('目标Floor不存在。')
     assertFloorUnlocked(scene,floor.id)
     switch(command.type) {
+      case 'setFloorUnderlay': {
+        const underlayFloorId = command.underlayFloorId ?? undefined
+        if (floor.underlayFloorId !== underlayFloorId) {
+          const updated = { ...floor }
+          if (underlayFloorId === undefined) delete updated.underlayFloorId
+          else updated.underlayFloorId = underlayFloorId
+          floors[floor.id] = updated
+          commandCost++
+        }
+        break
+      }
       case 'setFloorLinks': {
         if (!same(floor.links ?? [], command.links)) {
           for (const target of new Set([...(floor.links ?? []), ...command.links].map(link => link.targetFloorId))) assertFloorUnlocked(scene, target)

@@ -3,6 +3,7 @@ import type { ImageImportLayer } from './recipe.js'
 import { assertSelectionMaskBudget, encodeSelectionMask } from './selection-mask.js'
 import { guidedImageSelection } from './guided-selection.js'
 import { validateImageRepairSurfaces, type ImageRepairSurface } from './surfaces.js'
+import { isContextBlendRepair } from './repair-mode.js'
 import { imageNeighborhoodObjectEvidence, type ImageNeighborhoodSignal } from './neighborhood-evidence.js'
 
 /** Replaying a draft does not require a room, scale or complete import recipe. */
@@ -160,7 +161,7 @@ export function replayImageLayers<T extends ImageReplayLayer>(source: ImagePixel
     const selectedSurfaces = layer.repairSurfaceIds?.map(id => { const surface = surfaces.find(s => s.id === id); if (!surface) throw new Error('物件引用了不存在的补底表面。'); return surface })
     if (layer.repair === 'surfaces' && (!selectedSurfaces?.length || layer.fills?.length)) throw new Error('按表面补底须指定表面身份，不能同时使用旧分区fills。')
     const evidenceLayers = context.evidenceLayers ?? input, evidenceIndex = evidenceLayers.findIndex(candidate => candidate.id === layer.id)
-    const neighborhoodEvidence = layer.repair === 'context-blend' || layer.repair === 'surfaces' && selectedSurfaces?.some(surface => surface.kind.startsWith('neighbors-') || surface.kind === 'guided')
+    const neighborhoodEvidence = isContextBlendRepair(layer.repair) || layer.repair === 'surfaces' && selectedSurfaces?.some(surface => surface.kind.startsWith('neighbors-') || surface.kind === 'guided')
       ? { priorInference: provenance, objectEvidence: imageNeighborhoodObjectEvidence(source, evidenceLayers.slice(evidenceIndex + 1)), signal: context.signal } : undefined
     const extracted = extractImageLayer(remaining, layer.polygon, layer.donor,
       { repair: layer.repair, repairSurfaces: selectedSurfaces, appearanceImage: appearance, fills: layer.fills, cleanupPx: layer.cleanupPx, selectionMask, removalMask: layer.removalMask, protectionMask: layer.protectionMask, neighborhoodEvidence })

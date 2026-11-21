@@ -1,3 +1,4 @@
+import type { FenceAssembly } from '../path-assembly/contracts.js'
 import type { PointMm, Visibility } from '../model/scene.js'
 
 /** A persisted, bounded visual system. Curves own their sampled terrain/path geometry. */
@@ -34,6 +35,7 @@ export interface VisualBoundary extends VisualEntity {
   sampleSpacingMm: number
   toleranceMm: number
   binding: BoundaryBinding
+  fence?: FenceAssembly
 }
 export interface VisualEdgeLook extends VisualEntity {
   boundaryId: string

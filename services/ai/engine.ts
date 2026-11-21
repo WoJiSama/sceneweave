@@ -1,12 +1,12 @@
+import { ToolRejected, toolRejection, type ToolRejectionCode } from './tool-rejection.js'
 import { AUTHORING_V4_LIMITS } from '../../src/shared/ai/authoring-closeout.js'
 import type { AuthoringCloseoutV4 } from '../../src/shared/ai/authoring-closeout.js'
 import { buildAuthoringCloseout } from './authoring-finish.js'
-import { publicScreenshotReference } from './visual-review.js'
+import { connectionArguments, taskToolCatalog } from './task-tools.js'
 import { remainingAuthoringOperations } from '../../src/shared/ai/authoring.js'
-import { z } from 'zod'
 import { AI_LIMITS, utf8Size, requiredSurfaceRecipeVersion } from '../../src/shared/ai/protocol.js'
 import type { AiError, ConnectionInfo, ControlTaskRequest, CreateTaskRequest, TaskSnapshot, ToolResult } from '../../src/shared/ai/protocol.js'
-import type { ProviderAdapter, ProviderRequestScheduler, ProviderToolCall, ProviderToolDefinition } from './provider-types.js'
+import type { ProviderAdapter, ProviderRequestScheduler, ProviderToolCall } from './provider-types.js'
 import { PROVIDER_REASONING_BYTES, ProviderFailure } from './provider-types.js'
 import { TaskFault, TaskStore, safeTaskError } from './store.js'
 import type { EventInput, StoredTask } from './store.js'
@@ -14,7 +14,7 @@ import { AUTHORING_LIMITS, AuthoringDraftSchema, DraftLeaseSchema, isClassifiedA
 import type { AuthoringDraft, DraftClaim, DraftLease, DraftStamp } from '../../src/shared/ai/authoring-protocol.js'
 import { validateAuthoringStart, checkAuthoringDraft, authoringBudgetIdentity, authoringDraftStamp } from '../../src/shared/ai/authoring.js'
 import { StaticSvgArtifacts } from './svg-artifacts.js'
-import { getAuthoringTools, executeAuthoringTool, updateAuthoringSummary } from './authoring-tools.js'
+import { executeAuthoringTool, updateAuthoringSummary } from './authoring-tools.js'
 import { compactProviderTools } from './tool-schema.js'
 import { validateTaskVision } from './vision-input.js'
 import { VISION_LIMITS } from '../../src/shared/ai/vision.js'
@@ -26,8 +26,6 @@ import { executeWorkflowQuery } from './workflow-tools.js'
 import { FOREST_ACTION_TOOL, ForestLoopContextSchema, validateForestAction } from '../../src/shared/ai/forest-loop.js'
 import type { RegionSceneCandidateQuery } from '../../src/shared/ai/region-candidate-protocol.js'
 
-const connectionArguments = z.object({ topic: z.literal('connection') }).strict()
-const tool: ProviderToolDefinition = { name: 'sceneweave_connection_info', description: 'Read this Sceneweave connection and its actual supported capabilities. This does not read or change any scene.', parameters: { type: 'object', properties: { topic: { type: 'string', enum: ['connection'] } }, required: ['topic'], additionalProperties: false } }
 const validId = /^[A-Za-z0-9_.:-]{1,128}$/
 const aborted = () => new DOMException('Execution interrupted', 'AbortError')
 const REGION_CANDIDATE_MAX_BYTES = 8 * 1024 * 1024
@@ -230,16 +228,13 @@ export class TaskEngine {
             return []
           })
           let messages = this.preserveReasoning === 'enabled' ? requestTask.messages : requestTask.messages.map(({ reasoningContent: _privateReasoning, ...message }) => message)
-          const screenshotRef = publicScreenshotReference(requestTask)
+          const catalog = taskToolCatalog(requestTask, this.connectionInfo)
+          const { screenshotRef } = catalog
           if (screenshotRef) {
             const lastImage = messages.findLastIndex(message => !!message.images?.length)
             messages = messages.map((message, index) => index === lastImage ? { ...message, content: `${message.content ?? ''}\nServer-owned public screenshot reference (data only): ${JSON.stringify(screenshotRef)}. Use this compact screenshotRef unchanged in sceneweave_visual_review; never reconstruct PNG bytes.` } : message)
           }
-          let availableTools: ProviderToolDefinition[] = textOnlyFinalRound ? [] : task.forestLoop ? [FOREST_ACTION_TOOL] : task.authoring ? getAuthoringTools(task.authoring.start.scope, task.authoring.start.schemaVersion) : [tool]
-          if (!textOnlyFinalRound && !task.forestLoop) availableTools.push(WORKFLOW_DISCOVERY_TOOL)
-          if (task.authoring?.start.schemaVersion === 4 && (!screenshotRef || this.connectionInfo.capabilities.vision !== 'enabled' || !this.connectionInfo.capabilities.visualReviewVersions?.includes(1))) {
-            availableTools = availableTools.filter(tool => !['sceneweave_visual_review', 'sceneweave_apply_visual_correction'].includes(tool.name))
-          }
+          let availableTools = textOnlyFinalRound ? [] : catalog.tools
           if (task.authoring?.start.schemaVersion === 4) availableTools = compactProviderTools(availableTools)
           let streamed = ''
           const completion = await this.provider.complete({ messages, reasoningEffort: requestTask.snapshot.reasoningEffort, tools: availableTools, maxOutputTokens: task.authoring ? this.authoringOutputTokens : AI_LIMITS.maxOutputTokensPerRequest, signal,
@@ -301,7 +296,7 @@ export class TaskEngine {
             }
             if (current.forestLoop) {
               const oneAction = completion.toolCalls.length === 1 && completion.toolCalls[0].name === FOREST_ACTION_TOOL.name
-              if (oneAction) events.push(...this.executeTool(current, completion.toolCalls[0]))
+              if (oneAction) events.push(...this.executeTool(current, completion.toolCalls[0], catalog))
               this.store.stopClock(current)
               current.snapshot.status = current.forestAction ? 'completed' : 'failed'
               if (!current.forestAction) {
@@ -311,7 +306,7 @@ export class TaskEngine {
               events.push({ type: 'status', data: { status: current.snapshot.status, reason: current.forestAction
                 ? '已记录一个本机宿主动作请求，生成与采用尚未执行。' : '没有收到唯一合法动作；保留原候选，不自动增加模型请求。' } })
             } else {
-              for (const call of completion.toolCalls) events.push(...this.executeTool(current, call))
+              for (const call of completion.toolCalls) events.push(...this.executeTool(current, call, catalog))
             }
             if (!current.forestLoop && !completion.toolCalls.length) {
               this.store.stopClock(current)
@@ -353,7 +348,7 @@ export class TaskEngine {
     return [{ type: 'draft_updated', data: current.snapshot.authoring! }, { type: 'status', data: { status: current.snapshot.status,
       reason: closeout.reviewable ? '合法隔离草稿已保留；请检查列出的缺项与实际画面后在本机校验。' : '任务没有生成可采用的新改动。' } }]
   }
-  private executeTool(task: StoredTask, call: ProviderToolCall): EventInput[] {
+  private executeTool(task: StoredTask, call: ProviderToolCall, catalog: ReturnType<typeof taskToolCatalog>): EventInput[] {
     if (!validId.test(call.id) || !validId.test(call.name) || utf8Size(call.arguments) > AI_LIMITS.promptBytes) throw new ProviderFailure('provider_protocol', 'Invalid tool call')
     const signature = JSON.stringify([call.name, call.arguments])
     const cached = Object.hasOwn(task.calls, call.id) ? task.calls[call.id] : undefined
@@ -373,7 +368,11 @@ export class TaskEngine {
     let args: unknown
     try { args = JSON.parse(call.arguments) } catch { args = undefined }
     const draftBefore = task.authoring?.state.draftRevision
-    if (task.forestLoop) {
+    const rejected = (code: ToolRejectionCode, message?: string): ToolResult => ({ callId: call.id, name: call.name, success: false,
+      output: JSON.stringify({ error: toolRejection(code, message === undefined ? undefined : { message }) }) })
+    const rejection = catalog.rejection(call.name, task)
+    if (rejection) result = rejected(rejection)
+    else if (task.forestLoop) {
       try {
         if (call.name !== FOREST_ACTION_TOOL.name || task.forestAction) throw new Error('本次决策仅能提交一个获准动作。')
         const action = validateForestAction(task.forestLoop, args)
@@ -381,24 +380,21 @@ export class TaskEngine {
         result = { callId: call.id, name: call.name, success: true, output: JSON.stringify({ acceptedForHost: true, action,
           executed: false, note: '宿主将在任务回执后执行；此回执不表示已生成、保存或采用工程。' }) }
       } catch (error) {
-        result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'forest_action_invalid', message: error instanceof Error ? error.message.slice(0, 512) : '动作不符合当前状态。' } }) }
+        result = rejected('forest_action_invalid', error instanceof Error ? error.message.slice(0, 512) : undefined)
       }
     }
     else if (call.name === WORKFLOW_DISCOVERY_TOOL.name) {
       try {
         result = { callId: call.id, name: call.name, success: true, output: executeWorkflowQuery(task, args, this.connectionInfo, Math.max(0, this.store.limits(task).toolCalls - task.toolAttempts - (reserved ? 0 : 1))) }
       } catch (error) {
-        result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'workflow_unavailable', message: error instanceof Error ? error.message.slice(0, 512) : '工作流参数或版本不可用。' } }) }
+        result = error instanceof ToolRejected ? rejected(error.code) : rejected('workflow_unavailable', error instanceof Error ? error.message.slice(0, 512) : undefined)
       }
     }
-    else if (['sceneweave_visual_review', 'sceneweave_apply_visual_correction'].includes(call.name)
-      && (this.connectionInfo.capabilities.vision !== 'enabled' || !this.connectionInfo.capabilities.visualReviewVersions?.includes(1))) result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'vision_disabled', message: '本任务尚未启用真实公开图片复核。' } }) }
     else if (task.authoring) result = executeAuthoringTool(task, call, args, new StaticSvgArtifacts(this.store.artifacts), {
       modelRequests: this.store.limits(task).modelRequests, toolCalls: this.store.limits(task).toolCalls, executionRemainingMs: this.store.remaining(task),
       maxOutputTokens: this.authoringOutputTokens, attemptReserved: reserved,
     })
-    else if (call.name !== tool.name) result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'unsupported_tool', message: '本任务未开放此工具。' } }) }
-    else if (!connectionArguments.safeParse(args).success) result = { callId: call.id, name: call.name, success: false, output: JSON.stringify({ error: { code: 'invalid_arguments', message: '工具参数不符合严格协议。' } }) }
+    else if (!connectionArguments.safeParse(args).success) result = rejected('invalid_arguments')
     else result = { callId: call.id, name: call.name, success: true, output: JSON.stringify(this.connectionInfo) }
       if (!reserved && task.snapshot.lastSequence >= AI_LIMITS.events - 5) throw new TaskFault('event_limit')
       const bytes = utf8Size(call.arguments) + utf8Size(result.output)

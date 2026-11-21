@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PointMm } from '../../shared/model/scene'
 import type { CubicSegment, VisualBoundary } from '../../shared/visual/types'
-import { connectionRouteSchema, sampleConnectionRoute, type ConnectionRoute } from '../../shared/geometry/connection-route'
+import { connectionRouteSchema, sampleConnectionRoute, smoothConnectionControls, type ConnectionRoute } from '../../shared/geometry/connection-route'
 import type { VisualBoundaryEditor } from './VisualPanel'
 import { integerCoordinateRow } from './integer-coordinate-input'
 
@@ -32,15 +32,6 @@ export function connectionPoints(text: string): PointMm[] {
 }
 const sourceId = (index: number, retained?: ConnectionRoute, kind?: ConnectionRoute['kind'], count?: number) =>
   retained && retained.kind === kind && retained.segments.length === count ? retained.segments[index].id : `route-segment-${crypto.randomUUID()}`
-/** Explicitly chosen interpolation only prepares editable controls; the saved
- * physical route is always the strictly verified deterministic full sample. */
-export function smoothConnectionControls(points: PointMm[]): Omit<CubicSegment, 'id'>[] {
-  return points.slice(1).map((end, index) => {
-    const start = points[index], previous = points[Math.max(0, index - 1)], next = points[Math.min(points.length - 1, index + 2)]
-    return { start: { ...start }, control1: { x: Math.round(start.x + (end.x - previous.x) / 6), y: Math.round(start.y + (end.y - previous.y) / 6) },
-      control2: { x: Math.round(end.x - (next.x - start.x) / 6), y: Math.round(end.y - (next.y - start.y) / 6) }, end: { ...end } }
-  })
-}
 export function readConnectionRoute(text: string, draft: ConnectionRouteDraft, retained?: ConnectionRoute): { route?: ConnectionRoute; points: PointMm[] } {
   if (draft.mode === 'classic') {
     const points = connectionPoints(text)

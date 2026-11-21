@@ -149,6 +149,17 @@ export const THEME_PACK_PLAN_REGISTRY = validateThemePackRegistry({ format: 'sce
     composition('fishing-work-group', '渔具工作组'), composition('supply-group', '补给组'), composition('shore-work-corner', '岸边工作角'),
   ], [['fishing-village-dock', '渔村码头', ['fishing-village', 'dock'], ['coastal-surfaces', 'fishing-and-supply-equipment', 'shells-and-shore-detail', 'dock-and-cargo-detail', 'fishing-work-group', 'shore-work-corner']],
     ['coastal-watch', '海岸哨所与礁岸', ['coastal-outpost', 'rocky-shore'], ['coastal-surfaces', 'reef-and-shore-objects', 'fishing-and-supply-equipment', 'shells-and-shore-detail', 'dock-and-cargo-detail', 'supply-group']]]),
+  plan('industrial-cyberpunk', '工业赛博朋克', {
+    scene: ['cooling-junction', 'freight-loop', 'elevated-industrial'], style: ['cyberpunk', 'industrial-steel'], era: ['near-future'],
+    use: ['transport', 'maintenance', 'energy', 'storage'], state: ['intact'],
+  }, [
+    surface('steel-and-asphalt', '道路、桥面、平台收边与台阶铺装'),
+    subject('industrial-structures', '厂房屋面、管线与设备'),
+    detail('night-lighting', '路灯、霓虹与入口导向'),
+    composition('repeatable-construction', '沿线边梁、栅栏、管线与设备组合'),
+    composition('crossing-levels', '独立底图、对齐楼层与跨越路线'),
+  ], [['cooling-junction', '碧脉冷却枢纽', ['cooling-junction', 'elevated-industrial']],
+    ['freight-loop', '暮港吊运环线', ['freight-loop', 'elevated-industrial']]]),
 ] })
 export const THEME_PACK_PLANS: readonly ThemePackPlan[] = THEME_PACK_PLAN_REGISTRY.packs
 

@@ -113,16 +113,26 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     for (const entity of Object.values(collection)) entities.set(entity.id, entity)
   }
   for (const record of [scene.decorations ?? {}, scene.decorationClusters ?? {}]) for (const entity of Object.values(record)) entities.set(entity.id, entity)
-  const terrainPoints = new Map<string, PointMm>(), parents = new Map<string, string[]>(), prefabParents = new Map<string, string>()
+  const terrainPoints = new Map<string, PointMm>(), parents = new Map<string, string[]>(), primaryParents = new Map<string, string>()
   for (const area of Object.values(scene.terrainAreas)) for (const point of area.boundaryMm) {
     entities.set(point.id, { id: point.id, floorId: area.floorId }); terrainPoints.set(point.id, point.positionMm)
   }
   for (const group of [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)]) for (const member of Object.values(group.members)) if (member.propId !== null) {
     parents.set(member.propId, [...(parents.get(member.propId) ?? []), group.id])
-    if (own(scene.prefabInstances, group.id)) prefabParents.set(member.propId, group.id)
+    if (own(scene.prefabInstances, group.id)) primaryParents.set(member.propId, group.id)
+  }
+  for (const path of Object.values(scene.paths)) {
+    const assembly = path.assembly
+    if (!assembly?.bridge) continue
+    const deck = scene.terrainAreas[assembly.bridge.deckId]
+    const members = Object.values(assembly.members).flatMap(member => member.state === 'placed' ? [member.propId] : [])
+    for (const id of [...members, assembly.bridge.deckId, ...deck.boundaryMm.map(point => point.id)]) {
+      parents.set(id, [...(parents.get(id) ?? []), path.id])
+      primaryParents.set(id, path.id)
+    }
   }
   for (const group of Object.values(scene.decorationClusters ?? {})) for (const member of Object.values(group.members)) if (member.entityId !== null && member.state !== 'detached') parents.set(member.entityId, [...(parents.get(member.entityId) ?? []), group.id])
-  const unit = (id: string, memberMode = false): string | null => entities.has(id) ? !memberMode && prefabParents.has(id) ? prefabParents.get(id)! : id : null
+  const unit = (id: string, memberMode = false): string | null => entities.has(id) ? memberMode ? id : primaryParents.get(id) ?? id : null
   const normalize = (ids: readonly string[], memberMode = false): string[] => {
     const units = [...new Set(ids.flatMap(id => unit(id, memberMode) ?? []))], present = new Set(units)
     // Explicit containers take precedence even in member mode. Never operate on a member twice.
@@ -185,7 +195,7 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     const connection = own(scene.terrainConnections, id)
     if (connection) return [connection.terrainInlay ? terrainInlayFootprint(connection) : connectionFootprint(connection)]
     const path = own(scene.paths, id), region = own(scene.regions, id)
-    if (path) return [pathPolygonV2(path)]
+    if (path) return path.assembly?.bridge ? geometry(path.assembly.bridge.deckId) : [pathPolygonV2(path)]
     if (region) return [clonePoints(region.boundaryMm)]
     const prefab = own(scene.prefabInstances, id)
     if (prefab) return Object.values(prefab.members).flatMap(member => member.propId === null ? [] : geometry(member.propId))
@@ -256,7 +266,8 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     else if (area) bounds = pointsBounds([...area.boundaryMm.map(point => point.positionMm), ...Object.values(area.rockBody?.shell?.verticesMm ?? {}).map(({ x, y }) => ({ x, y }))])
     else if (opening) bounds = pointsBounds(openingEndpointsV2(scene, opening), scene.walls[opening.wallId].thicknessMm)
     else if (connection) bounds = connection.terrainInlay ? pointsBounds(terrainInlayFootprint(connection)) : connection.carvedStrip ? pointsBounds(connectionFootprint(connection)) : pointsBounds(connection.route ? connection.route.segments.flatMap(segment => [segment.start, segment.control1, segment.control2, segment.end]) : [connection.from.positionMm, connection.to.positionMm], connection.widthMm)
-    else if (path) bounds = pointsBounds(path.centerlineMm, path.widthMm)
+    else if (path) bounds = path.assembly?.bridge ? coarseBounds(path.assembly.bridge.deckId)
+      : path.widthSections ? pointsBounds(pathPolygonV2(path)) : pointsBounds(path.centerlineMm, path.widthMm)
     else if (region) bounds = pointsBounds(region.boundaryMm)
     else if (edge) {
       const boundary = scene.terrainAreas[edge.source.areaId].boundaryMm, index = boundary.findIndex(point => point.segmentId === edge.source.segmentId)
@@ -376,7 +387,7 @@ export function hitTestAllV2(scene: SceneDocumentV2, point: PointMm, toleranceMm
   for (const id of index.candidatesForPoint(point, toleranceMm)) {
     if (options.floorId !== undefined && index.entities.get(id)?.floorId !== options.floorId) continue
     const unit = index.unit(id, options.memberMode)!
-    if (seen.has(unit) || index.hidden(unit, options.hiddenIds)) continue
+    if (seen.has(unit) || index.hidden(unit, options.hiddenIds) || id !== unit && index.hidden(id, options.hiddenIds)) continue
     // Props are picked by their visual rectangle only; handle/line tolerance must
     // not turn shadows, padding or the gaps between prefab members into targets.
     const tolerance = own(scene.props, id) || scene.decorations?.[id] ? 0 : toleranceMm

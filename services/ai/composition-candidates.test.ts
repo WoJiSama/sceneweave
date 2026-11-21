@@ -226,7 +226,7 @@ describe('composition tool full native preview and privacy boundary', () => {
     expect(source.state.operationCost).toBe(225)
     const frozen = canonicalJson(limited.task), exhausted = limited.run('sceneweave_propose_composition', { kind: 'layout', recipe: 'interior', idPrefix: 'over-budget' })
     expect(exhausted.success).toBe(false)
-    expect(JSON.parse(exhausted.output).error.code).toBe('operation_budget')
+    expect(JSON.parse(exhausted.output).error).toMatchObject({ code: 'operation_budget', nextAction: 'reduce_work' })
     expect(canonicalJson(limited.task)).toBe(frozen)
   }, 60000)
 })

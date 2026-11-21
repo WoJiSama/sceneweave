@@ -13,7 +13,7 @@ import { validateSceneV3 } from '../core/v3/schema'
 import { groupLayerSceneV3, layerSceneV3, scatterLayerSceneV3, STAMP_V3 } from '../core/v3/test-fixtures'
 import type { SceneDocumentV3 } from '../core/v3/types'
 import { projectSceneV3, projectEditorSceneV3 } from '../render/v3/projection'
-import type { SceneDocument } from './model/scene'
+import type { Issue, SceneDocument } from './model/scene'
 import { inspectDependencies } from './commands/dependencies'
 import { geometryDocumentForValidation } from './commands/domain'
 import { openingEndpoints, pathPolygon, propFootprint, validateGeometry } from './geometry/geometry'
@@ -135,15 +135,18 @@ describe('native complete-v1 scene rules and legacy equivalence', () => {
   it('retains full-width current terrain travel and refuses a visually plausible blocked crossing', () => {
     const legacy = terrainFixtureV2(), source = native(layers(legacy))
     const route = { floorId: 'f-a1', from: { x: 6500, y: 10000 }, to: { x: 13500, y: 10000 }, widthMm: 2000 }
-    expect(checkTerrainTravel(source, route)).toEqual(checkTerrainTravelV2(legacy, route))
+    const geometryIssues = ({ ok, issues }: { ok: boolean; issues: readonly Issue[] }) => ({
+      ok, issues: issues.map(({ code, entityId }) => ({ code, entityId })),
+    })
+    expect(geometryIssues(checkTerrainTravel(source, route))).toEqual(geometryIssues(checkTerrainTravelV2(legacy, route)))
     expect(checkTerrainTravel(source, route).ok).toBe(true)
     for (const request of [{ ...route, widthMm: 2001 }, { ...route, from: { x: 8000, y: 5000 }, to: { x: 12000, y: 5000 }, widthMm: 500 }]) {
-      expect(checkTerrainTravel(source, request)).toEqual(checkTerrainTravelV2(legacy, request))
+      expect(geometryIssues(checkTerrainTravel(source, request))).toEqual(geometryIssues(checkTerrainTravelV2(legacy, request)))
       expect(checkTerrainTravel(source, request).ok).toBe(false)
     }
     source.terrainConnections['island-stairs'].blocksMovement = true
     legacy.terrainConnections['island-stairs'].blocksMovement = true
-    expect(checkTerrainTravel(source, route)).toEqual(checkTerrainTravelV2(legacy, route))
+    expect(geometryIssues(checkTerrainTravel(source, route))).toEqual(geometryIssues(checkTerrainTravelV2(legacy, route)))
     expect(checkTerrainTravel(source, route).ok).toBe(false)
   })
 

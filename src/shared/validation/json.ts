@@ -89,6 +89,12 @@ export function equalOwnedJson(left: unknown, right: unknown): boolean {
   return true
 }
 
+/** Compare JSON values after checking and owning both inputs. Use canonical
+ * serialization when the encoded representation itself is needed. */
+export function equalCheckedJson(left: unknown, right: unknown): boolean {
+  return equalOwnedJson(captureJson(left), captureJson(right))
+}
+
 export function freezeJson<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
     Object.freeze(value)

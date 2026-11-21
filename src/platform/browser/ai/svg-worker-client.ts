@@ -1,7 +1,9 @@
 import { verifyNormalizedStaticSvg, STATIC_SVG_LIMITS, type NormalizedStaticSvg } from '../../../shared/ai/svg.js'
 import { CancelledOperationError, checkCancelled, type CancellationSignal, type RasterImage } from '../../../shared/ports/resources.js'
 import { WeightedTaskQueue } from '../../../shared/project/task-queue.js'
-import { rasterizeCanonicalSvgPixels } from './svg-raster.js'
+import { copyCanonicalSvgModule, rasterizeCanonicalSvgPixels } from './svg-raster.js'
+import CanonicalSvgWorker from './svg-worker.ts?worker&inline'
+import type { CanonicalSvgWorkerRequest } from './svg-worker.js'
 
 interface Slot { worker: Worker; busy: boolean; cancel?: () => void; idle?: ReturnType<typeof setTimeout> }
 // Bound the worker count and active raster pixels independently of the outer
@@ -31,7 +33,13 @@ export async function rasterizeCanonicalSvgInWorker(input: NormalizedStaticSvg, 
   return queue.run(width * height, cancellation, () => new Promise<RasterImage>((resolve, reject) => {
     checkCancelled(cancellation)
     let slot = [...slots].find(value => !value.busy)
-    if (!slot) { slot = { worker: new Worker(new URL('./svg-worker.ts', import.meta.url), { type: 'module' }), busy: false }; slots.add(slot) }
+    // The production bundle contains the worker script. Keep its WASM heap
+    // releasable while allowing a live workbench to finish a backup offline.
+    const moduleLoad = slot ? undefined : new AbortController()
+    if (!slot) {
+      slot = { worker: new CanonicalSvgWorker({ name: 'sceneweave-canonical-svg' }), busy: false }
+      slots.add(slot)
+    }
     const active = slot; clearTimeout(active.idle); active.busy = true
     let settled = false
     const finish = (error?: unknown, image?: RasterImage) => {
@@ -40,7 +48,7 @@ export async function rasterizeCanonicalSvgInWorker(input: NormalizedStaticSvg, 
       signal?.removeEventListener?.('abort', cancel)
       active.worker.onmessage = active.worker.onerror = active.worker.onmessageerror = null
       active.busy = false; active.cancel = undefined
-      if (error) { release(active); reject(error) }
+      if (error) { moduleLoad?.abort(); release(active); reject(error) }
       else { active.idle = setTimeout(() => release(active), 5000); resolve(image!) }
     }
     const cancel = () => { try { checkCancelled(cancellation) } catch (error) { finish(error) } }
@@ -61,6 +69,13 @@ export async function rasterizeCanonicalSvgInWorker(input: NormalizedStaticSvg, 
         finish(undefined, { width, height, rgba: result.rgba })
       } catch (error) { finish(error) }
     }
-    try { active.worker.postMessage({ source, dimensions: { width, height } }); cancel() } catch (error) { finish(error) }
+    const post = (moduleBytes?: Uint8Array<ArrayBuffer>) => {
+      cancel()
+      if (settled) return
+      const request: CanonicalSvgWorkerRequest = { source, dimensions: { width, height }, moduleBytes }
+      try { active.worker.postMessage(request, moduleBytes ? [moduleBytes.buffer] : []) } catch (error) { finish(error) }
+    }
+    if (moduleLoad) void copyCanonicalSvgModule(moduleLoad.signal).then(post, finish)
+    else post()
   }))
 }

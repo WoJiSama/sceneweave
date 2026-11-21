@@ -1,4 +1,4 @@
-import type { BoundsMm, Issue, SceneDocument } from '../model/scene.js'
+import type { BoundsMm, Floor, Issue, SceneDocument } from '../model/scene.js'
 import type { VisualEnvironment } from '../visual/types.js'
 import { visualEnvironmentSchema } from '../visual/schema.js'
 import { visualBase } from '../visual/base.js'
@@ -14,6 +14,30 @@ const validBounds = (bounds: BoundsMm): boolean => !!bounds && typeof bounds==='
 const contains = (outer: BoundsMm, inner: BoundsMm): boolean => inner.x>=outer.x && inner.y>=outer.y
   && inner.x+inner.width<=outer.x+outer.width && inner.y+inner.height<=outer.y+outer.height
 
+const DISPLAY_STACK_LIMIT = 4
+
+/** Open on the top of a stack. Independent floors retain their normal order. */
+export function defaultDisplayFloorId(scene: Pick<SceneDocument, 'floors'>): string | undefined {
+  const floors = Object.values(scene.floors)
+  const underlays = new Set(floors.map(floor => floor.underlayFloorId))
+  return floors.find(floor => !underlays.has(floor.id))?.id
+}
+
+/** Aligned floors ordered from the backdrop to the current floor. */
+export function floorDisplayStack(scene: Pick<SceneDocument, 'floors'>, floorId: string): Floor[] {
+  const stack: Floor[] = [], seen = new Set<string>()
+  let next: string | undefined = floorId
+  while (next !== undefined) {
+    if (!Object.hasOwn(scene.floors, next) || seen.has(next)) throw new Error('叠绘须引用现存楼层且不能成环。')
+    if (stack.length >= DISPLAY_STACK_LIMIT) throw new Error('每次叠绘最多包含四个楼层。')
+    const floor: Floor = scene.floors[next]
+    stack.push(floor)
+    seen.add(next)
+    next = floor.underlayFloorId
+  }
+  return stack.reverse()
+}
+
 /** Domain settings only, after strict shape capture. This neither validates a
  * sliced scene nor grants a geometry/resource/snapshot certificate. */
 export function validateFloorSettings(scene: SceneDocument): Issue[] {
@@ -26,7 +50,14 @@ export function validateFloorSettings(scene: SceneDocument): Issue[] {
     if(floor.outputBoundsMm!==undefined && (!validBounds(floor.outputBoundsMm)||!validBounds(floor.boundsMm)||!contains(floor.boundsMm,floor.outputBoundsMm))) {
       error('FLOOR_OUTPUT_BOUNDS','Floor固定输出范围须为正尺寸、安全整数端点且完整位于自身世界边界内。',floor.id)
     }
+    if (floor.artwork && (!validBounds(floor.artwork.boundsMm) || !contains(floor.boundsMm, floor.artwork.boundsMm))) {
+      error('FLOOR_ARTWORK_BOUNDS', '底图须为正尺寸、安全整数端点，并完整位于所属楼层。', floor.id)
+    }
     if(floor.environment!==undefined && !visualEnvironmentSchema.safeParse(floor.environment).success) error('FLOOR_ENVIRONMENT','Floor环境覆盖须为完整且严格的六字段环境值。',floor.id)
+    if (floor.underlayFloorId !== undefined) {
+      try { floorDisplayStack(scene, floor.id) }
+      catch (failure) { error('FLOOR_DISPLAY_STACK', (failure as Error).message, floor.id) }
+    }
     const ids = new Set<string>()
     for (const link of floor.links ?? []) {
       const target = scene.floors[link.targetFloorId]

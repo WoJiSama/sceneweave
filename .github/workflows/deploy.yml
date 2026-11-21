@@ -43,6 +43,19 @@ jobs:
           # This is a public endpoint only; application/provider credentials never enter Pages builds.
           VITE_SCENEWEAVE_AI_URL: ${{ vars.VITE_SCENEWEAVE_AI_URL }}
         run: npm run build
+      - name: Install Chromium for export regression
+        run: npx playwright install --with-deps chromium
+      - name: Verify privacy and recovery on the Pages build
+        shell: bash
+        env:
+          SCENEWEAVE_TEST_BASE_URL: http://127.0.0.1:4173/sceneweave/
+        run: |
+          ./node_modules/.bin/vite preview --host 127.0.0.1 --port 4173 --strictPort &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          curl --fail --silent --show-error --retry 20 --retry-connrefused --retry-delay 1 --max-time 5 "$SCENEWEAVE_TEST_BASE_URL" --output /dev/null
+          kill -0 "$preview_pid"
+          npm run test:e2e -- tests/export-privacy-ux.spec.ts tests/room-privacy-ux.spec.ts --project=chromium --reporter=list
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

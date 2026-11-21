@@ -46,7 +46,7 @@ export function planManualCommandWork(document: SceneDocument, input: readonly C
   const supportsAppearance = (id: string, kind?: AdjustmentKind) => {
     const prop = document.props[id]
     if (prop) return kind !== 'tint' && kind !== 'brightness' || prop.appearance.kind === 'image'
-    if (kind === 'shadowClass') return false
+    if (kind === 'shadowClass' || kind === 'propGlow') return false
     return !!(document.rooms[id]?.floorStyle ?? document.walls[id]?.topStyle ?? document.terrainAreas[id]?.surfaceStyle
       ?? document.terrainEdges[id]?.surfaceStyle ?? document.terrainConnections[id]?.surfaceStyle ?? document.paths[id]?.surfaceStyle)
   }
@@ -93,6 +93,16 @@ export function planManualCommandWork(document: SceneDocument, input: readonly C
         break
       }
       case 'setAppearanceSource': add(appearanceTargets(command.ids)); break
+      case 'publishPrefabRevision': {
+        targets.add(command.id)
+        const members = document.prefabInstances[command.id]?.members
+        for (const { key } of command.changes) {
+          const propId = members?.[key]?.propId
+          if (propId) targets.add(propId)
+        }
+        break
+      }
+      case 'syncPrefabRevision': targets.add(command.id); add(prefabMembers(command.id)); break
       case 'createPrefab': targets.add(command.id); add(command.ids); break
       case 'instantiatePrefab': targets.add(command.id); add(Object.values(command.memberIds)); break
       case 'duplicatePrefab': targets.add(command.newId); add(Object.values(command.memberIds)); break
@@ -106,7 +116,8 @@ export function planManualCommandWork(document: SceneDocument, input: readonly C
       }
       case 'copyProp': targets.add(command.newId); break
       case 'transformBuilding': add(buildingAggregateMembers(document, command.id).filter(ref => ref.kind !== 'vertex').map(ref => ref.id)); break
-      case 'moveVertex': case 'setWallEdgeProfile': case 'setWallThickness': case 'reverseWall': case 'splitWall': {
+      case 'moveRoom': uncertainExpansion = true; break
+      case 'moveVertex': case 'setWallBlocking': case 'setWallEdgeProfile': case 'setWallThickness': case 'reverseWall': case 'splitWall': {
         const vertexIds = command.type === 'moveVertex' ? [command.id] : [document.walls[command.id]?.startVertexId, document.walls[command.id]?.endVertexId]
         const walls = Object.values(document.walls).filter(wall => command.type === 'moveVertex'
           ? vertexIds.includes(wall.startVertexId) || vertexIds.includes(wall.endVertexId) : wall.id === command.id)
@@ -127,7 +138,17 @@ export function planManualCommandWork(document: SceneDocument, input: readonly C
       case 'createScatter': case 'configureScatter': case 'regenerateScatter':
       case 'createDecorationCluster': case 'createCanopyRegion': case 'updateCanopyRegion': case 'regenerateDecorationCluster':
       case 'paintSurfaceVegetation': case 'paintSurfaceMaterial': case 'eraseSurfaceRules': case 'updateSurfaceVegetation':
-      case 'deleteSurfaceRule': case 'repairBuildingTopology': uncertainExpansion = true; break
+      case 'deleteSurfaceRule': case 'repairBuildingTopology':
+      case 'setPathAssembly': case 'setFenceAssembly': uncertainExpansion = true; break
+      case 'moveBridge': uncertainExpansion = true; break
+      case 'setPipeLink': uncertainExpansion = true; break
+      case 'detachBridgeRoad': targets.add(command.id); break
+      case 'removeFenceAssembly': {
+        targets.add(command.id)
+        const members = visual?.boundaries[command.id]?.fence?.members
+        add(Object.values(members ?? {}).flatMap(member => member.state === 'placed' ? [member.propId] : []))
+        break
+      }
       case 'deleteDecorationCluster': {
         const cluster = document.decorationClusters[command.id]
         targets.add(command.id)

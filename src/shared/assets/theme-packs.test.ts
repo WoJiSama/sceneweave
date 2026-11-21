@@ -9,9 +9,9 @@ const registration = () => ({ id: 'fixture', name: 'Fixture', fixedVersion: 1, p
   catalogKeys: [key(1), key(2), key(3)], theme: { catalogId: 'theme.test', fixedVersion: 1, contentHash: 'c'.repeat(64) } })
 
 describe('theme pack planning and metadata discovery', () => {
-  it('keeps six planned packages with four content roles and exactly two referenced, observable scenarios', () => {
+  it('keeps the planned packages with four content roles and exactly two referenced, observable scenarios', () => {
     expect(THEME_PACK_PLANS.map(pack => pack.id)).toEqual(['period-investigation', 'modern-city', 'fantasy-town',
-      'underground-ruins', 'temperate-wilderness', 'coastal-settlement'])
+      'underground-ruins', 'temperate-wilderness', 'coastal-settlement', 'industrial-cyberpunk'])
     expect(Object.isFrozen(THEME_PACK_PLAN_REGISTRY)).toBe(true)
     for (const pack of THEME_PACK_PLANS) {
       expect(pack.status).toBe('planned')
@@ -30,6 +30,7 @@ describe('theme pack planning and metadata discovery', () => {
     expect(selectThemePacks(THEME_PACK_PLANS, { style: ['coastal-ink'], scene: ['forest'] })).toEqual([])
     expect(selectThemePacks(THEME_PACK_PLANS, { scene: ['forest'], state: ['abandoned'] }).map(pack => pack.id)).toEqual(['temperate-wilderness'])
     expect(selectThemePacks(THEME_PACK_PLANS, { query: '近代 调查', scene: [] }).map(pack => pack.id)).toEqual(['period-investigation'])
+    expect(selectThemePacks(THEME_PACK_PLANS, { style: ['cyberpunk'], use: ['maintenance'] }).map(pack => pack.id)).toEqual(['industrial-cyberpunk'])
     expect(selectThemePacks(THEME_PACK_PLANS, { query: '不存在' })).toEqual([])
   })
 

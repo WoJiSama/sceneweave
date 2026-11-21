@@ -14,20 +14,26 @@ export type SvgRasterResult = CanonicalSvgProcessor & {
 }
 const wasmByteLength = 2_478_606
 let initialized: Promise<void> | undefined
+let verifiedModuleBytes: Uint8Array<ArrayBuffer> | undefined
+
+function verifyModuleBytes(bytes: Uint8Array): void {
+  if (bytes.length !== wasmByteLength) throw new Error('固定SVG栅格器模块长度不符。')
+  if (sha256Bytes(bytes) !== CANONICAL_SVG_PROCESSOR.rasterizer.moduleSha256) throw new Error('固定SVG栅格器模块SHA256不符。')
+}
 
 /** A bounded owned module must match the immutable profile before execution. */
 export function initializeCanonicalSvgRasterizer(input: Uint8Array): Promise<void> {
   const bytes = captureBytes(input, wasmByteLength)
-  if (bytes.length !== wasmByteLength) throw new Error('固定SVG栅格器模块长度不符。')
-  if (sha256Bytes(bytes) !== CANONICAL_SVG_PROCESSOR.rasterizer.moduleSha256) throw new Error('固定SVG栅格器模块SHA256不符。')
+  verifyModuleBytes(bytes)
   if (!initialized) initialized = initWasm(bytes).catch(error => { initialized = undefined; throw error })
   return initialized
 }
-let loading: Promise<void> | undefined
-async function ensureRasterizer(): Promise<void> {
-  if (initialized) return initialized
-  if (!loading) loading = (async () => {
-    const response = await fetch(wasmUrl)
+
+/** Retain only verified application bytes so a new worker can start offline. */
+export async function copyCanonicalSvgModule(signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+  checkCancelled(signal)
+  if (!verifiedModuleBytes) {
+    const response = await fetch(wasmUrl, { signal })
     if (!response.ok) throw new Error('固定SVG栅格器模块无法载入。')
     // The module is a bundled same-origin application asset, never a project URL.
     const declared = response.headers.get('content-length')
@@ -43,8 +49,17 @@ async function ensureRasterizer(): Promise<void> {
         bytes.set(part.value, length); length += part.value.length
       }
     } finally { reader.releaseLock() }
-    await initializeCanonicalSvgRasterizer(bytes.subarray(0, length))
-  })().finally(() => { loading = undefined })
+    checkCancelled(signal)
+    verifyModuleBytes(bytes.subarray(0, length))
+    verifiedModuleBytes = bytes
+  }
+  return verifiedModuleBytes.slice()
+}
+
+let loading: Promise<void> | undefined
+async function ensureRasterizer(): Promise<void> {
+  if (initialized) return initialized
+  loading ??= copyCanonicalSvgModule().then(initializeCanonicalSvgRasterizer).finally(() => { loading = undefined })
   return loading
 }
 

@@ -3,6 +3,7 @@
 .workflow-guide ul,.workflow-guide ol{padding-left:20px;line-height:1.6}
 .workflow-guide li{margin:6px 0}
 .workflow-guide p{line-height:1.6}
+.workflow-guide .workflow-step-instructions{white-space:pre-line}
 .workflow-guide pre{max-width:100%;max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px}
 .workflow-guide article{border-top:1px solid #d2d7c8;padding-top:8px;margin-top:8px}
 .workflow-guide figure{margin:12px 0}

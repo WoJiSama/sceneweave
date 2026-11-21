@@ -1,8 +1,12 @@
+import { LINE_STYLE_LICENSE_REF, LINE_STYLE_LICENSE_TEXT } from '../../shared/path-assembly/style-license.js'
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
 import { inspectAggregateEdit } from './aggregate-boundary.js'
+import { inspectDependencies } from '../../shared/geometry/dependencies.js'
+import { applyFloorArtwork } from '../../shared/floors/commands.js'
+import type { Floor, FloorArtwork } from '../../shared/model/scene.js'
 import type { AggregateEditBoundaryImpact } from './aggregate-boundary.js'
 import { emptyBudgetUsage, withExecutionWorkObserver, type BudgetUsage } from '../../shared/budget/task-budget.js'
-import { assertCommandBudget, measureCommandBudget, isManualTransactionBudget, type CommandBudgetProfile, type CommandBudgetUsage } from '../../shared/budget/command-budget.js'
+import { assertCommandBudget, measureCommandBudget, isManualTransactionBudget, MANUAL_TRANSACTION_BUDGETS, type CommandBudgetProfile, type CommandBudgetUsage } from '../../shared/budget/command-budget.js'
 import { detachChangedOutputs } from '../../shared/terrain-generation/integrity.js'
 import { pauseChangedCompositionAppearance, pauseChangedCompositions } from '../../shared/terrain-generation/composition-lifecycle.js'
 import { detachChangedAppearance } from '../../shared/terrain-generation/appearance-lifecycle.js'
@@ -98,6 +102,13 @@ function inheritMissingBindings(project: EditableProject): void {
     for (const subject of Object.values(project.document[collection])) {
       if (project.licenseBindings.some(binding => binding.subjectKind === kind && binding.subjectId === subject.id)) continue
       const matches = project.licenseBindings.filter(binding => binding.licenseRef === subject.licenseRef && binding.embedding === 'allowed')
+      if (kind === 'prefabDefinition' && subject.licenseRef === LINE_STYLE_LICENSE_REF && 'pathStyle' in subject && subject.pathStyle) {
+        const hash = sha256Bytes(encodeUtf8(LINE_STYLE_LICENSE_TEXT)), licensePath = `licenses/${hash}.txt`
+        if (matches.some(binding => binding.licensePath !== licensePath)) throw new Error('沿线构件的内置许可正文与当前工程记录冲突。')
+        project.licenses[hash] = { sha256: hash, text: LINE_STYLE_LICENSE_TEXT }
+        project.licenseBindings.push({ subjectKind: kind, subjectId: subject.id, licenseRef: subject.licenseRef, licensePath, embedding: 'allowed' })
+        continue
+      }
       if (!matches.length || new Set(matches.map(binding => binding.licensePath)).size !== 1) throw new Error(`新采用对象${subject.id}缺少唯一许可来源。`)
       project.licenseBindings.push({ ...matches[0], subjectKind: kind, subjectId: subject.id })
     }
@@ -113,8 +124,28 @@ function draftBudgets(project: EditableProject): void {
   if (assets.length > PROJECT_DATA_LIMITS.images || assets.reduce((sum, record) => sum + record.pixelWidth * record.pixelHeight, 0) > PROJECT_DATA_LIMITS.totalImagePixels) throw new Error('候选位图数量或累计像素超过保护值。')
 }
 
+const preparedBudgetMeasurements = new WeakMap<EditableProject, WeakMap<EditableProject, { profile: CommandBudgetProfile; usage: CommandBudgetUsage }>>()
+
+/** Reuse the document delta only for exact validated projects and a registered
+ * manual policy. Preparation work and the admission check are applied separately. */
+export function measurePreparedCommandBudget(before: EditableProject, after: EditableProject, profile: CommandBudgetProfile): CommandBudgetUsage {
+  const measure = () => measureCommandBudget(before.document, after.document, { before, after }, undefined, profile)
+  if (!isManualTransactionBudget(profile) || !Object.values(MANUAL_TRANSACTION_BUDGETS).includes(profile)
+    || !getVerifiedEditableProject(before) || !getVerifiedEditableProject(after)) return measure()
+  let byBaseline = preparedBudgetMeasurements.get(after)
+  if (!byBaseline) {
+    byBaseline = new WeakMap()
+    preparedBudgetMeasurements.set(after, byBaseline)
+  }
+  const existing = byBaseline.get(before)
+  if (existing?.profile === profile) return existing.usage
+  const usage = measure()
+  byBaseline.set(before, { profile, usage })
+  return usage
+}
+
 function assertPreparationBudget(before: EditableProject, after: EditableProject, options: PrepareOptions): void {
-  if (options.budget) assertCommandBudget(options.budget, measureCommandBudget(before.document, after.document, { before, after }, undefined, options.budget))
+  if (options.budget) assertCommandBudget(options.budget, measurePreparedCommandBudget(before, after, options.budget))
   else assertTerrainBudget(before.document, after.document, { before, after })
 }
 
@@ -231,7 +262,7 @@ export async function prepareCompositionCommands(input: EditableProject, command
     }
     const prepared = await materializeProject({ ...project, ...propTransaction.result }, { ...options, baseline: project })
     checkCancelled(checked.signal)
-    const base = measureCommandBudget(project.document, prepared.document, { before: project, after: prepared }, undefined, options.budget)
+    const base = measurePreparedCommandBudget(project, prepared, options.budget!)
     const usage = assertCommandBudget(options.budget!, combineManualPreparationUsage(base, work, observedWork))
     options.onBudgetUsage?.(usage); options.onOperationCost?.(usage.semanticTargets)
     const receipt = completeCompositionTransactionReceipt(contentOf(prepared), propTransaction.receipt)
@@ -245,16 +276,20 @@ export async function prepareCompositionCommands(input: EditableProject, command
     }
     return prepared
   }
-  const manualUsage = (after: CompositionContent & { assets?: EditableProject['assets'] }) => {
-    const metadata = { before: project, after }, base = measureCommandBudget(project.document, after.document, metadata, undefined, options.budget)
-    return combineManualPreparationUsage(base, work, observedWork)
-  }
-  const observeStep = manual ? ({ before, after: draft }: TransactionStep) => {
-    const delta = measureCommandBudget(before.document, draft.document, { before, after: draft }, undefined, options.budget)
-    for (const key of ['geometryPoints', 'geometrySegments', 'curveSegments', 'intersectionPairs'] as const) work[key] += delta[key]
-    for (const key of ['groupMembers', 'externalDependencies'] as const) work[key] = Math.max(work[key] ?? 0, delta[key] ?? 0)
-    const usage = manualUsage({ ...draft, assets: project.assets })
-    assertCommandBudget(options.budget!, usage)
+  const observeStep = manual ? ({ before, after: draft, phase, writes }: TransactionStep) => {
+    const after = { ...draft, assets: project.assets }
+    const base = measureCommandBudget(project.document, draft.document, { before: project, after }, undefined, options.budget)
+    // The final reconciliation observes all content fields. An empty write
+    // set adds no step work, while the net budget above still covers the result.
+    if (phase !== 'reconcile' || writes.length) {
+      // For the exact original baseline, the step and net geometry/group
+      // counters match. Only the net resource counters use project.assets.
+      const sameBaseline = before.document === project.document && before.historyIdentity === project.historyIdentity && before.appearance === project.appearance
+      const delta = sameBaseline ? base : measureCommandBudget(before.document, draft.document, { before, after: draft }, undefined, options.budget)
+      for (const key of ['geometryPoints', 'geometrySegments', 'curveSegments', 'intersectionPairs'] as const) work[key] += delta[key]
+      for (const key of ['groupMembers', 'externalDependencies'] as const) work[key] = Math.max(work[key] ?? 0, delta[key] ?? 0)
+    }
+    assertCommandBudget(options.budget!, combineManualPreparationUsage(base, work, observedWork))
   } : undefined
   let execution: TransactionReceipt | undefined
   const applyDraft = () => applyCompositionDraftCommands(contentOf(project), capturedCommands, options.runtime,
@@ -281,7 +316,8 @@ export async function prepareCompositionCommands(input: EditableProject, command
     if (impact) options.onAggregateBoundaryImpact(impact)
   }
   if (manual) {
-    const usage = assertCommandBudget(options.budget!, manualUsage(prepared))
+    const base = measurePreparedCommandBudget(project, prepared, options.budget!)
+    const usage = assertCommandBudget(options.budget!, combineManualPreparationUsage(base, work, observedWork))
     options.onBudgetUsage?.(usage)
     options.onOperationCost?.(usage.semanticTargets)
     publishReceipt()
@@ -299,6 +335,14 @@ export async function prepareCompositionCommands(input: EditableProject, command
   return prepared
 }
 
+function assertImageImportRights(licenseText: string, attribution: string, canEmbed: boolean): void {
+  if (canEmbed !== true || typeof attribution !== 'string' || !attribution.trim() || Array.from(attribution).length > 500) {
+    throw new Error('导入须提供来源署名与允许嵌入声明。')
+  }
+  if (typeof licenseText !== 'string' || !licenseText.trim() || encodeUtf8(licenseText).length > PROJECT_DATA_LIMITS.licenseBytes
+    || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(licenseText)) throw new Error('必须提供有效的完整许可文本。')
+}
+
 function captureImportRequest(input: AssetImportRequest): AssetImportRequest {
   const required = ['file', 'name', 'kind', 'widthMm', 'heightMm', 'licenseText', 'attribution', 'canEmbed'], optional = ['footprintWidthMm', 'footprintHeightMm', 'blocksMovement', 'blocksSight', 'tags', 'rootAnchorMm', 'footprintOffsetMm', 'renderLayer', 'shadowClass', 'applicableSurfaces']
   if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new Error('素材导入参数必须是普通对象。')
@@ -311,8 +355,8 @@ function captureImportRequest(input: AssetImportRequest): AssetImportRequest {
   const mime = Object.getOwnPropertyDescriptor(Blob.prototype, 'type')!.get!.call(file) as string
   const captured = { ...captureJson(json), file: Blob.prototype.slice.call(file, 0, size, mime) } as AssetImportRequest
   validateAssetDisplayName(captured.name)
-  if (captured.kind !== 'prop' && captured.kind !== 'material'
-    || captured.canEmbed !== true || typeof captured.attribution !== 'string' || !captured.attribution.trim() || Array.from(captured.attribution).length > 500) throw new Error('导入须提供类型、名称、来源署名与允许嵌入声明。')
+  if (captured.kind !== 'prop' && captured.kind !== 'material') throw new Error('素材导入类型无效。')
+  assertImageImportRights(captured.licenseText, captured.attribution, captured.canEmbed)
   for (const size of [captured.widthMm, captured.heightMm, captured.footprintWidthMm ?? captured.widthMm, captured.footprintHeightMm ?? captured.heightMm]) if (!Number.isSafeInteger(size) || size <= 0 || size > 1_000_000) throw new Error('图片及占地尺寸须为正整数毫米。')
   if (captured.kind === 'prop' && (captured.footprintWidthMm === undefined || captured.footprintHeightMm === undefined)) throw new Error('物件必须明确填写实际占地宽高。')
   for (const flag of [captured.blocksMovement, captured.blocksSight]) if (flag !== undefined && typeof flag !== 'boolean') throw new Error('通行及视线参数必须为布尔值。')
@@ -328,7 +372,6 @@ function captureImportRequest(input: AssetImportRequest): AssetImportRequest {
     || captured.applicableSurfaces.length > 4 || new Set(captured.applicableSurfaces).size !== captured.applicableSurfaces.length
     || captured.applicableSurfaces.some(value => !['room', 'wall', 'terrain', 'path'].includes(value)))) throw new Error('材质适用表面无效。')
   if (captured.tags !== undefined && (!Array.isArray(captured.tags) || captured.tags.length > 50 || captured.tags.some(tag => typeof tag !== 'string' || !tag.trim() || Array.from(tag).length > 80) || new Set(captured.tags).size !== captured.tags.length)) throw new Error('素材标签无效。')
-  if (typeof captured.licenseText !== 'string' || !captured.licenseText.trim() || encodeUtf8(captured.licenseText).length > PROJECT_DATA_LIMITS.licenseBytes || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(captured.licenseText)) throw new Error('必须提供有效的完整许可文本。')
   if (captured.rootAnchorMm !== undefined && (!captured.rootAnchorMm || captured.kind !== 'prop' || !Number.isSafeInteger(captured.rootAnchorMm.x) || !Number.isSafeInteger(captured.rootAnchorMm.y)
     || captured.rootAnchorMm.x < 0 || captured.rootAnchorMm.y < 0 || captured.rootAnchorMm.x > captured.widthMm || captured.rootAnchorMm.y > captured.heightMm
     || Object.keys(captured.rootAnchorMm).length !== 2 || !Object.hasOwn(captured.rootAnchorMm, 'x') || !Object.hasOwn(captured.rootAnchorMm, 'y'))) throw new Error('物件根锚须为图像内明确的整数毫米坐标。')
@@ -401,35 +444,105 @@ function looksLikeSvg(bytes: Uint8Array, mime: string): boolean {
   return bytes[index] === 60
 }
 
+async function prepareRasterImport(bytes: Uint8Array, mime: string, checked: CompleteValidationOptions,
+  admitPixels: (pixels: number) => void): Promise<Omit<ImportImage, 'source' | 'sourceBytes'>> {
+  checkCancelled(checked.signal)
+  const header = inspectImageBytes(bytes, false)
+  admitPixels(header.width * header.height)
+  if (mime && mime !== 'application/octet-stream' && mime !== header.mimeType) throw new Error('图片声明MIME与实际格式不一致。')
+  if (checked.images.normalizeImport) return checked.images.normalizeImport(bytes, mime, checked)
+  // A generic decode/encode adapter cannot prove EXIF orientation for JPEG or
+  // WebP. Strict PNG inspection also excludes eXIf and color-profile metadata;
+  // stripping either before decoding would silently change source semantics.
+  if (header.mimeType !== 'image/png') throw new ImageCapabilityError()
+  try { inspectImageBytes(bytes) } catch { throw new ImageCapabilityError() }
+  const sourceRecord: AssetRecord = { sha256: sha256Bytes(bytes), mimeType: header.mimeType, sizeBytes: bytes.length, pixelWidth: header.width, pixelHeight: header.height }
+  const image = await checked.images.decode(bytes.slice(), sourceRecord, checked)
+  checkCancelled(checked.signal)
+  if (image.width !== header.width || image.height !== header.height || !(image.rgba instanceof Uint8ClampedArray)
+    || image.rgba.length !== image.width * image.height * 4) throw new Error('图片实际像素与源尺寸不符。')
+  const expected = image.rgba.slice(), encoded = normalizePngChunks(await checked.images.encodePng({ ...image, rgba: expected.slice() }, checked))
+  checkCancelled(checked.signal)
+  const normalized = inspectImageBytes(encoded)
+  if (normalized.mimeType !== 'image/png' || normalized.width !== image.width || normalized.height !== image.height) throw new Error('规范化PNG与实际像素尺寸不符。')
+  const record: AssetRecord = { sha256: sha256Bytes(encoded), mimeType: 'image/png', sizeBytes: encoded.length, pixelWidth: normalized.width, pixelHeight: normalized.height }
+  const actual = await checked.images.decode(encoded.slice(), record, checked)
+  checkCancelled(checked.signal)
+  if (actual.width !== image.width || actual.height !== image.height || !(actual.rgba instanceof Uint8ClampedArray)
+    || actual.rgba.length !== expected.length || expected.some((channel, index) => channel !== actual.rgba[index])) throw new Error('规范化PNG实际像素与来源解码结果不一致。')
+  return { bytes: encoded, record }
+}
+
+export interface FloorArtworkImportRequest { file: Blob; licenseText: string; attribution: string; canEmbed: boolean }
+
+async function addFloorArtworkBitmap(draft: EditableProject, floor: Floor, request: FloorArtworkImportRequest,
+  options: PrepareOptions, checked: CompleteValidationOptions): Promise<FloorArtwork> {
+  const { file, licenseText, attribution, canEmbed } = request
+  checkCancelled(checked.signal)
+  if (!(file instanceof Blob)) throw new Error('请选择实际底图文件。')
+  const size = Object.getOwnPropertyDescriptor(Blob.prototype, 'size')!.get!.call(file) as number
+  const mime = Object.getOwnPropertyDescriptor(Blob.prototype, 'type')!.get!.call(file) as string
+  if (size < 1 || size > ASSET_BATCH_PREPARATION_LIMITS.fileBytes) throw new Error('单张底图须非空且不超过20MiB。')
+  assertImageImportRights(licenseText, attribution, canEmbed)
+  const bytes = new Uint8Array(await Blob.prototype.arrayBuffer.call(file))
+  const image = await prepareRasterImport(bytes, mime, checked, () => {})
+  checkCancelled(checked.signal)
+  const target = floor.outputBoundsMm ?? floor.boundsMm
+  const scale = Math.min(target.width / image.record.pixelWidth, target.height / image.record.pixelHeight)
+  const width = Math.max(1, Math.round(image.record.pixelWidth * scale)), height = Math.max(1, Math.round(image.record.pixelHeight * scale))
+  const boundsMm = { x: target.x + Math.floor((target.width - width) / 2), y: target.y + Math.floor((target.height - height) / 2), width, height }
+  const licenseHash = sha256Bytes(encodeUtf8(licenseText)), licenseRef = `import-license-${licenseHash}`
+  const assetId = `floor-image-${options.runtime.ids.nextId()}`
+  if (Object.hasOwn(draft.document.assets, assetId)) throw new Error('新底图ID已存在。')
+  const previous = draft.assets[image.record.sha256]
+  if (previous && canonicalJson(previous) !== canonicalJson(image.record)) throw new Error('同hash规范图片描述冲突。')
+  draft.document.assets[assetId] = { id: assetId, sha256: image.record.sha256, mimeType: image.record.mimeType,
+    pixelWidth: image.record.pixelWidth, pixelHeight: image.record.pixelHeight, logicalSizeMm: { width, height },
+    licenseRef, origin: { kind: 'imported', attribution, canEmbed: true } }
+  draft.assets[image.record.sha256] = image.record
+  draft.licenses[licenseHash] = { sha256: licenseHash, text: licenseText }
+  draft.licenseBindings.push({ subjectKind: 'asset', subjectId: assetId, licenseRef, licensePath: `licenses/${licenseHash}.txt`, embedding: 'allowed' })
+  const resources = draft.resources
+  draft.resources = Object.freeze({ read: async (hash: string) => hash === image.record.sha256 ? image.bytes.slice() : resources.read(hash) })
+  return { assetId, boundsMm }
+}
+
+/** Artwork references and their fixed resources change in one validated candidate. */
+export async function prepareFloorArtwork(input: EditableProject, floorId: string,
+  request: FloorArtworkImportRequest | FloorArtwork | null, options: PrepareOptions): Promise<EditableProject> {
+  const checked = validation(options)
+  const replacement = request && 'file' in request ? { ...request } : captureJson(request)
+  const original = getVerifiedEditableProject(input) ?? await validateEditableProject(input, checked)
+  checkCancelled(checked.signal)
+  const floor = Object.hasOwn(original.document.floors, floorId) ? original.document.floors[floorId] : undefined
+  if (!floor) throw new Error('请选择现存的底图楼层。')
+  const draft = captureEditableDraft(original)
+  const artwork = replacement && 'file' in replacement ? await addFloorArtworkBitmap(draft, floor, replacement, options, checked) : replacement
+  applyFloorArtwork(draft.document, floorId, artwork)
+  if (floor.artwork && floor.artwork.assetId !== artwork?.assetId) {
+    // The validated baseline had no orphan assets. Only removing this Floor's
+    // reference can release records, including any image-refinement parents.
+    const retainedIds = new Set(inspectDependencies(draft.document).assetIds)
+    for (const id of Object.keys(draft.document.assets)) if (!retainedIds.has(id)) {
+      delete draft.document.assets[id]
+      delete draft.authoringSources[id]
+    }
+    const retainedHashes = new Set(Object.values(draft.document.assets).map(asset => asset.sha256))
+    for (const hash of Object.keys(draft.assets)) if (!retainedHashes.has(hash)) delete draft.assets[hash]
+    draft.licenseBindings = draft.licenseBindings.filter(binding => binding.subjectKind !== 'asset' || retainedIds.has(binding.subjectId))
+    const retainedLicenses = new Set(draft.licenseBindings.map(binding => binding.licensePath.slice(9, -4)))
+    for (const hash of Object.keys(draft.licenses)) if (!retainedLicenses.has(hash)) delete draft.licenses[hash]
+  }
+  checkCancelled(checked.signal)
+  const prepared = await validateEditableProject(draft, checked)
+  assertPreparationBudget(original, prepared, options)
+  return prepared
+}
+
 async function prepareImportImage(bytes: Uint8Array, mime: string, checked: CompleteValidationOptions,
   admitPixels: (pixels: number) => void): Promise<ImportImage> {
   checkCancelled(checked.signal)
-  if (!looksLikeSvg(bytes, mime)) {
-    const header = inspectImageBytes(bytes, false)
-    admitPixels(header.width * header.height)
-    if (mime && mime !== 'application/octet-stream' && mime !== header.mimeType) throw new Error('图片声明MIME与实际格式不一致。')
-    if (checked.images.normalizeImport) return checked.images.normalizeImport(bytes, mime, checked)
-    // A generic decode/encode adapter cannot prove EXIF orientation for JPEG or
-    // WebP. Strict PNG inspection also excludes eXIf and color-profile metadata;
-    // stripping either before decoding would silently change source semantics.
-    if (header.mimeType !== 'image/png') throw new ImageCapabilityError()
-    try { inspectImageBytes(bytes) } catch { throw new ImageCapabilityError() }
-    const sourceRecord: AssetRecord = { sha256: sha256Bytes(bytes), mimeType: header.mimeType, sizeBytes: bytes.length, pixelWidth: header.width, pixelHeight: header.height }
-    const image = await checked.images.decode(bytes.slice(), sourceRecord, checked)
-    checkCancelled(checked.signal)
-    if (image.width !== header.width || image.height !== header.height || !(image.rgba instanceof Uint8ClampedArray)
-      || image.rgba.length !== image.width * image.height * 4) throw new Error('图片实际像素与源尺寸不符。')
-    const expected = image.rgba.slice(), encoded = normalizePngChunks(await checked.images.encodePng({ ...image, rgba: expected.slice() }, checked))
-    checkCancelled(checked.signal)
-    const normalized = inspectImageBytes(encoded)
-    if (normalized.mimeType !== 'image/png' || normalized.width !== image.width || normalized.height !== image.height) throw new Error('规范化PNG与实际像素尺寸不符。')
-    const record: AssetRecord = { sha256: sha256Bytes(encoded), mimeType: 'image/png', sizeBytes: encoded.length, pixelWidth: normalized.width, pixelHeight: normalized.height }
-    const actual = await checked.images.decode(encoded.slice(), record, checked)
-    checkCancelled(checked.signal)
-    if (actual.width !== image.width || actual.height !== image.height || !(actual.rgba instanceof Uint8ClampedArray)
-      || actual.rgba.length !== expected.length || expected.some((channel, index) => channel !== actual.rgba[index])) throw new Error('规范化PNG实际像素与来源解码结果不一致。')
-    return { bytes: encoded, record }
-  }
+  if (!looksLikeSvg(bytes, mime)) return prepareRasterImport(bytes, mime, checked, admitPixels)
   if (bytes.length > STATIC_SVG_LIMITS.sourceBytes) throw new Error('SVG原始源超过1MiB。')
   let source: string
   try { source = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) }

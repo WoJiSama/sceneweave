@@ -1,5 +1,6 @@
 import type { BoundsMm, PointMm, SceneDocument } from '../model/scene.js'
 import { propFootprint, connectionBand } from '../geometry/geometry.js'
+import { propSightLine } from '../geometry/sight-occluder.js'
 import { cloneJson } from '../validation/json.js'
 import type { Audience, ProjectedVisualBoundary, ProjectedVisualFilter, ProjectedVisualSystem, ProjectedVisualTransition, Projection } from '../projection/types.js'
 import { sampleVisualBoundary } from './geometry.js'
@@ -7,10 +8,14 @@ import type { VisualSystem } from './types.js'
 import { getLegacyVisual } from '../terrain-generation/composition-contracts.js'
 import { decorationPaintPolygon } from '../decorations/presentation.js'
 import { resolveFloorOutput, type FloorOutput } from '../floors/output.js'
+import { playerMaskContains } from '../projection/player-mask.js'
+import type { FenceAssembly, PathAssembly } from '../path-assembly/contracts.js'
+import { assemblyLampDefaults, effectiveFixtureGlow } from '../path-assembly/lighting.js'
 import polygonClipping, { type MultiPolygon } from 'polygon-clipping'
 import { planTerrainCliffs } from './terrain-cliff-plan.js'
 import { terrainTransitionStrokePolygon } from './transition.js'
 import { planTerrainInlayVisualScope, terrainInlayCarrierRange } from '../terrain-inlay/visual-scope.js'
+import { presentationBounds } from '../appearance/presentation.js'
 
 const copy = <T>(value: T): T => cloneJson(value)
 const bounds = (points: PointMm[]): BoundsMm => ({ x: Math.min(...points.map(p => p.x)), y: Math.min(...points.map(p => p.y)), width: Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x)), height: Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y)) })
@@ -19,6 +24,25 @@ const orderById = (a: string, b: string) => a.localeCompare(b)
 function propVisualRing(prop: SceneDocument['props'][string]): PointMm[] {
   const v = prop.visualBoundsMm, angle = prop.rotationDeg * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle)
   return [[v.x, v.y], [v.x + v.width, v.y], [v.x + v.width, v.y + v.height], [v.x, v.y + v.height]].map(([x, y]) => ({ x: prop.positionMm.x + x * cos - y * sin, y: prop.positionMm.y + x * sin + y * cos }))
+}
+
+function projectFixtureGlows(assemblies: readonly (PathAssembly | FenceAssembly)[], projection: Projection,
+  scene: SceneDocument, hiddenLayerIds?: ReadonlySet<string>): NonNullable<ProjectedVisualSystem['fixtureGlows']> {
+  const glowByLamp = assemblyLampDefaults(assemblies)
+  return projection.props.flatMap(prop => {
+    const glow = effectiveFixtureGlow(prop, glowByLamp.get(prop.id))
+    if (!glow?.intensity || !prop.appearance.opacity) return []
+    if (hiddenLayerIds?.has(scene.entityLayers[prop.supportRef.id])) return []
+    const presentation = projection.propPresentations?.[prop.id]
+    const v = presentationBounds(prop, presentation), tilt = (presentation?.mode === 'nearSide' ? 0 : prop.rotationDeg) * Math.PI / 180
+    const { u, v: fraction } = glow.anchor
+    const x = v.x + v.width * u, y = v.y + v.height * (prop.appearance.mirrorY ? 1 - fraction : fraction)
+    const positionMm = { x: Math.round(prop.positionMm.x + x * Math.cos(tilt) - y * Math.sin(tilt)),
+      y: Math.round(prop.positionMm.y + x * Math.sin(tilt) + y * Math.cos(tilt)) }
+    if (projection.audience === 'player' && playerMaskContains(positionMm, projection.masks, projection.maskPublicRooms)) return []
+    return [{ color: glow.color, radiusMm: glow.radiusMm, positionMm, intensity: glow.intensity * prop.appearance.opacity,
+      ...(!glowByLamp.has(prop.id) && { wallOcclusion: true as const }) }]
+  })
 }
 
 /** This boundary receives the audience's completed physical projection, never a GM render cache. */
@@ -30,7 +54,7 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
   const terrains = new Set(projection.terrain.map(a => a.id)), paths = new Set(projection.paths.map(a => a.id))
   const boundaries: ProjectedVisualBoundary[] = []
   for (const boundary of Object.values(visual.boundaries).sort((a, b) => a.id.localeCompare(b.id))) {
-    if (!shown(boundary)) continue
+    if (!shown(boundary) || boundary.fence && audience === 'player') continue
     const binding = boundary.binding
     if (binding.kind === 'terrain' && !binding.sides.every(side => terrains.has(side.areaId))) continue
     if (binding.kind === 'path' && !paths.has(binding.pathId)) continue
@@ -124,11 +148,19 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
     const targetBoundsMm = rings ? bounds(rings.flat()) : copy(output.boundsMm)
     filters.push({ ...copy(parameters), ...(sourceEntityIds ? { sourceEntityIds } : {}), ...(target.kind === 'region' ? { regionFeatherMm: Math.min(1200, Math.min(targetBoundsMm.width, targetBoundsMm.height) * .16) } : {}), targetRings: rings, targetBoundsMm })
   }
+  const fixtureGlows = projectFixtureGlows([
+    ...projection.paths.flatMap(({ id }) => {
+      const assembly = scene.paths[id]?.assembly
+      return assembly ? [assembly] : []
+    }),
+    ...Object.values(visual.boundaries).flatMap(boundary => shown(boundary) && boundary.fence ? [boundary.fence] : []),
+  ], projection, scene, hiddenLayerIds)
   const result: ProjectedVisualSystem = { environment: copy(output.environment), boundsMm: copy(output.boundsMm), boundaries, transitions, edgeLooks,
     ...(legacyVisual ? { materializedEdges, edgePaintOrder } : {}),
-    lights: Object.values(visual.lights).filter(light => shown(light) && (audience === 'gm' || !projection.masks.some(mask => { const b = bounds(mask); return light.positionMm.x >= b.x && light.positionMm.y >= b.y && light.positionMm.x <= b.x + b.width && light.positionMm.y <= b.y + b.height }))).sort((a, b) => a.id.localeCompare(b.id)).map(copy),
+    ...(fixtureGlows.length ? { fixtureGlows } : {}),
+    lights: Object.values(visual.lights).filter(light => shown(light) && (audience === 'gm' || !playerMaskContains(light.positionMm, projection.masks, projection.maskPublicRooms))).sort((a, b) => a.id.localeCompare(b.id)).map(copy),
     fogs: Object.values(visual.fogs).filter(shown).sort((a, b) => a.id.localeCompare(b.id)).map(copy), filters,
-    occluderRings: [...projectedWallFootprints(projection), ...projectedPropFootprints(projection)],
+    ...projectedSightOccluders(projection),
     contactRings: projection.props.filter(prop => !prop.waterAppearance && prop.renderLayer !== 'ground' && prop.shadowClass !== 'none').map(propVisualRing),
     suppressedTerrainEdgeIds: projection.edges.filter(edge => replacedSegments.has(segmentKey(edge.start, edge.end)) || projection.inlays?.length && boundaries.some(boundary => decorated.has(boundary.id)
       && boundary.points.some((a, i) => {
@@ -213,8 +245,14 @@ function projectInlayExclusions(projection: Projection, visual: ProjectedVisualS
   })) }))
 }
 
-/** Contact and point-light occlusion use physical footprints, independent of editor LOD. */
-export function projectedPropFootprints(projection: Pick<Projection, 'props'>): PointMm[][] { return projection.props.filter(prop => prop.blocksSight).map(propFootprint) }
+/** Occlusion reads the audience-filtered physical projection before editor culling. */
+export function projectedSightOccluders(projection: Pick<Projection, 'walls' | 'props'>): Pick<ProjectedVisualSystem, 'occluderRings' | 'occluderLines'> {
+  const occluderLines = projection.props.filter(prop => prop.sightOccluder).map(propSightLine)
+  return { occluderRings: [...projectedWallFootprints(projection), ...projectedPropFootprints(projection)],
+    ...(occluderLines.length ? { occluderLines } : {}) }
+}
+
+export function projectedPropFootprints(projection: Pick<Projection, 'props'>): PointMm[][] { return projection.props.filter(prop => prop.blocksSight && !prop.sightOccluder).map(propFootprint) }
 
 /** Physical wall solids including closed doors. Derived once before temporary editor culling. */
 export function projectedWallFootprints(projection: Pick<Projection, 'walls'>): PointMm[][] {

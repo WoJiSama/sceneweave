@@ -1,3 +1,4 @@
+import { OperationRejected, type OperationRejectionCode } from '../validation/operation-rejection.js'
 import { assertCommandBudget, commandSelectionLimit, measureCommandBudget, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
@@ -22,12 +23,17 @@ import { AGGREGATE_ENTITY_COLLECTIONS, type AggregateEntityRef, type AggregateFr
 import { aggregateWorldFrames, WORLD_FRAME } from '../aggregates/state.js'
 import { reparentAggregateFrame } from '../aggregates/coordinates.js'
 import { assertAggregateBuildingClearance } from '../aggregates/building-clearance.js'
+import { followingAttachmentProps } from '../attachments/dependencies.js'
+import { followAttachments } from '../attachments/state.js'
 
 export type BuildingCommand =
   | { type: 'createRoom'; id: string; floorId: string; boundaryMm: PointMm[]; thicknessMm: number; layerId?: string; purpose?: string; visibility?: Room['visibility']; accessExpectation?: Room['accessExpectation']; supportRef?: GroundSurfaceRef; materialRef?: VersionRef }
   | { type: 'updateRoom'; id: string; changes: Partial<Pick<Room, 'purpose' | 'visibility' | 'accessExpectation' | 'furnishingPlan'>> }
   | { type: 'deleteRoom'; id: string; removeOrphanWalls?: boolean }
   | { type: 'deleteWall'; id: string }
+  | { type: 'setWallBlocking'; id: string; blocksMovement: boolean; blocksSight: boolean }
+  | { type: 'translateWall'; id: string; offsetMm: PointMm }
+  | { type: 'moveRoom'; id: string; offsetMm: PointMm; splitId: string; openingsToMove: string[] }
   | { type: 'transformBuilding'; id: string; offsetMm: PointMm; pivotMm: PointMm; quarterTurns: 0 | 1 | 2 | 3 }
   | { type: 'transformAggregateBuilding'; id: string; offsetMm: PointMm; pivotMm: PointMm; quarterTurns: 0 | 1 | 2 | 3 }
   | { type: 'repairBuildingTopology'; id: string; operation: 'mergeCollinear' | 'splitJunctions' }
@@ -51,6 +57,10 @@ export const buildingCommandSchemas = [
   z.object({ type: z.literal('updateRoom'), id, changes: z.object({ purpose: z.string().max(1000).optional(), visibility: visibility.optional(), accessExpectation: access.optional(), furnishingPlan: roomFurnishingPlanSchema.optional() }).strict() }).strict(),
   z.object({ type: z.literal('deleteRoom'), id, removeOrphanWalls: z.boolean().optional() }).strict(),
   z.object({ type: z.literal('deleteWall'), id }).strict(),
+  z.object({ type: z.literal('setWallBlocking'), id, blocksMovement: z.boolean(), blocksSight: z.boolean() }).strict(),
+  z.object({ type: z.literal('translateWall'), id, offsetMm: point }).strict(),
+  z.object({ type: z.literal('moveRoom'), id, offsetMm: point, splitId: id.max(200),
+    openingsToMove: z.array(id).max(256).refine(values => new Set(values).size === values.length) }).strict(),
   z.object({ type: z.literal('transformBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: quarterTurnsSchema }).strict(),
   z.object({ type: z.literal('transformAggregateBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: quarterTurnsSchema }).strict(),
   z.object({ type: z.literal('repairBuildingTopology'), id, operation: z.enum(['mergeCollinear', 'splitJunctions']) }).strict(),
@@ -114,6 +124,19 @@ function roomOwnsWall(room: Room, wall: Wall): boolean {
   return ids.some((id, i) => edgeKey(id, ids[(i + 1) % ids.length]) === edgeKey(wall.startVertexId, wall.endVertexId))
 }
 
+export function roomMoveParts(scene: SceneDocument, id: string) {
+  const room = requireEntity(scene.rooms, id, '房间'), walls = Object.values(scene.walls).filter(wall => roomOwnsWall(room, wall)).sort((a, b) => a.id.localeCompare(b.id))
+  const otherRooms = Object.values(scene.rooms).filter(candidate => candidate.id !== id && candidate.floorId === room.floorId)
+  const sharedWalls = walls.filter(wall => otherRooms.some(other => roomOwnsWall(other, wall)))
+  const wallIds = new Set(walls.map(wall => wall.id)), sharedIds = new Set(sharedWalls.map(wall => wall.id))
+  const outsideVertexIds = new Set([...otherRooms.flatMap(owner => owner.boundaryVertexIds), ...Object.values(scene.walls)
+    .filter(wall => !wallIds.has(wall.id) || sharedIds.has(wall.id)).flatMap(wall => [wall.startVertexId, wall.endVertexId])])
+  const sharedOpenings = Object.values(scene.openings).filter(opening => sharedIds.has(opening.wallId))
+  return { room, walls, sharedWalls, sharedOpenings, outsideVertexIds }
+}
+
+export const splitRoomWallId = (splitId: string, index: number) => `${splitId}:wall:${index + 1}`
+
 /** Explicit lock/preview closure, including joins, room supports and anchored notes. */
 export function buildingDependants(scene: SceneDocument, wallIds: readonly string[], additionalIds: readonly string[] = []): string[] {
   const primary = wallIds.flatMap(id => own(scene.walls, id) ?? []), endpoints = new Set(primary.flatMap(wall => [wall.startVertexId, wall.endVertexId]))
@@ -147,6 +170,7 @@ export interface BuildingImpact {
   layerIds: string[]
   commandCost: number
   reason: string | null
+  reasonCode?: OperationRejectionCode
 }
 const entities = (scene: SceneDocument): Map<string, Editable> => {
   const visual = visualBase(scene)
@@ -194,19 +218,34 @@ export function inspectBuildingChanges(before: SceneDocument, after: SceneDocume
   return diffImpact(before, after, affected)
 }
 
-function assertUnlocked(scene: SceneDocument, ids: Iterable<string>, affected: Set<string>, ignoreLocks: boolean) {
+function buildingLockBlockers(scene: SceneDocument, ids: Iterable<string>, carried = new Set<string>()): string[] {
   const byId = entities(scene), locked: string[] = []
   for (const id of ids) {
-    affected.add(id)
     const entity = byId.get(id)
-    if (entity?.editLocked || entity && scene.userLayers[entityLayer(scene, id, byId) ?? '']?.editLocked) locked.push(id)
+    if (entity?.editLocked && !carried.has(id) || entity && scene.userLayers[entityLayer(scene, id, byId) ?? '']?.editLocked) locked.push(id)
   }
-  if (!ignoreLocks && locked.length) throw new Error(`建筑事务涉及已锁定实体、用户图层或依赖：${locked.join('、')}。`)
+  return locked
+}
+function assertUnlocked(scene: SceneDocument, ids: Iterable<string>, affected: Set<string>, ignoreLocks: boolean, carried?: Set<string>) {
+  const scope = [...ids]
+  for (const id of scope) affected.add(id)
+  const locked = ignoreLocks ? [] : buildingLockBlockers(scene, scope, carried)
+  if (!ignoreLocks && locked.length) throw new OperationRejected('locked_dependency', `建筑事务涉及已锁定实体、用户图层或依赖：${locked.join('、')}。`)
+}
+function wallTranslationScope(scene: SceneDocument, wall: Wall) {
+  const vertices = [wall.startVertexId, wall.endVertexId]
+  const touched = Object.values(scene.walls).filter(row => vertices.includes(row.startVertexId) || vertices.includes(row.endVertexId))
+  const attached = followingAttachmentProps(scene, wall.id)
+  return { ids: buildingDependants(scene, touched.map(row => row.id), [...vertices, ...attached]), attached }
+}
+export function wallTranslationLockBlockers(scene: SceneDocument, wallId: string): string[] {
+  const wall = requireEntity(scene.walls, wallId, '墙'), scope = wallTranslationScope(scene, wall)
+  return buildingLockBlockers(scene, scope.ids, scope.attached)
 }
 function targetLayer(scene: SceneDocument, floorId: string, layerId: string | undefined, ignoreLocks: boolean) {
   const layer = layerId === undefined ? orderedLayers(scene, floorId)[0] : own(scene.userLayers, layerId)
   if (!layer || layer.floorId !== floorId) throw new Error('新增建筑实体须选择同 Floor 的现存用户图层。')
-  if (!ignoreLocks && layer.editLocked) throw new Error(`用户图层已锁定：${layer.id}。`)
+  if (!ignoreLocks && layer.editLocked) throw new OperationRejected('locked_dependency', `用户图层已锁定：${layer.id}。`)
   return layer.id
 }
 function reserveId(scene: SceneDocument, id: string, used: Set<string>) {
@@ -284,7 +323,7 @@ function transformAggregateBuilding(scene: SceneDocument, command: Extract<Build
   const lockIds = new Set(scope.groupIds)
   let ancestor = state.groups[command.id]
   while (ancestor.parentId !== null) { lockIds.add(ancestor.parentId); ancestor = state.groups[ancestor.parentId] }
-  if ([...lockIds].some(id => state.groups[id].editLocked)) throw new Error('建筑组、子组或祖先组已锁定。')
+  if ([...lockIds].some(id => state.groups[id].editLocked)) throw new OperationRejected('locked_dependency', '建筑组、子组或祖先组已锁定。')
   if (command.quarterTurns === 0 && command.offsetMm.x === 0 && command.offsetMm.y === 0) return
   transformBuilding(scene, { ...command, type: 'transformBuilding', id: scope.seedId }, affected, ignoreLocks, fixedUprightIds)
   assertAggregateBuildingClearance(scene, scope.members)
@@ -443,6 +482,55 @@ function transformBuilding(scene: SceneDocument, command: Extract<BuildingComman
     }
     scene.paths[boundary.binding.pathId].centerlineMm = sampleVisualBoundary(boundary).points
   }
+}
+
+function moveRoom(scene: SceneDocument, command: Extract<BuildingCommand, { type: 'moveRoom' }>, affected: Set<string>, ignoreLocks: boolean, fixedUprightIds: ReadonlySet<string>) {
+  if (!command.offsetMm.x && !command.offsetMm.y) return
+  const { room, walls, sharedWalls, sharedOpenings, outsideVertexIds } = roomMoveParts(scene, command.id)
+  const openingSet = new Set(command.openingsToMove), sharedIds = new Set(sharedWalls.map(wall => wall.id))
+  if (command.openingsToMove.some(id => !sharedOpenings.some(opening => opening.id === id))) throw new Error('请选择要随房间移动的共墙开口。')
+  assertUnlocked(scene, [room.id, ...walls.map(wall => wall.id), ...room.boundaryVertexIds, ...command.openingsToMove], affected, ignoreLocks)
+  const occupied = geometryIdentityIds(scene), vertices = new Map<string, string>(), wallCopies = new Map<string, string>()
+  for (const [index, id] of room.boundaryVertexIds.entries()) {
+    if (!outsideVertexIds.has(id)) continue
+    const nextId = `${command.splitId}:vertex:${index + 1}`
+    reserveId(scene, nextId, occupied)
+    const vertex = scene.vertices[id]
+    scene.vertices[nextId] = { ...vertex, id: nextId, editLocked: false }
+    scene.entityLayers[nextId] = scene.entityLayers[id]
+    vertices.set(id, nextId)
+  }
+  for (const [index, wall] of sharedWalls.entries()) {
+    const id = splitRoomWallId(command.splitId, index)
+    reserveId(scene, id, occupied)
+    const copy = cloneJson(wall)
+    copy.id = id
+    for (const [index, overlay] of (copy.topStyle?.overlays ?? []).entries()) {
+      overlay.id = `${id}:paint:${index + 1}`
+      reserveId(scene, overlay.id, occupied)
+    }
+    scene.walls[id] = copy
+    scene.entityLayers[id] = scene.entityLayers[wall.id]
+    wallCopies.set(wall.id, id)
+  }
+  const localVertex = (id: string) => vertices.get(id) ?? id
+  room.boundaryVertexIds = room.boundaryVertexIds.map(localVertex)
+  for (const original of walls) {
+    const wall = scene.walls[wallCopies.get(original.id) ?? original.id]
+    if (wall === original && (vertices.has(wall.startVertexId) || vertices.has(wall.endVertexId)) &&
+        Object.values(scene.attachmentSurfaces ?? {}).some(surface => surface.owner.kind === 'wall' && surface.owner.id === wall.id)) {
+      throw new Error(`墙 ${wall.id} 的挂点引用共用顶点。请先处理该墙的挂接关系。`)
+    }
+    wall.startVertexId = localVertex(wall.startVertexId)
+    wall.endVertexId = localVertex(wall.endVertexId)
+  }
+  const wallIds = new Set(walls.map(wall => wall.id))
+  for (const opening of Object.values(scene.openings)) {
+    if (!wallIds.has(opening.wallId) || sharedIds.has(opening.wallId) && !openingSet.has(opening.id)) continue
+    opening.wallId = wallCopies.get(opening.wallId) ?? opening.wallId
+    opening.offsetReferenceVertexId = localVertex(opening.offsetReferenceVertexId)
+  }
+  transformBuilding(scene, { type: 'transformBuilding', id: room.id, offsetMm: command.offsetMm, pivotMm: { x: 0, y: 0 }, quarterTurns: 0 }, affected, ignoreLocks, fixedUprightIds)
 }
 
 function deleteRoom(scene: SceneDocument, command: Extract<BuildingCommand, { type: 'deleteRoom' }>, affected: Set<string>, ignoreLocks: boolean): void {
@@ -712,7 +800,28 @@ function mutate(scene: SceneDocument, command: BuildingCommand, affected: Set<st
     }
     case 'deleteRoom': deleteRoom(scene, command, affected, ignoreLocks); break
     case 'deleteWall': deleteWall(scene, command.id, affected, ignoreLocks); break
+    case 'setWallBlocking': {
+      const wall = requireEntity(scene.walls, command.id, '墙')
+      if (wall.blocksMovement === command.blocksMovement && wall.blocksSight === command.blocksSight) break
+      assertUnlocked(scene, buildingDependants(scene, [wall.id]), affected, ignoreLocks)
+      wall.blocksMovement = command.blocksMovement
+      wall.blocksSight = command.blocksSight
+      break
+    }
+    case 'translateWall': {
+      const wall = requireEntity(scene.walls, command.id, '墙')
+      if (!command.offsetMm.x && !command.offsetMm.y) break
+      const scope = wallTranslationScope(scene, wall)
+      assertUnlocked(scene, scope.ids, affected, ignoreLocks, scope.attached)
+      for (const id of [wall.startVertexId, wall.endVertexId]) {
+        const vertex = requireEntity(scene.vertices, id, '顶点')
+        vertex.xMm += command.offsetMm.x
+        vertex.yMm += command.offsetMm.y
+      }
+      break
+    }
     case 'transformBuilding': transformBuilding(scene, command, affected, ignoreLocks, fixedUprightIds); break
+    case 'moveRoom': moveRoom(scene, command, affected, ignoreLocks, fixedUprightIds); break
     case 'transformAggregateBuilding': transformAggregateBuilding(scene, command, affected, ignoreLocks, fixedUprightIds); break
     case 'repairBuildingTopology':
       if (command.operation === 'mergeCollinear') mergeCollinearWalls(scene, command.id, affected, ignoreLocks)
@@ -766,29 +875,35 @@ export function previewBuildingCommands(scene: SceneDocument, commands: readonly
   if (!source.ok) { impact.reason = `当前场景无效：${source.errors.map(issue => issue.message).join('；')}`; return impact }
   const issue = inspectJsonInput(commands), checked = issue ? null : z.array(z.discriminatedUnion('type', buildingCommandSchemasForBudget(budget))).max(commandSelectionLimit(budget)).safeParse(commands)
   if (issue || !checked?.success) { impact.reason = `建筑指令无效：${issue?.message ?? (checked && !checked.success ? checked.error.issues.map(issue => issue.message).join('；') : '')}`; return impact }
-  const next = cloneJson(source.document), affected = new Set<string>(), byId = entities(source.document)
+  const next = cloneJson(source.document), affected = new Set<string>(), lockedIds = new Set<string>()
   let cost = 0
   try {
     for (const command of checked.data as BuildingCommand[]) {
-      const before = cloneJson(next)
-      mutate(next, command, affected, true, fixedUprightIds)
+      const before = cloneJson(next), step = new Set<string>()
+      const translating = command.type === 'translateWall'
+      const carried = translating ? followingAttachmentProps(before, command.id) : undefined
+      mutate(next, command, step, true, fixedUprightIds)
       refreshScene5TransitionsAfterPhysicalEdit(before, next)
-      const physicalCost = diffImpact(before, next, affected).commandCost
+      if (translating) for (const id of followAttachments(before, next).dependencyIds) step.add(id)
+      const physicalCost = diffImpact(before, next, step).commandCost
+      for (const id of step) affected.add(id)
+      for (const id of buildingLockBlockers(before, step, carried)) lockedIds.add(id)
       detachChangedOutputs(before, next)
       const expanded = terrainCommandCost(before, next)
       cost += physicalCost + expanded.total - expanded.items.physicalAndVisual
     }
     Object.assign(impact, diffImpact(source.document, next, affected), { commandCost: cost })
-    const locked = impact.affectedIds.filter(id => byId.get(id)?.editLocked || byId.has(id) && source.document.userLayers[entityLayer(source.document, id, byId) ?? '']?.editLocked)
+    const locked = [...lockedIds].sort()
     const lockedTarget = impact.layerIds.filter(id => source.document.userLayers[id]?.editLocked)
-    if (locked.length || lockedTarget.length) throw new Error(`建筑事务涉及已锁定实体、图层或依赖：${locked.join('、')}${lockedTarget.length ? `；图层 ${lockedTarget.join('、')}` : ''}。`)
-    if (!budget && cost > COMMAND_LIMIT) throw new Error('展开后的整体建筑事务超过256条操作预算，不能拆批绕过。')
+    if (locked.length || lockedTarget.length) throw new OperationRejected('locked_dependency', `建筑事务涉及已锁定实体、图层或依赖：${locked.join('、')}${lockedTarget.length ? `；图层 ${lockedTarget.join('、')}` : ''}。`)
+    if (!budget && cost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '展开后的整体建筑事务超过256条操作预算，不能拆批绕过。')
     if (budget) assertCommandBudget(budget, measureCommandBudget(source.document, next, undefined, undefined, budget))
     const result = validateSceneDocument(next)
     if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
   } catch (error) {
     Object.assign(impact, diffImpact(source.document, next, affected), { commandCost: cost })
     impact.reason = error instanceof Error ? error.message : String(error)
+    if (error instanceof OperationRejected) impact.reasonCode = error.code
   }
   return impact
 }

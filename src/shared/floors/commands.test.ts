@@ -7,6 +7,7 @@ import { visualBase } from '../visual/base.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { applyFloorCommand, isFloorCommand, type FloorCommand } from './commands.js'
+import { defaultDisplayFloorId, floorDisplayStack } from './output.js'
 
 const rect=(x:number,y:number,w:number,h:number)=>[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}]
 function blank():SceneDocument {
@@ -19,6 +20,30 @@ function blank():SceneDocument {
 }
 const create:FloorCommand={type:'createFloor',id:'B',name:'Second',boundsMm:{x:-24000,y:-18000,width:24000,height:18000},outputBoundsMm:{x:-22000,y:-16000,width:20000,height:14000},newLayerId:'layer-B',layerName:'Second layer'}
 const two=()=>{const scene=blank();applyFloorCommand(scene,create);return scene}
+
+describe('aligned Floor painting', () => {
+  it('orders the linked floors, round-trips the field and rejects broken dependencies atomically', () => {
+    const scene = two()
+    applyFloorCommand(scene, { ...create, id: 'C', newLayerId: 'layer-C' })
+    applyFloorCommand(scene, { type: 'setFloorUnderlay', id: 'B', underlayFloorId: 'A' })
+    applyFloorCommand(scene, { type: 'setFloorUnderlay', id: 'C', underlayFloorId: 'B' })
+    expect(floorDisplayStack(scene, 'C').map(floor => floor.id)).toEqual(['A', 'B', 'C'])
+    expect(defaultDisplayFloorId(scene)).toBe('C')
+    const checked = validateSceneDocument(JSON.parse(JSON.stringify(scene)))
+    expect(checked.ok && checked.document.floors.C.underlayFloorId).toBe('B')
+    const baseline = canonicalJson(scene)
+    for (const underlayFloorId of ['C', 'A', 'missing']) {
+      expect(() => applyFloorCommand(scene, { type: 'setFloorUnderlay', id: 'A', underlayFloorId })).toThrow(/叠绘/)
+      expect(canonicalJson(scene)).toBe(baseline)
+    }
+    expect(() => applyFloorCommand(scene, { type: 'deleteEmptyFloor', id: 'A' }, { appearance: createAppearanceGraph(scene) })).toThrow(/叠绘/)
+    scene.userLayers['layer-B'].editLocked = true
+    expect(() => applyFloorCommand(scene, { type: 'setFloorUnderlay', id: 'B', underlayFloorId: null })).toThrow(/锁/)
+    scene.userLayers['layer-B'].editLocked = false
+    applyFloorCommand(scene, { type: 'setFloorUnderlay', id: 'B', underlayFloorId: null })
+    expect(floorDisplayStack(scene, 'C').map(floor => floor.id)).toEqual(['B', 'C'])
+  })
+})
 
 describe('finite detached Floor commands',()=>{
   it('creates a real independent empty Floor/default layer and freezes the exact previous crop without changing global values',()=>{

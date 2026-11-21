@@ -1,7 +1,20 @@
 import { openGenerationTask, openGenerationSettings, openTerrainTask } from './workspace-navigation-helpers'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
-test('local crater adjustment previews full writes, adopts once, undoes, redoes and cold opens', async ({ page }, info) => {
+async function failNextLocalWrite(page: Page, store: 'historyMetadata' | 'projects') {
+  await page.evaluate(target => {
+    const put = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+      if (this.name === target) {
+        IDBObjectStore.prototype.put = put
+        throw new DOMException('局部重生成测试写入失败', 'QuotaExceededError')
+      }
+      return key === undefined ? put.call(this, value) : put.call(this, value, key)
+    }
+  }, store)
+}
+
+test('local crater adjustment cancels and retries, adopts with recovery, undoes, redoes and cold opens', async ({ page }, info) => {
   test.setTimeout(180_000)
   const errors: string[] = []
   const workers: string[] = [], generationRequests: string[] = []
@@ -31,11 +44,29 @@ test('local crater adjustment previews full writes, adopts once, undoes, redoes 
   const candidate = page.getByTestId('workspace-inspector').getByLabel('局部重生成候选摘要', { exact: true })
   await expect(local).toBeVisible()
   const before = await local.getByLabel('火口当前轮廓坐标', { exact: true }).inputValue()
-  await local.getByLabel('火口右侧扩展米', { exact: true }).fill('0.5')
+  const expansion = local.getByLabel('火口右侧扩展米', { exact: true })
+  const preview = local.getByRole('button', { name: '预览局部重生成', exact: true })
+  await expansion.fill('0.5')
+  await expect(preview).toBeEnabled()
+  // Cancel in the same event turn, while the attempt owns the work but has not published a candidate.
+  const cancelled = await preview.evaluate((button: HTMLButtonElement) => {
+    button.click()
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    document.body.dispatchEvent(escape)
+    return escape.defaultPrevented
+  })
+  expect(cancelled).toBe(true)
+  await expect(expansion).toHaveValue('0')
+  await expect(candidate).toHaveCount(0)
+  await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(before)
+  await expansion.fill('0.5')
   const after = await local.getByLabel('火口调整后轮廓坐标', { exact: true }).inputValue()
   expect(after).not.toBe(before)
   await local.getByRole('button', { name: '预览局部重生成', exact: true }).click()
   await expect(candidate).toBeVisible({ timeout: 30000 })
+  await page.getByRole('button', { name: '回到首页', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: '地图候选尚未结束' })).toBeVisible()
+  await expect(candidate).toBeVisible()
   await openTerrainTask(page, '局部重生成')
   await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(before)
   // Editing a parameter revokes the previous candidate; a fresh preview is required.
@@ -47,7 +78,16 @@ test('local crater adjustment previews full writes, adopts once, undoes, redoes 
   await expect(candidate).toContainText('terrainAreas')
   await candidate.getByText('只读依赖', { exact: true }).click()
   await expect(candidate.getByLabel('局部生成只读依赖', { exact: true })).not.toHaveValue('')
-  await candidate.getByRole('button', { name: '保护并采用局部修改', exact: true }).click()
+  const adopt = candidate.getByRole('button', { name: '保护并采用局部修改', exact: true })
+  await failNextLocalWrite(page, 'historyMetadata')
+  await adopt.click()
+  await expect(local.getByRole('alert')).toContainText('局部重生成测试写入失败', { timeout: 30000 })
+  await expect(candidate).toHaveCount(0)
+  await expect(expansion).toHaveValue('0.5')
+  await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(before)
+  await preview.click()
+  await expect(candidate).toBeVisible({ timeout: 30000 })
+  await adopt.click()
   await expect(page.getByRole('alert').filter({ hasText: '采用局部重生成' })).toBeVisible({ timeout: 30000 })
   await openTerrainTask(page, '局部重生成')
   await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(after)
@@ -68,6 +108,22 @@ test('local crater adjustment previews full writes, adopts once, undoes, redoes 
   await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(after)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
   await page.screenshot({ path: info.outputPath('local-crater-cold-open.png') })
+
+  await expansion.fill('0.1')
+  const unsaved = await local.getByLabel('火口调整后轮廓坐标', { exact: true }).inputValue()
+  expect(unsaved).not.toBe(after)
+  await preview.click()
+  await expect(candidate).toBeVisible({ timeout: 30000 })
+  await failNextLocalWrite(page, 'projects')
+  await adopt.click()
+  await expect(page.getByRole('alert').filter({ hasText: '局部重生成已采用，保存失败' })).toBeVisible({ timeout: 30000 })
+  await expect(candidate).toHaveCount(0)
+  await openTerrainTask(page, '局部重生成')
+  await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(unsaved)
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
+  await expect(local.getByLabel('火口当前轮廓坐标', { exact: true })).toHaveValue(after)
+  await page.getByRole('button', { name: '重试保存', exact: true }).click()
+  await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
   expect(errors).toEqual([])
   expect(generationRequests).toEqual([])
 })

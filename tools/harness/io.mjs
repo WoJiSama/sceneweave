@@ -10,7 +10,7 @@ export const assert = (condition, message) => { if (!condition) throw new Error(
 export const usage = `Usage:
   node tools/harness/sceneweave.mjs capabilities
   node tools/harness/sceneweave.mjs example
-  node tools/harness/sceneweave.mjs workflows [--query TEXT | --id WORKFLOW_ID [--step STEP_ID | --effects | --schema]]
+  node tools/harness/sceneweave.mjs workflows [--query TEXT | --id WORKFLOW_ID [--definition-hash SHA256] [--step STEP_ID | --effects | --schema]]
   node tools/harness/sceneweave.mjs generate --input ABS_JSON --output NEW_ABS_DIR --allow forest-building --budget small|standard|expanded
   node tools/harness/sceneweave.mjs repair-furniture --input ABS_SCENEWEAVE --room ROOM_ID --output NEW_ABS_DIR --allow forest-building --budget small|standard|expanded
 
@@ -31,16 +31,19 @@ export function parseArguments(args) {
     const values = new Map()
     for (let index = 0; index < rest.length; index++) {
       const key = rest[index]
-      assert(['--query', '--id', '--step', '--effects', '--schema'].includes(key) && !values.has(key), `Unknown or repeated workflow argument: ${key}`)
+      assert(['--query', '--id', '--definition-hash', '--step', '--effects', '--schema'].includes(key) && !values.has(key), `Unknown or repeated workflow argument: ${key}`)
       const value = ['--effects', '--schema'].includes(key) ? true : rest[++index]
       assert(value === true || value && !value.startsWith('--'), `Missing workflow argument: ${key}`)
       values.set(key, value)
     }
     const workflowId = values.get('--id'), stepId = values.get('--step'), query = values.get('--query')
+    const definitionHash = values.get('--definition-hash')
     const views = ['--step', '--effects', '--schema'].filter(key => values.has(key))
     assert(views.length <= 1 && (!views.length || workflowId) && !(query && workflowId), 'Choose a query or one workflow with one optional detail view')
-    return { command, query: workflowId ? { action: stepId ? 'step' : values.has('--effects') ? 'effects' : values.has('--schema') ? 'schema' : 'read', workflowId, ...(stepId ? { stepId } : {}) }
-      : { action: 'list', ...(query ? { query } : {}) } }
+    assert(!definitionHash || workflowId && /^[a-f0-9]{64}$/.test(definitionHash), 'Expected --id and a SHA-256 for --definition-hash')
+    if (!workflowId) return { command, query: { action: 'list', ...(query ? { query } : {}) } }
+    const action = stepId ? 'step' : values.has('--effects') ? 'effects' : values.has('--schema') ? 'schema' : 'read'
+    return { command, query: { action, workflowId, ...(stepId ? { stepId } : {}), ...(definitionHash ? { definitionHash } : {}) } }
   }
   if (command === 'capabilities' || command === 'example') {
     assert(rest.length === 0, `Unexpected arguments.\n${usage}`)

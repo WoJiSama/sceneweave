@@ -1,3 +1,4 @@
+import { OperationRejected, type OperationRejectionCode } from '../validation/operation-rejection.js'
 import { propAppearanceSnapshot } from '../appearance/graph.js'
 import type { PropAppearanceSnapshot } from '../model/appearance.js'
 import { geometryIdentityIds } from '../commands/domain.js'
@@ -22,7 +23,7 @@ export { isGeneratedAuthoringV4, currentAuthoringResourceClosureHash }
 const digest = (value: unknown) => sha256Text(canonicalJson(value))
 const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null)
 const sorted = (values: Iterable<string>) => [...new Set(values)].sort()
-const deny = (message: string): never => { throw new Error(`当前工程AI创作无效：${message}`) }
+const deny = (message: string, code: OperationRejectionCode = 'invalid_geometry'): never => { throw new OperationRejected(code, `当前工程AI创作无效：${message}`) }
 const retained = new Set<string>(CONTINUATION_RETAINED_DIMENSIONS)
 /** New capability's ordinary mode keeps 256 actual expanded commands. It is not a registered generated-map profile. */
 export function authoringOperationWorkLimits(start: AuthoringStartV4): BudgetUsage {
@@ -35,7 +36,7 @@ export function authoringExecutionWorkLimits(start: AuthoringStartV4): BudgetUsa
     key === 'semanticTargets' || key === 'activeExecutionMs' || retained.has(key) ? limits[key] : limits[key] * 64])) as BudgetUsage
 }
 function assertUsage(limits: BudgetUsage, usage: BudgetUsage) {
-  for (const key of BUDGET_DIMENSIONS) if (usage[key] > limits[key]) deny(`工作预算超限[${key}]：${usage[key]}/${limits[key]}，保留当前草稿。`)
+  for (const key of BUDGET_DIMENSIONS) if (usage[key] > limits[key]) deny(`工作预算超限[${key}]：${usage[key]}/${limits[key]}，保留当前草稿。`, 'operation_budget')
 }
 export function legacyAuthoringStartV4(start: AuthoringStartV4): LegacyStart {
   const { policy: _policy, source: _source, capability: _capability, ...value } = start
@@ -48,7 +49,7 @@ function checkedStart(input: AuthoringStartV4) {
   const start = AuthoringStartV4Schema.parse(owned)
   start.project = validateProjectData(start.project)
   assertCurrentAuthoringCapability(start.project, start.capability)
-  if (start.scope.artwork) deny('此能力仅使用起始固定资源，未开放素材创建。')
+  if (start.scope.artwork) deny('此能力仅使用起始固定资源，未开放素材创建。', 'outside_scope')
   if (authoringProjectHash(start.project) !== start.baseContentHash) deny('确切当前基线不同。')
   let generationTargets: string[] = [], generationIds: string[] = [], usage: BudgetUsage
   if (isGeneratedAuthoringV4(start)) {
@@ -111,14 +112,14 @@ export function replayAuthoringV4(input: AuthoringStartV4, inputSteps: readonly 
       assertUsage(authoringOperationWorkLimits(start), delta)
       aiCost += cost; usage = accumulateContinuationUsage(usage, delta)
       assertUsage(authoringExecutionWorkLimits(start), usage)
-      if (aiCost > start.policy.aiTargets || start.policy.policyVersion === 1 && actualCost > 256) deny('任务累计真实展开或语义目标超过冻结预算。')
+      if (aiCost > start.policy.aiTargets || start.policy.policyVersion === 1 && actualCost > 256) deny('任务累计真实展开或语义目标超过冻结预算。', 'operation_budget')
       append(ledger, { operationId: `ai-${digest([steps[trace.stepIndex - 1].stepId, trace.operationIndex])}`, category: 'ai',
         operationHash: digest(operation), beforeHash: authoringProjectHash(trace.before), afterHash: authoringProjectHash(trace.after),
         targets: measured.targets, semanticCost: cost, usage: delta }, root)
     })
   const finalTargets = semanticChangedDocumentTargets(start.source.version === 3 ? start.source.blank.document : start.project.document, replayed.project.document)
   const finalLimit = start.policy.policyVersion === 1 ? 256 : start.policy.finalAdoptionTargets
-  if (finalTargets.length > finalLimit) deny(`最终采用超过${finalLimit}目标。`)
+  if (finalTargets.length > finalLimit) deny(`最终采用超过${finalLimit}目标。`, 'operation_budget')
   // Commands may add new fixed appearance snapshots from permitted scene fields, but cannot add resource bytes or definitions.
   assertCurrentAuthoringResourceEvolution(start, replayed.project, generatedSnapshots)
   const budget = { generationCost: checked.generationTargets.length, aiCost, finalAdoptionCost: finalTargets.length, usage }

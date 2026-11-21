@@ -19,6 +19,7 @@
 .composition-shell .asset-inspector>.appearance-panel,.composition-shell .asset-inspector>.prefab-panel{margin:14px -16px;padding:14px 16px}
 @media(max-width:600px){.composition-catalog{max-height:280px}.composition-fields{gap:6px}.composition-shell .asset-header-title b{display:none}}
 .composition-diff-item{overflow-wrap:anywhere}.composition-diff-item dl{margin:8px 0;font-size:11px}.composition-diff-item dl>div{padding:4px 0;border-top:1px solid #e6e0d4}.composition-diff-item dt{font-weight:600}.composition-diff-item dd{margin:4px 0;color:#746b5c}.composition-preview-details textarea{box-sizing:border-box;width:100%;resize:vertical;font-size:11px}
+.composition-diff-page{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0}
 .composition-shell .history-sidebar-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.composition-shell .history-sidebar-tabs button{width:100%;justify-content:center}
 .composition-import-preview{display:block;width:160px;height:120px;max-width:100%;object-fit:contain;background:repeating-conic-gradient(#e3ddd0 0% 25%,#faf8f1 0% 50%) 50%/16px 16px;border-radius:5px}
 .scene-template-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; margin: 10px 0; }

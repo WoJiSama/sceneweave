@@ -52,7 +52,7 @@ export default function WorkspaceHelp({ disclosureGroup }: { disclosureGroup: st
         <div><dt><kbd>Ctrl / ⌘ + A</kbd></dt><dd>选择可编辑对象，跳过隐藏和锁定项；需先退出绘图、放置或笔刷</dd></div>
         <div><dt><kbd>Ctrl / ⌘ + C</kbd> / <kbd>Ctrl / ⌘ + V</kbd></dt><dd>复制当前工程内的独立物件，再预览粘贴；每次在原件旁偏移 0.3 米，采用后可一次撤销。复制源改变后需重新复制，切换或重开工程会清空</dd></div>
         <div><dt><kbd>Enter</kbd></dt><dd>当前房间、地形、区域、道路或连接取点完成后预览；矩形需两角，多边形至少三点，道路/连接至少两点。采用仍须审阅后点击按钮</dd></div>
-        <div><dt><kbd>Delete</kbd> / <kbd>Backspace</kbd></dt><dd>预览删除所选物件；核对后采用，可一次撤销。需先退出绘图、放置或笔刷，锁定及依赖限制仍生效</dd></div>
+        <div><dt><kbd>Delete</kbd> / <kbd>Backspace</kbd></dt><dd>按选区预览删除。单选删该物件，选择组合删整个组合。核对后采用，可一次撤销</dd></div>
         <div><dt><kbd>Esc</kbd></dt><dd>取消当前绘图、放置或拖动；侧栏表单草稿可用对应的「取消草稿」按钮清除</dd></div>
       </dl>
       <p>物件内容只留在本次工程会话，系统剪贴板仅保存引用标记；不能粘贴到其他工程或应用。输入框仍使用普通文本复制粘贴。</p>

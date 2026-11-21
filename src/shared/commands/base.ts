@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { z } from 'zod'
 import { decorationClusterRecords, decorationRecords } from '../decorations/geometry.js'
 import type { PreparationContext } from '../ports/runtime.js'
@@ -5,6 +6,7 @@ import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { polygonsOverlap, propFootprint, terrainPoints } from '../geometry/geometry.js'
 import { buildScatterRegeneration, sha256Text } from '../geometry/scatter.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
+import { pipePortsSchema, sightOccluderSchema, type PipePorts, type SightOccluder } from '../validation/primitives.js'
 import type { Editable, MaterialPaint, PointMm, PrefabInstance, PropOverrideField, Prop, SceneDocument, SizeMm, SurfaceRef, VersionRef, Wall } from '../model/scene.js'
 
 type SurfaceKind = 'room' | 'terrainArea'
@@ -31,6 +33,8 @@ export type BaseSceneCommand =
   | { type: 'unpackPrefab'; id: string }
   | { type: 'updateProp'; id: string; changes: { positionMm?: PointMm; rotationDeg?: number } }
   | { type: 'setPropBlocking'; id: string; blocksMovement: boolean }
+  | { type: 'setPropSightOccluder'; id: string; component: SightOccluder | null }
+  | { type: 'setPropPipePorts'; id: string; ports: PipePorts }
   | { type: 'replacePropAppearance'; id: string; definitionRef: VersionRef }
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
@@ -65,6 +69,8 @@ const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('unpackPrefab'), id }).strict(),
   z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
   z.object({ type: z.literal('setPropBlocking'), id, blocksMovement: z.boolean() }).strict(),
+  z.object({ type: z.literal('setPropSightOccluder'), id, component: sightOccluderSchema.nullable() }).strict(),
+  z.object({ type: z.literal('setPropPipePorts'), id, ports: pipePortsSchema }).strict(),
   z.object({ type: z.literal('replacePropAppearance'), id, definitionRef: version }).strict(),
 ])).max(256, '单次事务最多 256 个操作')
 const own = <T>(record: Record<string, T>, key: string): T | undefined => Object.hasOwn(record, key) ? record[key] : undefined
@@ -110,7 +116,7 @@ function lockDependants(scene: SceneDocument, entities: Editable[], includeAncho
 /** Locks cover geometry meaning and anchored dependants, even when their own fields are unchanged. */
 function assertUnlocked(scene: SceneDocument, entities: Editable[], includeAnchoredNotes = false) {
   const locked = lockDependants(scene, entities, includeAnchoredNotes).filter(entity => entity.editLocked)
-  if (locked.length) throw new Error(`事务涉及已锁定的实体：${locked.map(entity => entity.id).join('、')}。`)
+  if (locked.length) throw new OperationRejected('locked_dependency', `事务涉及已锁定的实体：${locked.map(entity => entity.id).join('、')}。`)
 }
 
 /** The controlled immutable Prop executor has no effective-lock scene clone.
@@ -119,7 +125,7 @@ export function assertIndependentPropUpdateUnlocked(scene: SceneDocument, prop: 
   const dependencies = lockDependants(scene, [prop], true)
   const locked = dependencies.filter(entity => entity.editLocked
     || !!scene.userLayers[scene.entityLayers[entity.id]]?.editLocked)
-  if (locked.length) throw new Error(`事务涉及已锁定的实体或图层：${locked.map(entity => entity.id).join('、')}。`)
+  if (locked.length) throw new OperationRejected('locked_dependency', `事务涉及已锁定的实体或图层：${locked.map(entity => entity.id).join('、')}。`)
   return dependencies.map(entity => entity.id)
 }
 
@@ -539,6 +545,24 @@ export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSc
         assertUnlocked(next, [prop], true)
         prop.blocksMovement = command.blocksMovement
         addOverrides(memberRecord(next, prop.id), ['blocksMovement'])
+        break
+      }
+      case 'setPropSightOccluder': {
+        const prop = requireEntity(next.props, command.id, '物件')
+        if (equal(prop.sightOccluder ?? null, command.component)) break
+        assertUnlocked(next, [prop], true)
+        if (command.component) prop.sightOccluder = cloneJson(command.component)
+        else delete prop.sightOccluder
+        addOverrides(memberRecord(next, prop.id), ['sightOccluder'])
+        break
+      }
+      case 'setPropPipePorts': {
+        const prop = requireEntity(next.props, command.id, '物件')
+        if (equal(prop.pipePorts ?? {}, command.ports)) break
+        assertUnlocked(next, [prop], true)
+        if (Object.keys(command.ports).length) prop.pipePorts = cloneJson(command.ports)
+        else delete prop.pipePorts
+        addOverrides(memberRecord(next, prop.id), ['pipePorts'])
         break
       }
       case 'updateProp': case 'replacePropAppearance': {

@@ -6,7 +6,8 @@ import { WORKFLOW_DEFINITIONS } from './catalog.generated.js'
 import { oceanDressingSettingsSchema } from '../../ocean/generation.js'
 
 export const WorkflowRequirementSchema = z.enum(['forest-parameters', 'forest-generation', 'project-preview', 'project-delivery',
-  'draft-read', 'draft-edit', 'draft-check', 'page-adopt', 'image-read', 'image-select', 'image-preview', 'image-build', 'asset-refine', 'ocean-generation', 'floor-navigation'])
+  'draft-read', 'draft-edit', 'draft-check', 'page-adopt', 'image-read', 'image-select', 'image-preview', 'image-build',
+  'image-repair', 'image-repair-analysis', 'image-surface-refine', 'asset-refine', 'ocean-generation', 'floor-navigation'])
 export type WorkflowRequirement = z.infer<typeof WorkflowRequirementSchema>
 const text = z.string().min(1).max(4096), hash = z.string().regex(/^[a-f0-9]{64}$/)
 const stepSchema = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/), title: text, requires: z.array(WorkflowRequirementSchema).min(1).max(8), produces: text, instructions: text }).strict()

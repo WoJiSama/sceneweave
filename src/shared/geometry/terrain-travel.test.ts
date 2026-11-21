@@ -3,6 +3,8 @@ import { createRefinedBlankDocument } from '../../platform/browser/content/refin
 import type { PointMm, SceneDocument, TerrainArea } from '../model/scene.js'
 import { searchTerrainRoute, checkTerrainTravel, checkTerrainRoute } from './terrain-travel.js'
 import { validateGeometry } from './geometry.js'
+import { terrainEdgeFinishCommands } from '../commands/terrain-edge-finish.js'
+import { applyOutdoorCommand } from '../commands/outdoor.js'
 
 const blank = (): SceneDocument => createRefinedBlankDocument('coast', {
   title: 'T3 route fixture', widthMm: 24000, heightMm: 18000, preset: 'narrative', sceneId: 't3-route', now: '2026-10-26T00:00:00.000Z',
@@ -41,6 +43,41 @@ function rampScene(): SceneDocument {
 function region(scene: SceneDocument, id: string, boundaryMm: PointMm[], blocksMovement: boolean, cost = 1) {
   scene.regions[id] = { id, floorId: 'visual-floor', editLocked: false, visibility: 'public', kind: 'hazard', boundaryMm, blocksMovement, movementCostMultiplier: cost }
 }
+
+describe('terrain edge finish', () => {
+  it('finishes only the exposed outline of a partly covered platform', () => {
+    const scene = blank()
+    const p = (x: number, y: number) => ({ x, y })
+    const lower = area('lower', [p(3000, 4000), p(11000, 4000), p(11000, 10000), p(8500, 10000), p(5500, 10000), p(3000, 10000)], 800)
+    scene.terrainAreas.lower = lower
+    scene.terrainAreas.upper = area('upper', [p(5500, 7500), p(8500, 7500), p(8500, 10000), p(8500, 12500), p(5500, 12500), p(5500, 10000)], 1800, 2)
+    scene.entityLayers.lower = scene.entityLayers.upper = 'visual-layer-ground'
+    const sources = lower.boundaryMm.map(row => ({ areaId: lower.id, segmentId: row.segmentId }))
+    const finish = { color: '#304754', strokeWidthMm: 300, bandWidthMm: 700 }
+    let id = 0
+    const commands = terrainEdgeFinishCommands(scene, sources, finish, () => `rim-${id++}`, { skipCovered: true })
+    expect(commands.flatMap(command => command.type === 'createTerrainEdge' ? [command.source] : [])).toEqual(sources.filter(row => row.segmentId !== 'lower-s3'))
+    expect(() => terrainEdgeFinishCommands(scene, [sources[3]], finish, () => 'covered-finish')).toThrow(/暴露/)
+    for (const command of commands) applyOutdoorCommand(scene, command, { ids: { nextId: () => 'unused' }, clock: { now: () => scene.updatedAt } })
+    expect(Object.values(scene.terrainEdges).every(edge => edge.styleOverride?.bandWidthMm === 700)).toBe(true)
+  })
+
+  it('changes the one canonical shared edge while keeping its physical behavior and visibility', () => {
+    const scene = blank()
+    scene.terrainAreas.left = area('left', rect(3000, 3500, 4000, 4000))
+    scene.terrainAreas.right = area('right', rect(7000, 3500, 4000, 4000))
+    scene.entityLayers.left = scene.entityLayers.right = 'visual-layer-ground'
+    const start = { areaId: 'left', segmentId: 'left-s1' }
+    const opposite = { areaId: 'right', segmentId: 'right-s3' }
+    const context = { ids: { nextId: () => 'unused' }, clock: { now: () => scene.updatedAt } }
+    applyOutdoorCommand(scene, { type: 'createTerrainEdge', id: 'shared', source: start, blocksMovement: true, visibility: 'gm' }, context)
+    const rgb = { color: '#304754', strokeWidthMm: 300, bandWidthMm: 700 }
+    const commands = terrainEdgeFinishCommands(scene, [opposite, start], rgb, () => 'unexpected-new-edge')
+    expect(commands).toEqual([{ type: 'updateTerrainEdge', id: 'shared', changes: { styleOverride: rgb } }])
+    applyOutdoorCommand(scene, commands[0], context)
+    expect(scene.terrainEdges.shared).toMatchObject({ source: start, neighborAreaId: 'right', visibility: 'gm', blocksMovement: true, styleOverride: rgb })
+  })
+})
 
 describe('bounded deterministic terrain route search', () => {
   it('returns a straight full-width route when the complete checker accepts it', () => {

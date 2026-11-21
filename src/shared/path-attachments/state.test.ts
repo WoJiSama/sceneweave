@@ -8,6 +8,8 @@ import { advanceHistoryIdentity } from '../history/identity.js'
 import { structureIdentityDescriptors } from '../history/structure-identity.js'
 import { resolveBuildingStructurePort } from '../generation/building-port.js'
 import { validateSceneDocument } from '../validation/scene.js'
+import { projectEditorScene, projectScene } from '../projection/projection.js'
+import { pathPolygon } from '../geometry/geometry.js'
 import { validateCompositionContent } from '../validation/content.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { MANUAL_TRANSACTION_BUDGET } from '../budget/command-budget.js'
@@ -20,7 +22,7 @@ const p = (x: number, y: number) => ({ x, y })
 const rect = (x: number, y: number, width: number, height: number) => [p(x, y), p(x + width, y), p(x + width, y + height), p(x, y + height)]
 let sequence = 0
 const runtime = () => ({ clock: { now: () => '2026-11-10T00:00:00.000Z' }, ids: { nextId: () => `persistent-attachment-${++sequence}` } })
-function fixture() {
+function fixture(end: 'start' | 'end' = 'start') {
   const source = createShoreBlankDocument('island', { sceneId: 'ordinary-persistent-door-road', title: '普通门路关系', now: '2026-11-10T00:00:00.000Z', widthMm: 40000, heightMm: 40000, preset: 'narrative' })
   let scene = applyCommands(source, [
     { type: 'createTerrainArea', id: 'ground', floorId: 'visual-floor', layerId: 'visual-layer-ground', boundaryMm: rect(0, 0, 40000, 40000), groundElevationMm: 1200, coveragePriority: 0 },
@@ -29,8 +31,10 @@ function fixture() {
   const wall = Object.values(scene.walls).find(row => scene.vertices[row.startVertexId].yMm === 12000 && scene.vertices[row.endVertexId].yMm === 12000)!
   scene = applyCommands(scene, [{ type: 'addOpening', id: 'door', wallId: wall.id, offsetReferenceVertexId: wall.startVertexId, offsetMm: 2400, widthMm: 1200, kind: 'door', state: 'open' }], runtime())
   const port = resolveBuildingStructurePort(scene, 'door', 1000)
-  scene = applyCommands(scene, [{ type: 'createPath', id: 'road', floorId: 'visual-floor', layerId: 'visual-layer-ground', centerlineMm: [port.outsideMm, p(port.outsideMm.x, port.outsideMm.y - 4000), p(port.outsideMm.x + 2500, port.outsideMm.y - 6000)], widthMm: 1000, supportRefs: [port.supportRef] }], runtime())
-  const content = createCompositionContent(scene, runtime()), request = { id: 'attachment', pathId: 'road', openingId: 'door', end: 'start' as const, leadLengthMm: 1000, maxDisplacementMm: 500 }
+  const centerlineMm = [port.outsideMm, p(port.outsideMm.x, port.outsideMm.y - 4000), p(port.outsideMm.x + 2500, port.outsideMm.y - 6000)]
+  if (end === 'end') centerlineMm.reverse()
+  scene = applyCommands(scene, [{ type: 'createPath', id: 'road', floorId: 'visual-floor', layerId: 'visual-layer-ground', centerlineMm, widthMm: 1000, supportRefs: [port.supportRef] }], runtime())
+  const content = createCompositionContent(scene, runtime()), request = { id: 'attachment', pathId: 'road', openingId: 'door', end, leadLengthMm: 1000, maxDisplacementMm: 500 }
   return { content, request, wall, port }
 }
 function bind(content: CompositionContent, request: ReturnType<typeof fixture>['request']): CompositionContent {
@@ -44,6 +48,23 @@ function directBound() {
 }
 
 describe('persistent manual door/path attachment leaf state', () => {
+  it.each(['start', 'end'] as const)('paints the bound %s through the actual visible doorway', end => {
+    const { content, request } = fixture(end), bound = bind(content, request)
+    const scene = cloneJson(bound.document), path = projectScene(scene, 'player').paths[0]
+    const threshold = path.doorThresholds?.[0]
+    expect(threshold?.end).toBe(end)
+    expect(threshold?.cap.map(p => p.y)).toEqual([11799, 11799])
+    expect(threshold?.inside.map(p => p.y)).toEqual([12202, 12202])
+    expect(path.points).toEqual(pathPolygon(scene.paths.road))
+    const layer = scene.userLayers['visual-layer-ground']
+    scene.userLayers['door-layer'] = { ...layer, id: 'door-layer', order: Object.keys(scene.userLayers).length }
+    scene.entityLayers.door = 'door-layer'
+    expect(projectEditorScene(scene, { hiddenLayerIds: new Set(['door-layer']) }).paths[0].doorThresholds).toBeUndefined()
+    scene.regions.mask = { id: 'mask', floorId: 'visual-floor', editLocked: false, visibility: 'gm', kind: 'manualMask',
+      blocksMovement: false, movementCostMultiplier: 1, boundaryMm: rect(13600, 11500, 3000, 1000) }
+    scene.entityLayers.mask = 'visual-layer-ground'
+    expect(projectScene(scene, 'player').paths[0].doorThresholds).toBeUndefined()
+  })
   it('creates strict complete geometry/proofs from actual identities while preserving the input', () => {
     const f = fixture(), before = canonicalJson(f.content), plan = createPathAttachmentPlan(f.content, f.request)
     expect(pathAttachmentSchema.safeParse(plan.attachment).success).toBe(true)

@@ -1,10 +1,11 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { assertCommandBudget, isManualTransactionBudget, measureCommandBudget, type CommandBudgetProfile } from '../budget/command-budget.js'
 import type { FixedPresentation } from '../terrain-generation/contracts.js'
 import { definitionPresentation, presentationSourceId, propPresentation, topDownPresentation } from './presentation.js'
 import { sha256Text } from '../geometry/scatter.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { effectiveEditLocked, enumerateLayerEntities } from '../commands/layers.js'
-import { buildingTransformSurfaceIds, inspectAggregateBuilding } from '../commands/building.js'
+import { buildingTransformSurfaceIds, inspectAggregateBuilding, roomMoveParts, splitRoomWallId } from '../commands/building.js'
 import { inspectAggregateDomain } from '../aggregates/domain-adapters.js'
 import { naturalTransformSurfaceIds } from '../aggregates/natural-transform.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
@@ -12,6 +13,8 @@ import { captureJson, cloneJson } from '../validation/json.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import type { MaterialPaint, PointMm, Prop, SceneDocument, SurfaceStyle } from '../model/scene.js'
 import type { SceneCommand } from '../commands/commands.js'
+import { pathSectionPartKey, type PathAssembly } from '../path-assembly/contracts.js'
+import { translateBridgeSurfaceStyle } from '../path-assembly/bridge-link-geometry.js'
 import { createHistoryIdentity } from '../history/identity.js'
 import { COMPOSITION_LIMITS, type AdjustmentKind, type AppearanceAdjustment, type AppearanceGraph, type AppearanceScopePlan, type AppearanceScope, type BitmapVariant, type CompositionContent, type PropAppearanceSnapshot } from '../model/appearance.js'
 
@@ -58,7 +61,7 @@ export function supportedAppearanceKinds(content: CompositionContent, id: string
   if (prop) {
     const source = own(content.appearance.sources, content.appearance.propSources[id])
     const image = source?.kind === 'prop' ? source.snapshot.appearance.kind === 'image' : prop.appearance.kind === 'image'
-    return image ? ['tint', 'brightness', 'opacity', 'shadowClass'] : ['opacity', 'shadowClass']
+    return image ? ['tint', 'brightness', 'opacity', 'shadowClass', 'propGlow'] : ['opacity', 'shadowClass', 'propGlow']
   }
   return surfaceStyle(content.document, id) ? ['tint', 'brightness', 'opacity'] : []
 }
@@ -87,9 +90,9 @@ export function inspectAppearanceScope(content: CompositionContent, scope: Appea
   // Applicability is not a write set: instance overrides may mask most of a
   // layer rule. Manual transactions charge the resolved content after mutation.
   if (budget) assertCommandBudget(budget, measureCommandBudget(document, document, { before: content, after: content }, { semanticTargets: isManualTransactionBudget(budget) ? 0 : targetIds.length, dependencyRefs: affected.size }, budget))
-  if (!budget && commandCost > COMPOSITION_LIMITS.commandCost) throw new Error(`外观范围展开为 ${commandCost} 个操作，超过单次256预算。`)
-  if (scope.kind === 'layer' && document.userLayers[scope.layerId].editLocked) throw new Error(`用户图层已锁定：${scope.layerId}。`)
-  for (const id of affected) if (effectiveEditLocked(document, id)) throw new Error(`外观目标或依赖已锁定：${id}。`)
+  if (!budget && commandCost > COMPOSITION_LIMITS.commandCost) throw new OperationRejected('operation_budget', `外观范围展开为 ${commandCost} 个操作，超过单次256预算。`)
+  if (scope.kind === 'layer' && document.userLayers[scope.layerId].editLocked) throw new OperationRejected('locked_dependency', `用户图层已锁定：${scope.layerId}。`)
+  for (const id of affected) if (effectiveEditLocked(document, id)) throw new OperationRejected('locked_dependency', `外观目标或依赖已锁定：${id}。`)
   return { targetIds, inapplicableIds, affectedIds: [...affected], commandCost }
 }
 
@@ -188,10 +191,53 @@ function transformedBuildingSurface(snapshot: SurfaceStyle, command: Extract<Sce
 }
 function syncOwnedAppearanceGraph(content: CompositionContent, previousDocument?: SceneDocument, commands: readonly SceneCommand[] = []): CompositionContent {
   const graph = content.appearance, document = content.document
+  const syncAssembly = (assembly: { members: PathAssembly['members']; recipe: Pick<PathAssembly['recipe'], 'section'> }) => {
+    const section = assembly.recipe.section
+    const template = section.kind === 'prefab' ? graph.prefabAppearanceTemplates[section.ref.id] : undefined
+    const sources = new Map(Object.entries(template?.members ?? {}).map(([key, member]) => [pathSectionPartKey(key), member]))
+    for (const [key, member] of Object.entries(assembly.members)) {
+      if (member.state !== 'placed') continue
+      const next = document.props[member.propId], before = previousDocument?.props[member.propId]
+      const snapshot = propAppearanceSnapshot(next)
+      if (!before || !equalCompositionValue(propAppearanceSnapshot(before), snapshot)) {
+        const inherited = sources.get(key.split(':').slice(3).join(':'))
+        const parent = inherited ? graph.sources[inherited.sourceId] : undefined
+        graph.propSources[next.id] = parent?.kind === 'prop' && equalCompositionValue(parent.snapshot, snapshot)
+          ? parent.id : addPropAppearanceSource(graph, snapshot, parent?.id ?? null, topDownPresentation())
+        if (inherited) graph.instanceAdjustments[next.id] = cloneJson(inherited.adjustments)
+      }
+    }
+  }
   for (const command of commands) {
     if (command.type === 'copyProp' && own(graph.propSources, command.id)) {
       graph.propSources[command.newId] = graph.propSources[command.id]
       if (own(graph.instanceAdjustments, command.id)) graph.instanceAdjustments[command.newId] = cloneJson(graph.instanceAdjustments[command.id])
+    } else if (command.type === 'setPathAssembly' || command.type === 'setFenceAssembly') {
+      const assembly = command.type === 'setPathAssembly' ? document.paths[command.id].assembly!
+        : document.visual.base.base.boundaries[command.id].fence!
+      syncAssembly(assembly)
+    } else if (command.type === 'moveBridge') {
+      if (!command.offsetMm.x && !command.offsetMm.y) continue
+      const bridge = document.paths[command.id].assembly!.bridge!
+      for (const id of [command.id, bridge.deckId]) {
+        const sourceId = graph.surfaceSources[id], source = graph.sources[sourceId]
+        if (source?.kind !== 'surface') continue
+        const style = translateBridgeSurfaceStyle(source.snapshot, command.offsetMm)
+        if (!equalCompositionValue(source.snapshot, style)) graph.surfaceSources[id] = addSurfaceAppearanceSource(graph, style, sourceId)
+      }
+    } else if (command.type === 'moveRoom') {
+      if (!command.offsetMm.x && !command.offsetMm.y) continue
+      const copies = new Map(previousDocument ? roomMoveParts(previousDocument, command.id).sharedWalls.map((wall, index) => [splitRoomWallId(command.splitId, index), wall.id]) : [])
+      for (const id of buildingTransformSurfaceIds(document, command.id)) {
+        const parentId = copies.get(id) ?? id, sourceId = graph.surfaceSources[parentId], source = graph.sources[sourceId]
+        if (source?.kind !== 'surface') continue
+        const style = translateBridgeSurfaceStyle(source.snapshot, command.offsetMm)
+        if (parentId !== id) {
+          style.overlays.forEach((overlay, index) => { overlay.id = `${id}:paint:${index + 1}` })
+          if (graph.instanceAdjustments[parentId]) graph.instanceAdjustments[id] = cloneJson(graph.instanceAdjustments[parentId])
+        }
+        if (parentId !== id || !equalCompositionValue(source.snapshot, style)) graph.surfaceSources[id] = addSurfaceAppearanceSource(graph, style, sourceId)
+      }
     } else if (command.type === 'replacePropAppearance') {
       const sourceId = graph.propSources[command.id], source = graph.sources[sourceId], definition = document.propDefinitions[command.definitionRef.id]
       if (source?.kind === 'prop') {
@@ -230,6 +276,14 @@ function syncOwnedAppearanceGraph(content: CompositionContent, previousDocument?
       }
     }
   }
+  if (previousDocument && commands.length) {
+    const before = previousDocument.visual.base.base.boundaries
+    for (const row of Object.values(document.visual.base.base.boundaries)) {
+      if (row.fence && (row.fence.pipeLinks || before[row.id]?.fence?.pipeLinks)
+        && before[row.id]?.fence?.routeFingerprint !== row.fence.routeFingerprint
+        && !commands.some(command => command.type === 'setFenceAssembly' && command.id === row.id)) syncAssembly(row.fence)
+    }
+  }
   for (const id of Object.keys(graph.propSources)) if (!own(document.props, id)) delete graph.propSources[id]
   for (const id of Object.keys(graph.surfaceSources)) if (!surfaceStyle(document, id)) delete graph.surfaceSources[id]
   for (const prop of Object.values(document.props)) if (!own(graph.propSources, prop.id)) graph.propSources[prop.id] = addPropAppearanceSource(graph, prop)
@@ -247,12 +301,14 @@ function syncOwnedAppearanceGraph(content: CompositionContent, previousDocument?
   }
   return content
 }
-export function effectiveAdjustments(content: CompositionContent, id: string): Partial<Record<AdjustmentKind, AppearanceAdjustment['value']>> {
+type EffectiveAdjustments = { [Kind in AdjustmentKind]?: Extract<AppearanceAdjustment, { kind: Kind }>['value'] }
+
+export function effectiveAdjustments(content: CompositionContent, id: string): EffectiveAdjustments {
   const result: Partial<Record<AdjustmentKind, AppearanceAdjustment['value']>> = {}, supported = supportedAppearanceKinds(content, id)
   for (const adjustment of [...(content.appearance.layerAdjustments[content.document.entityLayers[id]] ?? []), ...(content.appearance.instanceAdjustments[id] ?? [])]) {
     if (adjustment.enabled && supported.includes(adjustment.kind)) result[adjustment.kind] = adjustment.value
   }
-  return result
+  return result as EffectiveAdjustments
 }
 export function bitmapVariant(sourceAssetId: string, tint: string | null, brightness: number): BitmapVariant | null {
   tint = tint?.toUpperCase() ?? null
@@ -302,6 +358,7 @@ export function resolveAppearance(input: CompositionContent): CompositionContent
     }
     if ('opacity' in adjustments) snapshot.appearance.opacity = adjustments.opacity as number
     if ('shadowClass' in adjustments) snapshot.shadowClass = adjustments.shadowClass as Prop['shadowClass']
+    if (adjustments.propGlow !== undefined) snapshot.appearance.glow = cloneJson(adjustments.propGlow)
     retainPropAsset(document, snapshot, fixedRoots)
     Object.assign(prop, snapshot)
   }
@@ -328,16 +385,28 @@ export function resolveAppearance(input: CompositionContent): CompositionContent
 
 /** Freeze historical effective pixels/fields as one target's fixed source, with neutral field overrides that isolate current layer rules. */
 export function freezeEffectivePropAppearance(input: CompositionContent, id: string, historicalProp: Prop): CompositionContent {
-  const content = cloneJson(input), graph = content.appearance
+  const content = cloneJson(input)
+  const { sourceId, adjustments } = captureEffectivePropAppearance(content, id, historicalProp)
+  content.appearance.propSources[id] = sourceId
+  content.appearance.instanceAdjustments[id] = adjustments
+  return content
+}
+
+/** Add a fixed source to an owned draft for reuse without changing the live instance. */
+export function captureEffectivePropAppearance(content: CompositionContent, id: string, historicalProp: Prop) {
+  const graph = content.appearance
   if (!own(content.document.props, id)) throw new Error('冻结外观的目标不存在。')
-  graph.propSources[id] = addPropAppearanceSource(graph, historicalProp, graph.propSources[id] ?? null)
+  const sourceId = addPropAppearanceSource(graph, historicalProp, graph.propSources[id] ?? null)
   const values: AppearanceAdjustment[] = [
     { id: `frozen-opacity-${sha256Text(id)}`, kind: 'opacity', value: historicalProp.appearance.opacity, enabled: true },
     { id: `frozen-shadow-${sha256Text(id)}`, kind: 'shadowClass', value: historicalProp.shadowClass, enabled: true },
   ]
   if (historicalProp.appearance.kind === 'image') values.push({ id: `frozen-tint-${sha256Text(id)}`, kind: 'tint', value: historicalProp.appearance.tint, enabled: true }, { id: `frozen-brightness-${sha256Text(id)}`, kind: 'brightness', value: 1, enabled: true })
-  graph.instanceAdjustments[id] = values
-  return content
+  const layer = content.document.entityLayers[id]
+  if (historicalProp.appearance.glow !== undefined || graph.layerAdjustments[layer]?.some(item => item.enabled && item.kind === 'propGlow')) {
+    values.push({ id: `frozen-glow-${sha256Text(id)}`, kind: 'propGlow', value: historicalProp.appearance.glow ?? null, enabled: true })
+  }
+  return { sourceId, adjustments: values }
 }
 
 export function freezeEffectiveSurfaceAppearance(input: CompositionContent, id: string, historicalStyle: SurfaceStyle): CompositionContent {

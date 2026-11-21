@@ -31,6 +31,16 @@ const rotate: CompositionCommand[] = [{ type: 'updateProp', id: 'item', changes:
 const points = (dy = 0) => Array.from({ length: 200 }, (_, index) => ({ x: 1000 + index * 40, y: 1000 + index % 2 * 20 + dy }))
 
 describe('private registered preview budget proof', () => {
+  it('measures the exact materialized candidate only once across preparation and registration', async () => {
+    const { workspace, before } = await setup()
+    const measure = vi.spyOn(budgetModule, 'measureCommandBudget')
+    const prepared = await workspace.preview([{ type: 'createPath', id: 'measured', floorId: 'blank-floor',
+      layerId: before.document.entityLayers.item, centerlineMm: points(), widthMm: 400, supportRefs: [{ kind: 'floor', id: 'blank-floor' }] }])
+    const finalMeasurements = measure.mock.calls.filter(([first, second, metadata]) => first === before.document && second === prepared.document
+      && metadata?.before === before && metadata.after === prepared.project)
+    expect(finalMeasurements).toHaveLength(1)
+  })
+
   it('retains cumulative preparation peaks across all dimensions and asserts them without remeasuring adoption', async () => {
     const { workspace, before } = await setup(), layerId = before.document.entityLayers.item
     const preview = await workspace.preview([

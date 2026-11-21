@@ -26,11 +26,15 @@ export async function openKeyboardPanel(page: Page, panel: 'resources' | 'inspec
   return target
 }
 
-export async function createKeyboardProject(page: Page, title: string): Promise<void> {
+export async function createKeyboardProject(page: Page, title: string, size?: { widthMeters: number; heightMeters: number }): Promise<void> {
   await page.goto('./#home')
   await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill(title)
+  if (size) {
+    await dialog.getByLabel('画布宽度', { exact: true }).fill(String(size.widthMeters))
+    await dialog.getByLabel('画布高度', { exact: true }).fill(String(size.heightMeters))
+  }
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0, { timeout: 60000 })
   await keyboardWorkspaceSaved(page)
@@ -71,11 +75,14 @@ export async function keyboardProjectBackup(page: Page, path: string) {
   page.on('download', received)
   try {
     await (await projectBackupButton(page)).click()
+    const failed = page.locator('.workspace-backup-feedback[data-state="failed"]')
+    let failure: string | undefined
     await expect.poll(async () => {
-      const failed = page.getByRole('alert').filter({ hasText: /下载工程备份：/ })
-      if (await failed.count()) return await failed.innerText()
-      return download ? 'downloaded' : 'pending'
-    }, { timeout: 90000 }).toBe('downloaded')
+      if (download) return true
+      if (!await page.locator('.asset-busy').count() && await failed.isVisible()) failure = await failed.innerText()
+      return !!failure
+    }, { timeout: 90000 }).toBe(true)
+    if (failure) throw new Error(failure)
     await download!.saveAs(path)
   } finally { page.off('download', received) }
   await expect(page.locator('.asset-busy')).toHaveCount(0)

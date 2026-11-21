@@ -1,0 +1,13 @@
+.privacy-comparison { min-width: 0; width: 100%; }
+.privacy-comparison-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.privacy-comparison figure { margin: 0; min-width: 0; }
+.privacy-comparison figcaption, .privacy-comparison-dialog figcaption { font-weight: 600; margin-bottom: 6px; }
+.privacy-comparison-picture { position: relative; overflow: hidden; border: 1px solid #9baca1; background: #d8d5c5; }
+.privacy-comparison-picture img { display: block; width: 100%; height: auto; }
+.privacy-comparison-crop { display: block; width: 100%; height: auto; }
+.privacy-comparison-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.privacy-comparison-dialog { width: min(1400px, 94vw); max-width: 94vw; max-height: 92vh; overflow: auto; padding: 16px; box-sizing: border-box; border: 1px solid #728f7d; border-radius: 12px; background: #f6f5ee; color: #223c32; }
+.privacy-comparison-dialog::backdrop { background: #12291fcc; }
+.privacy-comparison-dialog figure { margin: 0; min-width: 0; }
+.privacy-comparison-dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+@media (max-width: 700px) { .privacy-comparison-dialog .privacy-comparison-grid { grid-template-columns: minmax(0, 1fr); } }

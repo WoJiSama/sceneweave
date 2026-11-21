@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { cloneJson } from '../validation/json.js'
 import { z } from 'zod'
 import { geometryIdentityIds } from './domain.js'
@@ -8,7 +9,7 @@ export type AnnotationCommand =
   | { type: 'createNote'; id: string; floorId: string; anchor: Anchor; kind: Note['kind']; title?: string; text: string; visibility: Note['visibility']; discovered?: boolean; layerId?: string }
   | { type: 'updateNote'; id: string; changes: Partial<Pick<Note, 'anchor' | 'kind' | 'title' | 'text' | 'visibility' | 'discovered'>> }
   | { type: 'deleteNote'; id: string }
-  | { type: 'upsertManualMask'; id: string; floorId: string; boundsMm: BoundsMm; layerId?: string }
+  | { type: 'upsertManualMask'; id: string; floorId: string; boundsMm: BoundsMm; layerId?: string; preservePublicRooms?: boolean }
   | { type: 'deleteManualMask'; id: string }
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
@@ -23,7 +24,7 @@ export const annotationCommandSchemas = [
   z.object({ type: z.literal('createNote'), id, floorId: id, ...content, title: content.title.optional(), discovered: content.discovered.optional(), layerId: id.optional() }).strict(),
   z.object({ type: z.literal('updateNote'), id, changes: z.object(content).partial().strict() }).strict(),
   z.object({ type: z.literal('deleteNote'), id }).strict(),
-  z.object({ type: z.literal('upsertManualMask'), id, floorId: id, boundsMm: z.object({ x: int, y: int, width: int.positive(), height: int.positive() }).strict(), layerId: id.optional() }).strict(),
+  z.object({ type: z.literal('upsertManualMask'), id, floorId: id, boundsMm: z.object({ x: int, y: int, width: int.positive(), height: int.positive() }).strict(), layerId: id.optional(), preservePublicRooms: z.boolean().optional() }).strict(),
   z.object({ type: z.literal('deleteManualMask'), id }).strict(),
 ] as const
 
@@ -42,7 +43,7 @@ function unlocked(scene: SceneDocument, entities: Editable[]) {
     for (const group of [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)]) if (!affected.has(group.id) && Object.values(group.members).some(member => member.propId !== null && affected.has(member.propId))) { affected.set(group.id, group); extended = true }
   }
   const locked = [...affected.values()].filter(entity => entity.editLocked || scene.userLayers[scene.entityLayers[entity.id]]?.editLocked)
-  if (locked.length) throw new Error(`注记或遮罩涉及锁定实体/图层：${locked.map(entity => entity.id).join('、')}。`)
+  if (locked.length) throw new OperationRejected('locked_dependency', `注记或遮罩涉及锁定实体/图层：${locked.map(entity => entity.id).join('、')}。`)
 }
 function anchorDependencies(scene: SceneDocument, value: Anchor, floorId: string, noteId: string): Editable[] {
   const result: Editable[] = [], visited = new Set([noteId])
@@ -61,7 +62,7 @@ function anchorDependencies(scene: SceneDocument, value: Anchor, floorId: string
 function targetLayer(scene: SceneDocument, floorId: string, layerId?: string): string {
   if (!Object.hasOwn(scene.floors, floorId)) throw new Error('注记或遮罩所在 Floor 不存在。')
   const layer = layerId === undefined ? orderedLayers(scene, floorId)[0] : own(scene.userLayers, layerId)
-  if (!layer || layer.floorId !== floorId || layer.editLocked) throw new Error('请选择同 Floor 且未锁定的用户图层。')
+  if (!layer || layer.floorId !== floorId || layer.editLocked) throw new OperationRejected(layer?.editLocked && layer.floorId === floorId ? 'locked_dependency' : 'invalid_geometry', '请选择同 Floor 且未锁定的用户图层。')
   return layer.id
 }
 function unusedId(scene: SceneDocument, id: string) {
@@ -106,8 +107,10 @@ export function applyAnnotationCommand(scene: SceneDocument, command: Annotation
       if (existing) unlocked(scene, [existing]); else unusedId(scene, command.id)
       const layerId = existing ? scene.entityLayers[existing.id] : targetLayer(scene, command.floorId, command.layerId)
       const b = command.boundsMm
+      const preservePublicRooms = command.preservePublicRooms ?? existing?.preservePublicRooms
       scene.regions[command.id] = { id: command.id, floorId: command.floorId, editLocked: existing?.editLocked ?? false,
         kind: 'manualMask', visibility: 'gm', blocksMovement: false, movementCostMultiplier: 1,
+        ...(preservePublicRooms === undefined ? {} : { preservePublicRooms }),
         boundaryMm: [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }] }
       scene.entityLayers[command.id] = layerId
       break

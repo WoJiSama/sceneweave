@@ -4,7 +4,7 @@ import type { PointMm, PropTemplate, SceneDocument, SurfaceRef, SurfaceStyle } f
 import type { CatalogItem } from '../../../shared/library/types.js'
 import { listSnapshotCatalogItems } from '../../../shared/library/content.js'
 import { THEME_PACK_PLANS, validateThemePackRegistrations, type ThemePackRegistration } from '../../../shared/assets/theme-packs.js'
-import { THEME_PACK_CATALOGS } from '../../../shared/assets/theme-pack-catalogs.js'
+import { THEME_PACK_CATALOGS, type ThemePackId } from '../../../shared/assets/theme-pack-catalogs.js'
 import { createThemePackReviewContent, type AssetReviewContent } from '../../../shared/assets/review.js'
 import { canonicalJson, cloneJson, freezeJson } from '../../../shared/validation/json.js'
 import { sha256Text } from '../../../shared/validation/hash.js'
@@ -22,7 +22,7 @@ export type { ThemePackArtId } from '../../../shared/visual/theme-pack-art.js'
 export { THEME_PACK_CATALOGS } from '../../../shared/assets/theme-pack-catalogs.js'
 export type ThemePackSampleVariant = 0 | 1
 export interface ThemePackSampleOptions { sceneId?: string; now?: string; outpostVegetation?: OutpostVegetationDensity; outpostAtmosphere?: 'daylight' }
-function metadata(id: ThemePackArtId) {
+function metadata(id: ThemePackId) {
   const value = THEME_PACK_CATALOGS.find(value => value.id === id)
   if (!value) throw new Error('未知主题包。')
   return value
@@ -372,15 +372,17 @@ export function createThemePackSampleDocument(id: ThemePackArtId, variant: Theme
   return checkedScene(scene)
 }
 
-export async function createThemePackCatalogProject(id: ThemePackArtId, signal?: AbortSignal): Promise<EditableProject> {
+export async function createThemePackCatalogProject(id: ThemePackId, signal?: AbortSignal): Promise<EditableProject> {
   signal?.throwIfAborted()
+  if (id === 'industrial') return (await import('./industrial-catalog.js')).createIndustrialCatalogProject(signal)
   const scene = createThemePackCatalogDocument(id, { sceneId: runtime.ids.nextId(), now: runtime.clock.now() })
   const project = await materializeVisualArt(scene, THEME_PACK_ART[id], THEME_PACK_LICENSE, key => themePackAssetId(id, key), signal)
   return validateEditableProject(project, { ...validation, signal })
 }
-export async function createThemePackSampleProject(id: ThemePackArtId, variant: ThemePackSampleVariant, signal?: AbortSignal,
+export async function createThemePackSampleProject(id: ThemePackId, variant: ThemePackSampleVariant, signal?: AbortSignal,
   options: Pick<ThemePackSampleOptions, 'outpostVegetation' | 'outpostAtmosphere'> = {}): Promise<EditableProject> {
   signal?.throwIfAborted()
+  if (id === 'industrial') return (await import('./industrial-samples.js')).createIndustrialSampleProject(variant, signal)
   const scene = createThemePackSampleDocument(id, variant, { ...options, sceneId: runtime.ids.nextId(), now: runtime.clock.now() })
   const project = await materializeVisualArt(scene, THEME_PACK_ART[id], THEME_PACK_LICENSE, key => themePackAssetId(id, key), signal)
   return validateEditableProject(project, { ...validation, signal })
@@ -394,11 +396,12 @@ export interface LoadedThemePack {
   coverage: { materials: number; props: number; prefabs: number; scenarios: 2; status: 'candidate'; unverifiedRequirementIds: string[] }
 }
 /** Loads one independent pack. Review descriptors bind actual resources but never issue administrative review or P3. */
-export async function loadThemePack(id: ThemePackArtId, signal?: AbortSignal): Promise<LoadedThemePack> {
+export async function loadThemePack(id: ThemePackId, signal?: AbortSignal): Promise<LoadedThemePack> {
   const project = await createThemePackCatalogProject(id, signal), pack = metadata(id), items = listSnapshotCatalogItems(toBundle(project))
-  const theme = project.document.styleThemes[project.document.activeStyleThemeRef!.id]
+  const themeRef = project.document.activeStyleThemeRef
+  const theme = themeRef && project.document.styleThemes[themeRef.id]
   const plan = THEME_PACK_PLANS.find(value => value.id === pack.planId)!
-  const coverage = { planHash: sha256Text(canonicalJson(plan)), requiredRequirementIds: plan.requirements.map(value => value.id),
+  const coverage = id === 'industrial' ? null : { planHash: sha256Text(canonicalJson(plan)), requiredRequirementIds: plan.requirements.map(value => value.id),
     scenarios: plan.scenarios.map((scenario, index) => {
       const layout = createThemePackSampleDocument(id, index as ThemePackSampleVariant)
       return { id: scenario.id, name: scenario.name, sourceLayoutHash: sha256Text(canonicalJson(layout)), requirementIds: [...scenario.requirementIds],
@@ -408,11 +411,15 @@ export async function loadThemePack(id: ThemePackArtId, signal?: AbortSignal): P
   const registration = validateThemePackRegistrations([{ id: pack.planId, planId: pack.planId, fixedVersion: pack.fixedVersion,
     name: pack.name, axes: cloneJson(pack.axes), availability: 'candidate', discovery: pack.discovery, catalogKeys: items.map(item => item.identity.key),
     coverage,
-    theme: { catalogId: theme.catalogId, fixedVersion: theme.version,
-      contentHash: sha256Text(canonicalJson({ theme, licenses: project.licenses, bindings: project.licenseBindings.filter(binding => binding.subjectKind === 'styleTheme' && binding.subjectId === theme.id) })) } }])[0]
+    theme: theme ? { catalogId: theme.catalogId, fixedVersion: theme.version,
+      contentHash: sha256Text(canonicalJson({ theme, licenses: project.licenses, bindings: project.licenseBindings.filter(binding => binding.subjectKind === 'styleTheme' && binding.subjectId === theme.id) })) } : null }])[0]
   const reviewContent = items.map(item => {
-    const definitions = item.selector.kind === 'prefab' ? project.document.prefabDefinitions[item.selector.definitionId].members.map(member => member.propTemplate.definitionRef!.id) : []
+    const prefab = item.selector.kind === 'prefab' ? project.document.prefabDefinitions[item.selector.definitionId] : undefined
+    const definitions = prefab?.members.flatMap(({ propTemplate }) => propTemplate.definitionRef ? [propTemplate.definitionRef.id] : []) ?? []
+    const lamp = prefab?.pathStyle?.lamps?.ref
+    if (lamp) definitions.push(lamp.id)
     const assetIds = new Set(item.thumbnailAssetIds)
+    for (const { propTemplate } of prefab?.members ?? []) if (propTemplate.appearance.kind === 'image') assetIds.add(propTemplate.appearance.assetId)
     for (const definitionId of definitions) {
       const appearance = project.document.propDefinitions[definitionId].defaultAppearance
       if (appearance.kind === 'image') assetIds.add(appearance.assetId)

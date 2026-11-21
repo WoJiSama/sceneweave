@@ -24,6 +24,7 @@
 | 类型或生产接线 | `npm run typecheck`、`npm run build` |
 | 页面操作 | `npx playwright test tests/<相关文件>.spec.ts` |
 | 工作流正文/元数据 | `npm run workflows:sync`、`npm run check:workflows`，以及`src/shared/ai/workflows/catalog.test.ts` |
+| MCP 制作与接续 | `node --test --test-concurrency=1 tools/harness/forest-server.test.mjs tools/image-import/workflow-host.test.mjs` |
 | AI服务 | `npm run ai:test -- <相关文件>`；受控响应与真实付费模型分开 |
 | 全量回归 | `npm test`、`npm run ai:test`、`npm run test:e2e`；在整合或发布需要时执行 |
 
@@ -35,7 +36,7 @@ Playwright升级后用`npx playwright install`安装匹配引擎；不要用旧�
 
 专用阶梯检查使用`src/shared/stairs/*.test.ts`和[页面旅程](../tests/staircase-tools.spec.ts)：覆盖完整踏面分割、重复/拉伸及纹理尺度、覆盖可逆、锁/过期候选、撤销重做、资源备份冷读与双受众PNG。可选私有岩岛用例仅在明确设置`SCENEWEAVE_STAIRCASE_REFERENCE`时执行，未提供输入时跳过；通用夹具通过不代表岩岛美术签收。
 
-图片完整补片边界衔接需检查旧`context`重放保持、新`context-blend`不读移除/保护/前序推断像素、范围外与保护零变化、预算及缺依据拒绝。实际作品另看100%与放大露底、移转及工作包/工程冷读；颜色误差或保存通过不代表隐藏板缝正确。
+图片完整补片边界衔接需检查旧 `context` 与 `context-blend` 重放、`context-blend-v2` 的同尺寸补区预算，以及移除、保护、前序推断和物件证据排除。实际作品按原尺寸及放大检查板缝、边缘和移转露底，分别冷开制作包、可编辑工程和个人库。
 
 <a id="performance"></a>
 ## 性能

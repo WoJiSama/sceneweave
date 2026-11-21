@@ -6,6 +6,7 @@ import { replayImageLayers, type ImageReplayLayer } from './layer-replay.js'
 import { imageImportLayerSchema } from './recipe.js'
 import { encodeSelectionMask } from './selection-mask.js'
 import { maskCoverage } from './repair-scope.js'
+import { sha256Bytes } from '../validation/hash.js'
 
 const bounds = { x: 72, y: 36, width: 24, height: 24 }
 // A single admissible integer translation, aligned with the independent fixture's texture period.
@@ -66,7 +67,22 @@ describe('complete translated patch with actual-boundary colour correction', () 
     expect(a.data).toEqual(before)
   })
 
-  it('does not read protected, prior-inference or future-object boundary colours', () => {
+  it('recovers a 545 × 255 plank patch where the original solver exhausts the budget', () => {
+    const width = 1160, height = 288, data = new Uint8ClampedArray(width * height * 4)
+    const mask = rectangle(600, 26, 545, 255), sample = { x: 4, y: 24, width: 549, height: 259 }
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const grain = (y % 65 < 3 ? -38 : 0) + x % 3 * 2
+      const light = x >= 576 ? 23 : 0
+      data.set([149 + grain + light, 119 + grain + light, 83 + grain + light, 255], (y * width + x) * 4)
+    }
+    const truth = { width, height, data }, damaged = copy(truth)
+    recolour(damaged, mask, [243, 0, 255, 255])
+    expect(() => repairContextBlend(damaged, mask, sample)).toThrow(/未收敛/)
+    const output = repairContextBlend(damaged, mask, sample, undefined, {}, 2)
+    expect(sha256Bytes(new Uint8Array(output.data))).toBe(sha256Bytes(new Uint8Array(truth.data)))
+  }, 10000)
+
+  it.each([1, 2] as const)('excludes protected, prior-inference and future-object boundary colours in solver %s', version => {
     const mask = irregularMask(), a = fixture(), b = fixture()
     const protection = rectangle(73, 39, 1, 15), prior = rectangle(75, 37, 9, 1), future = rectangle(76, 58, 13, 1)
     const priorInference = new Uint8Array(a.width * a.height)
@@ -75,7 +91,7 @@ describe('complete translated patch with actual-boundary colour correction', () 
       recolour(a, excluded, [255, 0, 255, 17]); recolour(b, excluded, [0, 255, 0, 255])
     }
     const evidence = { priorInference, objectEvidence: [future] }
-    const left = repairContextBlend(a, mask, donor, protection, evidence), right = repairContextBlend(b, mask, donor, protection, evidence)
+    const left = repairContextBlend(a, mask, donor, protection, evidence, version), right = repairContextBlend(b, mask, donor, protection, evidence, version)
     compareWritten(left, right, mask)
     compareOutside(left, a, mask); compareOutside(right, b, mask)
   })
@@ -142,8 +158,8 @@ describe('complete translated patch with actual-boundary colour correction', () 
     compareWritten(blend.remaining, source, irregularMask())
   })
 
-  it('passes future-object and prior-repair exclusions through the shared replay path', () => {
-    const source = fixture(), current = replayLayer(), future: ImageReplayLayer = {
+  it.each(['context-blend', 'context-blend-v2'] as const)('passes repair evidence exclusions through shared replay for %s', repair => {
+    const source = fixture(), current = { ...replayLayer(), repair }, future: ImageReplayLayer = {
       id: 'future', polygon: polygon({ x: 10, y: 6, width: 2, height: 2 }), donor: { x: 42, y: 6, width: 2, height: 2 }, renderLayer: 'object',
     }
     const before = source.data.slice()

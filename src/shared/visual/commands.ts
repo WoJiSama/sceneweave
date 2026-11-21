@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { visualBase } from './base.js'
 import { assertCommandBudget, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { z } from 'zod'
@@ -23,7 +24,7 @@ export const visualCommandSchemas = [
   z.object({ type: z.literal('upsertMaterializedEdge'), edge: materializedEdgeSchema }).strict(),
   z.object({ type: z.literal('upsertTerrainTransition'), transition: visual3TransitionSchema }).strict(),
   z.object({ type: z.literal('removeTerrainTransition'), id }).strict(),
-  z.object({ type: z.literal('upsertVisualBoundary'), boundary: visualBoundarySchema }).strict(),
+  z.object({ type: z.literal('upsertVisualBoundary'), boundary: visualBoundarySchema.omit({ fence: true }) }).strict(),
   z.object({ type: z.literal('removeVisualBoundary'), id, detach: z.boolean() }).strict(),
   z.object({ type: z.literal('upsertVisualEdgeLook'), edgeLook: visualEdgeLookSchema }).strict(),
   z.object({ type: z.literal('upsertVisualLight'), light: visualLightSchema }).strict(),
@@ -47,13 +48,13 @@ function physicalEntities(scene: SceneDocument) {
 function assertLayer(scene: SceneDocument, entity: VisualEntity): void {
   const layer = own(scene.userLayers, entity.layerId)
   if (!layer || layer.floorId !== entity.floorId || !own(scene.floors, entity.floorId)) throw new Error('视觉对象须选择同Floor现存用户图层。')
-  if (layer.editLocked) throw new Error('视觉对象所在用户图层已锁定。')
+  if (layer.editLocked) throw new OperationRejected('locked_dependency', '视觉对象所在用户图层已锁定。')
 }
 function assertVisualWritable(scene: SceneDocument, incoming: VisualEntity, previous?: VisualEntity): void {
   assertLayer(scene, incoming)
   if (previous) {
     assertLayer(scene, previous)
-    if (previous.editLocked || previous.editLocked !== incoming.editLocked) throw new Error('视觉对象已锁定，或试图通过普通编辑更改编辑锁。')
+    if (previous.editLocked || previous.editLocked !== incoming.editLocked) throw new OperationRejected('locked_dependency', '视觉对象已锁定，或试图通过普通编辑更改编辑锁。')
     if (previous.floorId !== incoming.floorId) throw new Error('视觉对象不能通过普通编辑跨Floor迁移。')
   } else {
     if (incoming.editLocked) throw new Error('新视觉对象默认不得带编辑锁。')
@@ -94,7 +95,7 @@ function checkPhysicalLocks(scene: SceneDocument, ids: readonly string[]): void 
     if (transition && (transition.editLocked || scene.userLayers[transition.layerId]?.editLocked)) return true
     return false
   })
-  if (locked.length) throw new Error(`视觉事务涉及锁定对象、图层或依赖：${locked.join('、')}。`)
+  if (locked.length) throw new OperationRejected('locked_dependency', `视觉事务涉及锁定对象、图层或依赖：${locked.join('、')}。`)
 }
 function chainSamplePositions(boundary: VisualBoundary, reverse: boolean): PointMm[] {
   const positions = sampleVisualBoundary(boundary).points.map(point => ({ ...point }))
@@ -145,6 +146,7 @@ function replaceTerrainChain(scene: SceneDocument, boundary: VisualBoundary, sid
 function applyBoundary(scene: SceneDocument, boundary: VisualBoundary, context: PreparationContext): void {
   const visual = visualBase(scene)!, previous = own(visual.boundaries, boundary.id)
   assertVisualWritable(scene, boundary, previous)
+  if (previous?.fence) throw new Error('请通过实体围栏面板编辑这条线。')
   if (previous && !equal(previous.binding, boundary.binding)) throw new Error('更换曲线绑定须先显式解除原绑定，再创建新的边界身份。')
   sampleVisualBoundary(boundary)
   const used = new Set<string>()
@@ -153,7 +155,7 @@ function applyBoundary(scene: SceneDocument, boundary: VisualBoundary, context: 
     const path = own(scene.paths, boundary.binding.pathId)
     if (!path || path.floorId !== boundary.floorId || boundary.closed) throw new Error('道路曲线须绑定同Floor现存开放道路。')
     const points = sampleVisualBoundary(boundary).points
-    if (points.length > 256) throw new Error('道路曲线采样超过256点预算。')
+    if (points.length > 256) throw new OperationRejected('operation_budget', '道路曲线采样超过256点预算。')
     path.centerlineMm = cloneJson(points)
   }
   visual.boundaries[boundary.id] = cloneJson(boundary)
@@ -301,7 +303,7 @@ function mutate(scene: SceneDocument, command: VisualCommand, context: Preparati
       if (scene.visual?.version !== 3) throw new Error('地形过渡需要严格visual3。')
       const previous = scene.visual.transitions[command.transition.id]
       if (previous) {
-        if (previous.editLocked || previous.floorId !== command.transition.floorId || previous.boundaryId !== command.transition.boundaryId) throw new Error('过渡已锁定或不能更换来源边界。')
+        if (previous.editLocked || previous.floorId !== command.transition.floorId || previous.boundaryId !== command.transition.boundaryId) throw new OperationRejected(previous.editLocked ? 'locked_dependency' : 'invalid_geometry', '过渡已锁定或不能更换来源边界。')
       } else if (geometryIdentityIds(scene).has(command.transition.id) || Object.hasOwn(scene.visual.transitions, command.transition.id)) throw new Error('过渡身份ID已被其他记录占用。')
       assertVisualWritable(scene, command.transition, previous)
       scene.visual.transitions[command.transition.id] = cloneJson(command.transition)
@@ -319,6 +321,7 @@ function mutate(scene: SceneDocument, command: VisualCommand, context: Preparati
     case 'removeVisualBoundary': {
       const boundary = own(visual.boundaries, command.id)
       if (!boundary) throw new Error('待解除的视觉边界不存在。')
+      if (boundary.fence) throw new Error('请通过实体围栏面板移除这条线。')
       assertVisualWritable(scene, boundary, boundary)
       if (boundary.binding.kind !== 'decoration' && !command.detach) throw new Error('物理曲线须明确detach=true，保留当前几何后解除控制。')
       if (Object.values(visual.edgeLooks).some(edge => edge.boundaryId === boundary.id)) throw new Error('边界仍有边缘外观，请先显式移除外观。')
@@ -412,7 +415,7 @@ export function applyVisualCommand(scene: SceneDocument, input: VisualCommand, c
   const issue = inspectJsonInput(input), parsed = !issue && visualCommandSchema.safeParse(input)
   if (issue || !parsed || !parsed.success) throw new Error(`视觉指令无效：${issue?.message ?? (parsed && !parsed.success ? parsed.error.issues.map(issue => issue.message).join('；') : '')}`)
   const command = parsed.data, before = cloneJson(scene), dependenciesBefore = effectDependencies(before, command)
-  if (command.type === 'setVisualEnvironment' && Object.values(before.userLayers).some(layer => layer.editLocked)) throw new Error('全景环境事务涉及锁定用户图层。')
+  if (command.type === 'setVisualEnvironment' && Object.values(before.userLayers).some(layer => layer.editLocked)) throw new OperationRejected('locked_dependency', '全景环境事务涉及锁定用户图层。')
   checkPhysicalLocks(before, dependenciesBefore)
   mutate(scene, command, context)
   // Windows/walls/surfaces and bound geometry can all change transition input
@@ -421,7 +424,7 @@ export function applyVisualCommand(scene: SceneDocument, input: VisualCommand, c
   const dependenciesAfter = effectDependencies(scene, command), commandCost = visualCommandCost(before, scene)
   checkPhysicalLocks(before, [...dependenciesBefore, ...dependenciesAfter, ...transitionImpact.affectedIds,
     ...outdoorDependencies(before, transitionImpact.affectedIds), ...outdoorDependencies(scene, transitionImpact.affectedIds), ...changedTransitionDependencies(before, scene)])
-  if (!isManualTransactionBudget(budget) && commandCost > COMMAND_LIMIT) throw new Error('展开后的视觉事务超过256条操作预算，不能拆批绕过。')
+  if (!isManualTransactionBudget(budget) && commandCost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '展开后的视觉事务超过256条操作预算，不能拆批绕过。')
   if (isManualTransactionBudget(budget)) assertCommandBudget(budget, measureCommandBudget(before, scene, undefined, undefined, budget))
   return inspectVisualChanges(before, scene, [command])
 }

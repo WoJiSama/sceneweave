@@ -1,3 +1,4 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import type { ProjectData } from '../model/project.js'
 import type { Prop, BoundsMm, PointMm, SceneDocument, SurfaceRef } from '../model/scene.js'
 import { effectiveEditLocked } from '../commands/layers.js'
@@ -12,7 +13,7 @@ export const ARTWORK_SKILL = Object.freeze({ id: 'sceneweave-artwork-authoring' 
     + 'Use style operations for tint, brightness and opacity. Preserve the physical size, footprint, support, passage, locks, secrets, and manual member records. '
     + 'SVG and style are deferred artwork recipes: the browser independently generates and verifies actual PNG pixels, immutable source versions and licences. '
     + 'Read targets first, work in small atomic steps, check the draft, and explain the change for human review. Never claim the main project changed before local adoption.' })
-function deny(message: string): never { throw new Error(`AI素材范围无效：${message}`) }
+function deny(message: string): never { throw new OperationRejected('outside_scope', `AI素材范围无效：${message}`) }
 const within = (b: BoundsMm, points: PointMm[]) => points.every(p => p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height)
 export function artworkVisualPoints(prop: Prop): PointMm[] {
   const b = prop.visualBoundsMm, a = prop.rotationDeg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a)

@@ -11,6 +11,7 @@ import { applyCompositionCommandsV6 } from '../core/v6/commands.js'
 import { createCompositionContentV6, inspectAppearanceScopeV6, listRequiredVariantsV6, resolveAppearanceV6 } from '../core/v6/graph.js'
 import { advanceHistoryIdentityV6, createHistoryIdentityTraceV6, outdoorIdentityDescriptorsV6 } from '../core/v6/identity.js'
 import { buildRestorePlanV6 } from '../core/v6/restore.js'
+import { appearanceGraphSchemaV6 } from '../core/v6/schema.js'
 import { compositionFixtureV6, imageFixtureV6, prefabFixtureV6, surfaceFixtureV6 } from '../core/v6/test-fixtures.js'
 import type { CompositionCommandV6, CompositionContentV6 } from '../core/v6/types.js'
 import { applyCompositionCommands } from './appearance/commands.js'
@@ -57,7 +58,8 @@ function legacy(input: CompositionContent): CompositionContentV6 {
   expect(presentations).toEqual(Object.fromEntries(Object.values(appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])))
   // These differential fixtures only use historical fields. The strict reader
   // rejects any current-only field instead of asserting away new union members.
-  return { document: sceneSchemaV3.parse({ ...document, format: 'sceneweave', schemaVersion: 3 }), historyIdentity: { ...identity, version: 3 }, appearance: { ...appearance, version: 1 } }
+  return { document: sceneSchemaV3.parse({ ...document, format: 'sceneweave', schemaVersion: 3 }), historyIdentity: { ...identity, version: 3 },
+    appearance: appearanceGraphSchemaV6.parse({ ...appearance, version: 1 }) }
 }
 const legacyAppearance = (appearance: CompositionContent['appearance']) => {
   const { presentations, ...fields } = appearance

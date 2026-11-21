@@ -1,4 +1,6 @@
+import type { BridgeArt } from '../path-assembly/profiles.js'
 import type { PathAttachment } from '../path-attachments/contracts.js'
+import type { PathAssembly, PathStyleDefaults } from '../path-assembly/contracts.js'
 import type { ConnectionRoute } from '../geometry/connection-route.js'
 import type { RegionalModel1 } from '../terrain-generation/contracts.js'
 import type { GenerationSystem5, VisualSystem3 } from '../terrain-generation/composition-contracts.js'
@@ -21,11 +23,16 @@ export type PointMm = { x: number; y: number }
 export type BoundsMm = { x: number; y: number; width: number; height: number }
 export type Visibility = 'public' | 'gm'
 export interface Editable { id: Id; floorId: Id; editLocked: boolean }
+export interface FloorArtwork { assetId: Id; boundsMm: BoundsMm }
 export interface Floor {
   id: Id; name: string; boundsMm: BoundsMm
   outputBoundsMm?: BoundsMm
+  /** Calibrated image below the scene geometry, subject to player output masks. */
+  artwork?: FloorArtwork
   environment?: VisualEnvironment
   links?: import('../floors/links.js').FloorLink[]
+  /** Aligned paint-only context. Physical entities remain in their own Floor. */
+  underlayFloorId?: Id
 }
 export interface Vertex extends Editable { xMm: number; yMm: number }
 export interface AssetRef {
@@ -37,8 +44,12 @@ export interface AssetRef {
 }
 export interface Region extends Editable {
   boundaryMm: PointMm[]
-  kind: 'terrain' | 'hazard' | 'manualMask'
+  kind: 'terrain' | 'hazard' | 'manualMask' | 'partition'
+  name?: string
   blocksMovement: boolean; movementCostMultiplier: number; visibility: Visibility
+  /** Fixed player masks may retain only interiors of currently public rooms.
+   * Private content is still filtered before every geometric/visual derivation. */
+  preservePublicRooms?: boolean
 }
 export type SizeMm = { width: number; height: number }
 export type VersionRef = { id: Id; version: number }
@@ -47,7 +58,13 @@ export interface DefinitionIdentity { id: Id; catalogId: string; version: number
 export type SurfaceRef = { kind: 'floor' | 'terrainArea' | 'room'; id: Id }
 export type GroundSurfaceRef = { kind: 'floor' | 'terrainArea'; id: Id }
 export type PropSymbol = 'table' | 'chair' | 'shelf' | 'rug' | 'crate'
-export type Appearance = ({ kind: 'image'; assetId: Id } | { kind: 'symbol'; symbol: PropSymbol }) & { tint: string | null; opacity: number }
+export type { BridgeArt } from '../path-assembly/profiles.js'
+export interface PropGlow { color: string; radiusMm: number; intensity: number; anchor: { u: number; v: number } }
+export type Appearance = ({ kind: 'image'; assetId: Id } | { kind: 'symbol'; symbol: PropSymbol; bridgeArt?: BridgeArt; detailPercent?: number }) & {
+  tint: string | null; opacity: number; mirrorY?: true
+  /** A local emitter follows the pictured fixture. Null explicitly disables it. */
+  glow?: PropGlow | null
+}
 export interface ShadowStyle { directionDeg: number; offsetMm: number; blurMm: number; opacity: number; color: string }
 export type RenderLayer = 'ground' | 'object' | 'canopy'
 export type ShadowClass = 'none' | 'furniture' | 'vegetation'
@@ -85,6 +102,8 @@ export interface Opening extends Editable {
 }
 export interface Prop extends Editable {
   waterAppearance?: WaterAppearance
+  sightOccluder?: import('../validation/primitives.js').SightOccluder
+  pipePorts?: import('../validation/primitives.js').PipePorts
   definitionRef: VersionRef | null; appearance: Appearance; visualBoundsMm: BoundsMm
   positionMm: PointMm; rotationDeg: number; footprintMm: SizeMm; footprintOffsetMm: PointMm
   blocksMovement: boolean; blocksSight: boolean; visibility: Visibility; roomId?: Id; supportRef: SurfaceRef
@@ -92,6 +111,8 @@ export interface Prop extends Editable {
 }
 export interface TerrainPoint { id: Id; segmentId: Id; positionMm: PointMm }
 export interface TerrainArea extends Editable {
+  /** Visual facade attached to the exposed high side of this outline. */
+  facade?: import('../appearance/terrain-facade.js').TerrainFacade | null
   /** Paint-only inward feather. Uses the same mask as local material overlays. */
   boundaryBlendMm?: number
   waterSurface?: WaterSurface
@@ -105,6 +126,8 @@ export interface TerrainEdge extends Editable {
   visibility: Visibility; source: { areaId: Id; segmentId: Id }; neighborAreaId: Id | null
   kind: 'shore' | 'cliff' | 'materialTransition'; shoreline: boolean; blocksMovement: boolean; blocksSight: boolean
   surfaceStyle: SurfaceStyle | null; styleOverride: EdgeStyle | null
+  /** Independent shoreline paint on either a level edge or a cliff. */
+  shoreStyle?: EdgeStyle
 }
 export interface TerrainConnection extends Editable {
   visibility: Visibility; kind: 'stairs' | 'ramp'
@@ -120,12 +143,15 @@ export interface TerrainConnection extends Editable {
   staircase?: StaircaseConfig
 }
 export interface Path extends Editable {
+  assembly?: PathAssembly
   visibility: Visibility; centerlineMm: PointMm[]; widthMm: number; supportRefs: SurfaceRef[]
+  widthSections?: import('../geometry/route-width.js').RouteWidthSection[]
+  staircase?: import('../stairs/contracts.js').StaircaseConfig
   surfaceStyle: SurfaceStyle | null; movementCostMultiplier: number; renderOrder: number
 }
-export type PropTemplate = Pick<Prop, 'definitionRef' | 'appearance' | 'positionMm' | 'rotationDeg' | 'visualBoundsMm' | 'footprintMm' | 'footprintOffsetMm' | 'blocksMovement' | 'blocksSight' | 'renderLayer' | 'renderOrder' | 'shadowClass' | 'shadowOverride' | 'waterAppearance'>
-export interface PrefabDefinition extends DefinitionIdentity { name: string; tags: string[]; members: { key: string; propTemplate: PropTemplate }[] }
-export const PROP_OVERRIDE_FIELDS = ['definitionRef', 'supportRef', 'roomId', 'visibility', 'appearance', 'visualBoundsMm', 'positionMm', 'rotationDeg', 'footprintMm', 'footprintOffsetMm', 'blocksMovement', 'blocksSight', 'shadowClass', 'shadowOverride', 'renderLayer', 'renderOrder', 'waterAppearance'] as const
+export type PropTemplate = Pick<Prop, 'definitionRef' | 'appearance' | 'positionMm' | 'rotationDeg' | 'visualBoundsMm' | 'footprintMm' | 'footprintOffsetMm' | 'blocksMovement' | 'blocksSight' | 'renderLayer' | 'renderOrder' | 'shadowClass' | 'shadowOverride' | 'waterAppearance' | 'sightOccluder' | 'pipePorts'>
+export interface PrefabDefinition extends DefinitionIdentity { name: string; tags: string[]; pathStyle?: PathStyleDefaults; members: { key: string; propTemplate: PropTemplate }[] }
+export const PROP_OVERRIDE_FIELDS = ['definitionRef', 'supportRef', 'roomId', 'visibility', 'appearance', 'visualBoundsMm', 'positionMm', 'rotationDeg', 'footprintMm', 'footprintOffsetMm', 'blocksMovement', 'blocksSight', 'shadowClass', 'shadowOverride', 'renderLayer', 'renderOrder', 'waterAppearance', 'sightOccluder', 'pipePorts'] as const
 export type PropOverrideField = typeof PROP_OVERRIDE_FIELDS[number]
 export interface PrefabInstance extends Editable {
   visibility: Visibility; definitionRef: VersionRef; anchorMm: PointMm; rotationDeg: number

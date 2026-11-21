@@ -1,5 +1,10 @@
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { reconcileDecorationMembers } from '../decorations/commands.js'
 import { syncNewAttachmentProofs } from '../attachments/index.js'
+import { publishPathStyleSchema } from '../path-assembly/contracts.js'
+import { publishPathStyle } from '../path-assembly/publish-style.js'
+import { retainPathMemberAppearance } from '../path-assembly/commands.js'
+import { publishPrefabRevision, publishPrefabRevisionSchema, syncPrefabRevision, syncPrefabRevisionSchema } from './prefab-revisions.js'
 import { reconcileAggregateMembers } from '../aggregates/state.js'
 import { assertCommandBudget, commandSelectionLimit, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { definitionPresentation, propPresentation } from './presentation.js'
@@ -106,6 +111,9 @@ function compositionSchemasForLimit(limit: number, budget?: CommandBudgetProfile
     z.object({ type: z.literal('toggleAppearanceAdjustment'), scope, adjustmentId: id, enabled: z.boolean() }).strict(),
     z.object({ type: z.literal('removeAppearanceAdjustment'), scope, adjustmentId: id }).strict(),
     z.object({ type: z.literal('setAppearanceSource'), ids, sourceId: id }).strict(),
+    publishPathStyleSchema,
+    publishPrefabRevisionSchema,
+    syncPrefabRevisionSchema,
     z.object({ type: z.literal('createPrefab'), id, definitionId: id, name: z.string().trim().min(1).max(80), ids: ids.max(128), anchorMm: point, licenseRef: id.optional(), tags: z.array(z.string().min(1).max(256)).max(64).optional() }).strict(),
     z.object({ type: z.literal('instantiatePrefab'), id, definitionRef: version, memberIds: z.record(id, id), anchorMm: point, rotationDeg: z.number().finite().min(0).lt(360).optional(), layerId: id, supportRef: surfaceRef }).strict(),
     z.object({ type: z.literal('duplicatePrefab'), id, newId: id, memberIds: z.record(id, id), offsetMm: point }).strict(),
@@ -124,7 +132,7 @@ function schemasForBudget(budget?: CommandBudgetProfile): z.ZodType<CompositionC
   if (!schema) { schema = compositionSchemasForLimit(limit, budget); manualSchemas.set(limit, schema) }
   return schema
 }
-const c3Types = new Set(['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource', 'createPrefab', 'instantiatePrefab', 'duplicatePrefab', 'deletePrefab', 'detachPrefabMember', 'resetPrefabMember'])
+const c3Types = new Set(['setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment', 'setAppearanceSource', 'publishPathStyle', 'publishPrefabRevision', 'syncPrefabRevision', 'createPrefab', 'instantiatePrefab', 'duplicatePrefab', 'deletePrefab', 'detachPrefabMember', 'resetPrefabMember'])
 const own = <T>(record: Record<string, T>, key: string): T | undefined => Object.hasOwn(record, key) ? record[key] : undefined
 /** Internal changed-entity accounting receives only independently parsed JSON records. */
 function equalOwnedEntity(left: unknown, right: unknown): boolean {
@@ -138,7 +146,7 @@ function equalOwnedEntity(left: unknown, right: unknown): boolean {
 }
 const required = <T>(record: Record<string, T>, key: string, label: string): T => { const value = own(record, key); if (!value) throw new Error(`${label}不存在：${key}。`); return value }
 function assertUnlocked(document: SceneDocument, ids: readonly string[]): void {
-  for (const id of ids) if (effectiveEditLocked(document, id)) throw new Error(`实体、成员、图层或依赖已锁定：${id}。`)
+  for (const id of ids) if (effectiveEditLocked(document, id)) throw new OperationRejected('locked_dependency', `实体、成员、图层或依赖已锁定：${id}。`)
 }
 function assertFresh(content: CompositionContent, id: string): void {
   if (geometryIdentityIds(content.document).has(id) || Object.hasOwn(content.document.userLayers, id) || Object.hasOwn(content.historyIdentity.propTokens, id) || Object.hasOwn(content.historyIdentity.prefabTokens, id) || Object.hasOwn(content.historyIdentity.outdoorTokens, id)
@@ -212,7 +220,7 @@ function instantiate(content: CompositionContent, command: Extract<CompositionCo
   const document = content.document, graph = content.appearance, definition = required(document.prefabDefinitions, command.definitionRef.id, '固定组合定义')
   if (definition.version !== command.definitionRef.version) throw new Error('组合固定定义版本不匹配。')
   const template = required(graph.prefabAppearanceTemplates, definition.id, '组合外观模板'), layer = required(document.userLayers, command.layerId, '用户图层')
-  if (layer.editLocked) throw new Error('目标图层已锁定。')
+  if (layer.editLocked) throw new OperationRejected('locked_dependency', '目标图层已锁定。')
   assertFresh(content, command.id); assertSupport(document, layer.floorId, command.supportRef)
   if (!memberIdsMatch(definition.members.map(member => member.key), command.memberIds) || Object.values(command.memberIds).includes(command.id)) throw new Error('组合放置须为每个固定成员明确给出不同新ID。')
   const rotation = command.rotationDeg ?? 0, privatePlacement = template.visibility === 'gm' || !createPublicVisibility(document).surface(command.supportRef)
@@ -321,7 +329,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
   if (propTransaction) {
     accounting?.onPropUpdateTransaction?.(propTransaction)
     const operationCost = manual ? propTransaction.changes.length : propTransaction.steps.length
-    if (!budget && initialCost + operationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。')
+    if (!budget && initialCost + operationCost > 256) throw new OperationRejected('operation_budget', '展开后的组合事务超过256条操作预算，不能拆批绕过。')
     const common = registerPropReceipt(propTransaction, initialCost)
     for (const [index, step] of propTransaction.steps.entries()) {
       onSceneDraft?.(step.after.document, step.command, step.commandCost)
@@ -354,7 +362,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     accounting?.onTransactionStep?.(step)
   }
   const identityTrace = createHistoryIdentityTrace(source.historyIdentity, source.document, context, { initializeStructures: commands.some(command => command.type === 'initializeStructureIdentity' || ['createFloor', 'renameFloor', 'setFloorOutputBounds', 'setFloorEnvironment', 'deleteEmptyFloor', 'addAttachmentSurface', 'bindPropAttachment', 'createCarvedMountainPath'].includes(command.type)) })
-  const consume = (value: number) => { cost += value; if (!budget && initialCost + cost + generationCost > 256) throw new Error('展开后的组合事务超过256条操作预算，不能拆批绕过。') }
+  const consume = (value: number) => { cost += value; if (!budget && initialCost + cost + generationCost > 256) throw new OperationRejected('operation_budget', '展开后的组合事务超过256条操作预算，不能拆批绕过。') }
   if (!isComposition[0]) {
     const sceneCommands = commands as SceneCommand[]
     const structuralBatch = sceneCommands.every(command => isBuildingCommand(command) || ['moveVertex', 'setWallThickness', 'reverseWall', 'splitWall'].includes(command.type))
@@ -362,6 +370,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     // mappings, presentations or adjustments. Only this owned, fully checked
     // input may carry the unchanged graph through to final draft validation.
     const unchangedAppearance = ownedDraft && sceneCommands.every(command => command.type === 'updateProp')
+      && !Object.values(source.document.visual.base.base.boundaries).some(boundary => boundary.fence?.pipeLinks)
     const fixedUprightPropIds = new Set([
       ...Object.keys(source.document.props).filter(id => propPresentation(source.appearance, id)?.mode === 'nearSide'),
       ...Object.values(source.document.decorations ?? {}).filter(row => definitionPresentation(source.appearance, row.definitionRef)?.mode === 'nearSide').map(row => row.id),
@@ -435,7 +444,10 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
             }
             else record[key] = list.filter(item => item.id !== adjustmentId)
           }
-          if (command.scope.kind === 'targets') plan.targetIds.forEach(id => memberOverrides(content.document, id))
+          if (command.scope.kind === 'targets') {
+            plan.targetIds.forEach(id => memberOverrides(content.document, id))
+            retainPathMemberAppearance(content.document, plan.targetIds)
+          }
           break
         }
         case 'setAppearanceSource': {
@@ -447,8 +459,12 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
             else throw new Error('外观源类型与显式目标不符。')
             memberOverrides(content.document, id)
           }
+          retainPathMemberAppearance(content.document, plan.targetIds)
           break
         }
+        case 'publishPathStyle': assertFresh(content, command.id); consume(publishPathStyle(content, command)); break
+        case 'publishPrefabRevision': assertFresh(content, command.definitionId); consume(publishPrefabRevision(content, command)); break
+        case 'syncPrefabRevision': consume(syncPrefabRevision(content, command)); break
         case 'createPrefab': consume(createPrefab(content, command)); break
         case 'instantiatePrefab': consume(instantiate(content, command)); break
         case 'duplicatePrefab': consume(duplicate(content, command)); break
@@ -466,7 +482,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
           if (command.memberIds.length !== live.length || live.some(id => !command.memberIds.includes(id))) throw new Error('删除组合须明确确认全部当前活成员，不能隐式展开。')
           assertUnlocked(document, [group.id, ...live]); consume(live.length + 1)
           if (Object.values(document.notes).some(note => note.anchor.type === 'entity' && note.anchor.entityId === group.id) || document.constraints.pathChecks.some(check => [check.from, check.to].some(anchor => anchor.type === 'entity' && anchor.entityId === group.id))) throw new Error('组合仍有注记/路径依赖，不能删除。')
-          content.document = live.length ? applyCommands(document, live.map(id => ({ type: 'deleteProp', id })), context, { budget }) : document
+          content.document = live.length ? applyCommands(document, live.map(id => ({ type: 'deleteProp', id })), context, { budget, historyIdentity: content.historyIdentity }) : document
           delete content.document.prefabInstances[group.id]; delete content.document.entityLayers[group.id]
           break
         }
@@ -481,7 +497,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         const expanded = terrainCommandCost(beforeTerrain.document, content.document, { before: beforeTerrain, after: content })
         consume(Math.max(1, cost - beforeCost, expanded.items.physicalAndVisual) - (cost - beforeCost))
         generationCost += expanded.total - expanded.items.physicalAndVisual
-        if (!budget && initialCost + cost + generationCost > 256) throw new Error('外观、实体与生成记录累计展开超过256条操作预算。')
+        if (!budget && initialCost + cost + generationCost > 256) throw new OperationRejected('operation_budget', '外观、实体与生成记录累计展开超过256条操作预算。')
       }
       onContentDraft?.(content)
       observeTransaction(content, command, cost - beforeCost)
@@ -490,7 +506,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     content = syncAppearanceGraph(content)
     {
       generationCost += terrainCommandCost(beforeSync.document, content.document, { before: beforeSync, after: content }).total
-      if (!budget && initialCost + cost + generationCost > 256) throw new Error('固定源保全与组合事务累计展开超过256条操作预算。')
+      if (!budget && initialCost + cost + generationCost > 256) throw new OperationRejected('operation_budget', '固定源保全与组合事务累计展开超过256条操作预算。')
     }
   }
   let operationCost = cost + generationCost
@@ -507,7 +523,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
     generationCost += finalDelta.total - finalDelta.items.physicalAndVisual
     const expanded = terrainCommandCost(source.document, content.document, { before: source, after: content })
     operationCost = Math.max(cost + generationCost, expanded.total)
-    if (!budget && initialCost + operationCost > 256) throw new Error('外观、实体与生成记录实际展开超过256条操作预算。')
+    if (!budget && initialCost + operationCost > 256) throw new OperationRejected('operation_budget', '外观、实体与生成记录实际展开超过256条操作预算。')
   }
   content.historyIdentity = identityTrace.finish(content.document)
   reconcileAggregateMembers(source.document, content.document)

@@ -32,6 +32,12 @@ describe('finite source-grid minimum cut', () => {
     }
   })
 
+  it('returns the smallest source side when moving an unseeded pixel has equal cost', () => {
+    const unary = new Float64Array([0, .01, 0]), weights = new Float64Array([1, 1, 0])
+    const seeds = new Int8Array([1, 0, -1])
+    expect(cutImageGrid(3, 1, unary, unary, weights, weights, seeds)).toEqual(new Uint8Array([255, 0, 0]))
+  })
+
   it('keeps hard labels against every finite unary and neighbour preference', () => {
     const foreground = new Float64Array([100, 0]), background = new Float64Array([0, 100]), weights = new Float64Array([100, 100])
     expect(cutImageGrid(2, 1, foreground, background, weights, weights, new Int8Array([1, -1]))).toEqual(new Uint8Array([255, 0]))

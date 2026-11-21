@@ -3,11 +3,14 @@ import { CATALOG_CURATION, catalogCurationFor as curated } from '../../platform/
 import { loadBuiltinCatalog } from '../../platform/browser/content'
 import { validation, runtime } from '../../platform/browser/runtime'
 import { toBundle, fromBundle, fromVerifiedBundle, type EditableProject } from '../../application/workspace/project'
-import { listSnapshotCatalogItems, prepareLibraryEntry, loadLibraryCapsule, adoptLibraryEntries } from '../../shared/library/content'
+import { listSnapshotCatalogItems, prepareLibraryEntries, prepareLibraryEntry, loadLibraryCapsule, adoptLibraryEntries } from '../../shared/library/content'
 import { exportLibraryBackup, importLibraryBackup } from '../../shared/library/backup'
 import { catalogReadonlyTags as readonlyTags } from '../../shared/library/curation'
 import { filterCatalogItems as filterItems, EMPTY_CATALOG_FILTER } from '../../shared/library/query'
 import { LIBRARY_LIMITS, type CatalogOrganization, type PreparedLibraryEntry } from '../../shared/library/types'
+import { canonicalJson } from '../../shared/validation/json'
+import { sha256Text } from '../../shared/validation/hash'
+import { latestPrefabDefinition } from '../../shared/appearance/prefab-revisions'
 export * from '../../shared/library/organization'
 export {
   CATALOG_COLORS as CATALOG_COLORS_V1, LIBRARY_LIMITS as CATALOG_LIMITS_V1,
@@ -22,6 +25,8 @@ export type { CatalogFilter as CatalogFilterV1 } from '../../shared/library/quer
 export const EMPTY_CATALOG_FILTER_V1 = EMPTY_CATALOG_FILTER
 export const describeCatalogItems = (project: EditableProject) => listSnapshotCatalogItems(toBundle(project))
 export const prepareCatalogEntry = (project: EditableProject, selector: Parameters<typeof prepareLibraryEntry>[1], signal?: AbortSignal) => prepareLibraryEntry(toBundle(project), selector, { ...validation, signal })
+export const prepareCatalogEntries = (project: EditableProject, selectors: Parameters<typeof prepareLibraryEntries>[1], signal?: AbortSignal) =>
+  prepareLibraryEntries(toBundle(project), selectors, { ...validation, signal })
 export const readCatalogEntry = async (entry: PreparedLibraryEntry, signal?: AbortSignal) => fromBundle(await loadLibraryCapsule(entry, { ...validation, signal }), { ...validation, signal })
 export const loadBuiltinCatalogV1 = async (signal?: AbortSignal) => fromVerifiedBundle(await loadBuiltinCatalog({ ...validation, signal }), { signal })
 export const catalogCurationFor = curated
@@ -48,4 +53,20 @@ export async function readCatalogBackup(file: File, signal?: AbortSignal): Promi
 export async function prepareCatalogAdoption(project: EditableProject, entries: PreparedLibraryEntry[], signal?: AbortSignal) {
   const result = await adoptLibraryEntries(toBundle(project), entries, { ...validation, signal })
   return { ...result, project: await fromBundle(result.bundle, { ...validation, signal }) }
+}
+
+export async function loadLatestPrefabRevision(repository: CatalogRepositoryV1, project: EditableProject, groupId: string) {
+  const document = project.document, group = document.prefabInstances[groupId]
+  if (!group) throw new Error('请先选择一个模块实例。')
+  const base = document.prefabDefinitions[group.definitionRef.id]
+  const local = latestPrefabDefinition(document, base), namespace = sha256Text(canonicalJson(base.origin))
+  const snapshot = await repository.read()
+  const remote = snapshot.entries.filter(({ item }) => item.identity.kind === 'prefab' && item.identity.catalogId === base.catalogId
+    && item.identity.namespace === namespace).sort((a, b) => b.item.identity.fixedVersion - a.item.identity.fixedVersion)[0]
+  if (!remote || document.prefabDefinitions[remote.item.selector.definitionId] || remote.item.identity.fixedVersion < local.version) {
+    return { latest: local, project, revision: snapshot.revision }
+  }
+  const entry = await repository.load(remote.item.identity.key)
+  const hydrated = (await prepareCatalogAdoption(project, [entry])).project
+  return { latest: latestPrefabDefinition(hydrated.document, base), project: hydrated, revision: snapshot.revision }
 }

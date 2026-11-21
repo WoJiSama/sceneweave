@@ -110,7 +110,7 @@ export function analyzeImageImportRepair(source: ImagePixels, layers: readonly I
       surfaceMask: decodeSelectionMask(surface.mask, source), protectionMask: protection || undefined,
       excludedEvidenceMask: excluded, priorInference: before.provenance,
       pattern: surface.guided!.orientation === 'soft' ? 'soft' : 'planks', orientation: surface.guided!.orientation,
-      guides: surface.guided!.guides, detailPatches: surface.guided!.detailPatches, signal,
+      base: surface.guided!.base, guides: surface.guided!.guides, detailPatches: surface.guided!.detailPatches, signal,
     }).report
     if (diagnostic.strokeRegistration.totalRuns) {
       const registration = diagnostic.strokeRegistration
@@ -120,22 +120,26 @@ export function analyzeImageImportRepair(source: ImagePixels, layers: readonly I
       report.summary.push(`原尺寸接头实际求解共${registration.totalRuns}段，列出${registration.runs.length}段，${registration.unlistedRuns}段未列；已列${uncertain}段存在观察缺口或位移截限，请展开接头配准依据。它不证明线心正确，也不自动修改路径。`)
       report.limitations.push('接头配准只记录该次求解已读取的原图残差和红通道加权线心；像素数不重复计RGB通道。固定11行采样不等于完整参考横截面；零散暗点、底色残差和截限仍可能产生错高斜钩。无加权依据时使用人工路径先验，不是已观察接头。没有警告也不证明窄线归属或视觉通过。')
     }
-    const rgb = (color: number[]) => `[${color.map(value => Math.round(value * 10) / 10).join(',')}]`
-    const describe = (observation: GuidedToneObservation) => `(${observation.boundsPx.x},${observation.boundsPx.y}) ${observation.boundsPx.width}×${observation.boundsPx.height}px，实际${observation.usedPixels}个底色样本平均${rgb(observation.rgb)}；展示${observation.samples.length}个原像素：${observation.samples.map(pixel => `(${pixel.x},${pixel.y})${rgb(pixel.rgb)}`).join('、')}`
-    // Keep the regular list <=24 without displacing existing findings. Up to
-    // eight unlisted source observations stay separately available to UI/MCP.
-    const available = Math.max(0, 24 - report.conflicts.length)
-    const findings: NeighborhoodRepairConflict[] = diagnostic.observations.map((pair, i) => ({
-      id: `tone-observation-${i + 1}`, kind: 'ambiguous-source', severity: 'uncertain', boundsPx: { ...pair.source.boundsPx }, action: 'exclude-evidence',
-      message: `真实求解曾把此处原图颜色作为低频底色：${describe(pair.source)}。与24px内同声明材质的原观察冲突：${describe(pair.neighbor)}；最大通道差${Math.round(pair.channelDifference * 10) / 10}。`,
-      instruction: '请只判断这一小处是否为家具边线、其他材质或真实底材明暗／阴影；若不适合作此底材依据，局部补充取证排除后重放。原图线可能真实存在，取证排除不授权删除或改写原线；色差门槛只提供线索，不是材质分类、根因确认或视觉通过。',
-    }))
-    report.conflicts.push(...findings.slice(0, available))
-    const additional = findings.slice(available)
-    if (additional.length) results.find(result => result.surfaceId === surface.id)!.additionalToneFindings = additional
-    if (diagnostic.observations.length) report.status = 'needs-guidance'
-    report.summary.push(`底色取证检查仅复算${surfaceId !== undefined ? '本次指定的' : '实际移除最多的'}结构辅助表面“${surface.name}”：发现${diagnostic.observations.length}处局部明暗差异，常规冲突列表展示${Math.min(available, diagnostic.observations.length)}处${additional.length ? `，另列${additional.length}处原图底色依据` : ''}；每处最多8个真实样本。差异可能是原有渐变或阴影，需要局部判断。`)
-    report.limitations.push('底色比较仅检查原求解已固定的观察，按18级通道差、12级平均明暗差及24px距离提示；无提示不证明底材正确。保留原修复算法、范围和像素，不自动排除或删除原线。')
+    if (diagnostic.algorithm === 'context-blend-v2-strokes') {
+      report.summary.push('此表面从完整同材质补片衔接边界，在路径局部接续原尺寸笔迹。实际补图和接头证据供复核。')
+    } else {
+      const rgb = (color: number[]) => `[${color.map(value => Math.round(value * 10) / 10).join(',')}]`
+      const describe = (observation: GuidedToneObservation) => `(${observation.boundsPx.x},${observation.boundsPx.y}) ${observation.boundsPx.width}×${observation.boundsPx.height}px，实际${observation.usedPixels}个底色样本平均${rgb(observation.rgb)}；展示${observation.samples.length}个原像素：${observation.samples.map(pixel => `(${pixel.x},${pixel.y})${rgb(pixel.rgb)}`).join('、')}`
+      // Keep the regular list <=24 without displacing existing findings. Up to
+      // eight unlisted source observations stay separately available to UI/MCP.
+      const available = Math.max(0, 24 - report.conflicts.length)
+      const findings: NeighborhoodRepairConflict[] = diagnostic.observations.map((pair, i) => ({
+        id: `tone-observation-${i + 1}`, kind: 'ambiguous-source', severity: 'uncertain', boundsPx: { ...pair.source.boundsPx }, action: 'exclude-evidence',
+        message: `真实求解曾把此处原图颜色作为低频底色：${describe(pair.source)}。与24px内同声明材质的原观察冲突：${describe(pair.neighbor)}；最大通道差${Math.round(pair.channelDifference * 10) / 10}。`,
+        instruction: '请只判断这一小处是否为家具边线、其他材质或真实底材明暗／阴影；若不适合作此底材依据，局部补充取证排除后重放。原图线可能真实存在，取证排除不授权删除或改写原线；色差门槛只提供线索，不是材质分类、根因确认或视觉通过。',
+      }))
+      report.conflicts.push(...findings.slice(0, available))
+      const additional = findings.slice(available)
+      if (additional.length) results.find(result => result.surfaceId === surface.id)!.additionalToneFindings = additional
+      if (diagnostic.observations.length) report.status = 'needs-guidance'
+      report.summary.push(`底色取证检查仅复算${surfaceId !== undefined ? '本次指定的' : '实际移除最多的'}结构辅助表面“${surface.name}”：发现${diagnostic.observations.length}处局部明暗差异，常规冲突列表展示${Math.min(available, diagnostic.observations.length)}处${additional.length ? `，另列${additional.length}处原图底色依据` : ''}；每处最多8个真实样本。差异可能是原有渐变或阴影，需要局部判断。`)
+      report.limitations.push('底色比较仅检查原求解已固定的观察，按18级通道差、12级平均明暗差及24px距离提示；无提示不证明底材正确。保留原修复算法、范围和像素，不自动排除或删除原线。')
+    }
     if (surface.guided!.orientation !== 'soft') {
       const mask = decodeSelectionMask(surface.mask, source)
       const structureMotifs = inspectImageStructureMotifs(before.remaining, after.remaining, mask, part, (x, y) =>

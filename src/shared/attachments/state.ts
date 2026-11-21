@@ -9,7 +9,7 @@ import { emptyBudgetUsage } from '../budget/task-budget.js'
 import type { EmbedAttachment, PropAttachment } from './contracts.js'
 import { attachmentHash, type AttachmentScene } from './topology.js'
 import { attachmentLocalPoint, normalizeAttachmentAngle, propAttachmentMaterialized, propContactGeometryHash, surfaceGeometry, wallAttachmentFrame } from './contact.js'
-import { attachmentDependencyIds, assertAttachmentLocks } from './dependencies.js'
+import { attachmentDependencyIds, assertAttachmentLocks, followingAttachmentProps } from './dependencies.js'
 import { readAttachmentProofs, validateAttachmentProofs } from './identity.js'
 import { placePropAtAttachmentAnchor } from './commands.js'
 import { embedMaterialized } from './validation.js'
@@ -21,14 +21,33 @@ export interface AttachmentMutationResult { dependencyIds: string[]; affectedIds
  * after-native topology is observed by its real owner before new-proof sync. */
 export function followAttachments(before: AttachmentScene, after: AttachmentScene, identity?: HistoryIdentity): AttachmentMutationResult {
   if (identity) failIssues(validateAttachmentProofs(before, identity))
-  const dependencies = new Set<string>(), affected = new Set<string>(), pending = new Set(Object.keys(after.attachments ?? {})), visited = new Set<string>()
+  const explicitlyChangedProps = new Set(Object.values(after.attachments ?? {}).flatMap(row => {
+    if (row.mode === 'embed') return []
+    const previous = before.props[row.child.id], current = after.props[row.child.id]
+    return !previous || !current || propContactGeometryHash(previous) !== propContactGeometryHash(current) ? [row.child.id] : []
+  }))
+  const carriedPropIds = new Set<string>()
+  const movedOwners = new Set<string>()
+  for (const row of Object.values(after.attachments ?? {})) {
+    if (row.mode === 'embed' || row.follow !== 'follow') continue
+    const surface = after.attachmentSurfaces?.[row.surfaceId]
+    const previous = before.attachmentSurfaces?.[row.surfaceId]
+    if (!previous || !surface || movedOwners.has(surface.owner.id) || !same(previous, surface) || explicitlyChangedProps.has(row.child.id)) continue
+    if (!same(surfaceGeometry(before, previous), surfaceGeometry(after, surface))) {
+      movedOwners.add(surface.owner.id)
+      for (const child of followingAttachmentProps(before, surface.owner.id)) {
+        if (!explicitlyChangedProps.has(child)) carriedPropIds.add(child)
+      }
+    }
+  }
+  const dependencies = new Set<string>(), affected = new Set<string>(), pending = new Set(Object.keys(after.attachments ?? {}))
   // A child host must settle before its own descendants. The graph is finite;
   // lack of progress is a cycle, never permission to drop a relationship.
   while (pending.size) {
     let progress = false
     for (const id of [...pending]) {
       const row = after.attachments![id], prior = before.attachments?.[id]
-      if (!prior) { pending.delete(id); visited.add(id); progress = true; continue }
+      if (!prior) { pending.delete(id); progress = true; continue }
       const surfaces = row.mode === 'embed' ? row.surfaceIds : [row.surfaceId]
       const hostIds = surfaces.map(id => after.attachmentSurfaces?.[id]?.owner.id).filter((id): id is string => !!id)
       const upstream = Object.values(after.attachments ?? {}).filter(other => hostIds.includes(other.child.id)).map(other => other.id)
@@ -71,7 +90,10 @@ export function followAttachments(before: AttachmentScene, after: AttachmentScen
         const hostChanged = !same(surfaceGeometry(before, previousSurface), surfaceGeometry(after, surface))
         const childChanged = propContactGeometryHash(previousChild) !== propContactGeometryHash(child)
         if (hostChanged || childChanged) {
-          assertAttachmentLocks(before, deps); assertAttachmentLocks(after, deps)
+          // A locked attached item's placement is local. Only a passive
+          // transform may carry it. Layer, container and note locks still apply.
+          const carried = hostChanged && !childChanged ? carriedPropIds : undefined
+          assertAttachmentLocks(before, deps, carried); assertAttachmentLocks(after, deps, carried)
           if (row.follow === 'fixed' && hostChanged) throw new Error('fixed附着依赖的宿主实际面已改变，须明确解绑或重绑。')
           if (childChanged && !hostChanged) {
             // An explicit in-face child edit becomes a local manual anchor;
@@ -96,7 +118,7 @@ export function followAttachments(before: AttachmentScene, after: AttachmentScen
           for (const dependency of deps) dependencies.add(dependency)
         }
       }
-      pending.delete(id); visited.add(id); progress = true
+      pending.delete(id); progress = true
     }
     if (!progress) throw new Error('附着关系存在递归依赖环。')
   }

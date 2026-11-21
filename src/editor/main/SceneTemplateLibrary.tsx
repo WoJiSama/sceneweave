@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { describeBridgeTemplateChanges, prepareBridgeTemplateRevision, type BridgeTemplateField } from '../../application/workspace/bridge-template-revisions'
 import type { EditableProject } from '../../application/workspace/project'
 import { toBundle } from '../../application/workspace/project'
 import { inspectSceneTemplate, loadSceneTemplate, prepareSceneTemplate, SCENE_TEMPLATE_LIMITS, type SceneTemplateEntry, type SceneTemplatePlacement } from '../../shared/scene-templates/content'
@@ -9,24 +10,33 @@ import { runtime, validation } from '../../platform/browser/runtime'
 import { THEMED_ROOM_PRESETS, createThemedRoomProject, type ThemedRoomPresetId } from '../../platform/browser/content/themed-rooms'
 import SceneTemplateGallery from './SceneTemplateGallery'
 
+export const bridgeTemplateFieldLabels: Record<BridgeTemplateField, string> = {
+  finish: '桥体饰面', section: '护栏源节与节距', dimensions: '构件尺寸', fit: '构件续接', lamps: '沿线灯具',
+  structure: '边梁、桥柱与桥头', sides: '铺设侧', shoulderMm: '单侧边带宽', endClearanceMm: '桥头留空', gaps: '沿线留口',
+}
+
 function download(bytes: Uint8Array, name: string) {
   const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: 'application/octet-stream' })), link = document.createElement('a')
   link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-export default function SceneTemplateLibrary({ project, ids, floorId, layerId, disabled, onPendingChange, onDraftChange, onPreview, onCanvasPlacement }: {
+export default function SceneTemplateLibrary({ project, ids, floorId, layerId, disabled, onPendingChange, onDraftChange, onPreview, onCanvasPlacement, onBridgeSync }: {
   project: EditableProject; ids: readonly string[]; floorId: string; layerId: string; disabled: boolean
   onPendingChange: (value: boolean) => void; onDraftChange: (value: boolean) => void
   onPreview: (entry: SceneTemplateEntry, placement: SceneTemplatePlacement, signal: AbortSignal) => Promise<void>
   onCanvasPlacement: (entry: SceneTemplateEntry, placement: SceneTemplatePlacement, signal: AbortSignal) => Promise<void>
+  onBridgeSync: (bridgeId: string, original: SceneTemplateEntry, next: SceneTemplateEntry, signal: AbortSignal) => Promise<void>
 }) {
   const scene = project.document
   const [name, setName] = useState('我的房间'), [rooms, setRooms] = useState<string[]>([]), [notes, setNotes] = useState<string[]>([]), [masks, setMasks] = useState<string[]>([])
   const [entries, setEntries] = useState<SceneTemplateEntry[]>([]), [selected, setSelected] = useState(''), [revision, setRevision] = useState(0)
+  const [bridgePredecessors, setBridgePredecessors] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(true), [status, setStatus] = useState(''), [dirty, setDirty] = useState(false)
   const [loadedSceneId, setLoadedSceneId] = useState<string | null>(null)
   const loaded = loadedSceneId === scene.sceneId
   const [x, setX] = useState('2'), [y, setY] = useState('2'), [turns, setTurns] = useState<0 | 1 | 2 | 3>(0), [support, setSupport] = useState('floor')
   const [themePreset, setThemePreset] = useState<ThemedRoomPresetId>('guest-compact')
+  const [bridgeComparison, setBridgeComparison] = useState<{ id: string; key: string; revision: number; fields: BridgeTemplateField[] }>()
+  const [bridgeFields, setBridgeFields] = useState<BridgeTemplateField[]>([]), [bridgeRevisionName, setBridgeRevisionName] = useState('')
   const active = useRef<AbortController | null>(null), fileInput = useRef<HTMLInputElement>(null)
   useEffect(() => { onDraftChange(dirty); return () => onDraftChange(false) }, [dirty, onDraftChange])
   useEffect(() => { setRooms(ids.filter(id => !!scene.rooms[id])) }, [ids, scene.sceneId])
@@ -34,7 +44,7 @@ export default function SceneTemplateLibrary({ project, ids, floorId, layerId, d
   useEffect(() => {
     const controller = new AbortController(), repository = new SceneTemplateRepository({ ...validation, signal: controller.signal })
     active.current = controller; setBusy(true); setLoadedSceneId(null); setStatus('正在读取并校验场景模板库…')
-    void repository.read().then(value => { if (!controller.signal.aborted) { setEntries(value.entries); setRevision(value.revision); setLoadedSceneId(scene.sceneId); setStatus('') } }).catch(error => { if (!controller.signal.aborted) setStatus(`模板库读取未完成，请刷新重试：${String(error)}`) }).finally(() => {
+    void repository.read().then(value => { if (!controller.signal.aborted) { setEntries(value.entries); setRevision(value.revision); setBridgePredecessors(value.bridgePredecessors); setLoadedSceneId(scene.sceneId); setStatus('') } }).catch(error => { if (!controller.signal.aborted) setStatus(`模板库读取未完成，请刷新重试：${String(error)}`) }).finally(() => {
       repository.close()
       if (active.current === controller) { active.current = null; setBusy(false) }
     })
@@ -47,15 +57,24 @@ export default function SceneTemplateLibrary({ project, ids, floorId, layerId, d
     try { await job(repository, controller.signal) } catch (error) { if (!controller.signal.aborted) setStatus(`模板操作未完成：${error instanceof Error ? error.message : String(error)}`) }
     finally { repository.close(); if (active.current === controller) { active.current = null; setBusy(false); if (pending) onPendingChange(false) } }
   }
-  const update = (value: { entries: SceneTemplateEntry[]; revision: number }) => { setEntries(value.entries); setRevision(value.revision); setLoadedSceneId(scene.sceneId) }
+  const update = (value: Awaited<ReturnType<SceneTemplateRepository['read']>>) => { setEntries(value.entries); setRevision(value.revision); setBridgePredecessors(value.bridgePredecessors); setLoadedSceneId(scene.sceneId) }
   const request = { name, roomIds: rooms, noteIds: notes, maskIds: masks }
+  const selectedBridge = ids.length === 1 && scene.paths[ids[0]]?.assembly?.bridge ? ids[0] : undefined
+  const bridgeKey = selectedBridge ? scene.paths[selectedBridge].assembly!.bridge!.templateKey : undefined
+  const originalBridge = entries.find(row => row.key === bridgeKey)
+  const bridgeChanges = bridgeComparison && bridgeComparison.id === selectedBridge && bridgeComparison.key === bridgeKey
+    && bridgeComparison.revision === scene.revision ? bridgeComparison.fields : undefined
   let scope: ReturnType<typeof inspectSceneTemplate> | undefined, scopeError = ''
   if (rooms.length) { try { scope = inspectSceneTemplate(scene, request) } catch (error) { scopeError = error instanceof Error ? error.message : String(error) } }
   const toggle = (current: string[], id: string) => current.includes(id) ? current.filter(value => value !== id) : [...current, id]
   const chosen = entries.find(row => row.key === selected)
+  const saveTemplate = (input: unknown) => void run(async (repository, signal) => {
+    setStatus('正在检查完整范围与资源…')
+    const entry = await prepareSceneTemplate(toBundle(project), input, { validation: { ...validation, signal }, runtime })
+    update(await repository.commit(revision, [entry])); setSelected(entry.key); setDirty(false); setStatus(`已保存「${entry.name}」到场景模板库。`)
+  })
   return <section aria-label="房间与建筑模板" className="composition-source">
-    <h3>房间与建筑模板</h3>
-    <p className="asset-muted">保存完整结构、开口、当前家具与明确注记，在其他工程预览后一次放置。</p>
+    <h3>房间、建筑与桥梁模板</h3>
     <details><summary>灰橡主题房间</summary>
       <p>同一套原创灰橡、青灰织物与灰石素材，按真实尺寸布置。紧凑房间重新安排家具，保留实际门前和取用空间。</p>
       <label>主题房间样板<select aria-label="主题房间样板" value={themePreset} disabled={busy || disabled} onChange={event => setThemePreset(event.target.value as ThemedRoomPresetId)}>{THEMED_ROOM_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.name} · {preset.widthMm / 1000}×{preset.heightMm / 1000}米</option>)}</select></label>
@@ -75,12 +94,39 @@ export default function SceneTemplateLibrary({ project, ids, floorId, layerId, d
       <fieldset disabled={disabled || busy}><legend>玩家遮罩</legend>{Object.values(scene.regions).filter(region => region.floorId === floorId && region.kind === 'manualMask').map(region => <label key={region.id}><input type="checkbox" checked={masks.includes(region.id)} onChange={() => { setMasks(current => toggle(current, region.id)); setDirty(true) }}/>{region.id}</label>)}</fieldset>
     {scope && <p role="status">提取范围：{scope.roomIds.length}间房、{scope.wallIds.length}段墙、{scope.openingIds.length}处开口、{scope.propIds.length}件家具、{scope.prefabIds.length}个组合、{scope.noteIds.length}条注记；{scope.layerIds.length}个源图层在放置时映射到明确选择的目标图层。光照、场景滤镜和环境使用目标工程设置。</p>}
       {scopeError && <p role="alert">{scopeError}</p>}
-      <button className="secondary asset-wide" disabled={disabled || busy || !loaded || !scope || !name.trim()} onClick={() => void run(async (repository, signal) => {
-        setStatus('正在检查完整范围与资源…')
-        const entry = await prepareSceneTemplate(toBundle(project), request, { validation: { ...validation, signal }, runtime })
-        update(await repository.commit(revision, [entry])); setSelected(entry.key); setDirty(false); setStatus(`已保存「${entry.name}」到场景模板库；源工程未修改。`)
-      })}>保存完整场景模板</button>
+      <button className="secondary asset-wide" disabled={disabled || busy || !loaded || !scope || !name.trim()} onClick={() => saveTemplate(request)}>保存完整场景模板</button>
     </details>
+    {selectedBridge && <details><summary>保存当前整座桥</summary>
+      <label>桥梁模板名称<input value={name === '我的房间' ? '我的桥' : name} maxLength={80} disabled={busy} onChange={event => { setName(event.target.value); setDirty(true) }}/></label>
+      <fieldset disabled={busy || disabled}><legend>随桥携带的玩家遮罩</legend>{Object.values(scene.regions).filter(region => region.floorId === floorId && region.kind === 'manualMask').map(region => <label key={region.id}><input type="checkbox" checked={masks.includes(region.id)} onChange={() => { setMasks(current => toggle(current, region.id)); setDirty(true) }}/>{region.id}</label>)}</fieldset>
+      <button type="button" className="secondary asset-wide" disabled={disabled || busy || !loaded || !name.trim()} onClick={() => saveTemplate({ name: name === '我的房间' ? '我的桥' : name, bridgeId: selectedBridge, maskIds: masks })}>将整座桥保存到模板库</button>
+    </details>}
+    {selectedBridge && originalBridge && <details><summary>桥梁模板版本</summary>
+      <p>当前实例使用「{originalBridge.name}」。</p>
+      <button type="button" className="secondary asset-wide" disabled={disabled || busy || !loaded} onClick={() => void run(async (_repository, signal) => {
+        const fields = await describeBridgeTemplateChanges(project, selectedBridge, originalBridge, { ...validation, signal })
+        setBridgeComparison({ id: selectedBridge, key: originalBridge.key, revision: scene.revision, fields })
+        setBridgeFields([]); setBridgeRevisionName(`${originalBridge.name.slice(0, 74)} · 新版`); setStatus('')
+      }, false)}>比较原桥梁模板</button>
+      {bridgeChanges && <fieldset disabled={disabled || busy || !loaded}>
+        <legend>发布所选改动</legend>
+        <p>可发布桥体饰面与沿线设置。同步时保留实例的路线、铺面、桥路链接和手改构件。</p>
+        {!bridgeChanges.length && <p>当前实例采用原模板的桥体饰面与沿线设置。</p>}
+        {bridgeChanges.map(field => <label key={field}><input type="checkbox" checked={bridgeFields.includes(field)} onChange={event => {
+          setBridgeFields(current => event.target.checked ? [...current, field] : current.filter(value => value !== field)); setDirty(true)
+        }}/>{bridgeTemplateFieldLabels[field]}</label>)}
+        {!!bridgeChanges.length && <label>桥梁新版名称<input value={bridgeRevisionName} maxLength={80} onChange={event => { setBridgeRevisionName(event.target.value); setDirty(true) }}/></label>}
+        <button type="button" className="secondary asset-wide" disabled={!bridgeFields.length || !bridgeRevisionName.trim()} onClick={() => void run(async (repository, signal) => {
+          const entry = await prepareBridgeTemplateRevision(project, originalBridge, { bridgeId: selectedBridge, name: bridgeRevisionName, fields: bridgeFields }, { validation, runtime, signal })
+          update(await repository.commit(revision, [entry])); setSelected(entry.key); setDirty(false); setBridgeFields([])
+          setStatus(`已发布「${entry.name}」。在「我的场景模板」中选择新版，可以预览同步当前选中的桥梁实例。`)
+        })}>发布桥梁模板新版</button>
+      </fieldset>}
+      {chosen && bridgePredecessors[chosen.key] === originalBridge.key && <button type="button" className="secondary asset-wide" disabled={disabled || busy || !loaded} onClick={() => void run(async (_repository, signal) => {
+        await onBridgeSync(selectedBridge, originalBridge, chosen, signal)
+        setDirty(false); setStatus('桥梁同步候选已准备，请检查画布和改动范围。')
+      }, false)}>预览同步「{chosen.name}」</button>}
+    </details>}
     <label>我的场景模板<select aria-label="我的场景模板" value={selected} disabled={busy || !loaded} onChange={event => setSelected(event.target.value)}><option value="">选择模板</option>{entries.map(row => <option key={row.key} value={row.key}>{row.name}</option>)}</select></label>
     <SceneTemplateGallery entries={entries} selected={selected} disabled={busy || !loaded} onSelect={setSelected}/>
     <button className="secondary" disabled={busy || disabled} onClick={() => void run(async repository => { update(await repository.read()); setStatus('场景模板库已刷新。') }, true, true)}>刷新模板库</button>

@@ -1,6 +1,8 @@
 import type { NeighborhoodRepairOptions } from './neighborhood-repair.js'
 import type { ImagePixelMask, ImagePixels, PixelBounds } from './pixels.js'
 import { maskCoverage } from './repair-scope.js'
+import { repairContextBlend } from './context-blend.js'
+import { composeContextStrokes } from './context-strokes.js'
 import { prepareImageSurfaceDetailPatches, applyImageSurfaceDetailPatches, replaceImageSurfaceDetailInk, type ImageSurfaceDetailPatch } from './guided-detail-patches.js'
 import { prepareOriginalSurfaceStroke, rasterOriginalSurfaceStroke, type OriginalStrokeRegistration } from './guided-original-stroke.js'
 
@@ -17,6 +19,7 @@ export interface ImageSurfaceStructureGuide {
   reason: string
 }
 export interface GuidedSurfaceRepairOptions extends NeighborhoodRepairOptions {
+  base?: 'context-blend-v2'
   orientation?: 'horizontal' | 'vertical' | 'soft'
   guides?: ImageSurfaceStructureGuide[]
   detailPatches?: ImageSurfaceDetailPatch[]
@@ -29,7 +32,7 @@ export interface GuidedToneObservation {
   samples: Array<{ x: number; y: number; rgb: number[] }>
 }
 export interface GuidedToneReport {
-  algorithm: 'guided-tone-observations-v1'
+  algorithm: 'guided-tone-observations-v1' | 'context-blend-v2-strokes'
   /** Fixed diagnostic gates; these are neither material classification nor confidence. */
   gates: { channelDifference: 18; luminanceDifference: 12; radiusPx: 24 }
   observations: Array<{
@@ -46,6 +49,7 @@ interface Profile { centre: number; values: number[][]; radius: number }
 interface Stroke { points: Array<{ x: number; y: number }>; profile: Profile; endProfile?: Profile; explicit: boolean; axis: 'horizontal' | 'vertical' }
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
 const quantile = (values: number[], fraction: number) => values.sort((a, b) => a - b)[Math.floor((values.length - 1) * fraction)]
+const toneGates = { channelDifference: 18, luminanceDifference: 12, radiusPx: 24 } as const
 const steps = [[-1, 0], [1, 0], [0, -1], [0, 1]] as const
 const hash = (x: number, y: number, salt: number) => {
   let value = Math.imul(x + 0x6d2b79f5, 0x1b873593) ^ Math.imul(y + salt, 0x85ebca6b)
@@ -88,6 +92,8 @@ function solveGuidedImageSurface(image: ImagePixels, removal: ImagePixelMask, do
   const guides = options.guides ?? []
   if (!Array.isArray(guides) || guides.length > 32) throw new Error('辅助结构最多32条标注。')
   if (!Array.isArray(options.detailPatches ?? []) || guides.length + (options.detailPatches?.length ?? 0) > 32) throw new Error('路径与二维笔迹合计最多32项。')
+  if (options.base && (options.base !== 'context-blend-v2' || !guides.length || options.detailPatches?.length
+    || guides.some(guide => guide?.registration !== 'complete-profile'))) throw new Error('完整补片结构辅助需要至少一条完整截面原尺寸接缝，不能同时写入二维笔迹。')
   let structureWork = 0
   for (const guide of guides) {
     if (!guide || guide.axis !== 'horizontal' && guide.axis !== 'vertical' || typeof guide.reason !== 'string' || !guide.reason.trim() || guide.reason.length > 400
@@ -134,6 +140,13 @@ function solveGuidedImageSurface(image: ImagePixels, removal: ImagePixelMask, do
   }
   verifyReference(donor)
   for (const guide of guides) verifyReference(guide.reference)
+  if (options.base === 'context-blend-v2') {
+    const mask = { ...removal, data: writeMap.map(value => value * 255) }
+    const signal = options.signal && { aborted: options.signal.aborted, throwIfAborted: cancel }
+    const patch = repairContextBlend(image, mask, donor, options.protectionMask, { trustedSource: trusted, signal }, 2)
+    const { pixels, strokeRegistration } = composeContextStrokes(image, patch, mask, guides, trusted, budget, cancel, collectTone)
+    return { pixels, ...(collectTone ? { report: { algorithm: 'context-blend-v2-strokes', gates: toneGates, observations: [], strokeRegistration } } : {}) }
+  }
   const detailPatches = prepareImageSurfaceDetailPatches(image, options.detailPatches ?? [], trusted,
     (x, y) => !!maskCoverage(options.surfaceMask, x, y), cancel)
   // Each patch scans at most 49 source + 49 inferred-paper samples per pixel.
@@ -552,7 +565,7 @@ function solveGuidedImageSurface(image: ImagePixels, removal: ImagePixelMask, do
     const x = Math.max(surface.x, surface.x + sample.x * cell - 2), y = Math.max(surface.y, surface.y + sample.y * cell - 2)
     return { boundsPx: { x, y, width: Math.min(surface.x + sw, surface.x + sample.x * cell + 6) - x, height: Math.min(surface.y + sh, surface.y + sample.y * cell + 6) - y }, rgb: [...sample.color], usedPixels: toneUsedCounts[at], samples }
   }
-  const report: GuidedToneReport = { algorithm: 'guided-tone-observations-v1', gates: { channelDifference: 18, luminanceDifference: 12, radiusPx: 24 }, strokeRegistration,
+  const report: GuidedToneReport = { algorithm: 'guided-tone-observations-v1', gates: toneGates, strokeRegistration,
     observations: selected.map(pair => ({ source: describe(pair.source), neighbor: describe(pair.neighbor), channelDifference: pair.channel, luminanceDifference: pair.luminance })) }
   cancel(); return { pixels, report }
 }

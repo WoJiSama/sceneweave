@@ -5,6 +5,7 @@ import { transformedVisualBounds } from './geometry'
 import { decorationPresentationEnvelope, propPresentationEnvelope, presentationOverlaps, surfacePresentationEnvelopes, type PresentationEnvelope } from '../../../shared/projection/presentation-contract.js'
 import type { Projection, ProjectedDecoration } from '../../../shared/projection/types.js'
 import { pathDecorationPadding } from '../../../shared/projection/paths.js'
+import { shorelinePaintPadding } from '../../../shared/projection/shorelines.js'
 import { edgeLookPaintPadding, transitionStrokePaintPadding } from '../../../shared/visual/paint-envelopes.js'
 
 export type EditorPropDetail = 'outline' | 'image' | 'full'
@@ -59,8 +60,13 @@ export function editorPaintBounds(projection: Projection, plan: Pick<EditorRende
   const styles = [...projection.terrain.map(area => area.style), ...projection.rooms.map(room => room.style), ...projection.walls.map(wall => wall.style), ...projection.edges.map(edge => edge.surfaceStyle), ...projection.connections.map(connection => connection.style), ...projection.paths.map(path => path.style)]
   for (const style of styles) for (const overlay of style?.overlays ?? []) padding = Math.max(padding, overlay.blendWidthMm * 2)
   for (const area of projection.terrain) for (const patch of area.materialPatches ?? []) padding = Math.max(padding, patch.blendWidthMm * 2)
-  for (const path of projection.paths) padding = Math.max(padding, pathDecorationPadding(path.edgeStyle))
-  for (const edge of projection.edges) padding = Math.max(padding, edge.style.bandWidthMm * 2, edge.style.strokeWidthMm * 2)
+  for (const path of projection.paths) {
+    padding = Math.max(padding, pathDecorationPadding(path.edgeStyle), path.bridge?.relief?.depthMm ?? 0)
+  }
+  for (const edge of projection.edges) {
+    const shorePadding = edge.shorePaint ? shorelinePaintPadding(edge.shorePaint.style) : 0
+    padding = Math.max(padding, edge.style.bandWidthMm * 2, edge.style.strokeWidthMm * 2, shorePadding)
+  }
   if (projection.edges.some(edge => edge.shoreline || edge.kind === 'shore')) {
     const shore = theme?.edgeStyles.shore ?? { bandWidthMm: 180, strokeWidthMm: 12 }
     padding = Math.max(padding, Math.min(shore.bandWidthMm, 180) * .65 + shore.strokeWidthMm / 2)
@@ -80,6 +86,14 @@ export function editorPaintBounds(projection: Projection, plan: Pick<EditorRende
   return { x, y, width: right - x, height: bottom - y }
 }
 
+export function editorViewBounds(full: BoundsMm, requested = full): BoundsMm {
+  if (!finiteBounds(requested)) throw new Error('编辑视口必须为有限正矩形。')
+  const x = Math.max(full.x, requested.x), y = Math.max(full.y, requested.y)
+  const right = Math.min(full.x + full.width, requested.x + requested.width), bottom = Math.min(full.y + full.height, requested.y + requested.height)
+  if (right <= x || bottom <= y) throw new Error('编辑视口必须与固定地图范围相交。')
+  return { x, y, width: right - x, height: bottom - y }
+}
+
 /**
  * Disposable audience-isolated editor plan. The full document's validation, privacy
  * projection and resource closure must finish before this plan is used.
@@ -87,12 +101,7 @@ export function editorPaintBounds(projection: Projection, plan: Pick<EditorRende
  */
 export function createEditorRenderPlan(projection: Projection, options: EditorRenderPlanOptions): EditorRenderPlan {
   if (!Number.isFinite(options.screenScalePxPerMm) || options.screenScalePxPerMm <= 0) throw new Error('编辑视口比例必须为有限正数。')
-  const requested = options.viewBoundsMm ?? projection.bounds
-  if (!finiteBounds(requested)) throw new Error('编辑视口必须为有限正矩形。')
-  const full = projection.bounds, x = Math.max(full.x, requested.x), y = Math.max(full.y, requested.y)
-  const right = Math.min(full.x + full.width, requested.x + requested.width), bottom = Math.min(full.y + full.height, requested.y + requested.height)
-  if (right <= x || bottom <= y) throw new Error('编辑视口必须与固定地图范围相交。')
-  const boundsMm = { x, y, width: right - x, height: bottom - y }
+  const boundsMm = editorViewBounds(projection.bounds, options.viewBoundsMm)
   const detailCounts: Record<EditorPropDetail, number> = { outline: 0, image: 0, full: 0 }, props: EditorPropPlan[] = [], presentations: PresentationEnvelope[] = []
   for (const prop of projection.props) {
     const presentation = projection.propPresentations?.[prop.id]

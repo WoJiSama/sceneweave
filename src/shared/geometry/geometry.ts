@@ -1,4 +1,4 @@
-import type { BoundsMm, GroundSurfaceRef, Issue, Opening, Path, PointMm, Prop, Room, SceneDocument, SurfaceRef, SurfaceStyle, TerrainArea, Wall } from '../model/scene.js'
+import type { BoundsMm, GroundSurfaceRef, Issue, Opening, Path, PointMm, Prop, Region, Room, SceneDocument, SurfaceRef, SurfaceStyle, TerrainArea, Wall } from '../model/scene.js'
 import { connectionCenterline, connectionRouteSchema, type ConnectionRouteGeometry } from './connection-route.js'
 import { planStaircase } from '../stairs/geometry.js'
 import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
@@ -11,6 +11,9 @@ import { inspectTerrainInlay, terrainInlayFootprint } from '../terrain-inlay/sce
 import { createRockShellSampler, inspectRockShell } from '../rock-shell/index.js'
 import { assertRockShellCutClearance } from '../rock-shell/dependencies.js'
 import { resolvePropContact } from '../attachments/contact.js'
+import { bridgeDeckIds } from '../path-assembly/contracts.js'
+import { routeWidthFrame } from './route-width.js'
+import { propSightLine } from './sight-occluder.js'
 
 const EPS = 1e-7
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
@@ -28,15 +31,20 @@ const area = (points: PointMm[]): number => {
   return points.reduce((sum, p, i) => sum + p.x * points[(i + 1) % points.length].y - points[(i + 1) % points.length].x * p.y, 0) / 2
 }
 const onSegment = (p: PointMm, a: PointMm, b: PointMm): boolean => {
-  const value = cross(a, b, p)
+  if (p.x < Math.min(a.x, b.x) - EPS || p.x > Math.max(a.x, b.x) + EPS
+    || p.y < Math.min(a.y, b.y) - EPS || p.y > Math.max(a.y, b.y) + EPS) return false
   const tolerance = [p.x, p.y, a.x, a.y, b.x, b.y].every(Number.isSafeInteger) ? 0 : EPS * Math.max(1, Math.hypot(b.x - a.x, b.y - a.y))
-  return Math.abs(value) <= tolerance && p.x >= Math.min(a.x, b.x) - EPS && p.x <= Math.max(a.x, b.x) + EPS && p.y >= Math.min(a.y, b.y) - EPS && p.y <= Math.max(a.y, b.y) + EPS
+  return Math.abs(cross(a, b, p)) <= tolerance
 }
 const properCross = (a: PointMm, b: PointMm, c: PointMm, d: PointMm): boolean => {
   const ac = cross(a, b, c), ad = cross(a, b, d), ca = cross(c, d, a), cb = cross(c, d, b)
   return ((ac < 0 && ad > 0) || (ac > 0 && ad < 0)) && ((ca < 0 && cb > 0) || (ca > 0 && cb < 0))
 }
-const meet = (a: PointMm, b: PointMm, c: PointMm, d: PointMm): boolean => properCross(a, b, c, d) || onSegment(a, c, d) || onSegment(b, c, d) || onSegment(c, a, b) || onSegment(d, a, b)
+const meet = (a: PointMm, b: PointMm, c: PointMm, d: PointMm): boolean => {
+  if (Math.max(a.x, b.x) < Math.min(c.x, d.x) - EPS || Math.max(c.x, d.x) < Math.min(a.x, b.x) - EPS
+    || Math.max(a.y, b.y) < Math.min(c.y, d.y) - EPS || Math.max(c.y, d.y) < Math.min(a.y, b.y) - EPS) return false
+  return properCross(a, b, c, d) || onSegment(a, c, d) || onSegment(b, c, d) || onSegment(c, a, b) || onSegment(d, a, b)
+}
 const edges = (polygon: PointMm[]): [PointMm, PointMm][] => polygon.map((p, i) => [p, polygon[(i + 1) % polygon.length]])
 const at = (a: PointMm, b: PointMm, t: number): PointMm => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
 /** Keep axis-aligned millimetre offsets exact; diagonal derived points remain fractional. */
@@ -60,7 +68,7 @@ export function pointInPolygon(p: PointMm, polygon: PointMm[], includeBoundary =
   }
   return inside
 }
-function polygonValid(points: PointMm[], positive: boolean): boolean {
+export function polygonValid(points: PointMm[], positive: boolean): boolean {
   if (points.length < 3 || new Set(points.map(p => `${p.x}\0${p.y}`)).size !== points.length || (positive ? area(points) <= 0 : area(points) === 0)) return false
   const segments = edges(points)
   for (let i = 0; i < segments.length; i++) {
@@ -137,6 +145,19 @@ type SupportQuery = ReturnType<typeof createSupportQuery>
 export function pointOnSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef, floorId: string): boolean {
   return pointOnQueriedSurface(scene, p, ref, floorId, createSupportQuery(scene, floorId))
 }
+/** The road sketch uses the same full-band support rules as an authored route. */
+export function createRouteSupportCheck(scene: SceneDocument, floorId: string, refs: readonly SurfaceRef[]) {
+  const query = createSupportQuery(scene, floorId)
+  const boundaries = [...query.boundaries, ...refs.flatMap(ref => {
+    const room = ref.kind === 'room' ? own(scene.rooms, ref.id) : undefined
+    return room ? [roomPoints(scene, room)] : []
+  })]
+  const point = (p: PointMm) => refs.some(ref => pointOnQueriedSurface(scene, p, ref, floorId, query))
+  return {
+    point,
+    band: (polygon: PointMm[]) => polygonValid(polygon, true) && coveredEverywhere(polygon, boundaries, point),
+  }
+}
 function pointOnQueriedSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef, floorId: string, query: SupportQuery | undefined): boolean {
   const floor = own(scene.floors, floorId)
   if (!floor || !boundsContain(p, floor.boundsMm)) return false
@@ -174,19 +195,29 @@ export function corridor(a: PointMm, b: PointMm, width: number, squareCaps = fal
 }
 /** Square caps, miter joins capped at twice half-width, then bevel. No stored second contour. */
 export function pathPolygon(path: Path): PointMm[] {
-  return polylineBand(path.centerlineMm, path.widthMm, true)
+  if (path.widthSections?.length) return widthProfileBand(path.centerlineMm, path.widthMm, path.widthSections)
+  return path.assembly?.bridge ? connectionBand(path.centerlineMm, path.widthMm) : polylineBand(path.centerlineMm, path.widthMm, true)
+}
+
+export function widthProfileBand(points: readonly PointMm[], widthMm: number, sections: NonNullable<Path['widthSections']>): PointMm[] {
+  if (points.length < 2 || points.some((point, index) => index > 0 && same(point, points[index - 1]))) return []
+  const { stations } = routeWidthFrame(points, widthMm, sections)
+  return polylineBand(stations.map(station => station.positionMm), stations.map(station => station.widthMm), true)
 }
 /** One continuous miter2/bevel band; caps are explicit so legacy paths and
  * legacy straight connections retain their distinct historical contracts. */
-export function polylineBand(p: readonly PointMm[], widthMm: number, squareCaps = false): PointMm[] {
-  const r = widthMm / 2, extension = squareCaps ? r : 0
+export function polylineBand(p: readonly PointMm[], widthMm: number | readonly number[], squareCaps = false): PointMm[] {
+  const radius = (index: number) => (typeof widthMm === 'number' ? widthMm : widthMm[index]) / 2
+  const lastIndex = p.length - 1
   if (p.length < 2 || p.some((point, i) => i > 0 && same(point, p[i - 1]))) return []
   const directions = p.slice(1).map((point, i) => { const length = Math.hypot(point.x - p[i].x, point.y - p[i].y); return { x: (point.x - p[i].x) / length, y: (point.y - p[i].y) / length } })
   const side = (sign: number): PointMm[] => {
     const first = directions[0], last = directions.at(-1)!
-    const result: PointMm[] = [{ x: p[0].x - first.x * extension - first.y * r * sign, y: p[0].y - first.y * extension + first.x * r * sign }]
+    const firstRadius = radius(0), firstExtension = squareCaps ? firstRadius : 0
+    const result: PointMm[] = [{ x: p[0].x - first.x * firstExtension - first.y * firstRadius * sign, y: p[0].y - first.y * firstExtension + first.x * firstRadius * sign }]
     for (let i = 1; i < p.length - 1; i++) {
       const before = directions[i - 1], after = directions[i]
+      const r = radius(i)
       const a = { x: p[i].x - before.y * r * sign, y: p[i].y + before.x * r * sign }, b = { x: p[i].x - after.y * r * sign, y: p[i].y + after.x * r * sign }
       const determinant = before.x * after.y - before.y * after.x
       if (Math.abs(determinant) < 1e-12) { if (before.x * after.x + before.y * after.y < 0) return []; result.push(a); continue }
@@ -195,7 +226,8 @@ export function polylineBand(p: readonly PointMm[], widthMm: number, squareCaps 
       if (Math.hypot(intersection.x - p[i].x, intersection.y - p[i].y) <= 2 * r + EPS) result.push(intersection)
       else result.push(a, b)
     }
-    result.push({ x: p.at(-1)!.x + last.x * extension - last.y * r * sign, y: p.at(-1)!.y + last.y * extension + last.x * r * sign })
+    const lastRadius = radius(lastIndex), lastExtension = squareCaps ? lastRadius : 0
+    result.push({ x: p[lastIndex].x + last.x * lastExtension - last.y * lastRadius * sign, y: p[lastIndex].y + last.y * lastExtension + last.x * lastRadius * sign })
     return result
   }
   const left = side(-1), right = side(1)
@@ -259,7 +291,7 @@ function connectionRouteReservedIds(scene: SceneDocument): Set<string> {
   for (const group of Object.values(scene.scatterGroups)) for (const exclusion of group.exclusions) ids.add(exclusion.id)
   return ids
 }
-function distanceToSegment(p: PointMm, a: PointMm, b: PointMm): number {
+export function distanceToSegment(p: PointMm, a: PointMm, b: PointMm): number {
   const dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy
   const t = length2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2)) : 0
   const q = at(a, b, t)
@@ -277,15 +309,28 @@ export function polygonDistance(a: PointMm[], b: PointMm[]): number {
 /** Every face of the segment arrangement is sampled on both sides of its split edges. */
 export function coveredEverywhere(polygon: PointMm[], boundaries: PointMm[][], predicate: (p: PointMm) => boolean): boolean {
   if (!polygon.length) return false
-  const allEdges = [...edges(polygon), ...boundaries.flatMap(edges)]
   if (polygon.some(p => !predicate(p))) return false
-  for (const [a, b] of allEdges) {
+  const allEdges = [...edges(polygon), ...boundaries.flatMap(edges)]
+  const maxOffset = 0.1
+  // A sample can reach at most maxOffset from its midpoint. Edges more than
+  // four times that distance from the midpoint cannot reduce its offset.
+  const padding = maxOffset * 5 + EPS
+  let minX = polygon[0].x, maxX = minX, minY = polygon[0].y, maxY = minY
+  for (const point of polygon) {
+    minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x)
+    minY = Math.min(minY, point.y); maxY = Math.max(maxY, point.y)
+  }
+  const nearby = allEdges.filter(([a, b]) =>
+    Math.max(a.x, b.x) >= minX - padding && Math.min(a.x, b.x) <= maxX + padding
+    && Math.max(a.y, b.y) >= minY - padding && Math.min(a.y, b.y) <= maxY + padding)
+  for (const [a, b] of nearby) {
+    // Distant intersections can still split a long edge. Keep its full cuts.
     const cuts = segmentCuts(a, b, allEdges), length = Math.hypot(b.x - a.x, b.y - a.y)
     if (!length) continue
     for (let i = 1; i < cuts.length; i++) {
       const midpoint = at(a, b, (cuts[i - 1] + cuts[i]) / 2)
-      let offset = Math.min(0.1, length * (cuts[i] - cuts[i - 1]) / 10)
-      for (const [c, d] of allEdges) { const distance = distanceToSegment(midpoint, c, d); if (distance > EPS) offset = Math.min(offset, distance / 4) }
+      let offset = Math.min(maxOffset, length * (cuts[i] - cuts[i - 1]) / 10)
+      for (const [c, d] of nearby) { const distance = distanceToSegment(midpoint, c, d); if (distance > EPS) offset = Math.min(offset, distance / 4) }
       for (const sign of [-1, 1]) {
         const p = { x: midpoint.x - (b.y - a.y) / length * offset * sign, y: midpoint.y + (b.x - a.x) / length * offset * sign }
         if (pointInPolygon(p, polygon, false) && !predicate(p)) return false
@@ -313,6 +358,7 @@ function validateQueriedPropGeometry(scene: SceneDocument, props: readonly Prop[
     if (!Number.isSafeInteger(prop.visualBoundsMm.x + prop.visualBoundsMm.width) || !Number.isSafeInteger(prop.visualBoundsMm.y + prop.visualBoundsMm.height)) error('UNSAFE_BOUNDS', '边界端点超出安全整数范围。', prop.id)
     const physical = propFootprint(prop)
     withinFloor(physical, prop); withinFloor(transformBounds(prop.visualBoundsMm, prop.positionMm, prop.rotationDeg), prop)
+    if (prop.sightOccluder) withinFloor(propSightLine(prop), prop)
     const attached = Object.values(scene.attachments ?? {}).some(row => row.child.kind === 'prop' && row.child.id === prop.id)
     if (attached) {
       try { resolvePropContact(scene, prop.id) } catch (cause) { error('PROP_SUPPORT', cause instanceof Error ? cause.message : '附着物件实际接触校验失败。', prop.id) }
@@ -386,10 +432,13 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     const a = shellRows[i], b = shellRows[j]
     if (a.area.floorId === b.area.floorId && a.triangles.some(face => b.triangles.some(other => polygonsOverlap(face, other)))) error('ROCK_SHELL_OVERLAP', '不同岩体的实际外侧壳不可互相侵入。', b.area.id)
   }
+  const bridgeDecks = bridgeDeckIds(scene)
   for (let i = 0; i < validAreas.length; i++) for (let j = i + 1; j < validAreas.length; j++) {
     const a = validAreas[i], b = validAreas[j], ap = terrainPoints(a), bp = terrainPoints(b)
     if (a.floorId !== b.floorId) continue
     if (a.coveragePriority === b.coveragePriority && polygonsOverlap(ap, bp)) error('TERRAIN_PRIORITY_OVERLAP', '同覆盖优先级地形不可正面积重叠。', b.id)
+    // A deck crosses independent ground boundaries without sharing their segments.
+    if (bridgeDecks.has(a.id) || bridgeDecks.has(b.id)) continue
     for (const [a1, a2] of edges(ap)) for (const [b1, b2] of edges(bp)) {
       if (!meet(a1, a2, b1, b2)) continue
       const sharedFull = (same(a1, b1) && same(a2, b2)) || (same(a1, b2) && same(a2, b1))
@@ -410,6 +459,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     boundaries.push(...query.strips.flatMap(row => row.sampler.cutFootprints), ...query.shellBoundaries, ...query.inlayBoundaries); terrainBoundariesByFloor.set(floorId, boundaries)
   }
   const terrainBoundaries = (floorId: string): PointMm[][] => terrainBoundariesByFloor.get(floorId)??[]
+  const groundEdgeQueries = new Map<string, ReturnType<typeof createSupportQuery>>()
   const edgeSources = new Set<string>()
   for (const edge of Object.values(scene.terrainEdges)) {
     styleGeometry(edge.surfaceStyle)
@@ -423,7 +473,14 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (!length) continue
     let offset = Math.min(0.1, length / 100)
     for (const boundary of terrainBoundaries(edge.floorId)) for (const [c, d] of edges(boundary)) { const distance = distanceToSegment(midpoint, c, d); if (distance > EPS) offset = Math.min(offset, distance / 4) }
-    const query = supportQueries.get(edge.floorId)
+    let query = supportQueries.get(edge.floorId)
+    if (bridgeDecks.size && !bridgeDecks.has(source.id)) {
+      query = groundEdgeQueries.get(edge.floorId)
+      if (!query) {
+        query = createSupportQuery(scene, edge.floorId, bridgeDecks)
+        groundEdgeQueries.set(edge.floorId, query)
+      }
+    }
     const inside = query?.rootAt({ x: midpoint.x - (b.y - a.y) / length * offset, y: midpoint.y + (b.x - a.x) / length * offset }) ?? null
     const outside = query?.rootAt({ x: midpoint.x + (b.y - a.y) / length * offset, y: midpoint.y - (b.x - a.x) / length * offset }) ?? null
     if (inside?.kind !== 'terrainArea' || inside.id !== source.id || !outside || refEqual(inside, outside)) { error('COVERED_EDGE_SOURCE', '源边段必须是暴露的有效支撑面边界，不能保留被覆盖边缘。', edge.id); continue }
@@ -650,21 +707,46 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (!polygon(band, path.id)) continue
     const crossing = path.centerlineMm.slice(1).some((b, i) => path.centerlineMm.slice(i + 3).some((d, k) => meet(path.centerlineMm[i], b, path.centerlineMm[i + 2 + k], d)))
     if (crossing) error('PATH_SELF_OVERLAP', '路径中心线/带区不能自交或折返。', path.id)
+    if (path.staircase && !crossing) {
+      try {
+        const stairs = planStaircase(path.centerlineMm, path.widthMm, path.staircase, path.widthSections)
+        if (!polygonInside(stairs.footprintMm, band)) error('PATH_STAIRS', '阶梯踏面超出道路的实际宽度。', path.id)
+      } catch (cause) { error('PATH_STAIRS', cause instanceof Error ? cause.message : String(cause), path.id) }
+    }
+    if (path.widthSections?.length && (path.assembly?.bridge || Object.values(scene.pathAttachments ?? {}).some(row => row.pathId === path.id))) {
+      error('PATH_WIDTH_DEPENDENCY', '桥面或门口接点当前使用等宽的道路。', path.id)
+    }
     if (!coveredEverywhere(band, [...terrainBoundaries(path.floorId), ...validRooms.filter(item=>item.room.floorId===path.floorId).map(item => item.points)], p => path.supportRefs.some(ref => pointOnQueriedSurface(scene, p, ref, path.floorId, supportQueries.get(path.floorId))))) error('PATH_SUPPORT', '整条方端帽/转角带区须位于声明支撑面并集内。', path.id)
     let previousPathSurface: SurfaceRef | null = null
+    const localWidths = path.widthSections?.length ? routeWidthFrame(path.centerlineMm, path.widthMm, path.widthSections) : null
     for (let i = 1; i < path.centerlineMm.length; i++) {
       const a = path.centerlineMm[i - 1], b = path.centerlineMm[i], cuts = segmentCuts(a, b, terrainBoundaries(path.floorId).flatMap(edges))
       for (let j = 1; j < cuts.length; j++) {
         const support = supportQueries.get(path.floorId)?.rootAt(at(a, b, (cuts[j - 1] + cuts[j]) / 2)) ?? null
         if (support && previousPathSurface && elevation(scene, support) !== elevation(scene, previousPathSurface)) {
           const p = at(a, b, cuts[j - 1])
-          if (!Object.values(scene.terrainConnections).some(connection => connection.floorId === path.floorId && connection.widthMm >= path.widthMm && pointInPolygon(p, connectionPolygons.get(connection.id) ?? []))) error('PATH_HEIGHT_TRANSITION', '路径跨高差必须位于独立有效连接的足宽走廊中。', path.id)
+          const width = localWidths ? localWidths.widthAt(localWidths.distances[i - 1] + Math.hypot(p.x - a.x, p.y - a.y)) : path.widthMm
+          if (!Object.values(scene.terrainConnections).some(connection => connection.floorId === path.floorId && connection.widthMm >= width && pointInPolygon(p, connectionPolygons.get(connection.id) ?? []))) error('PATH_HEIGHT_TRANSITION', '路径跨高差必须位于独立有效连接的足宽走廊中。', path.id)
         }
         previousPathSurface = support
       }
     }
   }
-  for (const region of Object.values(scene.regions)) { polygon(region.boundaryMm, region.id, false); withinFloor(region.boundaryMm, region.floorId, region.id); if (region.kind === 'manualMask' && (region.blocksMovement || region.movementCostMultiplier !== 1)) error('MASK_MOVEMENT', '人工遮罩不能改变物理阻挡/代价。', region.id) }
+  const partitions = new Map<string, Region[]>()
+  for (const region of Object.values(scene.regions)) {
+    const valid = polygon(region.boundaryMm, region.id, false)
+    withinFloor(region.boundaryMm, region.floorId, region.id)
+    if (region.preservePublicRooms !== undefined && region.kind !== 'manualMask') error('MASK_PUBLIC_ROOMS', '只有固定玩家遮罩可以保留公开房间。', region.id)
+    if (region.kind === 'manualMask' && (region.blocksMovement || region.movementCostMultiplier !== 1)) error('MASK_MOVEMENT', '人工遮罩不能改变物理阻挡/代价。', region.id)
+    if (region.kind !== 'partition') continue
+    if (!region.name || region.blocksMovement || region.movementCostMultiplier !== 1) error('PARTITION_FIELDS', '编辑分区需要名称，通行属性保持默认。', region.id)
+    if (!valid) continue
+    const neighbors = partitions.get(region.floorId) ?? []
+    const overlap = neighbors.find(prior => polygonsOverlap(prior.boundaryMm, region.boundaryMm))
+    if (overlap) error('PARTITION_OVERLAP', `编辑分区「${region.name}」与「${overlap.name}」内部重叠。允许共享边界。`, region.id)
+    neighbors.push(region)
+    partitions.set(region.floorId, neighbors)
+  }
   for (const group of Object.values(scene.scatterGroups)) {
     if (!isSupportedScatterAlgorithm(group.algorithmVersion)) warnings.push({ code: 'UNSUPPORTED_SCATTER_ALGORITHM', message: '可编辑已采用结果；当前算法版本不可重新生成。', entityId: group.id })
     for (const exclusion of group.exclusions) polygon(exclusion.boundaryMm, exclusion.id, false)

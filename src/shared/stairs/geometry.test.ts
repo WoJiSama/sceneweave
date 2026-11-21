@@ -37,6 +37,30 @@ describe('dedicated staircase geometry', () => {
     expect(staircasePatch(geometry, 0, geometry.lengthMm)).toEqual(geometry.footprintMm)
   })
 
+  it('lays only the selected portion of an L-shaped route and retains the complete corner', () => {
+    const points = [{ x: 0, y: 0 }, { x: 2000, y: 0 }, { x: 2000, y: 2000 }]
+    const geometry = planStaircase(points, 500, config({ range: { startPpm: 250_000, endPpm: 750_000 } }))
+    expect(geometry.lengthMm).toBe(2000)
+    expect(geometry.sections.map(section => section.distanceMm)).toEqual([0, 1000, 2000])
+    expect(staircasePointAt(geometry, 0)).toEqual({ x: 1000, y: 0 })
+    expect(staircasePointAt(geometry, 1000)).toEqual({ x: 2000, y: 0 })
+    expect(staircasePointAt(geometry, 2000)).toEqual({ x: 2000, y: 1000 })
+    expect(geometry.treads.at(-1)?.endMm).toBe(2000)
+    expect(geometry.treads.reduce((total, tread) => total + signedArea(tread.polygonMm), 0)).toBeCloseTo(signedArea(geometry.footprintMm))
+    expect(() => planStaircase(points, 500, config({ range: { startPpm: 750_000, endPpm: 250_000 } }))).toThrow(/铺阶终点/)
+  })
+
+  it('follows a road width profile while keeping the start and end of a selected stair section', () => {
+    const line = [{ x: 0, y: 0 }, { x: 10000, y: 0 }]
+    const geometry = planStaircase(line, 1400, config({ range: { startPpm: 200000, endPpm: 800000 } }), [
+      { startPpm: 300000, endPpm: 700000, widthMm: 900 },
+    ])
+    expect(geometry.lengthMm).toBe(6000)
+    expect(staircasePointAt(geometry, 0, .5)).toEqual({ x: 2000, y: 700 })
+    expect(staircasePointAt(geometry, 3000, .5)).toEqual({ x: 5000, y: 450 })
+    expect(staircasePointAt(geometry, 6000, -.5)).toEqual({ x: 8000, y: -700 })
+  })
+
   it('retains exact geometry under a quarter turn and translation', () => {
     const points = [{ x: 0, y: 0 }, { x: 1200, y: 0 }, { x: 2200, y: 600 }]
     const rotate = (p: PointMm) => ({ x: 3000 - p.y, y: -2000 + p.x })

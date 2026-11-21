@@ -2,7 +2,7 @@
 export const WORKFLOW_DEFINITIONS = [
   {
     "id": "sceneweave-forest-building",
-    "version": 2,
+    "version": 3,
     "title": "生成林中建筑",
     "summary": "用规范参数生成一个同楼层林中建筑，审阅真实预览后交付可编辑工程。",
     "tags": [
@@ -40,7 +40,7 @@ export const WORKFLOW_DEFINITIONS = [
           "project-preview"
         ],
         "produces": "预览、缺项与技术检查结果；视觉结论另判",
-        "instructions": "读取本次真实房间/物件/通路报告和可用预览，检查缺项、比例与用途。具备视觉输入时再做目视比较；没有实际图像则标未看图。历史效果仅适用于其冻结版本和输入，不替代本次检查。\n\n逐房读取diagnostics中的家具目标、实际、缺项和真实有限摆位拒绝计数。计数描述只读探测的拒绝原因，不证明所有布局均不可行，也不把探测成功当成已交付。优先对有缺项且可修的房间使用repair-furniture；结构和结果连续相同则禁止继续换seed，固定修正策略每房本轮至多一次，剩余问题保留。无合法可改善动作、缺项已解决或达到上限时，finish选择真实存在的候选并保留未解决要求。保留所有已完成候选与报告供比较，说明前后具体缺项，不将notes条数或物件数当作美术质量分。模型请求unknown、取消或旧状态动作不自动重发；已有候选仍可独立下载审阅。"
+        "instructions": "读取本次真实房间/物件/通路报告和可用预览，检查缺项、比例与用途。具备视觉输入时再做目视比较；没有实际图像则标未看图。历史效果仅适用于其冻结版本和输入，不替代本次检查。\n\n逐房读取diagnostics中的家具目标、实际、缺项和真实有限摆位拒绝计数。计数描述只读探测的拒绝原因，不证明所有布局均不可行，也不把探测成功当成已交付。优先对有缺项且可修的房间使用repair-furniture。有多个合法目标时，先修本轮尚未修正、缺项较多的房间。结构和结果连续相同时停止更换seed，固定修正策略每房本轮至多一次，剩余问题保留。无合法可改善动作、缺项已解决或达到上限时，finish选择真实存在的候选并保留未解决要求。保留所有已完成候选与报告供比较，说明前后具体缺项，不将notes条数或物件数当作美术质量分。模型请求unknown、取消或旧状态动作不自动重发；已有候选仍可独立下载审阅。"
       },
       {
         "id": "deliver",
@@ -95,7 +95,7 @@ export const WORKFLOW_DEFINITIONS = [
       }
     ],
     "source": "workflows/forest-building.md",
-    "definitionHash": "e928bc43acdc78acbdb3c7e1234e6ff111e70570341489a5fc09b59b5248be61"
+    "definitionHash": "7ea7dd142d5741c671d277489a6268e1e6990b3b21a7ce4a331b15e58e300122"
   },
   {
     "id": "sceneweave-scene-edit",
@@ -170,7 +170,7 @@ export const WORKFLOW_DEFINITIONS = [
   },
   {
     "id": "sceneweave-image-items",
-    "version": 1,
+    "version": 2,
     "title": "从图片制作可编辑item",
     "summary": "核对原图与比例，辅助选区、切割和补底，查看换底/移转预览，保存制作工作包。",
     "tags": [
@@ -190,16 +190,16 @@ export const WORKFLOW_DEFINITIONS = [
           "image-read"
         ],
         "produces": "实际图片摘要、比例、generation和下一步",
-        "instructions": "先读取image_import_workflow和inspect的真实输入、generation、原图/房间范围、比例、已有对象及下一步，再按该工具提供的详细步骤执行。共享目录只负责路由；精确切割配方和参数由原图片工作流与工具schema维护。"
+        "instructions": "新任务核对源字节、规范化原图摘要和来源许可，区分实测比例与暂定比例。为任务和物件使用稳定身份。接续时读取实际工作包、依赖及当前候选摘要，按工具报告的下一步继续。\n\n从获准地图制作可独立编辑的item。先读取image_import_workflow与inspect，核对原图摘要、范围、暂定比例、当前代次和下一步；每次修改使用最新generation。\n\n先区分三种范围：room定义房间地面；sourceBoundary保全原画墙沿和所有家具最外沿，未设置时仅用room；每件guide.boundaryPx只限制分割搜索，不能替代前两者。完成标定和两种房间范围后先assess_fidelity预检。"
       },
       {
         "id": "extract",
-        "title": "选区、切割与补底",
+        "title": "选区与切割",
         "requires": [
           "image-select"
         ],
         "produces": "真实选区、裁片、补底和来源记录",
-        "instructions": "按当前实际输入建立粗范围和辅助选区，检查主体归属、触边与遮挡，采用真实selection及来源；切割、补底继续走共享工具。隐藏补底明确为推断。每次修改使用最新generation，旧输入候选不能覆盖新操作。"
+        "instructions": "明确家具、地毯、阴影、环境角色及遮挡顺序。先用粗范围和少量前景/背景笔迹生成局部选区，再用保留/排除笔修正。新任务显式algorithmVersion:2、edgeCoverage:boundary；boundaryPx用少量粗点限制环境线，给描边和叶尖留余量，触边警告须先处理。内部仍由算法找边。保存实际输入，不从最终PNG捏造笔迹。\n\n同一严格配方v1显式区分appearanceSource:original和working，缺省working保留旧重放。新家具建议original保留原图颜色；下层柜体/柜面或地毯用working：先移植物补柜面再提净柜，先移上层家具补毯再提净毯。working裁片中的前序补底仍记推断，original不计前序提取推断；背景修补身份不会因此清零。\n\n若本次tools/list包含image_import_local_segment，可显式使用本机语义模型辅助同色描边分离。contextBounds保留房间上下文，targetBounds圈单件并留余量，先给少量正负点；查看全部3个候选的原图/黑白/棋盘边缘，不按最高模型分数自动采用。返回的selectionMask和selectionOrigin一起交给extract_item或set_selection。模型点不等于硬保留画笔，检查正点及细部是否实际保留；局部纠错仍用共同画笔。未启用此能力时不假称已执行模型。\n\n若本次tools/list包含image_import_vision_boundary，优先让视觉模型提出单件粗边界boundaryPx和少量前景/背景点，再由工具在当前实际输入上运行同一算法2图割。每次返回的是只读候选，不按confidence自动选、不直接改草稿；查看全部候选的原图/黑白/棋盘与uncertainMask后，确认的selectionMask和selectionOrigin原样交给extract_item或set_selection。模型输出必须带proposalId、responseSha256、模型版本、上下文/目标范围和appearanceSource，旧输入或先前拆分变化即失效。外部模型仅在本次明确图片上传授权下使用；否则选择本机/自托管视觉模型或回到页面人工粗圈。\n\n候选主体完整后，少量漏边或带入背景优先用保留/排除画笔修正实际蒙版；模型提示点可能同时改变别处，不能当作硬画笔。先查看局部原图，明确要保留或删除的是物件还是环境，再画一笔并预览。细节辨不清时记录不确定，不靠连续重推模型或扩大预算掩盖。\n\n视觉模型粗范围已确认但颜色角色未可靠分配时，image_import_vision_boundary可用roleMapping:{algorithm:polygon-rgb-roles-v1,boundaryPx}代替guide（不能同时提供）。共享采样只读当前真实RGB及粗范围内外对比，至多3前景/4背景点、半径0.5px，返回确切guide与origin角色算法标识；弱依据拒绝。它不负责语义定位、不按黑色决定归属，不能用合成控制图通过推定实图可用；多色主体/黑描边、孔洞、近邻和真实露底分别审阅。旧guide和算法2重放不改。"
       },
       {
         "id": "review",
@@ -208,7 +208,52 @@ export const WORKFLOW_DEFINITIONS = [
           "image-preview"
         ],
         "produces": "原色/黑白/棋盘预览、缺陷和绑定确切输入的审核",
-        "instructions": "调用实际item预览，查看原色、黑白、棋盘和局部放大，移开/旋转后看露底；比较轮廓、描边、孔洞、邻物和接缝。有视觉能力且实际读图才记录目视审核，不能按最高分自动采用。"
+        "instructions": "工具成功不代表视觉通过。用item_preview查看原色裁片的黑/白/棋盘背景及400%边缘；对照原图形状、描边、细枝孔洞，检查蓝毯/地板残留、削边和色边。\n\n预览remaining并移开物件检查露底。跨地毯与木板必须分区取样；不确定与不可见像素注明推断。源像素保真和增强候选分开，插值不恢复缺失细节。\n\n对实际透明 PNG 按原尺寸和局部放大审核。试移、试转后检查原位置，优先记录带入的邻物、漏掉的细部、残影和接缝。具备视觉能力且实际读图后才记录目视结论。\n\n复核绑定工具返回的inputHash、itemSha256与backgroundSha256。相关输入、裁片来源、共用表面及其取证排除变化会使旧复核失效；助手复核不代替用户签收。未通过则记录具体位置与下一操作，继续修正。"
+      },
+      {
+        "id": "refine-subject",
+        "title": "主体边带与裁片增强（按需）",
+        "requires": [
+          "asset-refine"
+        ],
+        "produces": "使用真实原图及当前蒙版的比较候选、缺陷和审核结果",
+        "instructions": "低清/噪声图按主体完整→边缘覆盖估计→去混色→可选细节增强推进。轻度去噪识别图独立保留，不把失去细描边/叶尖的图自动当最终颜色；最终优先原图取色。主体错选先修selection，不能靠透明化、收缩或锐化掩盖。\n\n主体边带要分别核对范围与浓淡。旧matte的非零支撑不变只说明像素未删，不说明黑描边没有变淡；新contour允许外侧1px位置推断，不能沿用支撑范围不变的说法。白底出现断续浅缝时先在原图确认，再以页面主体保护画笔或foregroundProtectionMask保护该处重算。黄色主体保护与selection/removal/补底protection分开；临时画笔须重新生成并显式采用才保存。邻物共边要扩大原图核对归属；取证排除不剥夺明确人工选区权限，人工保留也不授予旁证可信。\n\n若提供image_import_subject_candidates，按target,count:2|3和显式method比较原裁片、coverage与final三个阶段。subject-contour-v1仅处理二值选区和不透明原前景，bandPx固定1，估计内外各1原像素覆盖并作总面积补偿；是否补偿成功看实际指标，面积相近不保证每处描边归属或粗细正确。核心/细杆/孔洞/主体保护/邻物保持，原选中RGB不变，外圈RGB从相邻原前景延拓，新增位置属于推断。coverage与final相同，尚未去混色，不能把两个阶段相同当作额外优化成功。\n\nsubject-matte-v1仅估计现有非零支撑内1/2原像素带，分开查看原裁片、原RGB加alpha估计、去混色。核心/孔洞/细杆/显式前景保护保持；可信内侧F与外侧B不能解释观察色C或依据弱时不改，给有限原图坐标/原因。保护/排除/邻物/working前序推断不作颜色依据。MCP的method省略沿用已采用方法，无已采用则沿用旧matte；页面无已采用方法时按真实选区选择：二值且选中源不透明才默认contour，已有半透明覆盖则默认matte并说明原因；不自动二值化，旧配方不静默换法。按局部问题补foregroundProtectionMask/excludedEvidenceMask或修主体再重算。\n\n三阶段必须按共同原图坐标网格、同倍率黑/白/棋盘比较描边、弧边、真实蓝饰边与细杆。contour的bbox可能外扩1px，较小原裁片在共同网格中补透明，不按各crop左上角强行对齐；橙色未决及主体保护均按原图坐标映射。method/参数/原图/选区/图层输入变化使旧候选失效；物理占地不随视觉bbox扩大。\n\n明确同色主体/背景参考且只需修局部边带时，可显式subject-reference-v1，referenceGuidance:{base:original|contour,foreground,background,mixed}均原坐标二值RLE。页面可画粉色主体参考、绿色背景参考和蓝色已确认混色边；参考每类3–64像素、图框≤4096、距处理处≤64px，背景必须在实际移除外。未标记边保留明确基线，黄色主体保护优先；真实灰饰边可与混色同色，角色不明先保留，标记仍是人工推断。可显式先做几何再在原图参考下协调alpha/RGB，几何与颜色取证范围分别核对。未决位置/原因可定位；没有自动分区、诊断去噪或角色传播。\n\n查看后以image_import_set_subject_refinement {generation,target,inputHash,refinement:{method,bandPx,strength,foregroundProtectionMask?,excludedEvidenceMask?,referenceGuidance?}}原子采用派生，method为subject-contour-v1/subject-matte-v1/subject-reference-v1，refinement:null恢复原裁片。reference方式必须有完整辅助，其他方式不携带；候选辅助省略沿用、null预览清除。原selection记录/原图/补底/物理占地保持，matte派生可估计原选中RGB，contour原选中RGB不改而外侧位置含推断。同一严格工作包v1保存配方可冷重放，普通工程保存实际派生素材及来源，不携整份制作记录。保真passed只认证原裁片基线与补底，不认证派生外观。零变化/少量变化不等于改善，专家精修不计新手；当前实图三件整体尚未通过。后续取证几何和参数变化使旧审核失效；先过主体边缘再试增强，插值不恢复细节。\n\n切后优化先定位缺陷：image_import_enhancement_candidates的direction:contour是既有裁片增强，仅减轻部分二值硬边阶梯，不外扩支撑，不能与主体method:subject-contour-v1混用。edge只精修已有半透明覆盖，decontaminate只针对有真实邻近清空像素依据的色边；它们不能纠正错选主体。按target、direction、count生成2或3份只读候选和黑白棋盘预览，逐一与原色裁片比较。零变化不算改善，clarity放大不恢复未知细节。\n\n增强工具不修改原蒙版、复核或保真重建，不自动写场景。候选目录及candidates.json须另行保全，三条目制作包不嵌入派生PNG；实际采用走统一素材编辑页，以确切父源和同配方生成，再经现有保护、预览、一次采用、撤销和冷读链。\n\nimage_import_matte_candidates是独立只读工具，参数{target,count:2|3,bandPx?:1|2}。仅在已有partial alpha边带和稳定外侧背景依据下反解前景RGB，alpha与实心核心保持，binary裁片无变化；保护和未审核推断不作外侧证据，无依据不改色，局部或零变化不称真图全面改善。该配方依赖完整原图上下文，当前统一素材页只有crop，不能同配方复现，因此仅审阅、不自动采用；既有enhancement directions仍走原采用链。"
+      },
+      {
+        "id": "repair-background",
+        "title": "修正移除范围与补底（按需）",
+        "requires": [
+          "image-repair"
+        ],
+        "produces": "明确来源和推断范围的原尺寸补底",
+        "instructions": "selectionMask只决定裁片。残影另用二值removalMask，必须包含全部选区且不超物件图框外32px；相邻物件用protectionMask，保护区不写入、不作取样或边界依据，不能与选区冲突。set_repair_scope使用最新generation及两范围，null显式清除；独立移除时cleanupPx归零。实际repairMask从item_preview核对。context只处理单一底材，需比移除图框宽高各多4px的干净大取样；完整原尺寸补片加低频颜色衔接仍可能错接板缝，须看图。\n\n完整补片在不规则移除边缘有色差时，可显式选择repair:context-blend-v2，沿实际可写边界求解颜色校正并保留来源原尺寸纹理梯度，不旋转、缩放或重画。仍限单一底材、移除图框25万像素、取样宽高各多4px；保护和前序推断不得作为取样或边界依据。计算有界，缺可信边界或不收敛时拒绝并保留旧结果。它不改裁片、移除/保护或占地，也不证明隐藏板缝真实；旧context及context-blend配方按原版本重放，实际移开/旋转及冷读后重新看图。\n\n共用repairSurfaces每项为{id,name,kind:soft|planks|patches|neighbors-soft|neighbors-planks|guided,mask,donor,excludedEvidenceMask?,guided?}，最多16项，mask和取证排除均为二值；家具及影、保护区和未审核推断不得作证据。soft/planks取样至少3×3，patches至少8×8；neighbors两类至少4×4，移除图框最多25万像素、1400个小块，显式选择新算法，不改变旧模式。只做有限纹理推断，不恢复未知木板拓扑或自动保证自然衔接。物件显式repair:surfaces及非空无重复repairSurfaceIds，不能混用fills；首表面优先，同层全部表面读同一修补前输入，未覆盖全部实际移除像素则拒绝。\n\n新增image_import_analyze_repair({target})只读比较该物件实际补底与同组可信原图，回传候选来源坐标、颜色/梯度/细纹/结构及相邻拼接差、理由、冲突小框和建议。先读summary和conflicts，再看审阅图当前区与参考小块，解释为什么适合及哪里仍矛盾；分数不是概率，排序首位不自动采用。没有声明底材先补范围，不以相似颜色冒认材质。\n\nneighbors两类、guided和只读邻域分析自动排除本次全部移除、保护、显式取证排除、前序推断和后续仍在的物件范围（无确切选区则保守排除粗框）；地面类item可能就是当前下层毯面，不自动整块排除，未列出的家具及阴影仍须人工补excludedEvidenceMask。前序补图不能再次当可信原图，参考整块均可信才可使用。\n\n只需辅助冲突指出的一小处：choose-sample重新取干净底材，mark-material修正归属，exclude-evidence排除阴影/家具，confirm-structure对照缝的延续并补同侧参考；定位和同组分数不采用结构；确需人工路径时显式使用guided并绑定可见可信窄线参考。页面可定位到原图/补底坐标，经表面按钮更新后重算。analysisInputHash绑定全层/表面/原图与算法，报告只暂存不当审核；保存工作包保全实际输入，恢复后重算，不缓存通过结论。\n\nimage_import_set_surfaces用最新generation原子更新完整清单并重放。页面可建表面、用当前标注更新范围与取样、仅更新干净取样、显式改所选类型或应用结构辅助、把保护范围追加到或显式清除取证排除、删除表面；被引用时须先改引用。追加合并保留旧范围，并集仍守原预算，失败保留原表面。清单变化进入inputHash，旧审核重新核对；表面/取证排除/已拆层/未完成选区共用原预算，工作包仍严格三个条目，工程无需制作记录。\n\n单一木板小洞可显式试structure：底色、两侧可见窄缝和细纹理分开处理，只接续距离和深度相称的双侧端点，单侧线段短距渐隐。固定structure-surface-v1，不改旧模式。移除图框最多25万像素、取样最多100万像素，不与fills混用；保护/洞内像素不作依据。仍会偏平滑或遗漏未知板头，留出数值通过不能代替真实移开视觉，也不推广为整房通过。"
+      },
+      {
+        "id": "repair-structure",
+        "title": "接续底材结构（按需）",
+        "requires": [
+          "image-repair"
+        ],
+        "produces": "绑定同材质参考、路径与实际移除范围的结构补底",
+        "instructions": "手绘木板先看板头、钉点和真实断口：下方才开始的短缝不能无依据上延穿过钉点及整块遮挡。原阴影延出移除时，有限扩范围并分别保护可确认原墨，与只改取证、只改路径的对照比较；阈值提墨仅辅助专家标注，仍需逐处看图，不算自动归属或新手稳定能力。保护按各步骤权限核，不将跨步骤保护并集当永久禁止。\n\n同组小块仍产生宽补片、重复线或局部结构缺口时，可显式用kind:guided分别估计缓慢明暗、干净取样细纹与有限线结构；细纹不超过原取样幅度，仍可能平补或错缝，实际露底必须看图。guided:{orientation:horizontal|vertical|soft,guides:[{points:[{x,y},…],reference:{x,y,width,height},axis:horizontal|vertical,reason}]}必须与此类型同时提供，其他kind禁止guided。horizontal/vertical仅尝试有可信双侧依据的同向自动连线，soft关闭自动板缝但允许显式路径，guides空数组可只处理底色与细纹；它不同于物件guidedSelection。\n\nguided每表面最多32条路径，每条2–16个底材内原图坐标、总长1–8192px、理由去除首尾空格后1–400字。每reference沿axis至少3px、横跨至少5px、面积最多4096像素，须含真实窄线和两侧底色，平色或宽阴影拒绝。donor至少5×5、最多100万像素，移除框最多25万像素，仍守表面/蒙版/计算预算。取样和参考整块必须可信；当前全部移除区、保护、显式排除、前序推断和后续仍在物件均不可读，不因分区而借用本次其他修补像素。\n\n若原截面笔触生成机械直线，可在必要的guide上显式加stroke:original-segment。仍使用同一可信reference，但沿线至少5px、横跨5–31px、面积最多4096px；points沿axis须严格单调，可整体反向。每个连续可写段用原图中一段完整原尺寸列，保留主线二维起伏与真实断续，不拉伸/反射/重复；段长超过完整参考则明确拒绝。接头相位只比较可信原图旁边三列，无可信侧边时为推断；不把前序补图当依据，不改其他路径或物件范围，旧guide缺省保留截面算法。若来源两侧木板明暗差被复制成宽墨带，可在该原尺寸guide显式加paper:two-sided，参考横跨至少9px：每列两端各2行原图拟合底色后提取正向墨迹，目标底色与细纹独立保持。两侧须是可信干净底色，饰边或交叉笔可能误估，不自动更换旧配方。原尺寸来源不能保证接头正确或隐藏板头恢复，重复笔触、宽暗带仍需100%/400%看图，变更后复核及冷读。\n\n接头被零散暗点带偏时，可在two-sided原尺寸guide显式加registration:complete-profile。只读每端外三列中各自完整的参考横跨行数，原图RGB逐列估计两侧底色并辨一条窄暗线；宽影、底色阶跃、双线及不完整列不影响位移或相位，不跨列拼像素。缺合格依据端按人工路径定位；两端都缺时从参考中央选连续原尺寸片段，仍是人工推断，不保证接缝连上。合格列相互冲突或偏移超过3px则拒绝，不夹限伪造接头。分析分别标明原图截面/人工回退，旧guide省略保持原结果，同一严格v1包保存重放；不扩大读写/保护/排除权限。\n\n板头或钉点不能用窄线截面沿路径拉长时，可在guided中显式加detailPatches:[{role:board-end|nails,reference:{x,y,width,height},target:{x,y},reason}]。每块宽高5–64px、最多16块，与guides合计最多32项，目标不重叠；参考整块可信原图、目标整块当前底材内，原尺寸整数平移，不旋转/拉伸/重复。只在本次获准且未保护的补区合入二维深色笔触，保留已有底色和长缝；不能擦错线或恢复隐藏真值，双板头/重复钉点/接错仍需人工判断。理由必须说明可见依据与推断；页面紫框为来源、橙框为目标，报告列确切来源/目标/理由。同一v1工作包保存配方，变更使旧审核失效；先看100%和400%局部，再重放/导出/冷读，不拿专家精确位置当新手能力。\n\n需要修小处错线或断口时，detailPatches可显式加mode:replace-ink，在合成底色和细纹前替换本次生成墨迹；源中的零墨也会覆盖旧生成线。仍用完整可信5–64px原图参考、原尺寸目标、当前未保护移除交集，不读取或擦改范围外原图，不整框复制参考底色。role:gap必须与replace-ink一起提供，允许真正无墨的同材质参考；board-end/nails仍须有实际笔触。角色、位置和要留断口的决定仍是人工推断，不自动选源或证明隐藏真实结构；框错会擦断长缝或错接，必须看100%/400%并保留needs-work。旧缺省只加深不变，同一严格v1包、页面与MCP重放。\n\n局部替换框边有硬接头时，可在该replace-ink笔迹显式加blendPx:1|2|3|4，先试3原像素。宽高各须至少2*blendPx+3，保留未混合核心；省略保持旧硬替换。按当前可写边界和保护空隙距离平滑混合两组生成墨迹，边界原生成线保持，深处来源核心保持，单独底色/细纹/alpha不动。它不读隐藏或保护RGB，也不把生成墨迹升级成原图依据；线心差太大仍可能双线或渐淡，须看100%/400%与实际每步，不因过渡自动通过，不扩移除。\n\n同排完整木板补片已有合适纹理、只剩断头时，可选guided.base:context-blend-v2，在真实遮罩内仅接续指定complete-profile原尺寸接缝。保留可见板头，供体宽高各多4px，换底和移开后看实际接头。"
+      },
+      {
+        "id": "review-repair",
+        "title": "定位补底和结构缺陷（按需）",
+        "requires": [
+          "image-repair-analysis"
+        ],
+        "produces": "绑定当前输入的补底诊断及下一处修正证据",
+        "instructions": "粗线先查structureReferences：逐块看本表面全部已保存引导的原图参考、方向/原理由、最暗位置差和半深度线宽；页面可400%看原像素及定位，MCP同源布局/紫框。位置或线宽差3px等固定提示可能来自曲线、斜线、交叉、装饰或真实阴影，不自动分类、排除或通过；部分路径未经过当前物件移除区，不证明本次根因。确认角色选错后只替换必要可信同材质窄缝参考，保持路径和范围重放看图。最多32块/表面、4096px/块，整块不可信不读RGB，不增加修补求解或写入权限。\n\n整齐断头另查structureEndpoints：仅在当前实际可写补区内的引导起/终点，沿末段仍有至少3px连续可写同表面时定位提示；每端最多32步，只读范围关系，不读隐藏RGB，不跨保护/不连续写入区累计。页面可定位补图，MCP布局/粉框同源，独立于24条常规冲突。对照可见线端判断板头、接续或短距收尾，只改必要路径再重放；无提示不证明走向/笔触正确，不自动延长或扩大权限。\n\n接头处看boundaryEvidence：本次实际可写补区外一圈邻界按像素去重，区分前序补底、保护、本次其他移除、取证排除、材质/画框之外及仍需核对的原图。最多六处前序接头可定位，完整总数和未列数量仍保留；producer step为原拆出顺序。页面与MCP青框/布局同源，不读RGB、不修改配方或重算。前序补底不能成为新的原图比色/接线依据，未标记原图也不证明材质或透明度正确。\n\n低颜色误差不保证板头/钉点正确。structureMotifs与底色共用本次surfaceId所选guided表面，省略时检查当前写入最多的一块，且方向须为horizontal/vertical；只读检查实际补区深色笔迹及外侧3px允许的原图，不增加额外求解次数。八邻接分量中少于3个原图深色像素时单列角色待判断，完整总数及未列数量保持，最多六处定位。页面与MCP橙框/布局同源，独立于24条常规冲突。形状只描述沿纹理/横跨/集中，不分类真实钉点或板头；对照原遮挡和附近同材质，必要时只补少量结构辅助或换取样，不自动擦除或补线。宽色块、低对比、未生成的隐藏板头和3px外可能漏检，有锚点也可能接错；soft或其他表面未查，不以无提示通过。\n\n页面在底材类型选择结构辅助，载入/修改/另存64KiB以内结构辅助JSON；可载入已采用参数到编辑框，经应用结构辅助并重放原子采用，原图黄线表示已采用路径、紫框表示参考。未应用JSON跨电脑前先成功应用或另存；MCP继续用set_surfaces完整清单及最新generation。失败保留旧结果，错误给表面name/id和参考坐标，先修正该处依据再重放，不放宽可信条件迎合成功。\n\nguided隐藏底色、细纹、自动线和显式路径全部为推断，线参考不证明隐藏走向/板头。方向、路径、参考或理由变化进入inputHash并使旧审核失效，重新看实际PNG、露底和analyze_repair；分数不是结构确认或视觉通过。工作包保全确切输入供冷恢复，普通场景无需制作诊断。熟悉样图者的精确取样、多轮调参或密集路径只能算人工辅助案例，不能替代无经验者按冻结预算独立试做。\n\n宽亮暗补片先核查底色依据。analyze_repair可选surfaceId指定一个当前实际参与的guided底材，省略仍检查写入最多的一块；页面用“单独检查底材”选择，每次仍只额外复算一次，其他明确未查。不存在、非guided、未引用或被前表面完全覆盖者拒绝。toneSurfaceId标明本次实际检查，requestedSurfaceId标明显式选择；分析摘要绑定此选择，不保存进工程或工作包，冷恢复后重新选择分析。最多8处提示所用坐标/RGB与附近同材质差异。常规24条conflicts已满时，继续读取additionalToneFindings中单列的原图底色依据，页面可定位或去标记，合计底色提示仍最多8处且不重复；对照原图黄框和reviewLayout中的坐标，不因旧列表满而漏看。提示只为待确认，真实渐变/阴影也可能触发，不证明原暗线应删除。看原图确认后只在该小处合并追加取证排除，不增加移除权限；重新重放看图，亮起来后暴露的阶梯接缝、原影和折线分开判断，不无限扩大排除。\n\n原尺寸接头错高或变成斜钩时，查本次分析的 `strokeRegistration`。对照实际可写段、原图端部和人工路径，再判断接头位置依据。完整采样列指诊断使用的 11 行窗口。零散暗点只提示疑点。两端按 `axis` 坐标递增排列，参考采样偏移与画面移动方向相反。依据不足时核对人工路径，按实际 `registration` 配方和回执判断超限或冲突结果，再查看输出。"
+      },
+      {
+        "id": "refine-surface",
+        "title": "独立地面 Item 的表面细修（按需）",
+        "requires": [
+          "image-surface-refine"
+        ],
+        "produces": "绑定真实底材和当前代次的地面外观候选",
+        "instructions": "实际提供image_import_surface_candidate时，可显式cloth-surface-v1处理独立地面item。materialSurfaceId选该item的同材质表面，不能借用移毯后的木板取证；donor须干净原图。整面明暗/细纹属推断，alpha和外沿3px保持。strokes明确visible-cloth-seam或visible-cloth-stitch：只在家具实际轮廓外观察原布缝，可含原阴影以分离窄墨，但这些原笔迹不能转为干净底色/细纹取证。沿axis单调、crossPx11/13，最多8条且总长8192px；bridgeMaxPx最多48，只连接两端可见且中间确实不可读的短段，原可见断口不补，针脚不外推。先看原尺寸/换底/未决位置，以inputHash和代次set_surface_refinement采用，null恢复；不改背景移除/保护/占地。工作包保存同源配方，普通工程保存实际派生。该能力需要显式原布缝角色，不等于自动分区或新手稳定。"
       },
       {
         "id": "deliver",
@@ -217,7 +262,7 @@ export const WORKFLOW_DEFINITIONS = [
           "image-build"
         ],
         "produces": "独立制作工作包、完整工程候选及资源",
-        "instructions": "用现有checkpoint和export_work保存未完成输入、审核问题与下一步；build_project只交付候选。普通工程、个人素材与制作工作包分别交付，实际冷读核对内容，恢复不继承旧图片外发授权。"
+        "instructions": "每个断点保存独立.sceneweave-image-work工作包，包含原图、未完成选区、笔迹和复核。普通.sceneweave仅保存采用资源，不依赖工作包打开。恢复先全验再切换，失败保留现有结果。\n\n交付检查包含黑白棋盘底边缘、移开后的露底、个人库条目在另一工程的放置及空存储重开工程。记录实际读图和人工修正用时，工具计算与保存等待另计。制作记录、采用工程和个人库可各自备份。\n\n验证新算法的简单辅助能力时，以5类各2次新任务冻结试做：粗范围最多12点、最多2轮纠错且每轮最多4笔；保留失败及超预算。日常任务按实际缺陷修正，不以大量精描或旧成品蒙版冒充简单辅助验证。\n\n严格遵守当前宿主权限；本工作流不授予外发原图、访问任意路径、重新计费或写入当前场景的权限。build_project只生成待审候选。\n\n用 `image_import_set_checkpoint` 记录当前物件、可用候选、未决缺陷及下一步。遇到 `checkpointError` 时先显式导出并核对工作包。跨宿主接续时一起携带工作包、`.workflow.json` 伴随文件和所需外部证据。\n\n技术校验后从空存储或新任务冷读制品，核对仍可继续编辑及所需资源。图片制作状态和主持人原图留在受控工作包，玩家输出走正式的玩家过滤与导出。继续前核对新任务的范围及图片外发授权。"
       }
     ],
     "effects": [
@@ -238,7 +283,7 @@ export const WORKFLOW_DEFINITIONS = [
       }
     ],
     "source": "workflows/image-items.md",
-    "definitionHash": "e0abd0d4ed879d62716e3729439dc76d936d5ebd4ad7393f98b75101231d84ad"
+    "definitionHash": "a07bc0d66ef8470902074e9883059fd48e8be5d1e14e44ac14d65b55bff272e7"
   },
   {
     "id": "sceneweave-asset-refinement",

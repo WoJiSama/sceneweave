@@ -44,6 +44,11 @@ function materialRole(scene: SceneDocument, area: TerrainArea): Surface {
   if (has('grass', 'meadow', 'moss', 'forest', '草', '苔', '草地', '苔草', '森林')) return 'grass'
   return 'other'
 }
+export function isShoreWaterTerrain(scene: SceneDocument, area: TerrainArea): boolean {
+  const role = materialRole(scene, area)
+  return !!area.waterSurface || role === 'water' || role === 'shallow'
+}
+
 export function terrainSurfaceRole(scene: SceneDocument, area: TerrainArea): Surface {
   const role = materialRole(scene, area)
   if (area.waterSurface) return role === 'shallow' ? 'shallow' : 'water'

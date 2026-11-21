@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Projection } from '../../../shared/projection/types.js'
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
-import { applyVisualFilters, drawVisualAtmosphere, drawVisualBoundaries, projectedLightBlockers } from './visual-renderer'
-import { lightVisibilityPolygon } from './visual-geometry'
+import { applyVisualFilters, drawVisualAtmosphere, drawVisualBoundaries } from './visual-renderer'
+import { lightVisibilityPolygon, occluderSegments } from './visual-geometry'
 import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
 import type { VisualBoundary } from '../../../shared/visual/types.js'
 
@@ -27,11 +27,11 @@ describe('visual renderer bounded deterministic effects', () => {
     const source = projection(), { ctx, data } = pixelContext([80, 90, 100, 255]), create = vi.fn()
     vi.stubGlobal('document', { createElement: create })
     addFilter(source)
-    drawVisualAtmosphere(ctx, source, [])
+    drawVisualAtmosphere(ctx, source)
     expect([...data.slice(0, 4)]).toEqual([80, 90, 100, 255])
     expect(ctx.getImageData).not.toHaveBeenCalled(); expect(create).not.toHaveBeenCalled()
     delete source.visual
-    drawVisualAtmosphere(ctx, source, [])
+    drawVisualAtmosphere(ctx, source)
     expect(create).not.toHaveBeenCalled()
   })
   it('performs explicit color parameters and keeps alpha unchanged', () => {
@@ -51,7 +51,7 @@ describe('visual renderer bounded deterministic effects', () => {
   it('keeps full occlusion closure even when editor props are culled', () => {
     const source = projection()
     source.visual!.occluderRings = [[{ x: 100, y: -1000 }, { x: 200, y: -1000 }, { x: 200, y: 1000 }, { x: 100, y: 1000 }]]
-    const blockers = projectedLightBlockers(source)
+    const blockers = occluderSegments(source.visual!)
     expect(blockers).toHaveLength(4)
     expect(lightVisibilityPolygon({ x: 0, y: 0 }, 500, blockers).every(p => p.x <= 100.000001)).toBe(true)
     expect(source.props).toEqual([])
