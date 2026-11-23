@@ -1,6 +1,7 @@
 import { bridgeArtName } from '../../shared/path-assembly/profiles'
 import type { SceneDocument } from '../../shared/model/scene'
 import { visualBase } from '../../shared/visual/base'
+import { LIGHT_LABELS } from '../../shared/visual/light-geometry'
 
 const meters = (value: number) => `${Number((value / 1000).toFixed(3))} m`
 const text = (value: string | undefined) => value?.trim().replace(/\s+/g, ' ') ?? ''
@@ -56,7 +57,7 @@ export function createEntityLabeler(scene: SceneDocument): (id: string) => strin
   })
   numbered(scene.pathAttachments, '门路关联', row => `${name(row.openingId)} → ${name(row.pathId)}`)
   numbered(scene.terrainEdges, '地形边缘', edge => `${name(edge.source.areaId)} · ${edge.shoreline ? '岸线' : edge.kind === 'cliff' ? '崖边' : '材质交界'}`)
-  numbered(scene.terrainConnections, '高差连接', connection => `${connection.kind === 'stairs' ? '台阶' : '坡道'} · ${name(connection.from.surfaceRef.id)} → ${name(connection.to.surfaceRef.id)}`)
+  numbered(scene.terrainConnections, '高差连接', connection => connection.terrainInlay?.groundOnly ? '开挖后的地形' : `${connection.kind === 'stairs' ? '台阶' : '坡道'} · ${name(connection.from.surfaceRef.id)} → ${name(connection.to.surfaceRef.id)}`)
   numbered(scene.scatterGroups, '散布组', group => {
     const palette = [...new Set(group.palette.map(item => name(item.propDefinitionRef.id)))].join('、')
     const domainId = group.domain.kind === 'area' ? group.domain.areaId : group.domain.kind === 'path' ? group.domain.pathId : group.domain.edgeId
@@ -70,7 +71,12 @@ export function createEntityLabeler(scene: SceneDocument): (id: string) => strin
   if (visual) {
     numbered(visual.boundaries, '装饰曲线', boundary => boundary.binding.kind === 'terrain' ? `${boundary.binding.sides.map(side => name(side.areaId)).join(' / ')} · 边界曲线` : boundary.binding.kind === 'path' ? `${name(boundary.binding.pathId)} · 路线曲线` : '')
     numbered(visual.edgeLooks, '边带效果', look => `${({ shore: '岸线', cliff: '崖面', grass: '草沿', path: '路沿', fence: '围栏' })[look.kind]} · ${name(look.boundaryId)}`)
-    numbered(visual.lights, '灯光', light => `灯光 · ${meters(light.positionMm.x)}, ${meters(light.positionMm.y)}`)
+    numbered(visual.lights, '灯光', light => {
+      const shape = light.shape, type = LIGHT_LABELS[shape?.kind ?? 'point']
+      const host = shape?.kind === 'window' ? shape.openingId : shape?.kind === 'area' ? shape.source.id
+        : shape?.kind === 'line' && shape.source.kind === 'path' ? shape.source.pathId : undefined
+      return `${type} · ${host ? labels.get(host) ?? '宿主已失效' : `${meters(light.positionMm.x)}, ${meters(light.positionMm.y)}`}`
+    })
     numbered(visual.fogs, '区域雾')
     numbered(visual.filters, '滤镜', filter => `${({ neutral: '中性', warm: '暖色', cool: '冷色', aged: '旧纸', moonlight: '月色' })[filter.preset]}滤镜`)
     labels.set('visual-environment', '环境光与阴影')

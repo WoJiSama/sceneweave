@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { EditableProject } from '../../../application/workspace/project.js'
 import { consumeEditableSnapshot, fromBundle, toBundle } from '../../../application/workspace/project.js'
 import type { CompositionCommand } from '../../../shared/model/appearance.js'
-import type { AssetRef, MaterialRef, PropDefinition } from '../../../shared/model/scene.js'
+import type { AssetRef, FloorArtwork, MaterialRef, PropDefinition } from '../../../shared/model/scene.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
 import type { ImagePixels } from '../../../shared/image-import/pixels.js'
 import { encodeSelectionMask, IMAGE_SELECTION_LIMITS } from '../../../shared/image-import/selection-mask.js'
@@ -20,8 +20,9 @@ import { projectResourceHashes } from '../../../shared/project/source-resources.
 import { canonicalJson, captureJson, cloneJson, freezeJson } from '../../../shared/validation/json.js'
 import { sha256Bytes, sha256Text } from '../../../shared/validation/hash.js'
 import { validation } from '../runtime.js'
+import { applyFloorArtwork } from '../../../shared/floors/commands.js'
 
-export interface ImageEnhancementTarget { kind: 'prop' | 'room' | 'terrainArea' | 'wall' | 'propDefinition' | 'material'; id: string }
+export interface ImageEnhancementTarget { kind: 'prop' | 'room' | 'terrainArea' | 'wall' | 'propDefinition' | 'material' | 'floorArtwork'; id: string }
 export interface ImageEnhancementTargetInfo { label: string; assetId: string; originalAssetId: string; baseline: string }
 export interface ImageEnhancementSource extends ImageEnhancementTargetInfo {
   sourceSha256: string
@@ -33,8 +34,8 @@ export interface ImageEnhancementSource extends ImageEnhancementTargetInfo {
   /** Exact normalized RGBA when available; only the new decontamination recipe consumes it. */
   canonicalPixels?: ImagePixels
 }
-export interface PreparedImageEnhancement { catalog: EditableProject; commands: CompositionCommand[]; selector?: CatalogSelector; label: string }
-const targetSchema = z.strictObject({ kind: z.enum(['prop', 'room', 'terrainArea', 'wall', 'propDefinition', 'material']), id: z.string().min(1).max(256).refine(value => value !== '__proto__') })
+export interface PreparedImageEnhancement { catalog: EditableProject; commands: CompositionCommand[]; selector?: CatalogSelector; floorArtwork?: FloorArtwork; label: string }
+const targetSchema = z.strictObject({ kind: z.enum(['prop', 'room', 'terrainArea', 'wall', 'propDefinition', 'material', 'floorArtwork']), id: z.string().min(1).max(256).refine(value => value !== '__proto__') })
 const witnesses = new WeakMap<ImageEnhancementSource, ImageEnhancementSource>()
 
 function encodeScope(scope: Uint8Array, image: ImagePixels) {
@@ -51,6 +52,11 @@ function encodeScope(scope: Uint8Array, image: ImagePixels) {
 
 function targetRecords(project: EditableProject, target: ImageEnhancementTarget) {
   const { document, appearance } = project, { kind, id } = target
+  if (kind === 'floorArtwork') {
+    const floor = document.floors[id]
+    const asset = floor?.artwork && document.assets[floor.artwork.assetId]
+    return asset ? { entity: null, source: null, definition: undefined, material: undefined, asset } : null
+  }
   if (kind === 'propDefinition' || kind === 'material') {
     const definition = kind === 'propDefinition' ? document.propDefinitions[id] : undefined
     const material = kind === 'material' ? document.materials[id] : undefined
@@ -79,6 +85,11 @@ export function inspectImageEnhancementTarget(project: EditableProject, input: I
   const originalAssetId = metadata?.originalAssetId ?? records.asset.id
   const original = document.assets[originalAssetId]
   if (!original) throw new Error('增强物件缺少保留的原图资产。')
+  if (kind === 'floorArtwork') return {
+    label: `${document.floors[id].name}底图`, assetId: records.asset.id, originalAssetId,
+    baseline: sha256Text(canonicalJson({ sceneId: document.sceneId, lineageId: historyIdentity.lineageId,
+      floor: document.floors[id], floorToken: historyIdentity.structureTokens?.[id] ?? null, asset: records.asset, original })),
+  }
   if (kind === 'propDefinition' || kind === 'material') return {
     label: records.definition?.name ?? records.material!.name, assetId: records.asset.id, originalAssetId,
     baseline: sha256Text(canonicalJson({ target, definition: records.definition ?? null, material: records.material ?? null,
@@ -103,7 +114,7 @@ export async function readImageEnhancementSource(input: EditableProject, targetI
   if (basis !== 'current' && basis !== 'original' && basis !== 'savedStructure') throw new Error('请选择当前结果、保留原图或已保存结构稿来源。')
   const project = await consumeEditableSnapshot(input, { ...capabilities, signal }), target = targetSchema.parse(captureJson(targetInput))
   const info = inspectImageEnhancementTarget(project, target)
-  if (!info) throw new Error('请选择已有图片外观的物件、房间地板、地形或墙面。')
+  if (!info) throw new Error('请选择已有图片外观的物件、房间地板、地形、墙面或楼层底图。')
   const refinement = project.document.assets[info.assetId].imageRefinement
   if (basis === 'savedStructure' && (refinement?.kind !== 'vector' || refinement.algorithm !== 'structure-plan-v1')) throw new Error('此素材没有已保存的结构稿来源。')
   // Only the validated current asset can nominate its exact retained parent.
@@ -185,9 +196,16 @@ export async function prepareImageAppearanceCandidate(input: EditableProject, is
   if (output.vector) project.authoringSources[assetId] = cloneJson(output.vector.authoringSource)
   if (!project.licenseBindings.some(value => value.subjectKind === 'asset' && value.subjectId === assetId)) project.licenseBindings.push({ ...binding[0], subjectId: assetId })
   const commands: CompositionCommand[] = [], id = `image-enhancement-definition-${sha256Text(canonicalJson({ target: witness.target.kind, assetId,
-    source: records.definition ?? records.material, appearance: records.source?.kind === 'prop' ? records.source.snapshot.appearance : null }))}`
+    source: records.definition ?? records.material ?? null, appearance: records.source?.kind === 'prop' ? records.source.snapshot.appearance : null }))}`
   let selector: CatalogSelector | undefined
-  if (witness.target.kind === 'prop' || witness.target.kind === 'propDefinition') {
+  let floorArtwork: FloorArtwork | undefined
+  if (witness.target.kind === 'floorArtwork') {
+    if (witness.basis !== 'current' || output.metadata.imageRefinement?.kind !== 'model' || !output.metadata.imageRefinement.patch) {
+      throw new Error('楼层底图补画需要基于当前图片框选局部。')
+    }
+    floorArtwork = { ...project.document.floors[witness.target.id].artwork!, assetId }
+    applyFloorArtwork(project.document, witness.target.id, floorArtwork)
+  } else if (witness.target.kind === 'prop' || witness.target.kind === 'propDefinition') {
     const base = records.definition!, appearance = records.source?.kind === 'prop' ? records.source.snapshot.appearance : base.defaultAppearance
     if (appearance.kind !== 'image') throw new Error('图片物件源已经变化。')
     const definition: PropDefinition = { ...cloneJson(base), id, catalogId: id, version: 1,
@@ -218,5 +236,5 @@ export async function prepareImageAppearanceCandidate(input: EditableProject, is
   if (output.vector) for (const [sourceHash, bytes] of output.vector.resourceBytes) resources.set(sourceHash, bytes.slice())
   const catalog = await fromBundle({ project, resources: createMemoryResources(resources) }, { ...capabilities, signal })
   signal?.throwIfAborted()
-  return { catalog, commands: freezeJson(commands), ...(selector ? { selector } : {}), label: `${info.label} · ${output.label}` }
+  return { catalog, commands: freezeJson(commands), ...(selector ? { selector } : {}), ...(floorArtwork ? { floorArtwork } : {}), label: `${info.label} · ${output.label}` }
 }

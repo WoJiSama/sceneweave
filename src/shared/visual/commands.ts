@@ -8,7 +8,7 @@ import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, SURFACE_RULE_COLLECTIONS } fro
 import { geometryIdentityIds } from '../commands/domain.js'
 import { inspectOutdoorChanges, outdoorDependencies, type OutdoorImpact } from '../commands/outdoor.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
-import { id, style } from '../validation/primitives.js'
+import { id, pathSurfaceStyle } from '../validation/primitives.js'
 import { connectionFootprint, corridor, pathPolygon, polygonDistance, pointInPolygon, propFootprint, roomPoints, terrainPoints } from '../geometry/geometry.js'
 import { VISUAL_ENTITY_COLLECTIONS, visualBindingEntityIds } from './diagnostics.js'
 import { sampleVisualBoundary, terrainBoundaryChain } from './geometry.js'
@@ -19,6 +19,7 @@ import { materializedEdgeSchema } from '../terrain-generation/contracts.js'
 import { deformMaterializedEdge } from './deformation.js'
 import { inspectScene5TransitionChanges, refreshScene5TransitionsAfterPhysicalEdit } from './derived-transitions.js'
 import { decorationAsProp, conservativePropPaintEnvelope } from '../decorations/geometry.js'
+import { lightHostIds, lightPaintFootprint, lightSourceBounds, lightSourcePoints } from './light-geometry.js'
 
 export const visualCommandSchemas = [
   z.object({ type: z.literal('upsertMaterializedEdge'), edge: materializedEdgeSchema }).strict(),
@@ -32,7 +33,8 @@ export const visualCommandSchemas = [
   z.object({ type: z.literal('upsertVisualFilter'), filter: visualFilterSchema }).strict(),
   z.object({ type: z.literal('removeVisualEffect'), kind: z.enum(['edgeLook', 'light', 'fog', 'filter']), id }).strict(),
   z.object({ type: z.literal('setVisualEnvironment'), environment: visualEnvironmentSchema }).strict(),
-  z.object({ type: z.literal('setVisualSurface'), kind: z.enum(['room', 'terrainArea', 'wall', 'path', 'terrainEdge', 'terrainConnection']), id, style }).strict(),
+  z.object({ type: z.literal('setVisualSurface'), kind: z.enum(['room', 'terrainArea', 'wall', 'path', 'terrainEdge', 'terrainConnection']), id, style: pathSurfaceStyle }).strict()
+    .refine(command => command.style?.base.alignment !== 'route' || command.kind === 'path', '沿路线铺装仅适用于道路和桥面。'),
 ] as const
 export const visualCommandSchema = z.discriminatedUnion('type', visualCommandSchemas)
 export type VisualCommand = z.infer<typeof visualCommandSchema>
@@ -70,7 +72,7 @@ export function visualCommandRootIds(scene: SceneDocument, command: VisualComman
     case 'upsertVisualBoundary': return [command.boundary.id, ...visualBindingEntityIds(command.boundary), ...(visual?.boundaries[command.boundary.id] ? visualBindingEntityIds(visual.boundaries[command.boundary.id]) : [])]
     case 'removeVisualBoundary': return [command.id, ...(visual?.boundaries[command.id] ? visualBindingEntityIds(visual.boundaries[command.id]) : [])]
     case 'upsertVisualEdgeLook': return [command.edgeLook.id, command.edgeLook.boundaryId]
-    case 'upsertVisualLight': return [command.light.id]
+    case 'upsertVisualLight': return [command.light.id, ...lightHostIds(scene, command.light)]
     case 'upsertVisualFog': return [command.fog.id]
     case 'upsertVisualFilter': return [command.filter.id, ...(command.filter.target.kind === 'entities' ? command.filter.target.ids : [])]
     case 'removeVisualEffect': return [command.id]
@@ -226,6 +228,14 @@ function circleTouchesShape(center: PointMm, radius: number, points: PointMm[]):
 }
 function spatialTargets(scene: SceneDocument, entity: VisualSystem['lights'][string] | VisualSystem['fogs'][string] | VisualSystem['filters'][string]): string[] {
   const all = physicalEntities(scene)
+  if ('radiusMm' in entity && entity.shape && entity.shape.kind !== 'spot') {
+    const { points: source, padding } = lightPaintFootprint(scene, entity)
+    if (!source.length) return lightHostIds(scene, entity)
+    const b = lightSourceBounds(source, padding), ring = [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y },
+      { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }]
+    const affected = [...all.values()].filter(item => item.floorId === entity.floorId && entityShape(scene, item.id).some(shape => polygonDistance(shape, ring) < 1e-7)).map(item => item.id)
+    return relatedVisualLocks(scene, [...affected, ...lightHostIds(scene, entity)])
+  }
   if ('target' in entity) {
     const target = entity.target
     if (target.kind === 'entities') return relatedVisualLocks(scene, target.ids)
@@ -331,7 +341,12 @@ function mutate(scene: SceneDocument, command: VisualCommand, context: Preparati
       delete visual.boundaries[command.id]; break
     }
     case 'upsertVisualEdgeLook': assertVisualWritable(scene, command.edgeLook, own(visual.edgeLooks, command.edgeLook.id)); visual.edgeLooks[command.edgeLook.id] = cloneJson(command.edgeLook); break
-    case 'upsertVisualLight': assertVisualWritable(scene, command.light, own(visual.lights, command.light.id)); visual.lights[command.light.id] = cloneJson(command.light); break
+    case 'upsertVisualLight': {
+      assertVisualWritable(scene, command.light, own(visual.lights, command.light.id))
+      if (!lightSourcePoints(scene, command.light).length) throw new Error('请选择仍存在且与灯光匹配的宿主。')
+      visual.lights[command.light.id] = cloneJson(command.light)
+      break
+    }
     case 'upsertVisualFog': assertVisualWritable(scene, command.fog, own(visual.fogs, command.fog.id)); visual.fogs[command.fog.id] = cloneJson(command.fog); break
     case 'upsertVisualFilter': assertVisualWritable(scene, command.filter, own(visual.filters, command.filter.id)); visual.filters[command.filter.id] = cloneJson(command.filter); break
     case 'removeVisualEffect': {

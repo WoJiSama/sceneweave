@@ -2,27 +2,33 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
-import { openOutdoorTask, openSceneObjects, openSceneSettings, openWorkspaceModule } from './workspace-navigation-helpers'
+import { openOutdoorTask, openSceneObjects, openSceneSettings, openVisualTask, openWorkspaceModule } from './workspace-navigation-helpers'
 import { mapExportButton, openDetailsBySummary } from './workspace-ux-helpers'
 import { acknowledgeAssetQuality } from './asset-quality-helpers'
 
 const { PNG } = createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js')
 const pipeStyleId = 'industrial-cyberpunk-prefab-cable-run-v2'
+const steelPavingId = 'industrial-cyberpunk-material-deck-v2'
 test.use({ actionTimeout: 15_000 })
 const review = (page: Page) => page.getByRole('region', { name: '候选审阅', exact: true })
 
-async function adopt(page: Page, kind: '组件' | '室外' | '结构') {
+async function adopt(page: Page, kind: '组件' | '室外' | '结构' | '视觉') {
   if (kind === '组件') await acknowledgeAssetQuality(page)
   else await review(page).getByLabel('确认完整影响范围', { exact: true }).check()
   await review(page).getByRole('button', { name: `采用${kind}修改`, exact: true }).click()
   await keyboardWorkspaceSaved(page)
 }
 
-async function terrain(page: Page, material: string, outline: string) {
+async function terrain(page: Page, material: string, outline: string, elevationMetres?: number) {
   const panel = await openOutdoorTask(page, '地形与高程')
   await openDetailsBySummary(panel, /^精确坐标 · 区域轮廓$/)
   await panel.getByLabel('室外坐标', { exact: true }).fill(outline)
   await panel.getByLabel('地形材质', { exact: true }).selectOption(material)
+  if (elevationMetres !== undefined) {
+    const elevation = panel.getByLabel('地形高程', { exact: true })
+    await elevation.fill(String(elevationMetres))
+    await elevation.press('Tab')
+  }
   await panel.getByRole('button', { name: '预览室外修改', exact: true }).click()
   await adopt(page, '室外')
 }
@@ -46,6 +52,81 @@ async function editorPixel(page: Page, u: number, v: number) {
   }, { u, v })
 }
 
+test('a hand-drawn steel bridge clears an existing platform railing and extends paving at a supported joint', async ({ page }, info) => {
+  test.setTimeout(120_000)
+  await createKeyboardProject(page, '钢桥接合', { widthMeters: 22, heightMeters: 20 })
+  await terrain(page, '', '4000,1200\n16000,1200\n16000,4800\n4000,4800', 4)
+  await terrain(page, '', '4000,17380\n16000,17380\n16000,19800\n4000,19800', 4)
+  const platforms = await keyboardProjectBackup(page, info.outputPath('bridge-platforms.sceneweave'))
+  const north = Object.values(platforms.document.terrainAreas).find(area => area.boundaryMm[0].positionMm.y === 1200)!
+  const fence = await openOutdoorTask(page, '实体围栏')
+  await fence.getByLabel('护栏平台', { exact: true }).selectOption(north.id)
+  await fence.getByRole('button', { name: '预览平台护栏', exact: true }).click()
+  await adopt(page, '室外')
+  const before = await keyboardProjectBackup(page, info.outputPath('railing-before-bridge.sceneweave'))
+  const bound = Object.values(before.document.visual.base.base.boundaries).find(row => row.fence?.platformBinding?.platformId === north.id)!
+  expect(bound.fence!.recipe.gaps ?? []).toEqual([])
+  const form = await openOutdoorTask(page, '桥梁')
+  await openDetailsBySummary(form, /^精确坐标 · 桥梁路线$/)
+  await form.getByLabel('沿线构件坐标', { exact: true }).fill('10000,6000\n10000,16000')
+  const elevation = form.getByLabel('桥面高程', { exact: true })
+  await elevation.fill('4')
+  await elevation.press('Tab')
+  await openDetailsBySummary(form, /^工业桥构件$/)
+  await form.getByLabel('显示梁腹和下层投影', { exact: true }).check()
+  await form.getByRole('button', { name: '预览桥梁', exact: true }).click()
+  await adopt(page, '室外')
+  const joined = await keyboardProjectBackup(page, info.outputPath('railing-and-bridge.sceneweave'))
+  const updated = joined.document.visual.base.base.boundaries[bound.id]
+  expect(updated.fence!.platformBinding).toEqual(bound.fence!.platformBinding)
+  expect(updated.fence!.recipe.gaps).toHaveLength(1)
+  for (const audience of ['player', 'gm'] as const) {
+    const pixel = await pixels(page, info.outputPath(`abutting-bridge-${audience}.png`), audience)
+    const atCenter = (y: number) => pixel(10000 / 22000, y / 20000)
+    const lane = atCenter(10000)
+    expect(atCenter(4550)).toEqual(atCenter(4250))
+    expect(pixel(6500 / 22000, 4550 / 20000)).not.toEqual(atCenter(4250))
+    expect(atCenter(5250)).toEqual(lane)
+    expect(atCenter(16750)).not.toEqual(lane)
+  }
+})
+
+test('paving follows both legs of a newly drawn road through the ordinary editor', async ({ page }, info) => {
+  test.setTimeout(120_000)
+  await createKeyboardProject(page, '折线道路铺板', { widthMeters: 22, heightMeters: 20 })
+  const form = await openOutdoorTask(page, '道路')
+  await openDetailsBySummary(form, /^精确坐标 · 道路中心线$/)
+  await form.getByLabel('室外坐标', { exact: true }).fill('3700,6600\n12500,6600\n12500,15500')
+  await form.getByLabel('道路材质', { exact: true }).selectOption('b2-m-03')
+  await form.getByRole('button', { name: '预览室外修改', exact: true }).click()
+  await adopt(page, '室外')
+  const before = await keyboardProjectBackup(page, info.outputPath('hand-drawn-road-before.sceneweave'))
+  const beforePixel = await pixels(page, info.outputPath('hand-drawn-road-world.png'), 'player')
+  const road = Object.values(before.document.paths)[0]
+  expect(road.surfaceStyle?.base.alignment).toBe('world')
+
+  const pavement = await openVisualTask(page, '铺装')
+  await pavement.getByLabel('视觉铺装对象', { exact: true }).selectOption(road.id)
+  await openDetailsBySummary(pavement, /^对齐与相位/)
+  await pavement.getByRole('combobox', { name: '对齐', exact: true }).selectOption('route')
+  await pavement.getByLabel('视觉相对路线方向 °', { exact: true }).fill('90')
+  await pavement.getByRole('button', { name: '预览铺装', exact: true }).click()
+  await adopt(page, '视觉')
+  const after = await keyboardProjectBackup(page, info.outputPath('hand-drawn-road-route.sceneweave'))
+  expect(after.document.paths[road.id]).toEqual({ ...road, surfaceStyle: {
+    base: { ...road.surfaceStyle!.base, alignment: 'route', rotationDeg: 90 }, overlays: [],
+  } })
+  const at = (read: typeof beforePixel, x: number, y: number) => read(x / 22000, y / 20000)
+  const gmPixel = await pixels(page, info.outputPath('hand-drawn-road-route-gm.png'), 'gm')
+  const playerPixel = await pixels(page, info.outputPath('hand-drawn-road-route-player.png'), 'player')
+  for (const [x, y] of [[9300, 6490], [12100, 10450]]) {
+    const samples = (read: typeof playerPixel) => Array.from({ length: 6 }, (_, i) => at(read, x + i * 115, y + i * 57))
+    expect(samples(playerPixel)).toEqual(samples(gmPixel))
+    expect(samples(playerPixel)).not.toEqual(samples(beforePixel))
+  }
+  expect(at(playerPixel, 6000, 12000)).toEqual(at(beforePixel, 6000, 12000))
+})
+
 test('adopts industrial fixed sources and stacks independently editable floors in real audience PNGs', async ({ page, browser }, info) => {
   test.setTimeout(240_000)
   const errors: string[] = []
@@ -64,7 +145,8 @@ test('adopts industrial fixed sources and stacks independently editable floors i
   await adopt(page, '组件')
   const stored = await keyboardProjectBackup(page, info.outputPath('industrial-sources.sceneweave'))
   const lower = Object.keys(stored.document.floors)[0]
-  expect(stored.document.materials['industrial-cyberpunk-material-deck-v1'].applicableSurfaces).toContain('path')
+  expect(stored.document.materials[steelPavingId]).toMatchObject({ applicableSurfaces: expect.arrayContaining(['path']),
+    defaultPathPaint: { alignment: 'route', rotationDeg: 90 } })
   expect(stored.document.propDefinitions['industrial-cyberpunk-prop-compressor-roof-v1'].defaultAppearance.kind).toBe('image')
   expect(stored.document.prefabDefinitions['industrial-cyberpunk-prefab-ember-bridge-v2'].pathStyle?.structure?.palette).toBe('riveted')
   expect(stored.document.prefabDefinitions['industrial-cyberpunk-prefab-service-fence-v1'].pathStyle?.dimensions?.footprintWidthMm).toBe(220)
@@ -112,7 +194,7 @@ test('adopts industrial fixed sources and stacks independently editable floors i
   const floorPicker = page.getByRole('combobox', { name: '当前楼层', exact: true })
   await floorPicker.selectOption({ label: '吊运甲板' })
   const upper = await floorPicker.inputValue()
-  await terrain(page, 'industrial-cyberpunk-material-deck-v1', '4400,4400\n11400,4400\n11400,7600\n4400,7600')
+  await terrain(page, steelPavingId, '4400,4400\n11400,4400\n11400,7600\n4400,7600')
   const standalone = await pixels(page, info.outputPath('industrial-upper.png'), 'player')
   const blankEditorPixel = await editorPixel(page, .22, .22)
 
@@ -198,9 +280,16 @@ test('generates, edits and reopens both industrial scenes with replaceable floor
       expect(Object.keys(document.floors)).toHaveLength(3)
       expect(document.floors.upper.underlayFloorId).toBe('lower')
       expect(document.floors.lower.links?.[0].targetFloorId).toBe('upper')
+      for (const id of ['upper-bridge', 'upper-approach-0', 'upper-approach-1']) {
+        expect(document.paths[id].surfaceStyle?.base).toMatchObject({ materialRef: { id: steelPavingId, version: 2 }, alignment: 'route', rotationDeg: 90 })
+      }
+      const upperRailings = Object.values(document.visual.base.base.boundaries).filter(row => row.floorId === 'upper' && row.fence?.platformBinding)
+      expect(upperRailings).toHaveLength(2)
+      expect(upperRailings.every(row => row.fence!.recipe.gaps?.length)).toBe(true)
       expect(Object.keys(document.rooms)).toHaveLength(2)
       expect(Object.values(document.pathAttachments ?? {})).toHaveLength(2)
-      const facadeArea = Object.values(document.terrainAreas).find(area => area.floorId === 'upper' && area.facade)!
+      const facadeArea = title === '碧脉冷却枢纽' ? document.terrainAreas['upper-north']
+        : Object.values(document.terrainAreas).find(area => area.floorId === 'upper' && area.facade)!
       expect(facadeArea.facade).toBeDefined()
       const floor = editor.getByRole('combobox', { name: '当前楼层', exact: true })
       const backdrop = document.floors.lower.underlayFloorId!
@@ -228,6 +317,7 @@ test('generates, edits and reopens both industrial scenes with replaceable floor
       await keyboardWorkspaceSaved(editor)
       const pixel = await pixels(editor, info.outputPath(title + '-lower-player.png'), 'player')
       if (title === '碧脉冷却枢纽') {
+        expect(facadeArea.facade?.profile).toBe('girder-v1')
         const landing = document.terrainAreas['lower-east'], overhang = document.terrainAreas['lower-service']
         const buried = landing.boundaryMm.findIndex(row => row.positionMm.x === 55000 && row.positionMm.y === 40200)
         expect(buried).toBeGreaterThanOrEqual(0)
@@ -241,6 +331,10 @@ test('generates, edits and reopens both industrial scenes with replaceable floor
         // same extension above the crossing has only a background image below it.
         expect(channelSum(at(pixel, 36800, 29400)) - channelSum(at(stacked, 36800, 29400))).toBeGreaterThan(25)
         expect(at(stacked, 36800, 24500)).toEqual(at(pixel, 36800, 24500))
+        for (const map of [gm, stacked]) {
+          expect(channelSum(at(pixel, 26200, 18500)) - channelSum(at(map, 26200, 18500))).toBeGreaterThan(100)
+          expect(at(map, 26200, 20400)).toEqual(at(pixel, 26200, 20400))
+        }
         for (const entrance of bridge.centerlineMm) {
           // Average down the lane to detect a warm transverse line among aggregate speckles.
           const hues = Array.from({ length: 25 }, (_, col) => {
@@ -261,6 +355,23 @@ test('generates, edits and reopens both industrial scenes with replaceable floor
       await objects.getByLabel('搜索场景对象', { exact: true }).fill(facadeArea.id)
       await objects.locator(`.asset-entity-list [data-entity-id=${JSON.stringify(facadeArea.id)}]`).click()
       const inspector = editor.getByTestId('workspace-inspector')
+      if (title === '碧脉冷却枢纽') {
+        await openDetailsBySummary(inspector, /^建筑立面$/)
+        await inspector.getByLabel('立面样式', { exact: true }).selectOption('glazed-v1')
+        const glassDepth = inspector.getByLabel('立面可见深度', { exact: true })
+        await glassDepth.fill('6.15')
+        await glassDepth.press('Tab')
+        await inspector.getByRole('button', { name: '预览建筑立面', exact: true }).click()
+        await adopt(editor, '室外')
+        const glass = await pixels(editor, info.outputPath(title + '-glass-landing.png'), 'gm')
+        const bounds = document.floors.upper.outputBoundsMm!
+        const at = (read: typeof glass, x: number, y: number) => read((x - bounds.x) / bounds.width, (y - bounds.y) / bounds.height)
+        // Switching to glass extends the wall below the short steel fascia, while the bridge lane keeps its paving.
+        for (const y of [18500, 20400]) expect(at(glass, 26200, y)).not.toEqual(at(gm, 26200, y))
+        expect(at(glass, 32500, 29600)).toEqual(at(gm, 32500, 29600))
+        await editor.getByRole('button', { name: '撤销编辑', exact: true }).click()
+        await keyboardWorkspaceSaved(editor)
+      }
       await openDetailsBySummary(inspector, /^建筑立面$/)
       const depth = facadeArea.facade!.depthMm - 350
       const depthInput = inspector.getByLabel('立面可见深度', { exact: true })

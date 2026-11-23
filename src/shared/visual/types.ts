@@ -1,5 +1,7 @@
 import type { FenceAssembly } from '../path-assembly/contracts.js'
 import type { PointMm, Visibility } from '../model/scene.js'
+import type { LightBeam } from '../validation/primitives.js'
+import type { ColorFilter } from './color-filter.js'
 
 /** A persisted, bounded visual system. Curves own their sampled terrain/path geometry. */
 export interface VisualEntity {
@@ -52,6 +54,11 @@ export interface VisualEdgeLook extends VisualEntity {
   /** Explicit saved paint algorithm. Absent retains the original fixed look. */
   renderProfile?: 'rockRelief2' | 'rockRelief3' | 'rockRelief4' | 'rockRelief5' | 'rockRelief6' | 'rockRelief7' | 'rockRelief8' | 'rockRelief9'
 }
+export type LightShape =
+  | ({ kind: 'spot' } & LightBeam)
+  | { kind: 'window'; openingId: string; roomId: string; angleOffsetDeg: number; spreadDeg: number; softness: number }
+  | { kind: 'line'; source: { kind: 'segment'; endMm: PointMm } | { kind: 'path'; pathId: string; side: 'center' | 'left' | 'right' }; softness: number }
+  | { kind: 'area'; source: { kind: 'terrainArea' | 'room'; id: string }; surfaceIntensity: number; softness: number }
 export interface VisualLight extends VisualEntity {
   positionMm: PointMm
   radiusMm: number
@@ -59,6 +66,8 @@ export interface VisualLight extends VisualEntity {
   intensity: number
   wallOcclusion: boolean
   enabled: boolean
+  /** Absent is the original point light format. Bound shapes derive their origin from their host. */
+  shape?: LightShape
 }
 export interface VisualFog extends VisualEntity {
   boundaryMm: PointMm[]
@@ -84,6 +93,7 @@ export interface VisualFilter extends VisualEntity {
   grain: number
   seed: string
   enabled: boolean
+  colorFilter?: ColorFilter
 }
 export interface VisualEnvironment {
   ambientColor: string
@@ -92,6 +102,14 @@ export interface VisualEnvironment {
   lightDirectionDeg: number
   contactShadowMm: number
   contactShadowOpacity: number
+  directionalLight?: DirectionalLight
+}
+export interface DirectionalLight {
+  kind: 'sun' | 'moon'
+  elevationDeg: number
+  color: string
+  intensity: number
+  softness: number
 }
 export interface VisualSystem {
   version: 1

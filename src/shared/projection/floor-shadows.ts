@@ -4,6 +4,7 @@ import { polygonDistance } from '../geometry/geometry.js'
 import { checkCancelled, type CancellationSignal } from '../ports/resources.js'
 import { pointsBounds } from './projection.js'
 import type { ProjectedFloorShadow, ProjectedSurface, Projection } from './types.js'
+import { directionalShadowReach } from '../visual/directional-light.js'
 
 type Regions = NonNullable<ProjectedSurface['regionsMm']>
 const MAX_REACH_MM = 7000
@@ -74,7 +75,9 @@ export function planFloorShadows(source: Projection, lower: readonly Projection[
   const casters = source.paths.flatMap(({ bridge }) => bridge?.relief?.shadowOpacity ? [{
     polygons: [[ring(bridge.outline)]] as MultiPolygon, elevationMm: bridge.relief.elevationMm, opacity: bridge.relief.shadowOpacity,
   }] : [])
-  const opacity = (source.visual?.environment.contactShadowOpacity ?? 0) * .88
+  const directional = source.visual?.environment.directionalLight
+  const opacity = directional?.intensity ? Math.min(.6, directional.intensity * .42)
+    : (source.visual?.environment.contactShadowOpacity ?? 0) * .88
   const facades = source.terrain.filter(area => area.facade)
   if (opacity > 0 && facades.length <= 128) for (const top of facades) {
     checkCancelled(signal)
@@ -106,7 +109,8 @@ export function planFloorShadows(source: Projection, lower: readonly Projection[
     return [...visibleReceivers(floors, area)].flatMap(([receiverHeight, polygons]) => {
       const drop = elevationMm - receiverHeight
       if (drop <= 0) return []
-      const reach = Math.min(MAX_REACH_MM, drop * .60), blurMm = Math.min(MAX_BLUR_MM, 85 + drop * .09)
+      const reach = directional?.intensity ? directionalShadowReach(directional, drop, MAX_REACH_MM) : Math.min(MAX_REACH_MM, drop * .60)
+      const blurMm = Math.min(MAX_BLUR_MM, directional?.intensity ? 32 + directional.softness * (100 + reach * .13) : 85 + drop * .09)
       const offsetMm = { x: direction.x * reach, y: direction.y * reach }
       const receiver = toRegions(polygonClipping.intersection(union(polygons),
         rectangle({ x: x + offsetMm.x - blurMm * 4, y: y + offsetMm.y - blurMm * 4, width: width + blurMm * 8, height: height + blurMm * 8 })))

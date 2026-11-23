@@ -18,6 +18,7 @@ import { decorationClusterRecords, decorationRecords } from '../decorations/geom
 import { sampleConnectionRoute } from '../geometry/connection-route.js'
 import { sampleVisualBoundary } from '../visual/geometry.js'
 import { visualBase } from '../visual/base.js'
+import { disableLostVisualLights } from '../visual/light-bindings.js'
 import { VISUAL_ENTITY_COLLECTIONS } from '../visual/diagnostics.js'
 import { AGGREGATE_ENTITY_COLLECTIONS, type AggregateEntityRef, type AggregateFrame } from '../model/aggregate.js'
 import { aggregateWorldFrames, WORLD_FRAME } from '../aggregates/state.js'
@@ -883,6 +884,7 @@ export function previewBuildingCommands(scene: SceneDocument, commands: readonly
       const translating = command.type === 'translateWall'
       const carried = translating ? followingAttachmentProps(before, command.id) : undefined
       mutate(next, command, step, true, fixedUprightIds)
+      disableLostVisualLights(before, next)
       refreshScene5TransitionsAfterPhysicalEdit(before, next)
       if (translating) for (const id of followAttachments(before, next).dependencyIds) step.add(id)
       const physicalCost = diffImpact(before, next, step).commandCost

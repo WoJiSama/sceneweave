@@ -1,12 +1,31 @@
 import { drawLineProfile } from './line-profiles.js'
 import type { BoundsMm, BridgeArt, PointMm } from '../../../shared/model/scene.js'
 import type { ProjectedBridge } from '../../../shared/projection/types.js'
+import { industrialFaceLight, shadeIndustrialFace, type IndustrialFaceEnvironment } from './industrial-face-light.js'
 
 const steel = { outer: '#10191E', edge: '#303C42', trim: '#596C73', highlight: '#6C7E82', bolt: '#899999' }
 const timber = { outer: '#2D211A', edge: '#654631', trim: '#AD8257', highlight: '#BD9160', bolt: '#594034' }
 
-export function bridgeSideOffset(depthMm: number): PointMm {
-  return { x: depthMm * .35, y: depthMm * .58 }
+export function drawBridgeContactShadow(ctx: CanvasRenderingContext2D, bridge: ProjectedBridge, offset: PointMm): void {
+  const transform = ctx.getTransform()
+  ctx.save()
+  ctx.translate(offset.x, offset.y)
+  ctx.globalAlpha = bridge.relief!.shadowOpacity
+  ctx.filter = `blur(${Math.hypot(transform.a, transform.b) * 48}px)`
+  ctx.fillStyle = '#152426'
+  ctx.fill(ring(bridge.outline))
+  ctx.restore()
+}
+
+export function drawBridgeDeckEdge(ctx: CanvasRenderingContext2D, cap: [PointMm, PointMm], finish: ProjectedBridge['finish']): void {
+  const [a, b] = cap, width = Math.hypot(b.x - a.x, b.y - a.y)
+  const inset = (p: PointMm) => ({ x: p.x + (a.y - b.y) * 54 / width, y: p.y + (b.x - a.x) * 54 / width })
+  const innerA = inset(a), innerB = inset(b), colors = finish === 'steel' ? steel : timber
+  ctx.save()
+  ctx.fillStyle = colors.outer
+  ctx.fill(ring([a, b, innerB, innerA]))
+  line(ctx, innerA.x, innerA.y, innerB.x, innerB.y, 17, colors.trim)
+  ctx.restore()
 }
 
 function line(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, width: number, color: string) {
@@ -94,24 +113,71 @@ export function drawBridgeLandings(ctx: CanvasRenderingContext2D, bridge: Projec
 
 /** The near sides share one depth vector at each vertex. Repeat the flange
  * and stiffeners over those same faces, including each bend and landing. */
-export function drawBridgeSides(ctx: CanvasRenderingContext2D, bridge: ProjectedBridge, offset: PointMm): void {
+export function drawBridgeSides(ctx: CanvasRenderingContext2D, bridge: ProjectedBridge, offset: PointMm, perimeter: [PointMm, PointMm][],
+  environment?: IndustrialFaceEnvironment): void {
   const colors = bridge.finish === 'steel' ? steel : timber
+  const faceEnvironment = bridge.structure && bridge.finish === 'steel' ? environment : undefined
   const points = bridge.outline, origin = points[0]
   const facing = Math.sign(points.reduce((sum, a, i) => {
     const b = points[(i + 1) % points.length]
     return sum + (a.x - origin.x) * (b.y - origin.y) - (b.x - origin.x) * (a.y - origin.y)
   }, 0))
-  const faces = points.flatMap((a, i) => {
-    const b = points[(i + 1) % points.length], dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy)
-    return (dy * offset.x - dx * offset.y) * facing > length ? [{ a, b, dx, dy, length }] : []
+  const faces = perimeter.flatMap(([a, b]) => {
+    const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy)
+    return (dy * offset.x - dx * offset.y) * facing > length
+      ? [{ a, b, dx, dy, length, light: industrialFaceLight(dx, dy, facing, faceEnvironment) }]
+      : []
   })
   const at = (p: PointMm, depth: number) => ({ x: p.x + offset.x * depth, y: p.y + offset.y * depth })
   const flange = (from: number, to: number, color: string) => {
-    const path = new Path2D()
-    for (const { a, b } of faces) path.addPath(ring([at(a, from), at(b, from), at(b, to), at(a, to)]))
-    ctx.fillStyle = color; ctx.fill(path)
+    const batches = new Map<string, Path2D>()
+    for (const { a, b, light } of faces) {
+      const paint = shadeIndustrialFace(color, light)
+      const path = batches.get(paint) ?? new Path2D()
+      path.addPath(ring([at(a, from), at(b, from), at(b, to), at(a, to)]))
+      batches.set(paint, path)
+    }
+    if (batches.size > 1) {
+      // Cover the joint beneath both antialiased edges of a differently lit turn.
+      const underpaint = new Path2D()
+      for (const path of batches.values()) underpaint.addPath(path)
+      ctx.fillStyle = color
+      ctx.fill(underpaint)
+    }
+    for (const [paint, path] of batches) {
+      ctx.fillStyle = paint
+      ctx.fill(path)
+    }
   }
-  const inset = bridge.finish === 'steel' ? '#1D282E' : '#392C23'
+  if (!bridge.structure) {
+    flange(0, 1, colors.outer)
+    flange(.12, .58, colors.edge)
+    flange(.12, .24, colors.trim)
+    return
+  }
+  paintGirderFlanges(bridge.finish, flange)
+  const spacing = bridge.relief!.ribSpacingMm
+  for (const { a, dx, dy, length, light } of faces) {
+    const outer = shadeIndustrialFace(colors.outer, light), edge = shadeIndustrialFace(colors.edge, light)
+    const boltPaint = shadeIndustrialFace(colors.bolt, light)
+    const count = Math.min(48, Math.floor(length / Math.max(1100, spacing * .58)))
+    for (let i = 0; i < count; i++) {
+      const center = (i + .5) * length / count, half = Math.min(170, length / count * .1)
+      const atStation = (station: number, depth: number) => at({ x: a.x + dx * station / length, y: a.y + dy * station / length }, depth)
+      ctx.fillStyle = outer
+      ctx.fill(ring([atStation(center - half, .19), atStation(center + half, .19), atStation(center + half, .83), atStation(center - half, .83)]))
+      ctx.fillStyle = edge
+      ctx.fill(ring([atStation(center - half * .75, .22), atStation(center + half * .4, .22),
+        atStation(center + half * .4, .8), atStation(center - half * .75, .8)]))
+      const bolt = atStation(center - half * .15, .3)
+      dot(ctx, bolt.x, bolt.y, Math.min(24, Math.hypot(offset.x, offset.y) * .08), boltPaint)
+    }
+  }
+}
+
+export function paintGirderFlanges(finish: ProjectedBridge['finish'], flange: (from: number, to: number, color: string) => void): void {
+  const colors = finish === 'steel' ? steel : timber
+  const inset = finish === 'steel' ? '#1D282E' : '#392C23'
   flange(0, 1, colors.outer)
   flange(.10, .86, inset)
   flange(.10, .26, colors.edge)
@@ -121,25 +187,10 @@ export function drawBridgeSides(ctx: CanvasRenderingContext2D, bridge: Projected
   flange(.78, .93, colors.outer)
   flange(.81, .87, colors.edge)
   flange(.85, .88, colors.trim)
-  const spacing = bridge.relief!.ribSpacingMm
-  for (const { a, dx, dy, length } of faces) {
-    const count = Math.min(48, Math.floor(length / Math.max(1100, spacing * .58)))
-    for (let i = 0; i < count; i++) {
-      const center = (i + .5) * length / count, half = Math.min(170, length / count * .1)
-      const atStation = (station: number, depth: number) => at({ x: a.x + dx * station / length, y: a.y + dy * station / length }, depth)
-      ctx.fillStyle = colors.outer
-      ctx.fill(ring([atStation(center - half, .19), atStation(center + half, .19), atStation(center + half, .83), atStation(center - half, .83)]))
-      ctx.fillStyle = colors.edge
-      ctx.fill(ring([atStation(center - half * .75, .22), atStation(center + half * .4, .22),
-        atStation(center + half * .4, .8), atStation(center - half * .75, .8)]))
-      const bolt = atStation(center - half * .15, .3)
-      dot(ctx, bolt.x, bolt.y, Math.min(24, Math.hypot(offset.x, offset.y) * .08), colors.bolt)
-    }
-  }
 }
 
 /** Solid shoulders and perimeter cladding. The route owns the wearing surface. */
-export function drawBridgeStructure(ctx: CanvasRenderingContext2D, bridge: ProjectedBridge): void {
+export function drawBridgeStructure(ctx: CanvasRenderingContext2D, bridge: ProjectedBridge, perimeter?: Path2D): void {
   const colors = bridge.finish === 'steel' ? steel : timber
   const outside = ring(bridge.outline)
   ctx.save()
@@ -149,10 +200,10 @@ export function drawBridgeStructure(ctx: CanvasRenderingContext2D, bridge: Proje
   ctx.lineJoin = 'round'
   ctx.strokeStyle = colors.outer
   ctx.lineWidth = 140
-  ctx.stroke(outside)
+  ctx.stroke(perimeter ?? outside)
   ctx.strokeStyle = colors.trim
   ctx.lineWidth = 38
-  ctx.stroke(outside)
+  ctx.stroke(perimeter ?? outside)
   ctx.restore()
 }
 

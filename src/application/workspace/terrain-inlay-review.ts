@@ -25,7 +25,7 @@ export interface TerrainInlayReview {
  * from a React render or from a caller-manufactured source proof. */
 export function inspectTerrainInlayChanges(before: EditableProject, after: EditableProject, commands: readonly CompositionCommand[]): TerrainInlayReview[] {
   return commands.flatMap(command => {
-    if (command.type !== 'adoptTerrainInlay' && command.type !== 'restoreTerrainInlaySource' && command.type !== 'setTerrainInlayAppearance' && command.type !== 'setTerrainInlayFinish') return []
+    if (command.type !== 'adoptTerrainInlay' && command.type !== 'restoreTerrainInlaySource' && command.type !== 'setTerrainInlayAppearance' && command.type !== 'setTerrainInlayFinish' && command.type !== 'removeTerrainInlayRoad') return []
     const restoring = command.type === 'restoreTerrainInlaySource', project = restoring ? before : after
     const scene = project.document, connection = scene.terrainConnections[command.id], inlay = connection?.terrainInlay
     if (!inlay) throw Error('连续山路审阅缺少已校验的实际结果。')

@@ -6,6 +6,8 @@ import { bridgeDeckGeometry } from './layout.js'
 import type { PathAssembly, PathAssemblyRecipe } from './contracts.js'
 import { visualBase } from '../visual/base.js'
 import type { VisualBoundary } from '../visual/types.js'
+import { fenceRoutePoints } from './fitted-layout.js'
+import { blocksPlatformFenceOpening, planBoundPlatformFence } from './platform-fence-binding.js'
 
 export function fenceRouteFingerprint(boundary: Pick<VisualBoundary, 'segments' | 'closed'>): string {
   return sha256Text(canonicalJson([boundary.closed, boundary.segments]))
@@ -64,6 +66,18 @@ export function inspectPathAssemblies(scene: SceneDocument): Issue[] {
     }
     if (assembly.recipe.section.kind === 'none' || boundary.closed && assembly.recipe.endClearanceMm
       || assembly.recipe.gaps?.some(gap => gap.side !== 'both')) issue('围栏的源节或开口设置无效。')
+    if (assembly.platformBinding) {
+      try {
+        const { route, bands } = planBoundPlatformFence(scene, { ...boundary, recipe: assembly.recipe }, assembly.platformBinding)
+        if (assembly.pipeLinks || boundary.closed !== route.closed || canonicalJson(fenceRoutePoints(boundary)) !== canonicalJson(route.centerlineMm)
+          || canonicalJson(assembly.recipe.gaps ?? []) !== canonicalJson(route.gaps)) issue('平台护栏路线和开口须匹配当前平台及可见结构。')
+        if (bands.length) for (const member of Object.values(assembly.members)) {
+          const prop = member.state === 'placed' && scene.props[member.propId]
+          if (prop && blocksPlatformFenceOpening(prop, bands)) issues.push({ code: 'PLATFORM_FENCE_OPENING', entityId: prop.id,
+            message: `护栏构件 ${prop.id} 的实际占地侵入桥头、楼梯或坡道净空。请移开这件构件。` })
+        }
+      } catch (cause) { issue(cause instanceof Error ? cause.message : '平台护栏绑定无效。') }
+    }
     checkRecipe(assembly.recipe, issue)
     checkMembers(boundary.floorId, assembly.members, issue)
   }

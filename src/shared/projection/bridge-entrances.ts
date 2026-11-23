@@ -1,7 +1,9 @@
 import { routeWidthFrame } from '../geometry/route-width.js'
 import polygonClipping, { type MultiPolygon } from 'polygon-clipping'
-import { corridor, pointInPolygon, segmentCuts } from '../geometry/geometry.js'
+import { TERRAIN_FACADES } from '../appearance/terrain-facade.js'
+import { corridor, pointInPolygon, polygonDistance, segmentCuts } from '../geometry/geometry.js'
 import type { BoundsMm, Path, PointMm } from '../model/scene.js'
+import { bridgeSideOffset } from '../path-assembly/profiles.js'
 import type { ProjectedBridgeEntrance, ProjectedPath, ProjectedSurface } from './types.js'
 
 const EPS = 1e-6
@@ -24,6 +26,20 @@ const regionsOf = (surface: ProjectedSurface): Regions => surface.regionsMm ?? [
 const polygonsOf = (surface: ProjectedSurface): MultiPolygon => regionsOf(surface).map(region => [region.outerMm, ...region.holesMm].map(ring => ring.map(({ x, y }) => [x, y])))
 const contains = (surface: ProjectedSurface, point: PointMm) => regionsOf(surface).some(region => pointInPolygon(point, region.outerMm, false)
   && !region.holesMm.some(hole => pointInPolygon(point, hole)))
+
+/** Trim a paint edge at the same opening used by the bridge and platform sides. */
+export function exposedEdgeSegments(edges: Section[], cuts: Regions): Section[] {
+  if (!cuts.length) return edges
+  const boundaries = cuts.flatMap(region => [region.outerMm, ...region.holesMm].flatMap(ringEdges))
+  return edges.flatMap(([a, b]) => {
+    const stations = segmentCuts(a, b, boundaries)
+    return stations.slice(1).flatMap((to, i): Section[] => {
+      const from = stations[i], middle = mix(a, b, (from + to) / 2)
+      return cuts.some(region => pointInPolygon(middle, region.outerMm)
+        && !region.holesMm.some(hole => pointInPolygon(middle, hole, false))) ? [] : [[mix(a, b, from), mix(a, b, to)]]
+    })
+  })
+}
 
 function terminal(points: PointMm[], end: PathEnd) {
   const i = end === 'start' ? 0 : points.length - 1
@@ -80,7 +96,8 @@ export function planBridgeEntrances(rows: readonly BridgePathRow[], terrain: rea
   const candidates: { entrance: ProjectedBridgeEntrance; approach: NonNullable<ProjectedBridgeEntrance['approach']>; score: number; linked: boolean }[] = []
   for (const { source, projected, elevationMm } of rows) {
     const bridge = projected.bridge
-    if (!bridge) continue
+    if (!bridge?.outline.length) continue
+    const outline = bridge.outline, deckPolygon = regionPolygon(outline), halfCount = outline.length / 2
     const { shoulderMm, structure } = source.assembly!.recipe
     for (const end of ends) {
       const frame = terminal(bridge.centerlineMm, end), { origin, direction } = frame
@@ -90,19 +107,27 @@ export function planBridgeEntrances(rows: readonly BridgePathRow[], terrain: rea
       const at = (distance: number) => move(origin, direction, distance)
       const outer = half + shoulderMm + (landing?.wideningMm ?? 0) + 4
       const before = -Math.min(frame.length * .9, outer * 2.5 + reach)
-      const tip = at(reach - .01)
-      const platform = platforms.findLast(area => contains(area, tip))
+      // The structural cap can abut a platform without overlapping it.
+      // Probe beyond the actual rounded deck edge, then prove the full lane.
+      const capCenter = end === 'start' ? mix(outline.at(-1)!, outline[0], .5) : mix(outline[halfCount - 1], outline[halfCount], .5)
+      const outsideCap = move(capCenter, direction, 1)
+      const insideCap = at(reach - .01)
+      const outwardPlatform = platforms.findLast(area => contains(area, outsideCap))
+      const platform = outwardPlatform ?? platforms.findLast(area => contains(area, insideCap))
+      const tip = outwardPlatform ? outsideCap : insideCap
       const entrance: ProjectedBridgeEntrance = { bridgeId: source.id, end }
       const link = source.assembly!.bridge!.roadLinks?.[end]
       if (platform?.elevationMm === elevationMm) {
+        const platformPolygon = polygonsOf(platform)
         const boundaries = regionsOf(platform).flatMap(region => [region.outerMm, ...region.holesMm].flatMap(ringEdges))
         const a = at(before), stations = segmentCuts(a, tip, boundaries)
         const contact = stations.findLast((to, i) => i > 0 && to < 1 - EPS && !contains(platform, mix(a, tip, (stations[i - 1] + to) / 2)))
-        if (contact !== undefined) {
+        const mouth = regionPolygon(corridor(at(reach - 2), tip, bridge.widthMm))
+        if (contact !== undefined && !polygonClipping.difference(mouth, deckPolygon, platformPolygon).length) {
           const terminalSpan = regionPolygon(corridor(a, at(reach + 4), outer * 2))
           entrance.platform = { id: platform.id, contactMm: mix(a, tip, contact),
-            shoulderCut: fromPolygons(polygonClipping.intersection(terminalSpan, polygonsOf(platform))),
-            edgeOpening: fromPolygons(polygonClipping.intersection(terminalSpan, regionPolygon(bridge.outline))),
+            shoulderCut: fromPolygons(polygonClipping.intersection(terminalSpan, platformPolygon)),
+            edgeOpening: fromPolygons(polygonClipping.intersection(terminalSpan, deckPolygon)),
             ...(reach > 0 && { laneReachMm: reach - 2 }),
           }
         }
@@ -138,14 +163,15 @@ export function planBridgeEntrances(rows: readonly BridgePathRow[], terrain: rea
           const cap = section(move(terminalRoad.origin, terminalRoad.direction, roadHalf), inward, roadHalf)
           const attached = ringEdges(road.projected.points).some(([a, b]) => same(a, cap[0]) && same(b, cap[1]))
           if (!attached) continue
-          const carriers = [regionPolygon(bridge.outline), ...supportIds.flatMap(id => {
+          const carriers = [deckPolygon, ...supportIds.flatMap(id => {
             const surface = supports.get(id)
             return surface && id !== deckId && surface.elevationMm === elevationMm ? [polygonsOf(surface)] : []
           })]
           if (hasGround) carriers.push(exposedGround())
           if (polygonClipping.difference(regionPolygon(transition), ...carriers).length) continue
           candidates.push({ entrance, linked, score: Math.hypot(along - reach * .5, side) + (1 - forward) * roadHalf,
-            approach: { pathId: road.source.id, end: roadEnd, cap, sides, from: start, to: finish } })
+            approach: { pathId: road.source.id, end: roadEnd, cap, sides, from: start, to: finish,
+              ...(linked && !structure && { deckEdgeMm: origin }) } })
         }
       }
       entrances.push(entrance)
@@ -160,4 +186,30 @@ export function planBridgeEntrances(rows: readonly BridgePathRow[], terrain: rea
     usedEnds.add(key)
   }
   return entrances.filter(entrance => entrance.platform || entrance.approach)
+}
+
+/** Derive the steel section at each landing and fill in an unstyled platform. */
+export function fitSteelLandingFacades(
+  terrain: readonly ProjectedSurface[], paths: readonly ProjectedPath[], entrances: readonly ProjectedBridgeEntrance[], masks: PointMm[][] = [],
+): void {
+  const bridges = new Map(paths.flatMap(({ id, bridge }) => bridge ? [[id, bridge] as const] : []))
+  const landings = new Map<string, { platform: NonNullable<ProjectedBridgeEntrance['platform']>; offsetMm: PointMm }[]>()
+  for (const { bridgeId, platform } of entrances) {
+    if (!platform?.edgeOpening.length) continue
+    const bridge = bridges.get(bridgeId)
+    if (bridge?.finish !== 'steel' || !bridge.structure) continue
+    if (!bridge.relief && masks.some(mask => polygonDistance(bridge.outline, mask) < EPS)) continue
+    const row = { platform, offsetMm: bridgeSideOffset(bridge.relief?.depthMm ?? 0) }
+    const others = landings.get(platform.id)
+    if (others) others.push(row)
+    else landings.set(platform.id, [row])
+  }
+  for (const area of terrain) {
+    const attached = landings.get(area.id)
+    if (!attached || area.waterSurface || area.boundaryBlendMm || area.regionsMm
+      || masks.some(mask => polygonDistance(area.points, mask) < EPS)) continue
+    const raised = attached.map(({ offsetMm }) => offsetMm.y).filter(depth => depth > 0)
+    if (!area.facade && raised.length) area.facade = { ...TERRAIN_FACADES['girder-v1'], depthMm: Math.round(Math.min(...raised)) }
+    for (const { platform, offsetMm } of attached) platform.girderOffsetMm = offsetMm
+  }
 }

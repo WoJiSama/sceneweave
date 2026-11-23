@@ -15,10 +15,17 @@ export default function TerrainInlayTools({ scene, id, disabled, onPreview }: {
   const [first, setFirst] = useState('1'), [last, setLast] = useState('1'), [connectors, setConnectors] = useState('')
   const [error, setError] = useState<string | null>(null)
   if (!connection || connection.carvedStrip) return null
+  if (connection.terrainInlay?.groundOnly) return <details className="asset-details" data-terrain-inlay-tools><summary>开挖后的地形</summary>
+    <button className="secondary asset-wide" disabled={disabled || effectiveEditLocked(scene, id)} onClick={() => onPreview([
+      { type: 'restoreTerrainInlaySource', id, disposition: 'restore-original-connection-and-ground' },
+    ], '预览回填与恢复原连接')}>预览回填</button></details>
   if (connection.terrainInlay) return <details className="asset-details" data-terrain-inlay-tools><summary>连续填切山路</summary>
     <TerrainSlopeTools scene={scene} id={id} disabled={disabled || effectiveEditLocked(scene, id)} onPreview={onPreview}/>
     <p className="asset-muted">沿原路线平顺爬升，低处补岩基、高处切入。两块源地形和原连接已完整保留。</p>
     <p className="asset-muted">当前路面：{connection.terrainInlay.appearance === 'source-ground' ? '融入山体' : '单独铺装'}。融入山体时沿用周围地表的材质和涂层，原有路宽与坡度保持。</p>
+    <button className="secondary asset-wide" disabled={disabled || effectiveEditLocked(scene, id)} onClick={() => onPreview([
+      { type: 'removeTerrainInlayRoad', id, expectedConnectionHash: terrainInlayHash(connection) },
+    ], '拆路并保留挖好的地形')}>预览拆路并保留平台</button>
     <button className="secondary asset-wide" disabled={disabled || effectiveEditLocked(scene, id)} onClick={() => onPreview([
       { type: 'setTerrainInlayAppearance', id, appearance: connection.terrainInlay!.appearance === 'source-ground' ? null : 'source-ground', expectedConnectionHash: terrainInlayHash(connection) },
     ], connection.terrainInlay!.appearance === 'source-ground' ? '恢复山路单独铺装' : '让山路融入周围地表')}>{connection.terrainInlay.appearance === 'source-ground' ? '预览单独铺装' : '预览融入山体'}</button>

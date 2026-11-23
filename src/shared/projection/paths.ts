@@ -4,6 +4,7 @@ import type { PathAttachment } from '../path-attachments/contracts.js'
 import { bridgeDeckGeometry } from '../path-assembly/layout.js'
 import type { EdgeStyle, Path, PointMm } from '../model/scene.js'
 import type { ProjectedDoorThreshold, ProjectedOpening, ProjectedPath, ProjectedWall, Projection } from './types.js'
+import { projectRoutePaving } from './route-paving.js'
 
 const fallbackPathEdge: EdgeStyle = { strokeWidthMm: 18, color: '#78745F', bandWidthMm: 100 }
 
@@ -14,16 +15,18 @@ export const pathDecorationPadding = (style: EdgeStyle): number => Math.max(styl
 /** Call only after audience/support filtering. No source, layer or generation metadata is retained. */
 export function projectPath(path: Path, theme: Projection['theme'], masks: PointMm[][] = []): ProjectedPath {
   const result: ProjectedPath = { id: path.id, points: pathPolygon(path), style: cloneJson(path.surfaceStyle), edgeStyle: pathEdgeStyle(theme) }
+  if (result.style?.base.alignment === 'route') result.paving = projectRoutePaving(path, result.style.base)
   if (path.staircase) result.stairs = { centerlineMm: cloneJson(path.centerlineMm), widthMm: path.widthMm,
     ...(path.widthSections ? { widthSections: cloneJson(path.widthSections) } : {}), config: cloneJson(path.staircase) }
   const assembly = path.assembly
   if (assembly?.bridge) {
     const { structure, shoulderMm } = assembly.recipe
     const { outline, landings } = bridgeDeckGeometry(path, shoulderMm, structure?.bridgehead)
+    const relief = structure ? structure.relief : { depthMm: Math.min(460, Math.max(200, path.widthMm * .20)), shadowOpacity: .24 }
     // A source covered by a player mask cannot reveal its silhouette outside that mask.
-    const relief = structure?.relief && !masks.some(mask => polygonDistance(outline, mask) < 1e-6) ? structure.relief : undefined
+    const visibleRelief = relief && !masks.some(mask => polygonDistance(outline, mask) < 1e-6) ? relief : undefined
     result.bridge = { outline, centerlineMm: cloneJson(path.centerlineMm), widthMm: path.widthMm, finish: assembly.bridge.finish,
-      ...(relief && { relief: { ...relief, elevationMm: assembly.bridge.elevationMm, ribSpacingMm: structure!.support.spacingMm } }),
+      ...(visibleRelief && { relief: { ...visibleRelief, elevationMm: assembly.bridge.elevationMm, ribSpacingMm: structure?.support.spacingMm ?? 2000 } }),
       ...(structure && { structure: { palette: structure.palette, landings: landings.map(({ side, outline }) => ({ side, outline })) } }) }
   }
   return result

@@ -4,11 +4,12 @@ import { expect, test, type Page } from '@playwright/test'
 const showcaseManifest = JSON.parse(await readFile(new URL('../src/platform/browser/content/home-showcase-manifest.json', import.meta.url), 'utf8')) as {
   entries: Record<SampleId, { file: string; fullFile: string; title: string; name: string; audience: string; width: number; height: number;
     fullWidth: number; fullHeight: number; pngSha256: string; fullPngSha256: string; rgbaSha256: string;
+    oblique: { file: string; fullFile: string; width: number; height: number; fullWidth: number; fullHeight: number; sha256: string; fullSha256: string }
     archiveFile: string; archiveSha256: string; archiveBytes: number; projectHash: string;
     boundsMm: { x: number; y: number; width: number; height: number }; rooms: number; terrainAreas: number; props: number; prefabInstances: number }>
 }
-type SampleId = 'investigation' | 'modern' | 'fantasy' | 'ruins' | 'wilderness' | 'coast' | 'island' | 'volcano'
-const sampleIds: SampleId[] = ['investigation', 'modern', 'fantasy', 'ruins', 'wilderness', 'coast', 'island', 'volcano']
+const sampleIds = ['investigation', 'modern', 'fantasy', 'ruins', 'wilderness', 'coast', 'island', 'volcano', 'cyberpunk'] as const
+type SampleId = typeof sampleIds[number]
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const home = (page: Page) => page.getByTestId('workspace-home')
 
@@ -35,7 +36,7 @@ async function settled(page: Page) {
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
 }
 
-test('home showcase serves eight delivered archives and native images without writing on browse or cancel, then saves a real copy', async ({ page }) => {
+test('home showcase serves all delivered archives and native images without writing on browse or cancel, then saves a real copy', async ({ page }) => {
   test.setTimeout(240_000)
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -67,12 +68,19 @@ test('home showcase serves eight delivered archives and native images without wr
     const card = home(page).locator('article[data-sample="' + id + '"]')
     await card.scrollIntoViewIfNeeded()
     await expect(card).toBeVisible()
-    const image = card.locator('.home-showcase-image img')
+    const image = card.locator('.home-showcase-image:not(.home-showcase-angle) img')
     await waitForImage(image, entry.width, entry.height)
     expect(new URL(await image.getAttribute('src') ?? '', page.url()).pathname.endsWith('/assets/home-scenes/' + entry.file)).toBe(true)
     await expect(card).toContainText(entry.boundsMm.width / 1000 + ' × ' + entry.boundsMm.height / 1000 + ' m')
 
-    const opener = card.locator('.home-showcase-image')
+    const angle = entry.oblique
+    const angleBytes = await readFile(new URL('../public/assets/home-scenes/' + angle.file, import.meta.url))
+    const angleFullBytes = await readFile(new URL('../public/assets/home-scenes/' + angle.fullFile, import.meta.url))
+    expect(sha256(angleBytes)).toBe(angle.sha256)
+    expect(sha256(angleFullBytes)).toBe(angle.fullSha256)
+    expect(angleBytes.toString('ascii', 8, 12)).toBe('WEBP')
+    await waitForImage(card.locator('.home-showcase-angle img'), angle.width, angle.height)
+    const opener = card.locator('.home-showcase-image:not(.home-showcase-angle)')
     await opener.focus()
     await opener.press('Enter')
     const details = page.getByRole('dialog', { name: entry.name + ' · 场景详情', exact: true })
@@ -80,6 +88,9 @@ test('home showcase serves eight delivered archives and native images without wr
     const fullImage = details.locator('figure img')
     await waitForImage(fullImage, entry.fullWidth, entry.fullHeight)
     expect(new URL(await fullImage.getAttribute('src') ?? '', page.url()).pathname.endsWith('/assets/home-scenes/' + entry.fullFile)).toBe(true)
+    await details.getByRole('button', { name: '3D 斜俯视', exact: true }).click()
+    await waitForImage(fullImage, angle.fullWidth, angle.fullHeight)
+    expect(new URL(await fullImage.getAttribute('src') ?? '', page.url()).pathname.endsWith('/assets/home-scenes/' + angle.fullFile)).toBe(true)
     await expect(details).toContainText(entry.props + ' 件物件')
     if (id === 'investigation') {
       await page.keyboard.press('Escape')
@@ -107,7 +118,7 @@ test('home showcase serves eight delivered archives and native images without wr
   }
 
   const volcanoCard = home(page).locator('article[data-sample="volcano"]')
-  await volcanoCard.locator('.home-showcase-image').click()
+  await volcanoCard.locator('.home-showcase-angle').click()
   const volcanoDetails = page.getByRole('dialog', { name: showcaseManifest.entries.volcano.name + ' · 场景详情', exact: true })
   await expect(volcanoDetails).toBeVisible()
   await volcanoDetails.getByRole('button', { name: '用此样板创建副本', exact: true }).click()
@@ -150,9 +161,11 @@ test('home showcase and scene details fit a 390px viewport', async ({ page }) =>
   const overflow = () => page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth)
   expect(await overflow()).toBeLessThanOrEqual(1)
 
-  await home(page).locator('article[data-sample="volcano"] .home-showcase-image').click()
-  const details = page.getByRole('dialog', { name: showcaseManifest.entries.volcano.name + ' · 场景详情', exact: true })
+  const entry = showcaseManifest.entries.cyberpunk
+  await home(page).locator('article[data-sample="cyberpunk"] .home-showcase-angle').click()
+  const details = page.getByRole('dialog', { name: entry.name + ' · 场景详情', exact: true })
   await expect(details).toBeVisible()
+  await waitForImage(details.getByRole('img'), entry.oblique.fullWidth, entry.oblique.fullHeight)
   expect(await details.evaluate(element => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
   expect(await overflow()).toBeLessThanOrEqual(1)
   await details.getByRole('button', { name: '返回首页', exact: true }).click()

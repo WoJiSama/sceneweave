@@ -2,13 +2,14 @@ import { useState } from 'react'
 import type { FloorArtworkImportRequest } from '../../application/workspace/prepare'
 import type { SceneDocument } from '../../shared/model/scene'
 
-export default function FloorArtworkPanel({ scene, floorId, disabled, onDraftChange, onImport, onClear }: {
+export default function FloorArtworkPanel({ scene, floorId, disabled, onDraftChange, onImport, onClear, onLocalPaint }: {
   scene: SceneDocument
   floorId: string
   disabled: boolean
   onDraftChange: (dirty: boolean) => void
   onImport: (request: FloorArtworkImportRequest) => void
   onClear: () => void
+  onLocalPaint?: () => void
 }) {
   const [file, setFile] = useState<File | null>(null)
   const [attribution, setAttribution] = useState('')
@@ -32,7 +33,10 @@ export default function FloorArtworkPanel({ scene, floorId, disabled, onDraftCha
           <label className="asset-check"><input type="checkbox" checked={canEmbed} onChange={event => { setCanEmbed(event.target.checked); onDraftChange(true) }}/>允许将底图嵌入工程和出图</label>
           <button className="primary" type="submit" disabled={!canEmbed || !attribution.trim() || !licenseText.trim()}>预览更换底图</button>
         </>}
-        {current && <button className="secondary" type="button" onClick={onClear}>预览清除底图</button>}
+        {current && <>
+          {onLocalPaint && <button className="secondary" type="button" disabled={!!file} onClick={onLocalPaint}>局部补画楼层底图</button>}
+          <button className="secondary" type="button" onClick={onClear}>预览清除底图</button>
+        </>}
       </fieldset>
     </form>
   </details>

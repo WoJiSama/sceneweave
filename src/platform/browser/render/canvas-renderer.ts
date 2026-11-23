@@ -6,13 +6,18 @@ import type { WallGeometry } from '../../../shared/geometry/wall-paint-geometry.
 export { wallGeometry }
 export type { WallGeometry }
 import { planWallRelief } from '../../../shared/appearance/wall-relief.js'
-import { effectivePropShadow, presentationBounds, presentationContact, presentationShadow, propShadowDirection } from '../../../shared/appearance/presentation.js'
+import { effectivePropShadow, presentationBounds, presentationContact, presentationShadow, propPaintPolygon, propShadowDirection } from '../../../shared/appearance/presentation.js'
 import { propPresentationEnvelope } from '../../../shared/projection/presentation-contract.js'
+import { wallShadowStyle } from '../../../shared/visual/directional-light.js'
+import { projectedWallFootprints } from '../../../shared/visual/projection.js'
 import { playerMaskRings } from '../../../shared/projection/player-mask.js'
-import { drawVisualAtmosphere, drawVisualBoundaries, drawVisualContacts, drawVisualEntity } from './visual-renderer'
+import { applyVisualFilters, drawDirectionalSpriteShadow, drawVisualAtmosphere, drawVisualBoundaries, drawVisualContacts, drawVisualEntity } from './visual-renderer'
 import { pathJunctionOutlines } from './path-junctions.js'
-import { bridgeSideOffset, drawBridgeBearingSeat, drawBridgeLandings, drawBridgeSides, drawBridgeStructure, drawBridgeSymbol } from './path-assembly.js'
-import { bridgeWalkCap, replacePathCaps } from '../../../shared/projection/bridge-entrances.js'
+import { bridgeSideOffset } from '../../../shared/path-assembly/profiles.js'
+import { drawBridgeBearingSeat, drawBridgeContactShadow, drawBridgeDeckEdge, drawBridgeLandings, drawBridgeSides, drawBridgeStructure, drawBridgeSymbol } from './path-assembly.js'
+import { bridgeWalkCap, exposedEdgeSegments, replacePathCaps } from '../../../shared/projection/bridge-entrances.js'
+import { joinedPavingPaint } from '../../../shared/projection/route-paving.js'
+import { canonicalJson } from '../../../shared/validation/json.js'
 import type { BoundsMm, MaterialPaint, PointMm, Prop, ShadowStyle, SurfaceOverlay, SurfaceStyle } from '../../../shared/model/scene.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import { drawRegionalProjection } from './regional-renderer.js'
@@ -20,7 +25,7 @@ import { inspectImageBytes, normalizePngChunks } from '../../../shared/project/i
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { PACKAGE_LIMITS } from '../../../shared/project/limits.js'
 import { withRenderDecoderSlot } from './image-decoder'
-import type { AssetRecord, ResourceBytePort } from '../../../shared/model/project.js'
+import type { AssetRecord, ResourceBytePort, SvgAuthoringSource } from '../../../shared/model/project.js'
 import type { AssetRef } from '../../../shared/model/scene.js'
 import { pointsBounds } from './geometry'
 import type { Audience, ProjectedBridgeEntrance, ProjectedConnection, ProjectedDecoration, ProjectedOpening, ProjectedPath, ProjectedSurface, ProjectedTerrainEdge, ProjectedWall, Projection } from '../../../shared/projection/types.js'
@@ -42,18 +47,31 @@ import { paintWithPreservedAlpha } from './alpha-preservation.js'
 import { noteLabelPositions } from './note-label-layout.js'
 import { terrainInlayWallPaint, type InlayWallPaintPiece } from '../../../shared/terrain-inlay/wall-paint.js'
 import { drawTerrainSlopeFinish } from './terrain-slope-renderer.js'
+import { drawTerrainReliefLight } from './terrain-relief-paint.js'
+import { reliefBounds, sampleTerrainRelief } from '../../../shared/geometry/terrain-relief.js'
 import { drawStaircase } from './staircase-renderer.js'
+import { staircasePatch, staircasePointAt, type StaircaseGeometry } from '../../../shared/stairs/geometry.js'
 import { planProjectedShorelines, shorelinePaintPadding } from '../../../shared/projection/shorelines.js'
 import { intersectsVisualBounds, variableOffsetPolyline } from './visual-geometry'
 import { drawTerrainFacadeFace } from './terrain-facade-renderer.js'
 import { planFacadeFaces, type FacadeOpenings } from './terrain-facade-geometry.js'
 import { cliffBandWidth, mixPoints, terrainBandCells, terrainEdgeRuns, type TerrainBandCell, type TerrainEdgeRun } from './terrain-edge-bands.js'
+import { artStyleArtworkIds, artStyleSource } from '../../../shared/visual/art-style-sources.js'
+import { mixVectorArtStyle, paintArtStyleArtwork } from './art-style-artwork.js'
+import { applyArtStyleGrades, captureArtStyleTiles, captureArtStyleLineEdges, paintArtStyleMarks, type ArtStyleGradeSource } from './art-style-grade.js'
+import { ArtStyleLineGuide } from './art-style-line-guide.js'
+import { bitmapLineSamplingPadding } from './bitmap-line-art.js'
+import { checkArtStyleSvg, colorArtStyleSvg } from './art-style-svg.js'
+import { rasterizeCanonicalSvgInWorker } from '../ai/svg-worker-client.js'
+import { activeLineArt, artStyleLightAmount, CURRENT_LINE_ART_PAINT_VERSION, preservesBitmapContours, usesSeparateArtStyle, type ActiveArtStyle, type ActiveArtStyles } from '../../../shared/visual/art-style.js'
+import type { NormalizedStaticSvg } from '../../../shared/ai/svg.js'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
   assetRefs: Record<string, AssetRef>
   assets: Record<string, AssetRecord>
   resources: ResourceBytePort
+  vectorSources?: Readonly<Record<string, SvgAuthoringSource>>
 }
 
 /** Monotonic elapsed milliseconds for one successful render, not GPU completion or memory peaks. */
@@ -154,8 +172,96 @@ function drawPlayerMasks(ctx: CanvasRenderingContext2D, projection: Projection):
 }
 function worldTransform(ctx: CanvasRenderingContext2D, bounds: BoundsMm, scaleX: number, scaleY: number) { ctx.setTransform(scaleX, 0, 0, scaleY, -bounds.x * scaleX, -bounds.y * scaleY) }
 
-interface RasterSet { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; paintCache?: { key: string; image: HTMLCanvasElement }; readFrequently?: boolean }
-async function decodeRequired(sources: RasterSources, projection: Projection, signal?: AbortSignal, metrics?: Pick<RenderMetrics, 'resourceVerificationMs' | 'decoderQueueWaitMs' | 'imageDecodeMs'>, residentAssetIds?: ReadonlySet<string>): Promise<RasterSet> {
+interface RasterSet { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; styled?: Map<string, HTMLCanvasElement>;
+  paintCache?: { key: string; image: HTMLCanvasElement }; readFrequently?: boolean; bitmapLine?: boolean
+  bitmapLineIds?: ReadonlySet<string>; lineGuide?: ArtStyleLineGuide }
+
+function lineBitmapIds(projection: Projection, sources: RasterSources): Set<string> {
+  const result = new Set<string>()
+  const line = activeLineArt(projection.artStyles)
+  if (line?.parameters.paintVersion !== CURRENT_LINE_ART_PAINT_VERSION) return result
+  // Classify only the audience-owned image consumers, before viewport culling.
+  const add = (id: string) => {
+    const asset = sources.assetRefs[id], vector = sources.vectorSources?.[id]
+    if (asset?.origin.kind !== 'original' && !(line.filter ? artStyleSource(asset, vector, 3) : vector)) result.add(id)
+  }
+  for (const prop of projection.props) if (prop.appearance.kind === 'image') add(prop.appearance.assetId)
+  for (const decoration of projection.decorations ?? []) add(decoration.assetId)
+  return result
+}
+
+/** Keep the linking reach proportional when a small source is enlarged. */
+function floorBitmapStrokeScale(artwork: NonNullable<Projection['floorArtwork']>, width: number, height: number, sx: number, sy = sx): number {
+  return Math.min(4, Math.max(artwork.boundsMm.width * sx / width, artwork.boundsMm.height * sy / height))
+}
+
+interface ArtStylePreviewFrame {
+  width: number
+  height: number
+  tiles: ImageData[]
+  marks?: ImageData
+  lineArtEdges?: Uint8Array
+  bitmapLine?: boolean
+  themeLineGuide?: ArtStyleGradeSource['themeLineGuide']
+}
+export interface ArtStylePreviewCache {
+  readFrame(): ArtStylePreviewFrame | undefined
+  writeFrame(frame: ArtStylePreviewFrame): void
+  readSvg(source: SvgAuthoringSource): Promise<NormalizedStaticSvg>
+  readVerifiedImage(record: AssetRecord): Promise<Blob>
+}
+
+async function readVectorArtStyle(sources: RasterSources, source: SvgAuthoringSource, width: number, height: number, look: ActiveArtStyle,
+  signal?: AbortSignal, cache?: ArtStylePreviewCache) {
+  const svg = await (cache?.readSvg(source) ?? sources.resources.read(source.normalizedSha256).then(bytes => checkArtStyleSvg(bytes, source)))
+  checkCancelled(signal)
+  return rasterizeCanonicalSvgInWorker(colorArtStyleSvg(svg, look), { width, height }, signal, 'paint-layer')
+}
+
+async function beginArtStyleArtwork(sources: RasterSources, raster: RasterSet, projection: Projection, signal?: AbortSignal, cache?: ArtStylePreviewCache): Promise<void> {
+  const [first, ...remaining] = (projection.artStyles ?? []).filter(look =>
+    look.preset !== 'lineArt' && look.preset !== 'original'
+      && (!look.filter || look.parameters.strength > 0 && (look.parameters.depth > 0 || look.parameters.ink > 0)))
+  if (!first) return
+  const looks: ActiveArtStyles = [first, ...remaining]
+  const vectorLooks = looks.filter(look => look.parameters.paintVersion === 3 && (look.parameters.depth || look.parameters.ink))
+  const bySource = new Map<string, HTMLCanvasElement>()
+  raster.styled = new Map()
+  for (const id of artStyleArtworkIds(projection)) {
+    checkCancelled(signal)
+    const vector = sources.vectorSources?.[id]
+    const source = artStyleSource(sources.assetRefs[id], vector, vectorLooks.length ? 3 : undefined)
+    const bitmap = raster.byAssetId.get(id)
+    if (!source || !bitmap) continue
+    // One paint per verified source bitmap and look, even when a project has many aliases or instances.
+    const key = `${source}:${sources.assetRefs[id].sha256}:${source === 'svg' ? vector?.normalizedSha256 : ''}`
+    let paint = bySource.get(key)
+    if (!paint && source !== 'svg') paint = paintArtStyleArtwork(bitmap, source, looks, signal)
+    if (!paint && source === 'svg' && vector) {
+      try {
+        for (const look of vectorLooks) {
+          const colored = await readVectorArtStyle(sources, vector, bitmap.width, bitmap.height, look, signal, cache)
+          const next = mixVectorArtStyle(paint ?? bitmap, colored, look.parameters.strength / 100)
+          if (paint) disposeCanvas(paint)
+          paint = next
+        }
+      } catch (error) {
+        if (paint) disposeCanvas(paint)
+        throw error
+      }
+    }
+    if (paint) { bySource.set(key, paint); raster.styled.set(id, paint) }
+  }
+}
+export async function verifiedRenderBlob(resources: ResourceBytePort, record: AssetRecord): Promise<Blob> {
+  const bytes = (await resources.read(record.sha256)).slice()
+  const header = inspectImageBytes(bytes)
+  if (bytes.length !== record.sizeBytes || header.mimeType !== record.mimeType || header.width !== record.pixelWidth
+    || header.height !== record.pixelHeight || sha256Bytes(bytes) !== record.sha256) throw new Error(`绘制素材 ${record.sha256} 的实际格式、尺寸或 hash 不匹配。`)
+  return new Blob([bytes.buffer], { type: record.mimeType })
+}
+
+export async function decodeRequired(sources: RasterSources, projection: Projection, signal?: AbortSignal, metrics?: Pick<RenderMetrics, 'resourceVerificationMs' | 'decoderQueueWaitMs' | 'imageDecodeMs'>, residentAssetIds?: ReadonlySet<string>, cache?: ArtStylePreviewCache): Promise<RasterSet> {
   const bitmaps = new Map<string, ImageBitmap>(), byAssetId = new Map<string, ImageBitmap>(); let totalPixels = 0
   const verifiedHashes = new Set<string>()
   try {
@@ -167,11 +273,9 @@ async function decodeRequired(sources: RasterSources, projection: Projection, si
       if (ref.sha256 !== resource.sha256 || ref.mimeType !== resource.mimeType || ref.pixelWidth !== resource.pixelWidth || ref.pixelHeight !== resource.pixelHeight) throw new Error(`素材 ${id} 的字节记录与工程不一致。`)
       const cached = bitmaps.get(ref.sha256)
       if (cached) { byAssetId.set(id, cached); if (metrics) metrics.resourceVerificationMs += performance.now() - verificationStarted; continue }
-      const bytes = (await sources.resources.read(ref.sha256)).slice(); checkCancelled(signal)
-      const header = inspectImageBytes(bytes)
-      if (bytes.length !== resource.sizeBytes || header.mimeType !== ref.mimeType || header.width !== ref.pixelWidth || header.height !== ref.pixelHeight || await sha256Bytes(bytes) !== ref.sha256) throw new Error(`素材 ${id} 的实际格式、尺寸或 hash 不匹配。`)
+      const blob = await (cache ? cache.readVerifiedImage(resource) : verifiedRenderBlob(sources.resources, resource))
       checkCancelled(signal)
-      if (!verifiedHashes.has(ref.sha256)) { verifiedHashes.add(ref.sha256); totalPixels += header.width * header.height }
+      if (!verifiedHashes.has(ref.sha256)) { verifiedHashes.add(ref.sha256); totalPixels += ref.pixelWidth * ref.pixelHeight }
       if (verifiedHashes.size > PACKAGE_LIMITS.uniqueImages || totalPixels > PACKAGE_LIMITS.totalImagePixels) throw new Error('绘制素材超过候选解码预算。')
       if (metrics) metrics.resourceVerificationMs += performance.now() - verificationStarted
       if (residentAssetIds && !residentAssetIds.has(id)) continue
@@ -181,7 +285,7 @@ async function decodeRequired(sources: RasterSources, projection: Projection, si
         bitmap = await withRenderDecoderSlot(signal, async () => {
           const decodeStarted = metrics ? performance.now() : 0
           if (metrics) metrics.decoderQueueWaitMs += decodeStarted - queuedStarted
-          try { return await createImageBitmap(new Blob([bytes.slice().buffer], { type: resource.mimeType }), { imageOrientation: 'from-image', colorSpaceConversion: 'default', premultiplyAlpha: 'default' }) }
+          try { return await createImageBitmap(blob, { imageOrientation: 'from-image', colorSpaceConversion: 'default', premultiplyAlpha: 'default' }) }
           finally { if (metrics) metrics.imageDecodeMs += performance.now() - decodeStarted }
         })
       } catch { checkCancelled(signal); throw new Error(`素材 ${id} 实际解码失败，已停止出图。`) }
@@ -194,7 +298,7 @@ async function decodeRequired(sources: RasterSources, projection: Projection, si
 }
 
 function repeatMaterial(ctx: CanvasRenderingContext2D, paint: MaterialPaint, projection: Projection, raster: RasterSet): CanvasPattern {
-  const material = projection.materials[paint.materialRef.id], bitmap = material && raster.byAssetId.get(material.textureAssetId)
+  const material = projection.materials[paint.materialRef.id], bitmap = material && (raster.styled?.get(material.textureAssetId) ?? raster.byAssetId.get(material.textureAssetId))
   if (!bitmap) throw new Error('铺装所需位图没有完成解码。')
   const pattern = ctx.createPattern(bitmap, 'repeat')
   if (!pattern) throw new Error('无法建立重复材质。')
@@ -219,11 +323,13 @@ function paintImage(ctx: CanvasRenderingContext2D, paint: MaterialPaint, project
   }
   return raster.paintCache.image
 }
-function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D | null, style: SurfaceStyle | null, projection: Projection, raster: RasterSet, fallback: string, materialPatches: ProjectedSurface['materialPatches'] = [], baseColor?: string): void {
+function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D | null, style: SurfaceStyle | null, projection: Projection, raster: RasterSet, fallback: string, materialPatches: ProjectedSurface['materialPatches'] = [], baseColor?: string,
+  fillBase?: () => void): void {
   ctx.save(); if (path) ctx.clip(path); ctx.fillStyle = fallback
   const b = projection.bounds; ctx.fillRect(b.x, b.y, b.width, b.height)
   if (style && !baseColor) {
-    ctx.save(); ctx.resetTransform(); ctx.globalAlpha = style.base.opacity; ctx.drawImage(paintImage(ctx, style.base, projection, raster), 0, 0); ctx.restore()
+    if (fillBase) fillBase()
+    else { ctx.save(); ctx.resetTransform(); ctx.globalAlpha = style.base.opacity; ctx.drawImage(paintImage(ctx, style.base, projection, raster), 0, 0); ctx.restore() }
   }
     for (const overlay of [...(style?.overlays ?? [])].sort((a, b) => a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))) drawOverlay(overlay)
     for (const overlay of materialPatches) drawOverlay(overlay)
@@ -248,8 +354,11 @@ function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D | null, style: 
 /** Terrain colors, water colors and material overlays share the same paint and mask. */
 function drawTerrainSurface(ctx: CanvasRenderingContext2D, area: ProjectedSurface, projection: Projection, raster: RasterSet): void {
   if (area.bridgeSupport && !area.style && !area.materialPatches?.length) return
-  const paint = (target: CanvasRenderingContext2D) => fillSurface(target, surfacePath(area), area.style, projection, raster,
-    area.waterSurface?.color ?? '#C3BEA8', area.materialPatches, area.waterSurface?.color)
+  const paint = (target: CanvasRenderingContext2D) => {
+    const path = surfacePath(area)
+    fillSurface(target, path, area.style, projection, raster, area.waterSurface?.color ?? '#C3BEA8', area.materialPatches, area.waterSurface?.color)
+    drawTerrainReliefLight(target, area, path, projection.visual?.environment)
+  }
   if (!area.boundaryBlendMm) { paint(ctx); return }
   const layer = canvas(ctx.canvas.width, ctx.canvas.height), mask = canvas(ctx.canvas.width, ctx.canvas.height)
   try {
@@ -282,6 +391,7 @@ function drawRoomFloors(ctx: CanvasRenderingContext2D, projection: Projection, r
   for (const room of projection.rooms) {
     // With calibrated artwork, an unstyled room keeps the underlying paint.
     if (projection.floorArtwork && !room.style) continue
+    raster.lineGuide?.cover(polygonPath(room.points))
     if (filtered.has(room.id)) {
       flush()
       drawVisualEntity(ctx, projection, room.id, expandedBounds(room.points, 0), (target, local) => fillSurface(target, polygonPath(room.points), room.style, local, raster, '#B9AA88'), !!raster.readFrequently)
@@ -297,9 +407,29 @@ function drawRoomFloors(ctx: CanvasRenderingContext2D, projection: Projection, r
 function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number, geometry: WallGeometry[]): void {
   if (!geometry.length) return
   const outline = projection.theme?.outline ?? { widthMm: 24, color: '#39443E' }
-  const shadowSource = projection.theme?.shadowPresets.wall
-  const shadow = shadowSource && projection.visual ? { ...shadowSource, directionDeg: projection.visual.environment.lightDirectionDeg } : shadowSource
-  const needsSilhouette = outline.widthMm !== 0 || !!shadow && shadow.opacity > 0
+  const environment = projection.visual?.environment
+  const shadow = wallShadowStyle(projection.theme?.shadowPresets.wall, environment)
+  const directional = !!environment?.directionalLight?.intensity
+  if (directional && shadow?.opacity) {
+    const angle = shadow.directionDeg * Math.PI / 180, dx = Math.cos(angle) * shadow.offsetMm, dy = Math.sin(angle) * shadow.offsetMm
+    const sweep = new Path2D()
+    for (const ring of projectedWallFootprints(projection)) {
+      const far = ring.map(p => point(p.x + dx, p.y + dy))
+      addRing(sweep, ring); addRing(sweep, far)
+      ring.forEach((p, index) => {
+        const next = (index + 1) % ring.length
+        addRing(sweep, [p, ring[next], far[next], far[index]])
+      })
+    }
+    ctx.save()
+    ctx.globalCompositeOperation = 'source-atop'
+    ctx.globalAlpha = shadow.opacity
+    ctx.fillStyle = shadow.color
+    ctx.filter = `blur(${shadow.blurMm * Math.max(scaleX, scaleY)}px)`
+    ctx.fill(sweep)
+    ctx.restore()
+  }
+  const needsSilhouette = outline.widthMm !== 0 || !directional && !!shadow && shadow.opacity > 0
   const width = ctx.canvas.width, height = ctx.canvas.height, color = canvas(width, height)
   let mask: HTMLCanvasElement | undefined, interior: HTMLCanvasElement | undefined
   try {
@@ -319,7 +449,7 @@ function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, ras
     worldTransform(maskCtx, projection.bounds, scaleX, scaleY)
     maskCtx.fillStyle = '#fff'; maskCtx.fill(union)
     ctx.save(); ctx.resetTransform()
-    if (shadow && shadow.opacity > 0) {
+    if (!directional && shadow && shadow.opacity > 0) {
       interiorCtx.drawImage(mask, 0, 0); interiorCtx.globalCompositeOperation = 'source-in'; interiorCtx.fillStyle = shadow.color; interiorCtx.fillRect(0, 0, width, height)
       ctx.save(); ctx.globalAlpha = shadow.opacity; ctx.filter = `blur(${shadow.blurMm * Math.max(scaleX, scaleY)}px)`
       const angle = shadow.directionDeg * Math.PI / 180
@@ -378,7 +508,8 @@ function expandedBounds(points: PointMm[], padding: number): BoundsMm {
 function shadowColor(shadow: ShadowStyle): string { const color = shadow.color; return `rgba(${parseInt(color.slice(1, 3), 16)},${parseInt(color.slice(3, 5), 16)},${parseInt(color.slice(5, 7), 16)},${shadow.opacity})` }
 /** Near-side art casts a dedicated ground shape, never a flattened upright alpha. */
 function drawNearSideShadow(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, sx: number, sy: number): void {
-  const presentation = projection.propPresentations?.[prop.id], source = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass])
+  const presentation = projection.propPresentations?.[prop.id], source = effectivePropShadow(prop, presentation,
+    projection.theme?.shadowPresets[prop.shadowClass], projection.visual?.environment)
   if (presentation?.mode !== 'nearSide' || !source) return
   ctx.save()
   const direction = propShadowDirection(prop, source, projection.visual?.environment.lightDirectionDeg)
@@ -398,11 +529,15 @@ function drawNearSideShadow(ctx: CanvasRenderingContext2D, prop: Prop, projectio
 }
 function drawPropBody(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, raster: RasterSet, scaleX: number, scaleY: number, detail: EditorPropDetail = 'full', castShadow = true): void {
   const presentation = projection.propPresentations?.[prop.id]
+  const environment = projection.visual?.environment
+  const shadowSource = castShadow && detail === 'full' ? effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass], environment) : null
+  const shadow = shadowSource ? { ...shadowSource, directionDeg: propShadowDirection(prop, shadowSource, environment?.lightDirectionDeg) } : null
+  const stretched = presentation?.mode !== 'nearSide' && !!shadow?.opacity && !!environment?.directionalLight?.intensity && !prop.shadowOverride && prop.shadowClass !== 'none'
+  if (stretched) drawDirectionalSpriteShadow(ctx, projection, propPaintPolygon(prop), shadow,
+    target => drawPropBody(target, prop, projection, raster, scaleX, scaleY, 'full', false), !!raster.readFrequently)
   if (presentation?.mode === 'nearSide' && castShadow && detail === 'full') drawNearSideShadow(ctx, prop, projection, scaleX, scaleY)
   ctx.save(); ctx.translate(prop.positionMm.x, prop.positionMm.y); ctx.rotate((presentation?.mode === 'nearSide' ? 0 : prop.rotationDeg) * Math.PI / 180); ctx.globalAlpha = prop.appearance.opacity * (projection.groundView && presentation?.mode === 'nearSide' && prop.renderLayer === 'canopy' ? .16 : 1)
-  const shadowSource = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass])
-  const shadow = shadowSource ? { ...shadowSource, directionDeg: propShadowDirection(prop, shadowSource, projection.visual?.environment.lightDirectionDeg) } : null
-  if (presentation?.mode !== 'nearSide' && castShadow && detail === 'full' && shadow && shadow.opacity > 0) {
+  if (presentation?.mode !== 'nearSide' && !stretched && shadow?.opacity) {
     const angle = shadow.directionDeg * Math.PI / 180
     // Canvas shadow offsets are device coordinates: rotation affects only the body alpha, never the light direction.
     ctx.shadowColor = shadowColor(shadow); ctx.shadowOffsetX = Math.cos(angle) * shadow.offsetMm * scaleX; ctx.shadowOffsetY = Math.sin(angle) * shadow.offsetMm * scaleY; ctx.shadowBlur = shadow.blurMm * Math.max(scaleX, scaleY)
@@ -414,7 +549,7 @@ function drawPropBody(ctx: CanvasRenderingContext2D, prop: Prop, projection: Pro
     ctx.globalAlpha = prop.appearance.opacity * .65; ctx.fillRect(v.x, v.y, v.width, v.height)
     ctx.globalAlpha = prop.appearance.opacity; ctx.strokeRect(v.x, v.y, v.width, v.height)
   } else if (prop.appearance.kind === 'image') {
-    const bitmap = raster.byAssetId.get(prop.appearance.assetId)
+    const bitmap = raster.styled?.get(prop.appearance.assetId) ?? raster.byAssetId.get(prop.appearance.assetId)
     if (!bitmap) throw new Error('物件所需位图没有完成解码。')
     ctx.drawImage(bitmap, v.x, v.y, v.width, v.height)
   } else symbol(ctx, prop)
@@ -448,21 +583,24 @@ function drawProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Project
 }
 function drawOceanSprite(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, raster: RasterSet, phase: 'under' | 'over'): void {
   if (prop.appearance.kind !== 'image') throw new Error('水中物件需要实际图片。')
-  const bitmap = raster.byAssetId.get(prop.appearance.assetId)
+  const bitmap = raster.styled?.get(prop.appearance.assetId) ?? raster.byAssetId.get(prop.appearance.assetId)
   if (!bitmap) throw new Error('水中物件所需位图没有完成解码。')
   const envelope = propPresentationEnvelope(projection, prop, { full: false })
   drawVisualEntity(ctx, projection, prop.id, envelope.boundsMm, (target, local) => drawWaterProp(target, prop, local, bitmap, phase), !!raster.readFrequently)
+  raster.lineGuide?.sprite(!!raster.bitmapLineIds?.has(prop.appearance.assetId), target => drawWaterProp(target, prop, projection, bitmap, phase, true))
 }
 function drawDecoration(ctx: CanvasRenderingContext2D, value: ProjectedDecoration, projection: Projection, raster: RasterSet): void {
-  const bitmap = raster.byAssetId.get(value.assetId)
+  const bitmap = raster.styled?.get(value.assetId) ?? raster.byAssetId.get(value.assetId)
   if (!bitmap) throw new Error('轻量装饰所需位图没有完成解码。')
-  drawVisualEntity(ctx, projection, value.id, decorationPaintBounds(value), target => {
+  const draw = (target: CanvasRenderingContext2D) => {
     target.save()
     try {
       target.translate(value.positionMm.x, value.positionMm.y); target.rotate(value.rotationDeg * Math.PI / 180); target.globalAlpha = value.opacity
       const bounds = value.visualBoundsMm; target.drawImage(bitmap, bounds.x, bounds.y, bounds.width, bounds.height)
     } finally { target.restore() }
-  }, !!raster.readFrequently)
+  }
+  drawVisualEntity(ctx, projection, value.id, decorationPaintBounds(value), draw, !!raster.readFrequently)
+  raster.lineGuide?.sprite(!!raster.bitmapLineIds?.has(value.assetId), draw)
 }
 export function connectionPolygon(connection: Pick<ProjectedConnection, 'start' | 'end' | 'widthMm' | 'route' | 'carvedFootprintMm' | 'inlayFootprintMm'>): PointMm[] {
   return connection.inlayFootprintMm ?? connection.carvedFootprintMm ?? (connection.route ? connectionBand(connection.route.centerlineMm, connection.widthMm) : wallBand(connection.start, connection.end, connection.widthMm))
@@ -635,20 +773,76 @@ function drawTerrainShorelines(ctx: CanvasRenderingContext2D, projection: Projec
   }
 }
 
+function terrainRunOpenings(projection: Projection, run: TerrainEdgeRun) {
+  const surfaceIds = [...new Set(run.edges.flatMap(({ edge }) => [edge.sourceAreaId, edge.neighborAreaId]).filter((id): id is string => id !== null))]
+  const connections = boundaryConnections(projection.connections, run.points, run.closed, surfaceIds)
+  const clip = (target: CanvasRenderingContext2D) => {
+    clipConnectionOpenings(target, projection.bounds, connections)
+    for (const { platform } of projection.bridgeEntrances ?? []) if (platform && surfaceIds.includes(platform.id)) {
+      excludeRegions(target, platform.edgeOpening, projection.bounds)
+    }
+  }
+  return { connections, clip }
+}
+
+/** Clear the whole inward-facing lip at the opening, including flush contacts. */
+function terrainEdgePaint(projection: Projection): ProjectedTerrainEdge[] {
+  const profiles = new Map(projection.terrain.flatMap(area => area.relief ? [[area.id, { grid: area.relief, bounds: reliefBounds(area.points) }] as const] : []))
+  const edges = profiles.size ? projection.edges.flatMap(edge => {
+    if (edge.kind !== 'cliff' || edge.customFinish) return [edge]
+    const source = profiles.get(edge.sourceAreaId), neighbor = edge.neighborAreaId ? profiles.get(edge.neighborAreaId) : undefined
+    if (!source && !neighbor) return [edge]
+    const p = { x: (edge.start.x + edge.end.x) / 2, y: (edge.start.y + edge.end.y) / 2 }
+    const elevationMm = edge.elevationMm + (source ? sampleTerrainRelief(source.grid, source.bounds, p).offsetMm : 0)
+    const neighborElevationMm = edge.neighborElevationMm + (neighbor ? sampleTerrainRelief(neighbor.grid, neighbor.bounds, p).offsetMm : 0)
+    return Math.abs(elevationMm - neighborElevationMm) < 400 ? [] : [{ ...edge, elevationMm, neighborElevationMm }]
+  }) : projection.edges
+  const cuts = new Map<string, NonNullable<ProjectedSurface['regionsMm']>>()
+  for (const { platform } of projection.bridgeEntrances ?? []) {
+    if (!platform) continue
+    cuts.set(platform.id, [...(cuts.get(platform.id) ?? []), ...platform.edgeOpening])
+  }
+  if (!cuts.size) return edges
+  return edges.flatMap(edge => {
+    const carrier = edge.elevationMm > edge.neighborElevationMm ? edge.sourceAreaId : edge.neighborAreaId
+    const openings = carrier !== null && edge.kind === 'cliff' ? cuts.get(carrier) : undefined
+    if (!openings) return [edge]
+    return exposedEdgeSegments([[edge.start, edge.end]], openings).map(([start, end]) => ({ ...edge, start, end }))
+  })
+}
+
+function drawTerrainLineInk(guide: ArtStyleLineGuide, projection: Projection): void {
+  const shores = new Path2D()
+  for (const [a, b] of projection.lineArtShorelines ?? []) shores.addPath(linePath(a, b))
+  guide.stroke(shores, .64, 58, 1.4)
+  // Decorative material bands may replace painted edges, while the physical
+  // shoreline or change of level still belongs in the line drawing.
+  for (const run of terrainEdgeRuns(projection.edges.filter(edge => edge.kind === 'cliff' || edge.shoreline))) {
+    const cliff = run.edges[0].edge.kind === 'cliff'
+    const contour = new Path2D()
+    run.points.forEach((p, i) => i ? contour.lineTo(p.x, p.y) : contour.moveTo(p.x, p.y))
+    if (run.closed) contour.closePath()
+    guide.clipped(terrainRunOpenings(projection, run).clip, () => guide.stroke(contour, cliff ? .72 : .64, cliff ? 85 : 58, 1.4))
+  }
+}
+
 function drawTerrainEdges(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, sx: number, sy: number): void {
   const suppressed = new Set(projection.visual?.suppressedTerrainEdgeIds ?? [])
   const surfaces = new Map(projection.terrain.map(area => [area.id, area]))
   for (const run of terrainEdgeRuns(projection.edges.filter(edge => !suppressed.has(edge.id)))) {
     const { kind } = run.edges[0].edge, cliff = projection.theme?.terrainCliff
-    const surfaceIds = [...new Set(run.edges.flatMap(({ edge }) => [edge.sourceAreaId, edge.neighborAreaId]).filter((id): id is string => id !== null))]
-    const connections = boundaryConnections(projection.connections, run.points, run.closed, surfaceIds)
-    ctx.save(); clipConnectionOpenings(ctx, projection.bounds, connections)
-    for (const { platform } of projection.bridgeEntrances ?? []) if (platform && surfaceIds.includes(platform.id)) {
-      excludeRegions(ctx, platform.edgeOpening, projection.bounds)
-    }
-    if (kind === 'cliff') {
+    const { connections, clip } = terrainRunOpenings(projection, run)
+    ctx.save(); clip(ctx)
+    const high = run.highAreaId === null ? undefined : surfaces.get(run.highAreaId)
+    if (high?.facade) {
+      const cells = terrainBandCells(run, edge => cliffBandWidth(edge, projection.theme), -1)
+      if (cells.length) {
+        ctx.save(); ctx.clip(surfacePath(high))
+        paintTerrainBand(ctx, cells, terrainBandPath(cells), projection, raster, '#303C42')
+        ctx.restore()
+      }
+    } else if (kind === 'cliff') {
       const cells = terrainBandCells(run, edge => cliffBandWidth(edge, projection.theme), 1)
-      const high = run.highAreaId === null ? undefined : surfaces.get(run.highAreaId)
       ctx.save()
       if (high) {
         const outside = new Path2D(), { x, y, width, height } = projection.bounds
@@ -701,6 +895,48 @@ type Approach = NonNullable<ProjectedBridgeEntrance['approach']>
 const approachRing = (approach: Approach) => [...approach.sides[0], ...approach.sides[1].slice().reverse()]
 const ringSegments = (points: PointMm[]): [PointMm, PointMm][] => points.map((a, i) => [a, points[(i + 1) % points.length]])
 const samePoint = (a: PointMm, b: PointMm) => Math.hypot(a.x - b.x, a.y - b.y) <= EPS
+const terminalCourseIndex = (path: ProjectedPath, end: ProjectedBridgeEntrance['end']) => end === 'start' ? 0 : (path.paving?.length ?? 0) - 1
+const terminalCourse = (path: ProjectedPath, end: ProjectedBridgeEntrance['end']) => path.paving?.[terminalCourseIndex(path, end)]
+const sameBasePaint = (a: ProjectedPath, b: ProjectedPath) => !!a.style && !!b.style && canonicalJson(a.style.base) === canonicalJson(b.style.base)
+
+function extendPavement(path: ProjectedPath, caps: Parameters<typeof replacePathCaps>[1]): ProjectedPath {
+  if (!caps.length) return path
+  return { ...path, points: replacePathCaps(path.points, caps), ...(path.paving && { paving: path.paving.map((course, i, all) =>
+    i === 0 || i === all.length - 1 ? { ...course, points: replacePathCaps(course.points, caps) } : course,
+  ) }) }
+}
+
+function pavingSplice(ctx: CanvasRenderingContext2D, a: PointMm, b: PointMm, opacity: number): void {
+  ctx.save()
+  ctx.globalCompositeOperation = 'multiply'
+  ctx.strokeStyle = '#455056'; ctx.lineWidth = 44; ctx.globalAlpha = opacity * .55
+  ctx.stroke(linePath(a, b)); ctx.restore()
+}
+
+function fillPavement(ctx: CanvasRenderingContext2D, outline: Path2D | null, path: ProjectedPath, projection: Projection, raster: RasterSet): void {
+  const courses = path.paving, style = path.style
+  if (!courses || courses.length < 2) {
+    const base = courses?.[0]?.paint
+    fillSurface(ctx, outline, base && style ? { ...style, base } : style, projection, raster, defaultRoadColor)
+    return
+  }
+  fillSurface(ctx, outline, style, projection, raster, defaultRoadColor, [], undefined, () => {
+    for (const [index, { points, paint }] of courses.entries()) {
+      if (!intersectsVisualBounds(pointsBounds(points), projection.bounds)) continue
+      ctx.save()
+      const polygon = polygonPath(points)
+      ctx.globalAlpha = paint.opacity
+      if (paint.tint) {
+        ctx.clip(polygon); ctx.resetTransform()
+        ctx.drawImage(paintImage(ctx, paint, projection, raster), 0, 0)
+      } else {
+        ctx.fillStyle = repeatMaterial(ctx, paint, projection, raster); ctx.fill(polygon)
+      }
+      ctx.restore()
+      if (index) pavingSplice(ctx, points[0], points.at(-1)!, paint.opacity)
+    }
+  })
+}
 
 function roadOutline(segments: [PointMm, PointMm][], caps: [PointMm, PointMm][]): Path2D {
   const on = (p: PointMm, a: PointMm, b: PointMm) => Math.abs(Math.hypot(p.x - a.x, p.y - a.y) + Math.hypot(p.x - b.x, p.y - b.y) - Math.hypot(b.x - a.x, b.y - a.y)) < EPS
@@ -736,21 +972,35 @@ function drawPavementLayer(ctx: CanvasRenderingContext2D, projection: Projection
   } finally { disposeCanvas(layer) }
 }
 
-/** Fade the two actual finishes over the supported transition. The mask
- * starts inside the bridge so its antialiasing stays clear of the join. */
+/** Join the two finishes over the supported transition. The mask starts
+ * inside the bridge so its antialiasing stays clear of the join. */
 function blendApproach(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet,
-  approach: Approach, bridge: ProjectedPath, road: ProjectedPath): void {
-  if (JSON.stringify(bridge.style) === JSON.stringify(road.style)) return
+  approach: Approach, bridge: ProjectedPath, road: ProjectedPath, end: ProjectedBridgeEntrance['end']): void {
+  const bridgePaint = terminalCourse(bridge, end)?.paint, roadPaint = terminalCourse(road, approach.end)?.paint
+  const sharedPaving = !!bridgePaint && !!roadPaint && sameBasePaint(bridge, road)
+  if (JSON.stringify(bridge.style) === JSON.stringify(road.style) && bridgePaint === roadPaint) return
   const a = approach.sides[0][0], b = approach.sides[1][0]
   const width = Math.hypot(b.x - a.x, b.y - a.y)
   const upstream = (p: PointMm) => point(p.x + (b.y - a.y) / width * pavementOverlapMm,
     p.y - (b.x - a.x) / width * pavementOverlapMm)
   const points = [upstream(a), ...approachRing(approach), upstream(b)]
   drawPavementLayer(ctx, projection, raster, points, (target, local) => {
-    fillSurface(target, null, bridge.style, local, raster, defaultRoadColor)
+    fillSurface(target, null, bridgePaint && bridge.style ? { ...bridge.style, base: bridgePaint } : bridge.style, local, raster, defaultRoadColor)
+    target.globalCompositeOperation = 'destination-in'
+    if (sharedPaving && bridgePaint !== roadPaint) {
+      target.fillStyle = '#000'; target.fill(polygonPath(points))
+      return
+    }
     const fade = target.createLinearGradient(approach.from.x, approach.from.y, approach.to.x, approach.to.y)
-    fade.addColorStop(0, '#000'); fade.addColorStop(.25, '#000'); fade.addColorStop(.87, 'transparent'); fade.addColorStop(1, 'transparent')
-    target.globalCompositeOperation = 'destination-in'; target.fillStyle = fade
+    if (approach.deckEdgeMm) {
+      const dx = approach.to.x - approach.from.x, dy = approach.to.y - approach.from.y
+      const station = ((approach.deckEdgeMm.x - approach.from.x) * dx + (approach.deckEdgeMm.y - approach.from.y) * dy) / (dx * dx + dy * dy)
+      const seam = Math.max(0, Math.min(1, station))
+      fade.addColorStop(seam, '#000'); fade.addColorStop(seam, 'transparent')
+    } else {
+      fade.addColorStop(0, '#000'); fade.addColorStop(.25, '#000'); fade.addColorStop(.87, 'transparent'); fade.addColorStop(1, 'transparent')
+    }
+    target.fillStyle = fade
     target.fill(polygonPath(points))
   })
 }
@@ -782,7 +1032,7 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
   const paintPaths = projection.paths.map(path => {
     const road = byRoad.get(path.id)
     const thresholds = path.doorThresholds?.map(({ cap, inside }) => ({ cap, sides: [[inside[0]], [inside[1]]] as [PointMm[], PointMm[]] })) ?? []
-    if (road || thresholds.length) return { ...path, points: replacePathCaps(path.points, [...thresholds, ...(road?.map(entrance => entrance.approach!) ?? [])]) }
+    if (road || thresholds.length) return extendPavement(path, [...thresholds, ...(road?.map(entrance => entrance.approach!) ?? [])])
     const bridge = path.bridge
     const extensions = bridge ? (byBridge.get(path.id) ?? []).flatMap(({ end, platform, approach }) => {
       if (!approach && !platform?.laneReachMm) return []
@@ -790,29 +1040,54 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
       const [a, b] = bridgePaintCap(bridge, end, approach, platform?.laneReachMm)
       return [{ cap, sides: [[a], [b]] as [PointMm[], PointMm[]] }]
     }) : []
-    return extensions.length ? { ...path, points: replacePathCaps(path.points, extensions) } : path
+    return extendPavement(path, extensions)
   })
   const junctions = pathJunctionOutlines({ ...projection, paths: paintPaths }), byId = new Map(paintPaths.map(path => [path.id, path]))
-  for (const path of paintPaths) {
+  for (const [roadId, joins] of byRoad) {
+    const road = byId.get(roadId)!
+    if (!road.paving?.length) continue
+    const paving = [...road.paving], matched = new Set<number>()
+    for (const { approach, bridgeId, end } of joins) {
+      const bridge = byId.get(bridgeId)!, bridgeCourse = terminalCourse(bridge, end)
+      const index = terminalCourseIndex(road, approach!.end)
+      if (!bridgeCourse || !sameBasePaint(bridge, road) || matched.has(index)) continue
+      paving[index] = { ...paving[index], paint: joinedPavingPaint(bridgeCourse, paving[index], approach!.to) }
+      matched.add(index)
+    }
+    byId.set(roadId, { ...road, paving })
+  }
+  for (const { id } of paintPaths) {
+    const path = byId.get(id)!
     const bridge = path.bridge, relief = bridge?.relief
     const offset = relief?.depthMm ? bridgeSideOffset(relief.depthMm) : undefined
-    const top = bridge?.outline ?? path.points
-    const bounds = expandedBounds(offset ? [...top, ...top.map(({ x, y }) => point(x + offset.x, y + offset.y))] : top, path.edgeStyle.bandWidthMm * 2)
+    const body = bridge ? [...path.points, ...bridge.outline] : path.points
+    const bounds = expandedBounds(offset && bridge ? [...body, ...bridge.outline.map(({ x, y }) => point(x + offset.x, y + offset.y))] : body,
+      Math.max(path.edgeStyle.bandWidthMm * 2, offset && !bridge?.structure ? 144 : 0))
     drawVisualEntity(ctx, projection, path.id, bounds, (ctx, projection) => {
       const outline = polygonPath(path.points), edge = path.edgeStyle
       const bridgeEnds = byBridge.get(path.id) ?? [], roadEnds = byRoad.get(path.id) ?? [], caps: [PointMm, PointMm][] = []
       ctx.save()
       if (bridge) {
+        const cuts = bridge.structure ? bridgeEnds.flatMap(({ platform }) => platform?.shoulderCut ?? []) : []
+        const perimeter = exposedEdgeSegments(ringSegments(bridge.outline), cuts)
         if (offset && relief) {
           ctx.save()
           excludeRing(ctx, bridge.outline, projection.bounds)
-          // The fascia is visible below the deck. Same-height landings and
-          // other higher tops occlude it all the way through the joint.
+          // Raised platforms and room floors occlude the side face. For a
+          // compact bridge, same-height ground can receive a contact shadow.
           for (const area of [...projection.terrain, ...projection.rooms]) {
             if (area.elevationMm < relief.elevationMm || !intersectsVisualBounds(pointsBounds(area.points), bounds)) continue
+            if (!bridge.structure && area.elevationMm === relief.elevationMm && !projection.rooms.includes(area)) continue
             excludeRegions(ctx, area.regionsMm ?? [{ outerMm: area.points, holesMm: [] }], projection.bounds)
           }
-          drawBridgeSides(ctx, bridge, offset)
+          if (!bridge.structure) {
+            for (const { approach, platform } of bridgeEnds) {
+              if (approach) excludeRing(ctx, approachRing(approach), projection.bounds)
+              if (platform) excludeRegions(ctx, platform.shoulderCut, projection.bounds)
+            }
+            drawBridgeContactShadow(ctx, bridge, offset)
+          }
+          drawBridgeSides(ctx, bridge, offset, perimeter, projection.visual?.environment)
           ctx.restore()
         }
         ctx.save()
@@ -824,7 +1099,7 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
         }
         ctx.save()
         for (const { platform } of bridgeEnds) if (platform) excludeRegions(ctx, platform.shoulderCut, projection.bounds)
-        drawBridgeStructure(ctx, bridge)
+        drawBridgeStructure(ctx, bridge, cuts.length ? roadOutline(perimeter, []) : undefined)
         ctx.restore()
         for (const { end, platform } of bridgeEnds) if (platform?.shoulderCut.length) {
           ctx.save(); ctx.clip(regionsPath(platform.shoulderCut), 'evenodd')
@@ -838,20 +1113,42 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
       for (const { inside } of path.doorThresholds ?? []) caps.push(inside)
       const segments = junctions.get(path.id)
       const exterior = segments || caps.length ? roadOutline(segments ?? ringSegments(path.points), caps) : outline
+      const guide = raster.lineGuide
+      if (guide) {
+        if (bridge) guide.cover(polygonPath(bridge.outline))
+        guide.cover(outline)
+        guide.stroke(exterior, bridge ? .82 : .58, bridge ? 99 : 53, bridge ? 1.55 : 1.12)
+      }
       if (edge.bandWidthMm) {
         ctx.save(); ctx.globalAlpha = .22; ctx.filter = `blur(${edge.bandWidthMm * .3 * Math.max(sx, sy)}px)`; ctx.strokeStyle = edge.color; ctx.lineWidth = edge.bandWidthMm; ctx.lineJoin = 'round'; ctx.stroke(exterior); ctx.restore()
       }
-      if (caps.length || segments) {
+      if (caps.length || segments || (path.paving?.length ?? 0) > 1) {
         // Apply the final contour once, after all paint is composited. Clipping
         // the underpaint and texture separately leaves a bright hairline in an overlap.
         drawPavementLayer(ctx, projection, raster, path.points, (target, local) => {
-          fillSurface(target, null, path.style, local, raster, defaultRoadColor)
-          for (const { approach, bridgeId } of roadEnds) if (approach) blendApproach(target, local, raster, approach, byId.get(bridgeId)!, path)
+          fillPavement(target, null, path, local, raster)
+          for (const { approach, bridgeId, end } of roadEnds) if (approach) {
+            const linked = byId.get(bridgeId)!
+            blendApproach(target, local, raster, approach, linked, path, end)
+            const bridgePaint = terminalCourse(linked, end)?.paint, roadPaint = terminalCourse(path, approach.end)?.paint
+            if (bridgePaint && roadPaint && bridgePaint !== roadPaint && sameBasePaint(linked, path)) {
+              pavingSplice(target, approach.sides[0].at(-1)!, approach.sides[1].at(-1)!, roadPaint.opacity)
+            }
+          }
         }, outline)
-      } else fillSurface(ctx, outline, path.style, projection, raster, defaultRoadColor)
+      } else fillPavement(ctx, outline, path, projection, raster)
       const stairs = path.stairs
-      if (stairs) drawStaircase(ctx, stairs.centerlineMm, stairs.widthMm, stairs.config, { widthSections: stairs.widthSections })
+      if (stairs) {
+        const geometry = drawStaircase(ctx, stairs.centerlineMm, stairs.widthMm, stairs.config, { widthSections: stairs.widthSections })
+        guide?.treads(geometry, outline)
+      }
       if (edge.strokeWidthMm) { ctx.strokeStyle = edge.color; ctx.lineWidth = edge.strokeWidthMm; ctx.lineJoin = 'round'; ctx.stroke(exterior) }
+      for (const { approach, bridgeId, end } of roadEnds) if (approach?.deckEdgeMm) {
+        const joined = byId.get(bridgeId)!.bridge!
+        const cap = bridgeWalkCap(joined, end)
+        drawBridgeDeckEdge(ctx, cap, joined.finish)
+        guide?.stroke(linePath(...cap), .57, 46)
+      }
       for (const { cap: [outer], inside: [a, b] } of path.doorThresholds ?? []) {
         const depth = Math.hypot(a.x - outer.x, a.y - outer.y)
         const inset = Math.min(66, depth * .35) / depth
@@ -1060,14 +1357,53 @@ function maskNaturalRockLanding(layer: CanvasRenderingContext2D, connection: Pro
     layer.drawImage(mask, 0, 0); layer.restore()
   } finally { disposeCanvas(mask) }
 }
+function drawStoneStairLandings(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet,
+  c: ProjectedConnection, stair: StaircaseGeometry, footprint: PointMm[]): void {
+  if (c.carvedFootprintMm || c.inlayFootprintMm || !c.surfaceIds) return
+  const depth = Math.min(620, c.widthMm * .33, stair.lengthMm * .16)
+  const surfaces = [...projection.terrain, ...projection.rooms]
+  for (const [index, surfaceId] of c.surfaceIds.entries()) {
+    const start = index === 0, range = c.staircase?.range
+    if (range && (start ? range.startPpm !== 0 : range.endPpm !== 1_000_000)) continue
+    const supportIndex = surfaces.findIndex(area => area.id === surfaceId)
+    const support = surfaces[supportIndex]
+    if (!support?.style) continue
+    const tip = start ? 0 : stair.lengthMm
+    const inner = start ? depth : stair.lengthMm - depth
+    const patch = staircasePatch(stair, Math.min(inner, tip), Math.max(inner, tip))
+    const from = staircasePointAt(stair, tip), to = staircasePointAt(stair, inner)
+    if (Math.hypot(to.x - from.x, to.y - from.y) < 1) continue
+    ctx.save()
+    ctx.clip(polygonPath(footprint))
+    for (const cover of stair.covers) excludeRing(ctx, cover.polygonMm, projection.bounds)
+    drawPavementLayer(ctx, projection, raster, patch, (target, local) => {
+      target.save(); target.clip(surfacePath(support), 'evenodd')
+      for (const cover of surfaces.slice(supportIndex + 1)) {
+        if (cover.bridgeSupport || !intersectsVisualBounds(pointsBounds(cover.points), local.bounds)) continue
+        excludeRegions(target, cover.regionsMm ?? [{ outerMm: cover.points, holesMm: [] }], local.bounds)
+      }
+      fillSurface(target, null, support.style, local, raster, '#C3BEA8', support.materialPatches)
+      target.restore()
+      const fade = target.createLinearGradient(from.x, from.y, to.x, to.y)
+      fade.addColorStop(0, '#000'); fade.addColorStop(.28, '#000B'); fade.addColorStop(1, 'transparent')
+      target.globalCompositeOperation = 'destination-in'; target.fillStyle = fade
+      target.fill(polygonPath(patch))
+    }, polygonPath(patch))
+    ctx.restore()
+  }
+}
+
 function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, c: ProjectedConnection): void {
   if (c.staircase) {
     if (c.staircase.range) {
       const { staircase: _staircase, ...underlay } = c
       drawConnectionBody(ctx, projection, raster, { ...underlay, kind: 'ramp', blocksMovement: false })
     }
-    drawStaircase(ctx, c.staircaseCenterlineMm ?? c.inlayCenterlineMm ?? c.route?.centerlineMm ?? [c.start, c.end], c.widthMm, c.staircase,
-      { footprintMm: connectionPolygon(c), ascending: c.toElevationMm >= c.fromElevationMm })
+    const footprintMm = connectionPolygon(c), rise = c.toElevationMm - c.fromElevationMm
+    const stair = drawStaircase(ctx, c.staircaseCenterlineMm ?? c.inlayCenterlineMm ?? c.route?.centerlineMm ?? [c.start, c.end], c.widthMm, c.staircase,
+      { footprintMm, ascending: rise >= 0, riseMm: Math.abs(rise) })
+    raster.lineGuide?.treads(stair, polygonPath(footprintMm), rise >= 0)
+    if (c.staircase.preset === 'carved-rock' || c.staircase.preset === 'rough-stone') drawStoneStairLandings(ctx, projection, raster, c, stair, footprintMm)
     if (c.blocksMovement) { ctx.save(); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 35; ctx.stroke(polygonPath(connectionPolygon(c))); ctx.restore() }
     return
   }
@@ -1107,7 +1443,9 @@ function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projectio
         const distance = depth * i, shadeDepth = Math.min(65, depth * .24), a = frame.at(distance - shadeDepth), b = frame.at(distance + 18)
         const shade = target.createLinearGradient(a.x, a.y, b.x, b.y); shade.addColorStop(0, '#26312800'); shade.addColorStop(.75, '#26312860'); shade.addColorStop(1, '#26312800')
         target.fillStyle = shade; target.globalAlpha = 1; target.fill(polygonPath([frame.at(distance - shadeDepth, -half), frame.at(distance - shadeDepth, half), frame.at(distance + 18, half), frame.at(distance + 18, -half)]))
-        target.strokeStyle = '#39443E'; target.lineWidth = 18; target.globalAlpha = .62; target.stroke(linePath(frame.at(distance, -half), frame.at(distance, half)))
+        const lip = linePath(frame.at(distance, -half), frame.at(distance, half))
+        target.strokeStyle = '#39443E'; target.lineWidth = 18; target.globalAlpha = .62; target.stroke(lip)
+        if (depth * Math.min(sx, sy) >= 1.6) raster.lineGuide?.stroke(lip, .46, 18, .8)
         target.strokeStyle = '#F2E3BC'; target.lineWidth = 14; target.globalAlpha = .48; target.stroke(linePath(frame.at(distance + 27, -half), frame.at(distance + 27, half)))
       }
     } else { target.strokeStyle = '#39443E'; target.lineWidth = 25; target.globalAlpha = .65; target.setLineDash([110, 85]); target.stroke(linePath(frame.low, frame.high)); target.setLineDash([]) }
@@ -1127,7 +1465,17 @@ function drawConnectionBody(ctx: CanvasRenderingContext2D, projection: Projectio
   if (c.blocksMovement) { ctx.save(); ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 85; ctx.stroke(linePath(frame.at(frame.length / 2, -half), frame.at(frame.length / 2, half))); ctx.restore() }
 }
 function drawConnections(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet): void {
-  for (const c of projection.connections) drawVisualEntity(ctx, projection, c.id, expandedBounds(connectionPolygon(c), 85), (target, local) => drawConnectionBody(target, local, raster, c), !!raster.readFrequently)
+  for (const c of projection.connections) {
+    const points = connectionPolygon(c)
+    const guide = raster.lineGuide
+    if (guide) {
+      const footprint = polygonPath(points)
+      guide.cover(footprint)
+      const path = c.inlayFootprintMm || c.carvedFootprintMm ? footprint : roadOutline(connectionSideSegments(c), [])
+      guide.stroke(path, c.route?.stairStyle === 'naturalRock' ? .37 : .58, 45, 1.12)
+    }
+    drawVisualEntity(ctx, projection, c.id, expandedBounds(points, 85), (target, local) => drawConnectionBody(target, local, raster, c), !!raster.readFrequently)
+  }
 }
 function drawRockBody(ctx: CanvasRenderingContext2D, rock: NonNullable<Projection['rocks']>[number]) {
   ctx.save()
@@ -1239,8 +1587,10 @@ function drawTerrainInlays(ctx: CanvasRenderingContext2D, projection: Projection
     } finally { target.restore() }
   }, !!raster.readFrequently)
 }
-function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, signal?: AbortSignal, propDetails?: ReadonlyMap<string, EditorPropDetail>, clipBoundsMm?: BoundsMm) {
+function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, signal?: AbortSignal, propDetails?: ReadonlyMap<string, EditorPropDetail>, clipBoundsMm?: BoundsMm,
+  captureFrame = false, referenceLongEdge?: number): ArtStylePreviewFrame | undefined {
   const bounds = projection.bounds, sx = ctx.canvas.width / bounds.width, sy = ctx.canvas.height / bounds.height
+  const guide = raster.lineGuide
   const sprites: ({ kind: 'prop'; value: Prop } | { kind: 'decoration'; value: ProjectedDecoration })[] = [
     ...projection.props.map(value => ({ kind: 'prop' as const, value })), ...(projection.decorations ?? []).map(value => ({ kind: 'decoration' as const, value })),
   ]
@@ -1251,8 +1601,14 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   const drawSprites = (ground: boolean) => {
     for (const sprite of sprites) if ((sprite.value.renderLayer === 'ground') === ground) {
       checkCancelled(signal)
-      if (sprite.kind === 'prop') drawProp(ctx, sprite.value, projection, raster, sx, sy, propDetails?.get(sprite.value.id))
-      else drawDecoration(ctx, sprite.value, projection, raster)
+      if (sprite.kind === 'prop') {
+        const prop = sprite.value, detail = propDetails?.get(prop.id)
+        drawProp(ctx, prop, projection, raster, sx, sy, detail)
+        if (!prop.waterAppearance) {
+          const bitmap = prop.appearance.kind === 'image' && detail !== 'outline' && !!raster.bitmapLineIds?.has(prop.appearance.assetId)
+          guide?.sprite(bitmap, target => drawPropBody(target, prop, projection, raster, sx, sy, detail, false))
+        }
+      } else drawDecoration(ctx, sprite.value, projection, raster)
     }
   }
   if (projection.outputBackground?.mode !== 'transparent') {
@@ -1268,24 +1624,34 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
     const image = raster.byAssetId.get(assetId)
     if (!image) throw new Error('缺少底图位图。')
     ctx.drawImage(image, boundsMm.x, boundsMm.y, boundsMm.width, boundsMm.height)
+    guide?.sprite(true, target => target.drawImage(image, boundsMm.x, boundsMm.y, boundsMm.width, boundsMm.height))
   }
   if (projection.regional) drawRegionalProjection(ctx, projection, sx, sy, raster.byAssetId)
   for (const area of projection.terrain) {
     const rock = projection.rocks?.find(rock => rock.id === area.id)
     const openings: FacadeOpenings = []
+    const landings = projection.bridgeEntrances?.flatMap(({ platform }) => platform?.id === area.id ? [platform] : []) ?? []
     if (area.facade) {
-      for (const { platform } of projection.bridgeEntrances ?? []) if (platform?.id === area.id) openings.push(...platform.edgeOpening)
       for (const connection of boundaryConnections(projection.connections, area.points, true, [area.id])) {
         openings.push({ outerMm: connectionPolygon(connection), holesMm: [] })
       }
     }
-    const faces = planFacadeFaces(projection, area, openings)
-    const extremities = faces.flatMap(({ start, end, offset }) => [start, end, point(start.x + offset.x, start.y + offset.y), point(end.x + offset.x, end.y + offset.y)])
+    const faces = planFacadeFaces(projection, area, openings, landings)
+    if (guide) {
+      for (const { start, end, offsetsMm: [a, b] } of faces) {
+        const toe: [PointMm, PointMm] = [point(start.x + a.x, start.y + a.y), point(end.x + b.x, end.y + b.y)]
+        guide.cover(polygonPath([start, end, toe[1], toe[0]]))
+        guide.stroke(linePath(...toe), .40, 35)
+      }
+      const top = surfacePath(area)
+      guide.cover(top)
+    }
+    const extremities = faces.flatMap(({ start, end, offsetsMm: [a, b] }) => [start, end, point(start.x + a.x, start.y + a.y), point(end.x + b.x, end.y + b.y)])
     const paintBounds = expandedBounds([...area.points, ...extremities, ...(rock?.facets.flatMap(facet => facet.pointsMm) ?? [])], rock ? 1100 : 0)
     drawVisualEntity(ctx, projection, area.id, paintBounds, (target, local) => {
       if (area.facade && faces.length) {
         target.save(); excludeRegions(target, area.regionsMm ?? [{ outerMm: area.points, holesMm: [] }], local.bounds)
-        for (const face of faces) drawTerrainFacadeFace(target, face, area.facade, true)
+        for (const face of faces) drawTerrainFacadeFace(target, face, area.facade, true, local.visual?.environment)
         target.restore()
       }
       drawTerrainSurface(target, area, local, raster)
@@ -1299,9 +1665,17 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
     drawVisualEntity(ctx, projection, area.id, expandedBounds(area.points, 0), (target, local) => drawOceanWaves(target, area, local), !!raster.readFrequently)
   }
   drawTerrainShorelines(ctx, projection, Math.max(sx, sy), signal)
-  drawTerrainEdges(ctx, projection, raster, sx, sy)
+  const edgeProjection = { ...projection, edges: terrainEdgePaint(projection) }
+  drawTerrainEdges(ctx, edgeProjection, raster, sx, sy)
+  if (guide) drawTerrainLineInk(guide, edgeProjection)
   drawVisualBoundaries(ctx, projection, signal, !!raster.readFrequently)
   drawTerrainInlays(ctx, projection, raster)
+  if (guide) for (const inlay of projection.inlays ?? []) {
+    guide.cover(polygonPath(inlay.footprintMm))
+    const cut = new Path2D()
+    for (const wall of inlay.walls) cut.addPath(linePath(wall.a, wall.b))
+    guide.stroke(cut, .55, 60, 1.2)
+  }
   // Keep historical scenes without paths on their old paint order. The
   // audience-owned flag survives temporary hiding of the last editor path.
   const pathsOverRooms = projection.pathPaintOrder !== undefined
@@ -1321,6 +1695,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
     })
   }
   drawWallBody(ctx, projection, raster, sx, sy, projection.walls.some(wall => wall.edgeProfile) ? planWallRelief(walls).geometry : walls)
+  if (guide) for (const wall of walls) for (const polygon of wall.polygons) guide.cover(polygonPath(polygon))
   const symbols = projection.walls.flatMap(wall => wall.openings.map(opening => ({ wall, opening })))
   if (projection.openingPaintOrder) {
     const rank = new Map(projection.openingPaintOrder.map((id, index) => [id, index]))
@@ -1328,16 +1703,87 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   }
   for (const { wall, opening } of symbols) if (opening.paintSymbol !== false) drawOpening(ctx, opening, wall, projection)
   drawSprites(false)
-  if (projection.visual) {
+  const looks = projection.artStyles
+  const lineArt = activeLineArt(looks)
+  const bitmapLine = !lineArt?.filter && raster.bitmapLine
+  const preserveContours = preservesBitmapContours(lineArt)
+  const artwork = projection.floorArtwork, floorBitmap = artwork && raster.byAssetId.get(artwork.assetId)
+  const strokeScale = preserveContours && artwork && floorBitmap ? floorBitmapStrokeScale(artwork, floorBitmap.width, floorBitmap.height, sx, sy) : 1
+  const atmosphereAmount = artStyleLightAmount(looks)
+  if (projection.visual && atmosphereAmount > 0) {
     // Light blockers are already captured in the audience-owned projection;
     // the atmosphere helper does not consume reconstructed wall paint rings.
-    const atmosphere = () => drawVisualAtmosphere(ctx, projection, signal, !!raster.readFrequently)
+    const atmosphere = () => {
+      const separate = usesSeparateArtStyle(looks)
+      drawVisualAtmosphere(ctx, projection, signal, !!raster.readFrequently, atmosphereAmount, false)
+      if (!separate) applyVisualFilters(ctx, projection, signal, !!raster.readFrequently,
+        projection.visual!.filters.filter(filter => !filter.sourceEntityIds && !filter.colorFilter), atmosphereAmount)
+    }
     if (projection.outputBackground?.mode === 'transparent') paintWithPreservedAlpha(ctx, atmosphere, signal)
     else atmosphere()
   }
+  let marks: ImageData | undefined
+  if (looks?.some(look => (look.parameters.paintVersion ?? 0) >= 3) && !clipBoundsMm
+    && (projection.gridSizeMm || projection.notes.length || projection.regions.length)) {
+    const layer = canvas(ctx.canvas.width, ctx.canvas.height)
+    try {
+      const markContext = context(layer, true)
+      worldTransform(markContext, bounds, sx, sy)
+      finishProjection(markContext, projection, signal, true)
+      marks = markContext.getImageData(0, 0, layer.width, layer.height)
+    } finally { disposeCanvas(layer) }
+  }
+  if (captureFrame) {
+    ctx.resetTransform()
+    const tiles = captureArtStyleTiles(ctx, signal)
+    const lineArtEdges = lineArt ? captureArtStyleLineEdges(ctx, bounds, signal, { tiles, bitmapLine }) : undefined
+    const themeLineGuide = guide?.capture(ctx, signal, undefined, referenceLongEdge, preserveContours, strokeScale)
+    return { width: ctx.canvas.width, height: ctx.canvas.height, tiles, marks, lineArtEdges, bitmapLine, themeLineGuide }
+  }
+  let lineArtEdges: Uint8Array | undefined
+  let themeLineGuide: ArtStyleGradeSource['themeLineGuide']
+  if (lineArt && projection.audience === 'player' && projection.masks.length) {
+    const layer = canvas(ctx.canvas.width, ctx.canvas.height)
+    try {
+      const mask = context(layer, true)
+      worldTransform(mask, bounds, sx, sy)
+      drawPlayerMasks(mask, projection)
+      lineArtEdges = captureArtStyleLineEdges(ctx, bounds, signal, { mask, bitmapLine, referenceLongEdge })
+      themeLineGuide = guide?.capture(ctx, signal, mask, referenceLongEdge, preserveContours, strokeScale)
+    } finally { disposeCanvas(layer) }
+  } else themeLineGuide = guide?.capture(ctx, signal, undefined, referenceLongEdge, preserveContours, strokeScale)
+  finishArtStyle(ctx, projection, signal, { marks, lineArtEdges, bitmapLine, referenceLongEdge, themeLineGuide })
+  if (!marks) finishProjection(ctx, projection, signal, !!raster.readFrequently)
+  // Mask the already filtered player paint last, including all derived layers.
+  if (projection.audience === 'player') drawPlayerMasks(ctx, projection)
+  if (clipBoundsMm) ctx.restore()
+  ctx.resetTransform()
+}
+
+function finishArtStyle(ctx: CanvasRenderingContext2D, projection: Projection, signal: AbortSignal | undefined, grade: ArtStyleGradeSource): void {
+  const looks = projection.artStyles
+  const separate = usesSeparateArtStyle(looks)
+  const filters = projection.visual?.filters.filter(filter => !filter.sourceEntityIds && (separate || filter.colorFilter))
+  if (looks) applyArtStyleGrades(ctx, projection.bounds, looks, signal, filters?.length ? { ...grade, marks: undefined } : grade)
+  if (!filters?.length) return
+  applyVisualFilters(ctx, projection, signal, true, filters)
+  if (grade.marks) paintArtStyleMarks(ctx, grade.marks, signal)
+}
+
+function gradeArtStyleFrame(frame: ArtStylePreviewFrame, projection: Projection, signal?: AbortSignal): HTMLCanvasElement {
+  const output = canvas(frame.width, frame.height)
+  try {
+    finishArtStyle(context(output, true), projection, signal, frame)
+    checkCancelled(signal)
+    return output
+  } catch (error) { disposeCanvas(output); throw error }
+}
+
+function finishProjection(ctx: CanvasRenderingContext2D, projection: Projection, signal?: AbortSignal, readFrequently = false) {
+  const bounds = projection.bounds, sx = ctx.canvas.width / bounds.width, sy = ctx.canvas.height / bounds.height
   for (const region of projection.regions) drawVisualEntity(ctx, projection, region.id, expandedBounds(region.points, 20), ctx => {
     ctx.save(); ctx.strokeStyle = region.kind === 'hazard' ? '#9A674A' : '#71865A'; ctx.lineWidth = 18; ctx.setLineDash([85, 65]); ctx.stroke(polygonPath(region.points)); ctx.restore()
-  }, !!raster.readFrequently)
+  }, readFrequently)
   if (projection.gridSizeMm) {
     const grid = projection.gridSizeMm, lines = bounds.width / grid + bounds.height / grid
     if (lines > 12_000) throw new Error('格线密度超过绘制预算，请关闭格线或增大网格。')
@@ -1354,17 +1800,13 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
     ctx.fillStyle = '#F2EAD4'; ctx.globalAlpha = .94; ctx.fillRect(-textWidth / 2 - 75, -110, textWidth + 150, 220); ctx.globalAlpha = 1; ctx.fillStyle = note.visibility === 'gm' ? '#8B683F' : '#39443E'; ctx.fillText(text, 0, 0, 4600); ctx.restore()
   }
   checkCancelled(signal)
-  // Mask the already filtered player paint last, including all derived layers.
-  if (projection.audience === 'player') drawPlayerMasks(ctx, projection)
-  if (clipBoundsMm) ctx.restore()
-  ctx.resetTransform()
 }
 
 /**
  * Canvas/resource backend. Receives disposable physical projection and resource
  * records only. Strict version-specific entrypoints own document validation.
  */
-export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm): Promise<HTMLCanvasElement> {
+export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm, previewCache?: ArtStylePreviewCache): Promise<HTMLCanvasElement> {
   options = { ...options }
   const started = options.onMetrics ? validationStarted ?? performance.now() : 0
   const metrics: RenderMetrics | undefined = options.onMetrics ? { validationProjectionMs: 0, resourceVerificationMs: 0, decoderQueueWaitMs: 0, imageDecodeMs: 0, drawSubmissionMs: 0, totalMs: 0, decodedImages: 0, decodedPixels: 0, width: 0, height: 0, audience: options.audience, ...(projection.floorId === undefined ? {} : { floorId: projection.floorId }) } : undefined
@@ -1375,10 +1817,36 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   const visibleProjection = editor?.drawingProjection ?? projection
   if (visibleProjection.audience !== projection.audience || visibleProjection.floorId !== projection.floorId
     || ['x', 'y', 'width', 'height'].some(key => visibleProjection.bounds[key as keyof BoundsMm] !== projection.bounds[key as keyof BoundsMm])) throw new Error('编辑绘制投影的Floor、受众或固定输出范围与完整投影不一致。')
+  const cache = editor && options.audience === 'gm' && !editor.viewBoundsMm && !publicCropMm && !clipBoundsMm && visibleProjection.artStyles ? previewCache : undefined
+  const cached = cache?.readFrame()
+  if (cached) {
+    if (metrics) metrics.validationProjectionMs = performance.now() - started
+    const output = gradeArtStyleFrame(cached, visibleProjection, options.signal)
+    if (metrics) {
+      metrics.width = output.width; metrics.height = output.height
+      metrics.totalMs = performance.now() - started
+      metrics.drawSubmissionMs = metrics.totalMs - metrics.validationProjectionMs
+      try { options.onMetrics?.(metrics) } catch { /* Observer only. */ }
+    }
+    return output
+  }
   const plan = editor ? createEditorRenderPlan(visibleProjection, { viewBoundsMm: editor.viewBoundsMm, screenScalePxPerMm: editor.screenScalePxPerMm ?? options.longEdgePx / Math.max(visibleProjection.bounds.width, visibleProjection.bounds.height) }) : null
   const paintIds = plan ? new Set(plan.surfacePresentations.map(entry => `${entry.kind}:${entry.id}`)) : null
-  const drawingProjection = publicCropMm ? { ...visibleProjection, bounds: editorPaintBounds(visibleProjection, { boundsMm: publicCropMm, props: visibleProjection.props.map(prop => ({ prop, detail: 'full' as const, screenSizePx: 0, visualBoundsMm: visibleProjection.bounds, paintBoundsMm: visibleProjection.bounds })) }) }
-    : plan ? { ...visibleProjection, bounds: editorPaintBounds(visibleProjection, plan), props: plan.props.map(entry => entry.prop), decorations: plan.decorations,
+  const bitmapLineIds = lineBitmapIds(visibleProjection, sources)
+  const line = activeLineArt(visibleProjection.artStyles)
+  const bitmapLine = line?.parameters.paintVersion === CURRENT_LINE_ART_PAINT_VERSION && (!!visibleProjection.floorArtwork || bitmapLineIds.size > 0)
+  const outputBounds = publicCropMm ?? plan?.boundsMm ?? projection.bounds
+  const ratio = options.longEdgePx / Math.max(outputBounds.width, outputBounds.height)
+  const width = Math.max(1, Math.round(outputBounds.width * ratio)), height = Math.max(1, Math.round(outputBounds.height * ratio))
+  const mapEdge = Math.max(projection.bounds.width, projection.bounds.height)
+  const lineScale = Math.min(ratio, PNG_MAX_LONG_EDGE / mapEdge)
+  const floorArtwork = visibleProjection.floorArtwork
+  const floorAsset = floorArtwork && sources.assetRefs[floorArtwork.assetId]
+  const preserveContours = preservesBitmapContours(line)
+  const strokeScale = preserveContours && floorArtwork && floorAsset ? floorBitmapStrokeScale(floorArtwork, floorAsset.pixelWidth, floorAsset.pixelHeight, lineScale) : 1
+  const linePadding = bitmapLine ? bitmapLineSamplingPadding(mapEdge * lineScale, preserveContours, strokeScale) / lineScale : 0
+  const drawingProjection = publicCropMm ? { ...visibleProjection, bounds: editorPaintBounds(visibleProjection, { boundsMm: publicCropMm, props: visibleProjection.props.map(prop => ({ prop, detail: 'full' as const, screenSizePx: 0, visualBoundsMm: visibleProjection.bounds, paintBoundsMm: visibleProjection.bounds })) }, linePadding) }
+    : plan ? { ...visibleProjection, bounds: editorPaintBounds(visibleProjection, plan, linePadding), props: plan.props.map(entry => entry.prop), decorations: plan.decorations,
       // Only paint is culled. Occluders, contacts, supports and boundary facts
       // remain the complete audience-owned dependency closure.
       ...(visibleProjection.visual ? { visual: { ...visibleProjection.visual,
@@ -1387,22 +1855,34 @@ export async function renderRasterProjection(sources: RasterSources, projection:
         transitions: visibleProjection.visual.transitions?.filter(entry => paintIds!.has(`transition:${entry.id}`)),
       } } : {}) } : visibleProjection
   const propDetails = plan ? new Map(plan.props.map(entry => [entry.prop.id, entry.detail])) : undefined
-  const outputBounds = publicCropMm ?? plan?.boundsMm ?? projection.bounds
-  const ratio = options.longEdgePx / Math.max(outputBounds.width, outputBounds.height), width = Math.max(1, Math.round(outputBounds.width * ratio)), height = Math.max(1, Math.round(outputBounds.height * ratio))
   if (width * height > PNG_MAX_PIXELS) throw new Error('图片超过 16M 像素预算。')
   if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') throw new Error('图片绘制需要支持真实位图解码与 Canvas 的浏览器。')
   if (metrics) { metrics.validationProjectionMs = performance.now() - started; metrics.width = width; metrics.height = height }
-  const raster = await decodeRequired(sources, projection, options.signal, metrics, plan ? editorResidentAssetIds(visibleProjection, plan) : undefined)
+  const raster = await decodeRequired(sources, projection, options.signal, metrics, plan ? editorResidentAssetIds(visibleProjection, plan) : undefined, cache)
+  raster.bitmapLine = bitmapLine
+  raster.bitmapLineIds = bitmapLineIds
   // Formal 4K output is read back for PNG encoding. Keep all of its temporary
   // surfaces on the readback path: WebKit's accelerated material composition
   // can vary by one color level even between two exports of the same input.
   // Interactive/editor canvases retain their existing rendering path.
   raster.readFrequently = !editor && options.longEdgePx === PNG_MAX_LONG_EDGE
+  const styleReadback = drawingProjection.artStyles?.some(look => (look.parameters.paintVersion ?? 0) >= 3) ?? false
   let output: HTMLCanvasElement | undefined, padded: HTMLCanvasElement | undefined
   let completed = false
+  const paint = (target: CanvasRenderingContext2D, drawing: Projection, clip?: BoundsMm, capture = false, referenceEdge?: number) => {
+    if (line?.filter) {
+      const structure = !!(drawing.terrain.length || drawing.paths.length || drawing.connections.length)
+      if (structure || bitmapLine) raster.lineGuide = new ArtStyleLineGuide(target.canvas.width, target.canvas.height, drawing.bounds, structure, bitmapLine, clip)
+    }
+    try { return drawProjection(target, drawing, raster, options.signal, propDetails, clip, capture, referenceEdge) }
+    finally { raster.lineGuide?.dispose(); raster.lineGuide = undefined }
+  }
   try {
-    checkCancelled(options.signal); output = canvas(width, height)
-    const ctx = context(output, raster.readFrequently)
+    checkCancelled(options.signal)
+    if (drawingProjection.artStyles) await beginArtStyleArtwork(sources, raster, drawingProjection, options.signal, cache)
+    checkCancelled(options.signal)
+    output = canvas(width, height)
+    const ctx = context(output, !!raster.readFrequently || styleReadback)
     if ((plan || publicCropMm) && (drawingProjection.bounds.x !== outputBounds.x || drawingProjection.bounds.y !== outputBounds.y || drawingProjection.bounds.width !== outputBounds.width || drawingProjection.bounds.height !== outputBounds.height)) {
       // Source silhouettes outside the visible crop must contribute to wall
       // masks, material feathers and shadows before the final view is cut out.
@@ -1443,14 +1923,20 @@ export async function renderRasterProjection(sources: RasterSources, projection:
         paintProjection = { ...drawingProjection, bounds: paintBounds }
       }
       padded = canvas(paintWidth, paintHeight)
-      const paintContext = context(padded, raster.readFrequently), drawStarted = metrics ? performance.now() : 0
-      drawProjection(paintContext, paintProjection, raster, options.signal, propDetails)
+      const paintContext = context(padded, !!raster.readFrequently || styleReadback), drawStarted = metrics ? performance.now() : 0
+      const referenceLongEdge = Math.min(PNG_MAX_LONG_EDGE, mapEdge * paintRatio)
+      paint(paintContext, paintProjection, undefined, false, referenceLongEdge)
       const sx = padded.width / paintBounds.width, sy = padded.height / paintBounds.height
       ctx.drawImage(padded, (outputBounds.x - paintBounds.x) * sx, (outputBounds.y - paintBounds.y) * sy, outputBounds.width * sx, outputBounds.height * sy, 0, 0, width, height)
       if (metrics) metrics.drawSubmissionMs = performance.now() - drawStarted
     } else {
       const drawStarted = metrics ? performance.now() : 0
-      drawProjection(ctx, drawingProjection, raster, options.signal, propDetails, clipBoundsMm)
+      const frame = paint(ctx, drawingProjection, clipBoundsMm, !!cache)
+      if (frame && cache) {
+        disposeCanvas(output)
+        output = gradeArtStyleFrame(frame, drawingProjection, options.signal)
+        cache.writeFrame(frame)
+      }
       if (metrics) metrics.drawSubmissionMs = performance.now() - drawStarted
     }
     checkCancelled(options.signal); completed = true; return output
@@ -1458,6 +1944,7 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   finally {
     if (metrics) { metrics.decodedImages = raster.bitmaps.size; metrics.decodedPixels = [...raster.bitmaps.values()].reduce((sum, bitmap) => sum + bitmap.width * bitmap.height, 0) }
     raster.bitmaps.forEach(bitmap => bitmap.close()); if (raster.paintCache) disposeCanvas(raster.paintCache.image)
+    if (raster.styled) new Set(raster.styled.values()).forEach(disposeCanvas)
     if (padded) disposeCanvas(padded)
     if (completed && metrics) {
       metrics.totalMs = performance.now() - started

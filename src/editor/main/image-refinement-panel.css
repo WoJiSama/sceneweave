@@ -37,6 +37,9 @@
 .image-refinement-pixel-view > p { margin: 18px; padding: 12px; background: #fbfaf5ed; color: #596d5d; border-radius: 6px; font-size: 12px; line-height: 1.65; }
 .image-refinement-raster { position: relative; }
 .image-refinement-raster canvas { display: block; width: 100%; height: 100%; object-fit: contain; max-width: none; image-rendering: auto; }
+.model-patch-selection { position: absolute; inset: 0; cursor: crosshair; touch-action: none; user-select: none; }
+.model-patch-selection[aria-disabled=true] { cursor: default; }
+.model-patch-selection span { position: absolute; box-sizing: border-box; pointer-events: none; border: 2px solid #f5e9ac; box-shadow: 0 0 0 1px #24584a; background: #337c5b2b; }
 .image-refinement-svg, .image-refinement-diagnostics { margin: 12px 0; padding: 12px; border: 1px solid #d1dace; border-radius: 6px; }
 .image-refinement-svg summary, .image-refinement-diagnostics summary { cursor: pointer; }
 .image-refinement-svg textarea { width: 100%; resize: vertical; margin: 12px 0; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.6; }

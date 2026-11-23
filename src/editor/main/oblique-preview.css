@@ -1,0 +1,44 @@
+.oblique-dialog {
+  width: min(1120px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 0;
+  border: 1px solid #c8cec4;
+  border-radius: 14px;
+  background: #f7f7f1;
+  color: #24312b;
+  overflow: auto;
+}
+.oblique-dialog::backdrop { background: #17231ee0; }
+.oblique-heading, .oblique-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+}
+.oblique-heading h2 { margin: 0 0 3px; font-size: 20px; }
+.oblique-heading span, .oblique-controls { font-size: 13px; }
+.oblique-heading button, .oblique-controls button, .oblique-controls label, .oblique-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.oblique-stage { position: relative; display: grid; place-items: center; min-height: 120px; background: #272d31; }
+.oblique-stage canvas {
+  display: block;
+  width: min(100%, calc((100dvh - 200px) * 1.28));
+  max-height: 100%;
+  aspect-ratio: 1.28;
+  cursor: grab;
+  touch-action: none;
+}
+.oblique-stage canvas[data-ready="false"] { visibility: hidden; min-height: 220px; }
+.oblique-stage canvas:active { cursor: grabbing; }
+.oblique-status { position: absolute; inset: 0; display: grid; place-content: center; margin: 0; padding: 24px; color: white; text-align: center; }
+.oblique-controls input[type="range"] { width: 74px; }
+@media (max-width: 560px) {
+  .oblique-heading, .oblique-controls { padding: 8px 10px; }
+  .oblique-hint { width: 100%; }
+  .oblique-stage canvas { width: 100%; }
+}

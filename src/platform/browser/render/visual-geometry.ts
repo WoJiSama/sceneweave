@@ -124,3 +124,41 @@ export function lightVisibilityPolygon(origin: PointMm, radiusMm: number, blocke
     return add(origin, times(direction, distance))
   })
 }
+
+/** Parallel rays travel through an aperture with one depth field for the
+ * entire beam. Split where the nearest segment changes, keeping shadow edges
+ * aligned with the actual wall or occluder instead of a fan of point lights. */
+export function windowVisibilityPolygon(beam: readonly PointMm[], blockers: readonly VisualSegment[]): PointMm[] {
+  const [a, b, farB, farA] = beam
+  const width = length(subtract(b, a)), tangent = times(subtract(b, a), 1 / width)
+  const near = times(add(a, b), .5), end = times(add(farA, farB), .5)
+  const drift = subtract(end, near), depth = Math.abs(cross(drift, tangent))
+  if (depth <= EPS) return []
+  const direction = times(drift, 1 / depth)
+  const toLocal = (p: PointMm) => {
+    const offset = subtract(p, a), y = cross(offset, tangent) / cross(direction, tangent)
+    return { x: (offset.x - y * direction.x) * tangent.x + (offset.y - y * direction.y) * tangent.y, y }
+  }
+  const aFar = toLocal(farA).x, bFar = toLocal(farB).x
+  const left = Math.min(0, aFar), right = Math.max(width, bFar)
+  const world = (x: number, y: number) => add(a, add(times(tangent, x), times(direction, y)))
+  const pieces = blockers.map(s => ({ start: toLocal(s.start), end: toLocal(s.end) })).filter(s =>
+    Math.max(s.start.x, s.end.x) >= left && Math.min(s.start.x, s.end.x) <= right &&
+    Math.max(s.start.y, s.end.y) > EPS && Math.min(s.start.y, s.end.y) < depth)
+  if (pieces.length > 512) throw new Error('窗光遮挡超过局部边段预算，请缩短照射距离。')
+  const xValues = Array.from({ length: 97 }, (_, index) => left + index * (right - left) / 96)
+  for (const s of pieces) for (const p of [s.start, s.end]) if (p.x > left && p.x < right) xValues.push(p.x - .002, p.x, p.x + .002)
+  const far = xValues.sort((p, q) => p - q).map(x => {
+    let y = depth
+    for (const s of pieces) {
+      const dx = s.end.x - s.start.x
+      if (Math.abs(dx) <= EPS) continue
+      const t = (x - s.start.x) / dx
+      if (t < 0 || t > 1) continue
+      const hit = s.start.y + t * (s.end.y - s.start.y)
+      if (hit > EPS) y = Math.min(y, hit)
+    }
+    return world(x, y)
+  })
+  return [world(left, 0), world(right, 0), ...far.reverse()]
+}

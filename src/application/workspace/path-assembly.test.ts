@@ -246,6 +246,35 @@ describe('fitted industrial bridge structures', () => {
 })
 
 describe('bridge and along-route assemblies', () => {
+  it('rejects a snapped road across missing support and accepts the same road when the deck abuts its bank', async () => {
+    const { workspace, layerId } = await setup(false), bridge = structuralBridge(layerId)
+    await workspace.execute([
+      { type: 'createTerrainArea', id: 'landing-bank', floorId, layerId,
+        boundaryMm: rect(40201, 3500, 48000, 10800), groundElevationMm: 4000, coveragePriority: 2 },
+      { ...bridge, bridge: { ...bridge.bridge!, elevationMm: 4000 } },
+      { type: 'createPath', id: 'bank-road', floorId, layerId, widthMm: 2400, centerlineMm: [p(41401, 7000), p(46000, 7000)],
+        supportRefs: [{ kind: 'terrainArea', id: 'landing-bank' }] },
+    ])
+    const start = workspace.getDocument()!
+    const attach = { type: 'moveBridge', id: bridge.id, offsetMm: p(0, 0),
+      attach: { bridgeEnd: 'end', pathId: 'bank-road', end: 'start' } } as const
+    await expect(workspace.preview([attach])).rejects.toThrow(/连续的同高承托/)
+    expect(workspace.getDocument()).toBe(start)
+    await workspace.execute(start.terrainAreas['landing-bank'].boundaryMm.filter(row => row.positionMm.x === 40201).map(row => ({
+      type: 'moveTerrainPoint', areaId: 'landing-bank', pointId: row.id, positionMm: p(40200, row.positionMm.y),
+    })))
+    await workspace.adoptPreview(await workspace.preview([attach]))
+    const connected = workspace.getDocument()!
+    expect(connected.paths[bridge.id].assembly!.bridge!.roadLinks?.end).toMatchObject({ pathId: 'bank-road', end: 'start' })
+    const openingGap = connected.terrainAreas['landing-bank'].boundaryMm.filter(row => row.positionMm.x === 40200).map(row => ({
+      type: 'moveTerrainPoint' as const, areaId: 'landing-bank', pointId: row.id, positionMm: p(40201, row.positionMm.y),
+    }))
+    await expect(workspace.preview(openingGap)).rejects.toThrow(/调整支撑面或解除桥路链接/)
+    expect(workspace.getDocument()).toBe(connected)
+    await workspace.adoptPreview(await workspace.preview([{ type: 'detachBridgeRoad', id: bridge.id, end: 'end' }, ...openingGap]))
+    expect(workspace.getDocument()!.paths[bridge.id].assembly!.bridge!.roadLinks).toBeUndefined()
+  })
+
   it('adopts only a snapped bridge end and preserves the approach tail during follow, break, restore and cold import', async () => {
     const { workspace, layerId } = await setup()
     await workspace.execute([drawBridge(layerId)])

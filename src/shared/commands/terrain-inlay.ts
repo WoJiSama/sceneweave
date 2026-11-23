@@ -16,6 +16,7 @@ export const terrainInlayCommandSchemas = [
     appearance: z.literal('source-ground').optional(), finish: terrainInlayFinishSchema.optional(),
     centerlineVertexIds: z.array(id).min(2).max(256), expectedConnectionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ type: z.literal('restoreTerrainInlaySource'), id, disposition: z.literal('restore-original-connection-and-ground') }).strict(),
+  z.object({ type: z.literal('removeTerrainInlayRoad'), id, expectedConnectionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ type: z.literal('setTerrainInlayAppearance'), id, appearance: z.literal('source-ground').nullable(),
     expectedConnectionHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
   z.object({ type: z.literal('setTerrainInlayFinish'), id, finish: terrainInlayFinishSchema.nullable(),
@@ -42,15 +43,25 @@ export function applyTerrainInlayCommand(scene: SceneDocument, raw: TerrainInlay
     const finish = command.type === 'adoptTerrainInlay' || command.type === 'setTerrainInlayFinish' ? command.finish : connection.terrainInlay?.finish
     assertTerrainInlayVisualLocks(scene, inspectTerrainInlayVisualScope(scene, connection.id, visualGeometry, undefined, !!finish && appearance === 'source-ground'))
   }
+  if (command.type === 'removeTerrainInlayRoad') {
+    const inlay = connection.terrainInlay
+    if (!inlay || inlay.groundOnly || terrainInlayHash(connection) !== command.expectedConnectionHash) throw Error('这条山路已改变，请重新选择并预览。')
+    inlay.groundOnly = true
+    inlay.appearance = 'source-ground'
+    delete inlay.finish
+    delete connection.staircase
+    connection.surfaceStyle = null
+    return { commandCost: 1 }
+  }
   if (command.type === 'setTerrainInlayAppearance') {
-    if (!connection.terrainInlay) throw Error('只有已采用的连续填切山路可以切换地表表现。')
+    if (!connection.terrainInlay || connection.terrainInlay.groundOnly) throw Error('只有已采用的连续填切山路可以切换地表表现。')
     if (terrainInlayHash(connection) !== command.expectedConnectionHash) throw Error('山路已在外观候选之后改变，请重新准备。')
     if (command.appearance === null) delete connection.terrainInlay.appearance
     else connection.terrainInlay.appearance = command.appearance
     return { commandCost: 1 }
   }
   if (command.type === 'setTerrainInlayFinish') {
-    if (!connection.terrainInlay) throw Error('只有已采用的坡体可以设置山径或踏步表面。')
+    if (!connection.terrainInlay || connection.terrainInlay.groundOnly) throw Error('只有已采用的坡体可以设置山径或踏步表面。')
     if (terrainInlayHash(connection) !== command.expectedConnectionHash) throw Error('坡体已在表面候选之后改变，请重新准备。')
     if (command.finish === null) delete connection.terrainInlay.finish
     else connection.terrainInlay.finish = cloneJson(command.finish)

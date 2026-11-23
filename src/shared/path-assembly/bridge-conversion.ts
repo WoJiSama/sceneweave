@@ -4,7 +4,7 @@ import { createPublicVisibility } from '../geometry/visibility.js'
 import type { Path, PointMm, SceneDocument } from '../model/scene.js'
 import { visualBase } from '../visual/base.js'
 import { PATH_ENDS, type BridgeRoadLink, type PathEnd } from './bridge-link-contracts.js'
-import { facesRoad, hasLevelApproach, pathEndPosition, samePoint, withBridgeApproach } from './bridge-link-geometry.js'
+import { facesRoad, hasContinuousBridgeApproach, pathEndPosition, samePoint, withBridgeApproach } from './bridge-link-geometry.js'
 import type { PathAssemblyCommand } from './contracts.js'
 import { cloneJson } from '../validation/json.js'
 
@@ -46,8 +46,8 @@ export function placeBridgeApproaches(scene: SceneDocument, bridge: Path, source
     for (const overlay of surfaceStyle?.overlays ?? []) overlay.id = allocate()
     const approach = withBridgeApproach(bridge, bridgeEnd, { ...source, id, centerlineMm, surfaceStyle }, end, false)
     const point = pathEndPosition(approach, end)
-    if (approach.centerlineMm.length > 256 || !facesRoad(bridge, bridgeEnd, approach, end, point, true) || !hasLevelApproach(scene, approach, structure.elevationMm)) {
-      throw new Error('此处引道太短、转向过急或与桥头不同高。请选择留有同高接入空间的路段。')
+    if (approach.centerlineMm.length > 256 || !facesRoad(bridge, bridgeEnd, approach, end, point, true) || !hasContinuousBridgeApproach(scene, bridge, bridgeEnd, approach, end)) {
+      throw new Error('此处引道太短、转向过急或桥头到路端缺少连续同高承托。请选择留有同高接入空间的路段。')
     }
     scene.paths[id] = approach
     scene.entityLayers[id] = scene.entityLayers[bridge.id]

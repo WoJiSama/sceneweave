@@ -271,6 +271,9 @@ export function measureDocumentBudget(before: SceneDocument, after: SceneDocumen
     const a=measureBudgetGeometry(first),b=measureBudgetGeometry(second)
     // Removing or simplifying complex geometry still checks its old closure.
     for(const key of ['geometryPoints','geometrySegments','curveSegments'] as const)usage[key]+=Math.max(a[key],b[key])
+    const oldGrid = (first as { relief?: { offsetsMm: number[] } } | undefined)?.relief
+    const newGrid = (second as { relief?: { offsetsMm: number[] } } | undefined)?.relief
+    if ((oldGrid || newGrid) && !equal(oldGrid, newGrid)) usage.gridNodes += Math.max(oldGrid?.offsetsMm.length ?? 0, newGrid?.offsetsMm.length ?? 0)
   }
   let retainedSegments=0
   for (const collection of LAYER_ENTITY_COLLECTIONS) for (const id of new Set([...Object.keys(before[collection]),...Object.keys(after[collection])])) {

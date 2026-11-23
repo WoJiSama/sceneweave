@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AssetRef, Issue } from '../model/scene.js'
 import { encodeUtf8 } from '../validation/json.js'
 import { vectorStructurePlanSchema } from './structure-plan.js'
+import { modelPatchSchema } from './local-model-patch.js'
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__')
 const hash = z.string().regex(/^[a-f0-9]{64}$/)
@@ -13,7 +14,8 @@ export const assetRefinementMetadataSchema = z.discriminatedUnion('kind', [
     z.strictObject({ ...common, kind: z.literal('vector'), algorithm: z.literal('structure-plan-v1'), plan: vectorStructurePlanSchema }),
   ]),
   z.strictObject({ ...common, kind: z.literal('model'), model: z.string().min(1).max(200), requestId: z.string().min(1).max(256),
-    clientRequestId: z.string().min(1).max(128), inputSha256: hash, prompt: z.string().trim().min(1).max(2000).refine(value => encodeUtf8(value).length <= 8192) }),
+    clientRequestId: z.string().min(1).max(128), inputSha256: hash, prompt: z.string().trim().min(1).max(2000).refine(value => encodeUtf8(value).length <= 8192),
+    patch: modelPatchSchema.optional() }),
 ])
 export type AssetRefinementMetadata = z.infer<typeof assetRefinementMetadataSchema>
 
@@ -33,6 +35,9 @@ export function inspectAssetRefinementAssets(assets: Record<string, AssetRef>): 
       && (metadata.plan.source.sha256 !== source.sha256 || metadata.plan.source.width !== source.pixelWidth || metadata.plan.source.height !== source.pixelHeight)) {
       error(asset, '结构重绘计划必须绑定确切来源字节与源图坐标框。')
     }
+    if (metadata.kind === 'model' && metadata.patch && (metadata.patch.x + metadata.patch.width > source.pixelWidth
+      || metadata.patch.y + metadata.patch.height > source.pixelHeight || asset.pixelWidth !== source.pixelWidth
+      || asset.pixelHeight !== source.pixelHeight)) error(asset, '局部补画选区和输出必须使用直接来源的原始像素坐标。')
     if (asset.mimeType !== 'image/png' || Math.max(asset.pixelWidth, asset.pixelHeight) > 4096
       || asset.pixelWidth * asset.pixelHeight > 8_000_000
       || Math.abs(asset.pixelWidth * source.pixelHeight / (asset.pixelHeight * source.pixelWidth) - 1) > .02

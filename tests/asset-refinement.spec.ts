@@ -1,8 +1,12 @@
 import { expect, test, type Locator, type Page, type Route, type TestInfo } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { unzipSync } from 'fflate'
 import { chooseImageEditSize, decodeImageEditBase64, encodeImageEditBase64, imageEditCapabilities, imageEditInputHash, sha256Bytes, type ImageEditRequest } from '../src/shared/asset-refinement/model-protocol'
 import { decodeCanonicalPng, encodeCanonicalPng } from '../src/shared/project/png-rgba'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel, placeKeyboardLamp, selectKeyboardProp } from './keyboard-ux-helpers'
+import { openVisualTask, openWorkspaceModule } from './workspace-navigation-helpers'
+import { openDetailsBySummary } from './workspace-ux-helpers'
+import { assertLocalModelPatch } from '../src/shared/asset-refinement/local-model-patch'
 
 const serviceCors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' }
 const configuredModel = 'browser-configured-image-model'
@@ -22,7 +26,8 @@ async function mockConfiguredModelService(page: Page, onPost: (request: ImageEdi
 }
 
 async function configureModel(panel: Locator, prompt = '保留真实外轮廓，只调整已有纹理。') {
-  await panel.getByRole('button', { name: '模型补画', exact: true }).click()
+  const model = panel.getByRole('button', { name: '模型补画', exact: true })
+  if (await model.isVisible()) await model.click()
   await panel.getByLabel('补画应用服务地址', { exact: true }).fill('https://image-edit.example.test')
   await panel.getByLabel('补画应用访问凭据', { exact: true }).fill('browser-fixture-application-token')
   await panel.getByRole('button', { name: '检查补画服务', exact: true }).click()
@@ -296,6 +301,155 @@ test('a controlled model result keeps provenance through scene adoption, undo, r
   expect(keyboardResourceHashes(cold.hashes)).toEqual(keyboardResourceHashes(adopted.hashes))
   expect(requests).toHaveLength(1)
   expect(errors).toEqual([])
+})
+
+test('the art style panel opens a local bitmap patch and only the selected source pixels change', async ({ page, browser }, info) => {
+  test.setTimeout(180000)
+  await page.goto('/#workspace')
+  await expect(page.getByTestId('workspace-layout')).toBeVisible()
+  await page.evaluate(async path => (await import(path) as typeof import('./helpers/art-style-browser')).makeArtStyleRoom(), '/tests/helpers/art-style-browser.ts')
+  await keyboardWorkspaceSaved(page)
+  const id = 'art-style-rug', originalPath = info.outputPath('patch-original.sceneweave')
+  const original = await keyboardProjectBackup(page, originalPath)
+  await selectKeyboardProp(page, id)
+  const art = await openVisualTask(page, '画风')
+  await art.getByRole('button', { name: '局部补画所选图片', exact: true }).click()
+  const editor = page.getByTestId('scene-asset-editor')
+  const panel = editor.getByRole('region', { name: '素材图像精修', exact: true })
+  await expect(panel.getByLabel('模型补画范围')).toHaveValue('patch')
+
+  const selection = panel.getByLabel('在原图上框选补画范围', { exact: true })
+  await selection.scrollIntoViewIfNeeded()
+  const box = (await selection.boundingBox())!
+  await page.mouse.move(box.x + box.width * .24, box.y + box.height * .30)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * .70, box.y + box.height * .68, { steps: 8 })
+  await page.mouse.up()
+  await expect(panel).toContainText('已框选')
+  const posted: ImageEditRequest[] = []
+  await mockConfiguredModelService(page, async (request, route) => {
+    posted.push(request)
+    const raster = decodeCanonicalPng(decodeImageEditBase64(request.pngBase64, 4 * 1024 * 1024))
+    expect(raster.width).toBeLessThan(420)
+    expect(raster.height).toBeLessThan(300)
+    expect(request.prompt).toContain('仅补画这张裁片内的像素矩形')
+    // Synthetic service response paints a repeat pattern across the entire crop,
+    // including the padded context. Only the selected region may survive.
+    for (let y = 0; y < raster.height; y++) for (let x = 0; x < raster.width; x++) {
+      if ((x * 2 + y * 3) % 21 < 3 && (x + y) % 23 > 3) raster.rgba.set([177, 156, 115, 255], (y * raster.width + x) * 4)
+    }
+    const png = encodeCanonicalPng(raster), requestedSize = chooseImageEditSize(raster.width, raster.height)
+    await route.fulfill({ status: 200, headers: serviceCors, json: { schemaVersion: 1, sourceSha256: request.sourceSha256,
+      inputHash: imageEditInputHash(request, configuredModel, requestedSize), outputHash: sha256Bytes(png), model: configuredModel,
+      requestId: 'provider-controlled-patch', requestedSize, pngBase64: encodeImageEditBase64(png) } })
+  })
+  await configureModel(panel, '在选区内补一小块旧地毯的金棕织纹。')
+  const consent = panel.getByLabel('同意本次图片上传与可能计费', { exact: true })
+  await consent.check()
+  await panel.getByRole('button', { name: '上传并生成一次补画候选', exact: true }).click()
+  await expect(panel.getByLabel('精修候选对照画布')).toBeVisible({ timeout: 45000 })
+  await expect(consent).not.toBeChecked()
+  await panel.locator('.image-refinement-comparison').screenshot({ path: info.outputPath('bitmap-patch-review.png') })
+  await panel.getByRole('button', { name: '在场景中预览', exact: true }).click()
+  await page.getByRole('button', { name: '采用图像候选', exact: true }).click({ timeout: 45000 })
+  await closeEditor(page, editor)
+  await keyboardWorkspaceSaved(page)
+
+  const adoptedPath = info.outputPath('patch-adopted.sceneweave')
+  const adopted = await keyboardProjectBackup(page, adoptedPath)
+  const before = original.document.props[id], after = adopted.document.props[id]
+  const { appearance: oldPaint, definitionRef: oldDefinition, ...oldProp } = before
+  const { appearance: newPaint, definitionRef: newDefinition, ...newProp } = after
+  expect(newProp).toEqual(oldProp)
+  if (oldPaint.kind !== 'image' || newPaint.kind !== 'image') throw new Error('Expected retained bitmap resources.')
+  const source = original.document.assets[oldPaint.assetId], replacement = adopted.document.assets[newPaint.assetId]
+  const metadata = replacement.imageRefinement
+  if (metadata?.kind !== 'model' || !metadata.patch) throw new Error('Missing local patch provenance.')
+  expect(metadata).toMatchObject({ originalAssetId: source.id, sourceSha256: source.sha256, inputSha256: posted[0].sourceSha256 })
+  expect(adopted.document.assets[source.id]).toEqual(source)
+  const files = unzipSync(await readFile(adoptedPath))
+  const pixels = (hash: string) => {
+    const { rgba, width, height } = decodeCanonicalPng(files[`assets/${hash}.png`])
+    return { data: rgba, width, height }
+  }
+  expect(() => assertLocalModelPatch(pixels(source.sha256), pixels(replacement.sha256), metadata.patch!)).not.toThrow()
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  const undone = await keyboardProjectBackup(page, info.outputPath('patch-undone.sceneweave'))
+  expect(undone.document.props[id]).toEqual(before)
+
+  const fresh = await browser.newPage()
+  try {
+    await fresh.goto('/#home')
+    await fresh.getByTestId('native-project-file').setInputFiles(adoptedPath)
+    await keyboardWorkspaceSaved(fresh)
+    const cold = await keyboardProjectBackup(fresh, info.outputPath('patch-cold.sceneweave'))
+    expect(cold.document.props[id]).toEqual(after)
+    expect(cold.document.assets[replacement.id]).toEqual(replacement)
+    expect(keyboardResourceHashes(cold.hashes)).toEqual(keyboardResourceHashes(adopted.hashes))
+  } finally { await fresh.close() }
+  expect(posted).toHaveLength(1)
+})
+
+test('local model paint also works on a floor backdrop and preserves its world placement', async ({ page }, info) => {
+  test.setTimeout(120000)
+  await createKeyboardProject(page, '平面图片局部补画')
+  const source = { width: 96, height: 80, rgba: new Uint8ClampedArray(96 * 80 * 4) }
+  for (let i = 0; i < source.rgba.length; i += 4) source.rgba.set([112, 135, 119, 255], i)
+  const scene = await openWorkspaceModule(page, '场景')
+  const artwork = scene.getByLabel('楼层底图', { exact: true })
+  await openDetailsBySummary(scene, /^楼层底图$/)
+  await artwork.getByLabel('底图文件', { exact: true }).setInputFiles({ name: 'floor-artwork.png', mimeType: 'image/png', buffer: Buffer.from(encodeCanonicalPng(source)) })
+  await artwork.getByLabel('底图署名与来源', { exact: true }).fill('Sceneweave original local patch fixture')
+  await artwork.getByLabel('底图许可', { exact: true }).fill('Original test pixels permitted for embedding.')
+  await artwork.getByLabel('允许将底图嵌入工程和出图', { exact: true }).check()
+  await artwork.getByRole('button', { name: '预览更换底图', exact: true }).click()
+  await page.getByRole('checkbox', { name: '确认完整影响范围', exact: true }).check()
+  await page.getByRole('button', { name: '采用结构修改', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  const initial = await keyboardProjectBackup(page, info.outputPath('floor-before.sceneweave'))
+  const floor = Object.values(initial.document.floors)[0]
+  await openDetailsBySummary(scene, /^楼层底图$/)
+  await artwork.getByRole('button', { name: '局部补画楼层底图', exact: true }).click()
+  const editor = page.getByTestId('scene-asset-editor')
+  const panel = editor.getByRole('region', { name: '素材图像精修', exact: true })
+  const selection = panel.getByLabel('在原图上框选补画范围')
+  await selection.scrollIntoViewIfNeeded()
+  const box = (await selection.boundingBox())!
+  await page.mouse.move(box.x + box.width * .25, box.y + box.height * .28)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * .59, box.y + box.height * .65, { steps: 6 })
+  await page.mouse.up()
+  await expect(panel).toContainText('已框选')
+  let requests = 0
+  await mockConfiguredModelService(page, async (request, route) => {
+    requests++
+    const raster = decodeCanonicalPng(decodeImageEditBase64(request.pngBase64, 4 * 1024 * 1024))
+    expect(raster.width).toBeLessThan(source.width)
+    for (let i = 0; i < raster.rgba.length; i += 4) raster.rgba.set([137, 109, 82, 255], i)
+    const png = encodeCanonicalPng(raster), requestedSize = chooseImageEditSize(raster.width, raster.height)
+    await route.fulfill({ status: 200, headers: serviceCors, json: { schemaVersion: 1, sourceSha256: request.sourceSha256,
+      inputHash: imageEditInputHash(request, configuredModel, requestedSize), outputHash: sha256Bytes(png), model: configuredModel,
+      requestId: 'provider-floor-patch', requestedSize, pngBase64: encodeImageEditBase64(png) } })
+  })
+  await configureModel(panel, '在圈定区域补画斑驳的路面。')
+  await panel.getByLabel('同意本次图片上传与可能计费').check()
+  await panel.getByRole('button', { name: '上传并生成一次补画候选', exact: true }).click()
+  await expect(panel.getByLabel('精修候选对照画布')).toBeVisible({ timeout: 45000 })
+  await panel.getByRole('button', { name: '在场景中预览', exact: true }).click()
+  await page.getByRole('button', { name: '采用图像候选', exact: true }).click({ timeout: 45000 })
+  await closeEditor(page, editor)
+  await keyboardWorkspaceSaved(page)
+  const adopted = await keyboardProjectBackup(page, info.outputPath('floor-painted.sceneweave'))
+  const changed = adopted.document.floors[floor.id].artwork!
+  expect(changed.boundsMm).toEqual(floor.artwork!.boundsMm)
+  expect(changed.assetId).not.toBe(floor.artwork!.assetId)
+  expect(adopted.document.assets[changed.assetId].imageRefinement).toMatchObject({ kind: 'model', sourceAssetId: floor.artwork!.assetId })
+  expect(adopted.document.assets[floor.artwork!.assetId]).toEqual(initial.document.assets[floor.artwork!.assetId])
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  expect((await keyboardProjectBackup(page, info.outputPath('floor-undone.sceneweave'))).document.floors[floor.id]).toEqual(floor)
+  expect(requests).toBe(1)
 })
 
 test('a valid but transparent model PNG is rejected while its finished request survives clearing every draft and closing', async ({ page }, info) => {

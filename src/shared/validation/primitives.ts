@@ -1,6 +1,7 @@
 import { z } from 'zod'
+import { propVolumeSchema } from '../model/prop-volume.js'
 import { BRIDGE_ART_IDS } from '../path-assembly/profiles.js'
-import { PROP_OVERRIDE_FIELDS } from '../model/scene.js'
+import { PROP_OVERRIDE_FIELDS, type MaterialPaint } from '../model/scene.js'
 import { waterAppearanceSchema } from '../ocean/contracts.js'
 
 export const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '保留键不能用作 ID')
@@ -12,8 +13,10 @@ export const angle = z.number().finite().min(0).lt(360)
 export const opacity = z.number().finite().min(0).max(1)
 export const color = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 export const fixtureGlowSchema = z.object({ color, radiusMm: int.min(100).max(6000), intensity: z.number().finite().min(0).max(2) }).strict()
+export const lightBeamSchema = z.object({ directionDeg: angle, apertureDeg: z.number().finite().min(5).max(170), softness: opacity }).strict()
+export type LightBeam = z.infer<typeof lightBeamSchema>
 const imageFraction = z.number().finite().min(0).max(1)
-export const propGlowSchema = fixtureGlowSchema.extend({ anchor: z.object({ u: imageFraction, v: imageFraction }).strict() }).strict()
+export const propGlowSchema = fixtureGlowSchema.extend({ anchor: z.object({ u: imageFraction, v: imageFraction }).strict(), beam: lightBeamSchema.optional() }).strict()
 export const point = z.object({ x: int, y: int }).strict()
 export const size = z.object({ width: positive, height: positive }).strict()
 export const bounds = z.object({ x: int, y: int, width: positive, height: positive }).strict()
@@ -49,11 +52,15 @@ export const appearance = z.discriminatedUnion('kind', [
 ])
 export const surfaceRef = z.object({ kind: z.enum(['floor', 'terrainArea', 'room']), id }).strict()
 export const groundRef = z.object({ kind: z.enum(['floor', 'terrainArea']), id }).strict()
-export const paint = z.object({ materialRef: versionRef, tileSizeMm: size, rotationDeg: angle, alignment: z.enum(['world', 'surface']), originMm: point, tint: color.nullable(), opacity }).strict()
+const planarAlignment: z.ZodType<MaterialPaint['alignment']> = z.enum(['world', 'surface'])
+export const paint = z.object({ materialRef: versionRef, tileSizeMm: size, rotationDeg: angle, alignment: planarAlignment, originMm: point, tint: color.nullable(), opacity }).strict()
 export const overlay = z.object({ id, boundaryMm: z.array(point).min(3).max(512), paint, blendWidthMm: nonnegative, renderOrder: rank }).strict()
 export const style = z.object({ base: paint, overlays: z.array(overlay) }).strict().nullable()
+export const pathPaint = paint.extend({ alignment: z.enum(['world', 'surface', 'route']) })
+export const pathSurfaceStyle = style.unwrap().extend({ base: pathPaint }).nullable()
 export const edgeStyle = z.object({ strokeWidthMm: nonnegative, color, bandWidthMm: nonnegative }).strict()
 export const templateShape = {
+  volume: propVolumeSchema.optional(),
   waterAppearance: waterAppearanceSchema.optional(),
   sightOccluder: sightOccluderSchema.optional(),
   pipePorts: pipePortsSchema.optional(),

@@ -5,13 +5,13 @@
     "investigation": {
       "name": "雨夜旧宅调查所",
       "kind": "近代调查",
-      "description": "雨夜中的旧宅调查所，书桌、档案与生活空间串起一条可探索的线索。",
+      "description": "翻阅旧宅里的卷宗与账本，从书房走到会客室和档案储藏室。",
       "features": [
-        "独立砖墙纹理与沿墙铺装",
-        "四个用途房间与可编辑家具",
-        "门窗、灯光与完整材质"
+        "档案柜带可编辑视线组件",
+        "黄铜桌灯聚光随灯具旋转",
+        "四间房与独立门窗、家具"
       ],
-      "projectHash": "38c4347fc47f3db88784a315463e67ebbd8b126844494e2b4879b369c544a737",
+      "projectHash": "0ea219d068eaeef3f29df3b7a0fc87ef2f0b691bcd59e1816dc319a42f3e40ce",
       "title": "雨夜旧宅调查所 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -27,27 +27,37 @@
       "file": "investigation-stage1.png",
       "width": 1024,
       "height": 819,
-      "pngSha256": "046f317a0544b50733ce980cade81b17b2471a1badb8c6ae6edf8660b3262bb9",
-      "rgbaSha256": "7f02ef267683485e147dac0c56e5d4b3cdad38ced99aac8d9483c809b99b2ac0",
+      "pngSha256": "e1062be261ee13aa0bdeabef6d6a026b64eaf98b96a0e9aca19552537a853c2e",
+      "rgbaSha256": "16879ac44f74208508fe2e6c65e5bc3349916a847112469689203222f7001071",
       "fullFile": "investigation-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3277,
-      "fullPngSha256": "5648f25b03e676ca791edab712b1799f8a2b4f0348c7e732f675abfcee020a45",
-      "fullRgbaSha256": "a93039dad36b45e93626a4ef60a2bcf735e89e1523b36d93e3e8e3bd427251af",
+      "fullPngSha256": "b51f90937e54711f4bcd909c8fe678b404456ba57a5c1714b6fbcbf1b4e1faa4",
+      "fullRgbaSha256": "2b35a3be393980692bc17a355bde6687405ce0899c555fcf29fb86041c03a780",
+      "oblique": {
+        "file": "investigation-3d.webp",
+        "width": 1024,
+        "height": 800,
+        "sha256": "0dacdcac228b16a5f65748693ea1b65db64d3eda166a39af455a2b28e7de1abc",
+        "fullFile": "investigation-3d-detail.webp",
+        "fullWidth": 2560,
+        "fullHeight": 2000,
+        "fullSha256": "f2b9e271e02fecf694f5b2741cb2e1328163babed0162315bfe1d3e89c7e096c"
+      },
       "archiveFile": "investigation.sceneweave",
-      "archiveBytes": 281745,
-      "archiveSha256": "17ac336ca2091a437716c9dfe24f17acb77b1401875f49b1af9f04684760649f"
+      "archiveBytes": 282078,
+      "archiveSha256": "db2d652aff776fe15d8ac6306060bb1de84a28f29956b68ba51e2d7c0669bcb1"
     },
     "modern": {
       "name": "街角事务中心",
       "kind": "现代城市",
-      "description": "街角的事务与社区服务中心，接待、办公和公共空间各有用途。",
+      "description": "街角事务中心分设接待、咨询、行政、档案与连通走廊。",
       "features": [
-        "清水混凝土墙顶与分缝",
-        "办事、办公与社区服务空间",
-        "可继续调整的完整布景"
+        "五个独立编辑分区",
+        "可聚焦分区或按区出图",
+        "保留共享墙与独立门窗"
       ],
-      "projectHash": "c5f3f8b738d94782214a68e54d1e686c52c34859de4b1067dcdf7c36dd1fd427",
+      "projectHash": "fcfacd2ff25a63d7ffe81b5f13f82d6ed2dd0a1d0b06d9fab7aec2108570eeba",
       "title": "街角事务与社区服务中心 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -63,27 +73,37 @@
       "file": "modern-stage1.png",
       "width": 910,
       "height": 1024,
-      "pngSha256": "1219ee2e653011f373cfabbd16ffa8a47c7e8524301a528d09ce9db0bfe3e099",
-      "rgbaSha256": "ccc885d3521af65e3bf6f95438fce4edf5b4db170b0a9a05b855cf292087a980",
+      "pngSha256": "aa8d0a0a0ceeb3c95af94b77cf761d581b6389a6d134d26499bffe5f6dab2014",
+      "rgbaSha256": "822f2799345732fa57f17c59d5147e5faefb4cca9f6a8448134a4ae379ae5cac",
       "fullFile": "modern-stage1-4k.png",
       "fullWidth": 3641,
       "fullHeight": 4096,
-      "fullPngSha256": "a99de4f3e8bad394db6f332362a40ae110d2f7ab6a62bb4de8dc5d3c25168c9f",
-      "fullRgbaSha256": "49cfe48a18ff673ca9042a2e83d8a3dad459e5131c1eac98102ad1d989dcfd27",
+      "fullPngSha256": "9cd124eb36cd04500167018ec1441c290ff876d534c249305c19fe5378e946f2",
+      "fullRgbaSha256": "e79aa95214897c246d7f84b74c1f043f004a20e78d25a6877d68e63aebae0c08",
+      "oblique": {
+        "file": "modern-3d.webp",
+        "width": 1024,
+        "height": 800,
+        "sha256": "aceae889c56e07df3e3e96483b559a340b4d912d531065b9decebfd51261363d",
+        "fullFile": "modern-3d-detail.webp",
+        "fullWidth": 2560,
+        "fullHeight": 2000,
+        "fullSha256": "f811b277d779304d26f8d1c9350812140d40425f41fd654b4ed3d2c6d0080a87"
+      },
       "archiveFile": "modern.sceneweave",
-      "archiveBytes": 279264,
-      "archiveSha256": "22b31ded606f1542e777544d07c6aa47c8f710c4229033a4d1aafa15bd5da89d"
+      "archiveBytes": 279695,
+      "archiveSha256": "0b6a41b7b7d86346c24655d910b38f860f54c6e05ea461676148270b6f9768dd"
     },
     "fantasy": {
       "name": "余烬酒馆与旅舍",
       "kind": "奇幻旅舍",
-      "description": "围绕炉火与餐桌展开的酒馆旅舍，沿木地板步入客房和后勤空间。",
+      "description": "雨夜从西门进店，掌柜台在大厅东侧，灯下摆着两席晚餐。",
       "features": [
-        "暖砌石墙顶与木质地板",
-        "酒馆、餐厅与旅舍空间",
-        "桌椅、门窗与光源逐件编辑"
+        "掌柜台、餐席、厨房和客房之间留有通路",
+        "提灯随餐桌移动，窗光贴合窗宽",
+        "北侧餐桌和长凳可整组调整"
       ],
-      "projectHash": "098493c41fdba2298aac290068c866d7b8e5c6e78bb6c5e7fd18cdfa0c556c1c",
+      "projectHash": "9416bde3a47ddde2a1351a06be76973cbc8d5acff7c837416b6b9441e8763651",
       "title": "余烬酒馆与旅舍 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -93,33 +113,43 @@
       },
       "rooms": 5,
       "terrainAreas": 0,
-      "props": 23,
-      "prefabInstances": 0,
+      "props": 27,
+      "prefabInstances": 1,
       "audience": "gm",
       "file": "fantasy-stage1.png",
       "width": 1024,
       "height": 878,
-      "pngSha256": "e89b064edc34f37fa890294a0221e3bfb2235f5684d4fdb5ca503eedce81d92c",
-      "rgbaSha256": "928576e25fc87d0045df652b32442bff86cb276341b91babdeb36a3dfe560ec8",
+      "pngSha256": "f514d413643eea3f0e1d0c00d4436d9f344bde4f7eba8e38ffec6b90f7832214",
+      "rgbaSha256": "95c70275243d6229625292b4b3d59e77b1621a0f1ce02267bded8870ebe89952",
       "fullFile": "fantasy-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3511,
-      "fullPngSha256": "72bac686454ed1cf603afdc3fe5a68fabb6f73ce839aff33f8f79f9d03de4564",
-      "fullRgbaSha256": "3e0940adfa200b041c9d14866aabc59037d89fb397877c75a7b8ca3c10f48329",
+      "fullPngSha256": "01b5110a0f2716cdc6543f1b33f6180502d901a4b965e6733aae150753cfb2ac",
+      "fullRgbaSha256": "ebebf9c4271107b2e967a55b6d3a1e26a82915a2b0f7f32ef0f0b169529615da",
+      "oblique": {
+        "file": "fantasy-3d.webp",
+        "width": 1024,
+        "height": 800,
+        "sha256": "8e787ea811ae877e6e18c84a56a4aadf12f87aabe9127dd3aba2c84a5772981c",
+        "fullFile": "fantasy-3d-detail.webp",
+        "fullWidth": 2560,
+        "fullHeight": 2000,
+        "fullSha256": "d5e316a188c9dad5f6fdc8cc2bddb4300e23eb958aeecc34fe88d6781d840bef"
+      },
       "archiveFile": "fantasy.sceneweave",
-      "archiveBytes": 1046834,
-      "archiveSha256": "ce0bc67a3b0c5bfdb54ba5c8239f3c2c4fff237ad3670d1288d599d268e0285c"
+      "archiveBytes": 1050672,
+      "archiveSha256": "60b077e6bda92f8ef648df0e7795b6ff2dd9760ce4d77f2223d757979f4ba347"
     },
     "ruins": {
       "name": "旧墓库",
       "kind": "地下遗迹",
-      "description": "深入失落墓库，在石棺、雕像与灯光之间探索不同墓室。",
+      "description": "在石棺、雕像与烛光之间探索相连的墓室。",
       "features": [
-        "石灰岩断缝与风化墙顶",
-        "墓室、藏室与完整通路",
-        "墓葬布景与独立灯光"
+        "封闭藏室带秘密入口",
+        "暗门保留关闭与锁定状态",
+        "玩家图隐藏藏室与私密线索"
       ],
-      "projectHash": "b415cc71dfe50923b9e96bbbb8d2a67c1769ad872f2d10224bd86c853b5bec06",
+      "projectHash": "fef1a8962ff99e5c3acc2fd9d804646c2caf020191a4889f9f848e51ed032995",
       "title": "失落修院墓库 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -135,27 +165,37 @@
       "file": "ruins-stage1.png",
       "width": 1024,
       "height": 878,
-      "pngSha256": "674ebb4651d102437241c6ba4846da80147446350d220008c10391e044cf8778",
-      "rgbaSha256": "86a771dd08f104d26e909bf90dada6326696abb35d9266febbbafc1aaf031139",
+      "pngSha256": "ee4a0bfee6a13a083bd5bc868630ee1e8a59d372131dd9a76959fea86bfd624b",
+      "rgbaSha256": "2c1367e849b0b9d09cefd75a50156e5f2975bcec5f65626c0845864e63cbc939",
       "fullFile": "ruins-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3511,
-      "fullPngSha256": "37ef9e4d9d0dff50a2d67ccfcf93c862b805840bc2f645f74b247ff7998079c3",
-      "fullRgbaSha256": "33626eab6e4bf9076ac3887b1cf508a534bf7f9f080e6c57cf995a49384637e0",
+      "fullPngSha256": "0a31cbd058893a93f9bfb666c2769013a9764b8bef6f23f5c3556bce25d69949",
+      "fullRgbaSha256": "88c856dac305b2fd318c832d11c4fd0506e59a06de2a8985cb42732d29180c2f",
+      "oblique": {
+        "file": "ruins-3d.webp",
+        "width": 1024,
+        "height": 800,
+        "sha256": "139bb275a4044fe55e4ef0b5f2801a569ec0c0aa1e1a91ef7d359dd9f0faa0bb",
+        "fullFile": "ruins-3d-detail.webp",
+        "fullWidth": 2560,
+        "fullHeight": 2000,
+        "fullSha256": "0748a37fef2ba2578904ca3c0be9c6a99812192cd3b7860792956b8097d3fc50"
+      },
       "archiveFile": "ruins.sceneweave",
-      "archiveBytes": 979754,
-      "archiveSha256": "bcf0c1ee908500818d0dd23280d9ecdb24f3d1a652f56de33db84967731ecfc8"
+      "archiveBytes": 980034,
+      "archiveSha256": "c80384c0d56c92e0311a5d4c427beda1d742fc45a35d09d8ed6069711bb1b8ea"
     },
     "wilderness": {
       "name": "溪岸巡林补给站",
       "kind": "温带荒野",
-      "description": "溪流穿过林间补给站，弯曲小径连接建筑、林地与工作面。",
+      "description": "巡林站外的小径在工作空地旁分岔，沿木桥可以到达溪对岸。",
       "features": [
-        "真实溪流岸线与道路缓弯",
-        "林间补给站与独立工作面",
-        "可编辑的建筑、树石和补给"
+        "木桥与两岸林径显式链接",
+        "旧木板铺面与双侧分节护栏",
+        "可分别调整桥体与沿线构件"
       ],
-      "projectHash": "90ab7c8a124ba5a59f4d28470cb2442e963de928381c571a36e3172a69c541ec",
+      "projectHash": "08b7f7eef252be7c2e23223d5efa4c5b434fe1cfdec17b677ca419552307007f",
       "title": "溪岸巡林补给站 · 温带荒野手绘候选",
       "boundsMm": {
         "x": 0,
@@ -164,34 +204,44 @@
         "height": 34000
       },
       "rooms": 2,
-      "terrainAreas": 2,
-      "props": 61,
+      "terrainAreas": 3,
+      "props": 69,
       "prefabInstances": 0,
       "audience": "gm",
       "file": "wilderness-stage1.png",
       "width": 1024,
       "height": 791,
-      "pngSha256": "ddc9fa520f97f64b178ded0f7740000e80386605ee63e8a9d2e807601f8df33c",
-      "rgbaSha256": "3ff0e79fd4c7b1d9ec90fca56ce9ccd0bb75933dfefecc3a250a3a690349acd4",
+      "pngSha256": "fac4d31c7d5cc390bfd67f1f05117a716d4a7da572e8b752c2146dced0a0a3c3",
+      "rgbaSha256": "1b023ec53a38f1a1bcbd55169d1239bd42357baec599228d92b70dac9e679907",
       "fullFile": "wilderness-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3165,
-      "fullPngSha256": "5e1ab97d0a80431e10877447f54ef70c3d9049e4b117cb8108b153fbaba41619",
-      "fullRgbaSha256": "6131ab47c8d828c5048cb0df587f5148db3ee635d974cc8b744701a8fffa1214",
+      "fullPngSha256": "40cedfc75865d2a497bdf6102ccd7cad1836aa03d5f239396b8f99f30bb3d141",
+      "fullRgbaSha256": "6daf4fdb09187589c25a582b1798899a4c73a899a00a3c609ee0d7bb31a133a2",
+      "oblique": {
+        "file": "wilderness-3d.webp",
+        "width": 1024,
+        "height": 800,
+        "sha256": "8d0f0d01a8b43e3d34a8bcbcfa10d1d3213980346e0ab77242601b17d2b86d39",
+        "fullFile": "wilderness-3d-detail.webp",
+        "fullWidth": 2560,
+        "fullHeight": 2000,
+        "fullSha256": "be91ecdf115f4d470d6c0ab2ef9502caf4d0373947e5fcb455e51f7de21da7c9"
+      },
       "archiveFile": "wilderness.sceneweave",
-      "archiveBytes": 1102020,
-      "archiveSha256": "6281834a1d0e563cf32bb24fa97a70c6290c995fde1b46c084bff2cd5fa20679"
+      "archiveBytes": 1106463,
+      "archiveSha256": "fd850321e2120b5315a75a568a8267063cd8cbabd21a70dabea766de717d8775"
     },
     "coast": {
       "name": "潮湾渔获补给站",
       "kind": "海岸聚落",
-      "description": "沿沙水岸线走进渔获补给站，在相连的小径间布置集散与分拣空间。",
+      "description": "傍晚从渔获分拣地沿引道走到木栈桥，栏杆沿线亮起暖光。",
       "features": [
-        "真实沙水岸线与三路切线汇合",
-        "渔获分拣工作面与岸边补给",
-        "保留54件可编辑物件"
+        "岸侧引道与桥头吸附链接",
+        "暖色线光沿护栏，登船口留空",
+        "风化木铺面与护栏分别可调"
       ],
-      "projectHash": "6c622da836d8297e2f227cb14c9e47eddf633722ce84acbc5b2397f087c94f96",
+      "projectHash": "1d8dff8594c5d7afd121ea9ad2e7c2e1b2e68b2a1c7d442a3be9e1f768b00aa9",
       "title": "潮湾渔获与岸边补给站 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -200,34 +250,44 @@
         "height": 32000
       },
       "rooms": 2,
-      "terrainAreas": 2,
-      "props": 54,
+      "terrainAreas": 3,
+      "props": 62,
       "prefabInstances": 0,
       "audience": "gm",
       "file": "coast-stage1.png",
       "width": 1024,
       "height": 819,
-      "pngSha256": "e4c0c797f3cfbee5bdc56574ef5ecfc75330fa4dc567e98c326a640be89e6adc",
-      "rgbaSha256": "ac0dd2239508a5d69ddd74ccfa5d40ca2000b9094ce2ef9ecf59ae548c49920c",
+      "pngSha256": "33d693c8bc9453763d57bc40d1c3acb9ff69742105b68078829bb051e2a29dc7",
+      "rgbaSha256": "4571b09960a9f865da2595ac265e17801243f98f8cc56a345195df2225bbbf86",
       "fullFile": "coast-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3277,
-      "fullPngSha256": "1447c6a4de859790d80a2fd3baeada52f6613ecda2c2580e9361094f088a2406",
-      "fullRgbaSha256": "22367e8744761c56524bc5a7b4dfe2d25fb2c3e20131d9d12b76fa358715b1bb",
+      "fullPngSha256": "02516db9fb33c9445e2751d344301462c63e5f256b3ee03dfb43c8c5fd402332",
+      "fullRgbaSha256": "f1eaf8cb50bdf9e4ca6041d663d44afd70e2da1b165f62d1ae07442f92689859",
+      "oblique": {
+        "file": "coast-3d.webp",
+        "width": 1024,
+        "height": 800,
+        "sha256": "e740b087add0f9572edca9cc40f9b55bb43ff59e3397caf51b2ce03ae3216b62",
+        "fullFile": "coast-3d-detail.webp",
+        "fullWidth": 2560,
+        "fullHeight": 2000,
+        "fullSha256": "ac843dcff88739a9d400b0c4596c464f789788126b1849cbc4370a2b5902c6ac"
+      },
       "archiveFile": "coast.sceneweave",
-      "archiveBytes": 489680,
-      "archiveSha256": "b4651619ac64dbefbf99589b0ff2d7933270dc574c3179b8fc0f2405028f746e"
+      "archiveBytes": 493893,
+      "archiveSha256": "07a2eff2f03c0f7ad8e5392869683b6ea79c7d6fd8b6c1cf37e7d6f7fb4bb654"
     },
     "island": {
       "name": "双台岬岛",
       "kind": "双层岩岛",
-      "description": "海水围绕两层岩台，沿凿岩石阶登上长满苔草的高地。",
+      "description": "沿毛石台阶越过两层岩台的高差，顺弯道登上苔草高地。",
       "features": [
-        "两层真实岩台与高差连接",
-        "受光崖面、错列岩阶与自然岸线",
-        "23件独立布景与柔和路面"
+        "两层岩台与实际高差连接",
+        "低角度日光投下同向树影",
+        "高地弯道支持局部宽度调整"
       ],
-      "projectHash": "b7ba729f4bf9634df4ea6641cfd21cbdd2475b3ca630a848cb058121205282cb",
+      "projectHash": "f0503cb812c54caa19781a059a941bd137191d2d6276272dd1fc00684cd29f8a",
       "title": "双台岬岛 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -243,27 +303,37 @@
       "file": "island-stage1.png",
       "width": 1024,
       "height": 796,
-      "pngSha256": "7378f0dadb4e63c5393f82851d72607bf15045fc39d7aedf9eca10015faf5708",
-      "rgbaSha256": "aba508e3e0f40c2cb3ac31e67fa1478d561a120e6dd41b08fe1183943ffc096a",
+      "pngSha256": "1e4e21318e3de26c6f958d93d6d0116c75c0ab570d6d4f0336190e52a59f10c6",
+      "rgbaSha256": "18724641153ff61672dc5535417fb9541528110dff3d97f73e8314559b7ae4b4",
       "fullFile": "island-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3186,
-      "fullPngSha256": "a05734bc4f03187c1ef087af36417c2f84bffaa16010af94dd5d4b3dcde7b09b",
-      "fullRgbaSha256": "e7210566667c4bb8f2518917df7a3ce78cf25194431d2050b6cbc7ef3c0c4d8f",
+      "fullPngSha256": "73005b4b66d93067eef6687bb4d780a6984faecff56bceb8c49882d4c70a8321",
+      "fullRgbaSha256": "33ccdda4be3c4b0a6030618da4671cf6f72da61901989e0e38411d4833499c8f",
+      "oblique": {
+        "file": "island-3d.webp",
+        "width": 1024,
+        "height": 800,
+        "sha256": "0e219227998112272e868b8c29bb282f096e33745cf26d0db48c464f31339bfe",
+        "fullFile": "island-3d-detail.webp",
+        "fullWidth": 2560,
+        "fullHeight": 2000,
+        "fullSha256": "3c359672bcde1cbadada58fcfb6b6597dc799a495e8ea578a0f2a65953fb3355"
+      },
       "archiveFile": "island.sceneweave",
-      "archiveBytes": 381510,
-      "archiveSha256": "94e577579f00e5624f2c533b0c5b175927a6ca45efd60cb2aa7e03f09690a181"
+      "archiveBytes": 381689,
+      "archiveSha256": "46bffc84a2f9ea76f51352d194365c1fe2b0af5b7398ee6d077b07a40eda2b31"
     },
     "volcano": {
       "name": "灰脊火口观测步道",
       "kind": "火山",
-      "description": "穿过火山灰与岩坡，沿石阶走向低陷火口和流动熔岩池。",
+      "description": "从火山灰小径登上山肩观测区，再沿玄武岩石阶下到火口。",
       "features": [
-        "真实低陷火口与变宽熔岩池",
-        "可通行岩阶与独立危险区域",
-        "24件布景与独立火山材质"
+        "两段凿岩台阶沿原路线铺设",
+        "山肩观测区可单独聚焦",
+        "面光随熔岩轮廓，岩壁保留余光"
       ],
-      "projectHash": "98d95bfacb85afb018a1caf6a8f4ffae37ad3ea0d7d843660d6a734d00611063",
+      "projectHash": "d311f432a1644e12d0077a22b7157265cf538e636158f79c83911077799782d2",
       "title": "灰脊火口 · 自然岩坡与熔岩池",
       "boundsMm": {
         "x": 0,
@@ -279,16 +349,72 @@
       "file": "volcano-stage1.png",
       "width": 1024,
       "height": 778,
-      "pngSha256": "c59b1671b60297bf41f981c330b433e7ade978d2aa42a552db0a07c51fc36315",
-      "rgbaSha256": "981e17ecc43e5cad94b114d0bf1d5a661c5640afd5b2a4a3f0b1ba8c517c4f1d",
+      "pngSha256": "975f7a101e6dbe1e2cc269fc6ce56c7b7338a5dc9c0630747a80ef7a8d72bc07",
+      "rgbaSha256": "55cbd09d34a71e87fddc3669c8b80a7fa131fa75f38aa47f9955ba2e48a166ed",
       "fullFile": "volcano-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3113,
-      "fullPngSha256": "0b1e7f2b7d18d25f939b38acb979d4d973573677a96580abd6b704e045db3a7f",
-      "fullRgbaSha256": "2b9d820e96ecec706eb36835500a1285d8f9df6c3f1047d1148bc1626015c502",
+      "fullPngSha256": "3f2325e3d199dfdf0d72eb1f2c27aa0430e3974a22a74f0104c4812d920ceb50",
+      "fullRgbaSha256": "18b3901bf44453ccfa287a32aefc256c84aad77cb3035d7c51c8040f22a08b89",
+      "oblique": {
+        "file": "volcano-3d.webp",
+        "width": 1024,
+        "height": 800,
+        "sha256": "899f7302f10325ba4c61e69f36a318ca9b979557fea9391c1a7deb93dda7fb1f",
+        "fullFile": "volcano-3d-detail.webp",
+        "fullWidth": 2560,
+        "fullHeight": 2000,
+        "fullSha256": "f09d11d29aa0706cffa9cdbbe2861472e78d795aee8787fe0b179a53e71492ee"
+      },
       "archiveFile": "volcano.sceneweave",
-      "archiveBytes": 999148,
-      "archiveSha256": "7b5456176d53f0ed12c914e65938faa99faf37d4280ad3972151529edbea818e"
+      "archiveBytes": 1022357,
+      "archiveSha256": "d3a530032474535a8238b1994f1d0e3fdad3be78e9d2ccdd00322c23f7b114c2"
+    },
+    "cyberpunk": {
+      "name": "碧脉冷却枢纽",
+      "kind": "工业赛博朋克",
+      "description": "沿下层横桥走访冷却机房和继电器间，再从检修平台乘升降机登上高架冷却线。",
+      "features": [
+        "上下层高架与可替换远景",
+        "桥体和道路铺装分别可调",
+        "沿线护栏、冷却管和灯具"
+      ],
+      "projectHash": "034f21f8c896d7d71d0537760a0a6b0c10fc34e45ce4eed2777620b568632d71",
+      "title": "碧脉冷却枢纽",
+      "boundsMm": {
+        "x": 0,
+        "y": 0,
+        "width": 60000,
+        "height": 46000
+      },
+      "rooms": 2,
+      "terrainAreas": 9,
+      "props": 286,
+      "prefabInstances": 1,
+      "audience": "gm",
+      "file": "cyberpunk-stage1.png",
+      "width": 1024,
+      "height": 785,
+      "pngSha256": "a0339969caf448048e0d7f8191cace6581310a75756759c4ea2c6531e14d47f8",
+      "rgbaSha256": "c51167c640f2b074961e2b196a45e84a2047cca11d76fe576b994b80695b69e9",
+      "fullFile": "cyberpunk-stage1-4k.png",
+      "fullWidth": 4096,
+      "fullHeight": 3140,
+      "fullPngSha256": "38e3f80e608cb29a168f1c979ea27487ebd84738d45f07bc7d90e9d83c85fe73",
+      "fullRgbaSha256": "bbb0c7835a75dfcfde6b1d7b5cd79fc4b4c938df7f21629e769aaeef1bece761",
+      "oblique": {
+        "file": "cyberpunk-3d.webp",
+        "width": 1024,
+        "height": 800,
+        "sha256": "14783c55369accbfd871014faefa2febd5034a3b70fde394646fea3bd2975750",
+        "fullFile": "cyberpunk-3d-detail.webp",
+        "fullWidth": 2560,
+        "fullHeight": 2000,
+        "fullSha256": "fbe08d90a66d76d53498a7926315d0b06d3b2d448f04eddbabacbd57892e43c4"
+      },
+      "archiveFile": "cyberpunk.sceneweave",
+      "archiveBytes": 1945506,
+      "archiveSha256": "0c3ff327320d6b81af657cd863f0eb9bc8f43dbffb8538f62c5547a34f0afeaf"
     }
   }
 }

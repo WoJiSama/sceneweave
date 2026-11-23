@@ -38,7 +38,7 @@ export function drawOceanWaves(ctx: CanvasRenderingContext2D, area: ProjectedSur
 }
 
 /** A single sprite owns both parts. The local straight waterline rotates with it. */
-export function drawWaterProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, bitmap: ImageBitmap, phase: 'under' | 'over') {
+export function drawWaterProp(ctx: CanvasRenderingContext2D, prop: Prop, projection: Projection, bitmap: ImageBitmap | HTMLCanvasElement, phase: 'under' | 'over', coverageOnly = false) {
   const look = prop.waterAppearance, area = projection.terrain.find(row => row.id === prop.supportRef.id), water = area?.waterSurface
   if (!look || !area || !water) throw new Error('水中物件缺少当前受众可见的实际水面。')
   if (phase === 'under' && look.mode === 'surface' || phase === 'over' && look.mode === 'submerged') return
@@ -56,7 +56,7 @@ export function drawWaterProp(ctx: CanvasRenderingContext2D, prop: Prop, project
     else ctx.rect(v.x, v.y, v.width, lineY - v.y)
     ctx.clip()
     ctx.globalAlpha = prop.appearance.opacity * (phase === 'under' ? water.clarity * (1 - depth * .82) : 1)
-    if (phase === 'under') {
+    if (phase === 'under' && !coverageOnly) {
       tinted = document.createElement('canvas'); tinted.width = bitmap.width; tinted.height = bitmap.height
       const source = tinted.getContext('2d')
       if (!source) throw new Error('无法创建水下图像合成画布。')
@@ -65,14 +65,14 @@ export function drawWaterProp(ctx: CanvasRenderingContext2D, prop: Prop, project
     }
     ctx.drawImage(tinted ?? bitmap, v.x, v.y, v.width, v.height)
     // Surface ripples stay inside the saved visual bounds; no new secret/shadow extent.
-    if (phase === 'over' && look.mode === 'surface') {
+    if (!coverageOnly && phase === 'over' && look.mode === 'surface') {
       ctx.globalAlpha = prop.appearance.opacity * .38; ctx.strokeStyle = water.highlightColor
       ctx.lineWidth = Math.max(10, Math.min(v.width, v.height) * .006)
       ctx.beginPath(); ctx.ellipse(v.x + v.width / 2, v.y + v.height / 2, v.width * .46, v.height * .46, 0, .12, .8)
       ctx.stroke(); ctx.beginPath(); ctx.ellipse(v.x + v.width / 2, v.y + v.height / 2, v.width * .46, v.height * .46, 0, Math.PI + .12, Math.PI + .8); ctx.stroke()
     }
   } finally { ctx.restore(); if (tinted) tinted.width = tinted.height = 0 }
-  if (phase === 'over' && look.mode !== 'submerged' && look.surfaceEffects) {
+  if (!coverageOnly && phase === 'over' && look.mode !== 'submerged' && look.surfaceEffects) {
     const effects = look.surfaceEffects, bounds = waterVisualBounds(prop)
     ctx.save()
     let foam: HTMLCanvasElement | undefined

@@ -77,7 +77,8 @@ test('atmosphere presets preview, switch without stacking, preserve independent 
   await adoptVisual(page)
   await resources.getByRole('navigation', { name: '视觉工具', exact: true }).getByRole('button', { name: '滤镜', exact: true }).click()
   await inspector.getByLabel('视觉滤镜预设', { exact: true }).selectOption('aged')
-  await inspector.getByLabel('视觉饱和度', { exact: true }).fill('0.85')
+  await inspector.getByText('曲线与更多调色', { exact: true }).click()
+  await inspector.getByRole('slider', { name: '色彩浓度', exact: true }).fill('-15')
   await inspector.getByRole('button', { name: '预览滤镜', exact: true }).click()
   await adoptVisual(page)
   const before = await keyboardProjectBackup(page, info.outputPath('atmosphere-before.sceneweave'))
@@ -130,10 +131,12 @@ test('atmosphere presets preview, switch without stacking, preserve independent 
   // complete-project backups must retain the adopted atmosphere throughout.
   const compare = page.getByRole('button', { name: '对比原色（仅预览）', exact: true })
   await expect(compare).toHaveAttribute('aria-pressed', 'false')
+  // Export status changes the available viewport height. Capture the camera
+  // after that layout change so only the comparison toggle is measured.
+  const publicPng = await playerPngHash(page, info.outputPath('atmosphere-player.png'))
   const zoom = page.getByLabel('地图缩放比例', { exact: true })
   const view = { zoom: await zoom.textContent(), box: await page.getByLabel('材质场景主持人预览', { exact: true }).boundingBox() }
   const withAtmosphere = await canvasHash(page)
-  const publicPng = await playerPngHash(page, info.outputPath('atmosphere-player.png'))
   await compare.click()
   await expect(compare).toHaveAttribute('aria-pressed', 'true')
   await keyboardWorkspaceSaved(page)

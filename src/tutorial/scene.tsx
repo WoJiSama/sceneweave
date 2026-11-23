@@ -2,7 +2,7 @@ import { Check, Figure, LessonLink, type TutorialChapter } from './lesson'
 
 export const scene: TutorialChapter = {
   id: 'scene', label: '场景与画布', title: '场景、画布与楼层',
-  description: '定位对象，设置格线和吸附，控制绘制图层，并在独立楼层之间切换。',
+  description: '定位对象，设置格线和吸附，切换绘制图层和楼层，并用斜俯视取景。',
   start: <>用<LessonLink chapter="first-map">林边驿站</LessonLink>继续，也可以从首页「从样板开始」把「余烬酒馆与旅舍」打开为独立副本。</>,
   sections: [
     { id: 'workspace', title: '找到当前任务和候选', body: <>
@@ -22,6 +22,18 @@ export const scene: TutorialChapter = {
         <li>要精确核对位置，点「量尺」，依次点起点和终点，读取距离和 X/Y 差值。打开房间或物件详情也能直接读取坐标。</li>
       </ol>
       <p>点不到对象时，依次检查当前是主持人视图、对象和画布在同一楼层、对象所在图层显示且未被独显过滤、选择范围包含该图层、对象没被锁。重叠时，从「场景对象」列表按名称选择。</p>
+    </> },
+    { id: 'oblique', title: '旋转斜俯视并导出图片', body: <>
+      <ol>
+        <li>打开自己的地图，或在首页「余烬酒馆与旅舍」的详情点「用此样板创建副本」，再点「保存并打开副本」。选好楼层，准备分享给玩家时先切到「玩家」。点画布上方的「斜俯视」，等待 3D 预览加载。</li>
+        <li>在预览画面上左右拖动可环绕地图，上下拖动可改变俯角。也可聚焦画面后用方向键调整。用滚轮或底部「缩放」滑杆拉近、拉远。</li>
+        <li>放大看酒馆内部时，近处朝向镜头的外墙会自动淡出。看树林时，可勾选「近处树冠淡出」。想回到默认全景，点「重置视角」。</li>
+        <li>取好角度后，核对窗口上方的楼层和受众，点「导出当前画面」。从浏览器下载列表打开以 <code>-3D.png</code> 结尾的图片，再点「返回俯视」继续编辑。</li>
+      </ol>
+      <Figure file="oblique-view" width={1048} height={836} alt="酒馆的斜俯视预览，顶部显示玩家视图，底部有俯角、缩放和导出按钮">
+        余烬酒馆与旅舍 · 玩家视图
+      </Figure>
+      <Check>下载的 PNG 应保留当前角度、缩放与墙体淡出效果。</Check>
     </> },
     { id: 'grid', title: '设置单位、格线与吸附', body: <>
       <ol>

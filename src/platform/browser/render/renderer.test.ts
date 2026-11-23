@@ -14,6 +14,7 @@ import { exportPng, exportPublicViewportPng, renderEditorProject, renderProject 
 import { encodePng, PNG_MAX_ENCODED_BYTES, renderRasterProjection } from './canvas-renderer'
 import { inspectImageBytes, normalizePngChunks } from '../../../shared/project/image-bytes.js'
 import { browserProjectValidation } from '../project-validation.js'
+import { defaultSceneArtStyle } from '../../../shared/visual/art-style.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
@@ -138,6 +139,20 @@ describe('native complete-v1 browser rendering boundary (Node primitives)', () =
     expect(editorSurface.context.rect).toHaveBeenNthCalledWith(1, 171 / 4, 0, 171 * 3 / 4, 5000 * (256 / 6000))
     expect(editorSurface.context.rect).toHaveBeenNthCalledWith(2, 0, 0, 171, 256)
     expect(browser.bitmaps.every(bitmap => bitmap.close.mock.calls.length === 1)).toBe(true)
+  })
+
+  it('grades a solid stacked-floor backdrop before composing line-art floors', async () => {
+    const input = await multiFloorFixture(), browser = primitives(), scene = input.project.document
+    scene.floors.upper.underlayFloorId = Object.keys(scene.floors)[0]
+    scene.outputBackground = { mode: 'solid', color: '#374D31' }
+    scene.artStyle = { ...defaultSceneArtStyle(), active: 'lineArt' }
+    const output = await renderProject(input, { audience: 'gm', floorId: 'upper', longEdgePx: 256 })
+    const surface = browser.canvases.find(canvas => Object.is(canvas, output))!
+    const grade = vi.mocked(surface.context.putImageData as CanvasRenderingContext2D['putImageData'])
+    const composite = vi.mocked(surface.context.drawImage as CanvasRenderingContext2D['drawImage'])
+    expect(grade).toHaveBeenCalledTimes(3)
+    expect(composite).toHaveBeenCalledTimes(2)
+    expect(grade.mock.invocationCallOrder.at(-1)).toBeLessThan(composite.mock.invocationCallOrder[0])
   })
 
   it('renders and encodes only an explicit Floor while preserving full validation and same-target editor hiding', async () => {

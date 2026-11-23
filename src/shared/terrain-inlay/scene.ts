@@ -31,6 +31,8 @@ export function inspectTerrainInlay(scene: SceneDocument, connection: TerrainCon
     const assert = (ok: unknown, message: string) => { if (!ok) throw Error(message) }
     assert(!connection.route && !connection.carvedStrip && connection.kind === 'ramp' && connection.openingId === null,
       '跨台山路只保留一条活动坡道，不能叠加旧路线、单宿主切口或门。')
+    assert(!inlay.groundOnly || inlay.appearance === 'source-ground' && !inlay.finish && !connection.staircase && !connection.surfaceStyle,
+      '拆路保留的地表须沿用源面材质。')
     assert(original.id === connection.id && original.floorId === connection.floorId && terrainInlayHash(original) === inlay.originalConnectionHash,
       '跨台山路的冻结原连接或摘要不完整。')
     assert(original.openingId === null, '跨台山路冻结原连接不能保留房间门引用。')
@@ -43,7 +45,7 @@ export function inspectTerrainInlay(scene: SceneDocument, connection: TerrainCon
     assert(new Set(inlay.sourceProofs.map(proof => proof.areaId)).size === geometry.sources.length, '跨台山路来源证明不能重复。')
     for (const source of geometry.sources) {
       const current = scene.terrainAreas[source.id], proof = inlay.sourceProofs.find(row => row.areaId === source.id)
-      assert(current && !current.rockBody && proof && terrainInlayHash(terrainInlaySource(current)) === terrainInlayHash(source)
+      assert(current && !current.rockBody && !current.relief && proof && terrainInlayHash(terrainInlaySource(current)) === terrainInlayHash(source)
         && proof.geometryHash === terrainInlayHash(source), '跨台山路源面已移动、改高、换覆盖顺序或变成未支持的岩体；不能刷新旧来源。')
       assert(!source.boundaryMm.some(point => Object.hasOwn(geometry.verticesMm, point.id)), '实际顶点不得复用源地形身份。')
       assert(connection.visibility !== 'public' || current.visibility === 'public', '公开山路不能依赖私密源地形。')

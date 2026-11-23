@@ -3,6 +3,7 @@ import type { Issue, PointMm, SceneDocument, Editable } from '../model/scene.js'
 import { sampleVisualBoundary, assertSimpleVisualPolyline, terrainBoundaryChain } from './geometry.js'
 import { VISUAL_LIMITS, type VisualBoundary, type VisualEntity } from './types.js'
 import { getLegacyVisual, legacyTerrainView } from '../terrain-generation/composition-contracts.js'
+import { lightHostIds, lightSourcePoints } from './light-geometry.js'
 
 export const VISUAL_ENTITY_COLLECTIONS = ['boundaries', 'edgeLooks', 'lights', 'fogs', 'filters'] as const
 export const VISUAL_FILTER_TARGET_COLLECTIONS = ['rooms', 'terrainAreas', 'walls', 'paths', 'props', 'regions', 'terrainConnections', 'prefabInstances', 'scatterGroups'] as const
@@ -95,7 +96,19 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
     } catch { /* Boundary diagnostics already report the cause. */ }
   }
   if (totalDecorations > 8192) add('VISUAL_BUDGET', '全图边缘装饰重复数超过8192。')
-  for (const light of Object.values(visual.lights)) inFloor(light, light.positionMm)
+  for (const light of Object.values(visual.lights)) {
+    inFloor(light, light.positionMm)
+    const shape = light.shape
+    if (light.enabled && lightHostIds(scene, light).length) {
+      try {
+        if (!lightSourcePoints(scene, light).length) add('VISUAL_LIGHT_HOST', '启用的灯光须绑定本层可用的窗户、路线或表面。', light.id)
+      } catch { add('VISUAL_LIGHT_HOST', '灯光绑定几何无效。', light.id) }
+    }
+    if (shape?.kind === 'line' && shape.source.kind === 'segment') {
+      inFloor(light, shape.source.endMm)
+      if (same(light.positionMm, shape.source.endMm)) add('VISUAL_LIGHT_SEGMENT', '线光的两个端点须不同。', light.id)
+    }
+  }
   for (const fog of Object.values(visual.fogs)) {
     region(fog, fog.boundaryMm)
     const xs = fog.boundaryMm.map(p => p.x), ys = fog.boundaryMm.map(p => p.y)

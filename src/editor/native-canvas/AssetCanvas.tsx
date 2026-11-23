@@ -32,6 +32,17 @@ import { snapSubgridPoint, type SubgridSnap } from './subgrid'
 import { wallTranslationLockBlockers } from '../../shared/commands/building.js'
 import { PreviewScheduler } from '../../platform/browser/render/preview-scheduler.js'
 import NotePrivacyNotice from './NotePrivacyNotice'
+import { ART_STYLE_PREVIEW_DELAY_MS, ArtStyleComparison, useArtStyleComparison } from './ArtStyleComparison'
+import { artStyleClip, type ArtStyleDivider } from './art-style-divider'
+import type { SceneArtStyle } from '../../shared/visual/art-style'
+
+export interface CanvasArtStyleComparison {
+  divider: ArtStyleDivider
+  onChange: (divider: ArtStyleDivider) => void
+  style?: SceneArtStyle
+  labels?: readonly [string, string]
+  onPaint?: (style: SceneArtStyle | undefined) => void
+}
 
 /** The supported visual subset is checked before editor-only simplification. */
 export function previewLimitations(scene: SceneDocumentV2): string[] {
@@ -96,6 +107,8 @@ function selection(ctx: CanvasRenderingContext2D, scene: SceneDocumentV2, bounds
 export interface CanvasTerrainBrush {
   radiusMm: number
   strokes: readonly { pointsMm: readonly PointMm[]; radiusMm: number }[]
+  color?: string
+  stairMarks?: (points: readonly PointMm[]) => { polygons: PointMm[][]; protected: boolean }
   scope?: BoundsMm
   label: string
   onStroke: (points: PointMm[]) => void
@@ -124,8 +137,12 @@ export type CanvasSelectionDragStart = (ids: readonly string[]) => {
   finish: (offsetMm: PointMm) => void
 } | null
 
-export default function AssetCanvas({ floorId, project, selected, onSelect, audience = 'gm', groundView = false, persistenceBusy = false, disabled = false, onRenderMetrics, onPaint, placement, fillCopy, onFillCopyCancel, onFillCopyPreview, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, onDeleteSelection, onCopySelection, onPasteSelection, memberMode = false, onMemberMode, focusPoint, onFocusPartition, sightOverlay, partitionOutline, fitRequest = 0, editorRenderer, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, terrainBrush, visualBoundary, onVisualBoundaryChange, onVisualBoundaryFinish, onWallDragPreview, onSelectionDragStart, toolControlsTarget, viewControlsTarget }: { floorId?: string; groundView?: boolean; persistenceBusy?: boolean; terrainBrush?: CanvasTerrainBrush | null; fillCopy?: Omit<CanvasFillCopy, 'onPreview' | 'onCancel'> | null; onFillCopyPreview?: CanvasFillCopy['onPreview']; onFillCopyCancel?: () => void; onVisualBoundaryFinish?: (value: VisualBoundary) => void; onWallDragPreview?: (wallId: string, offsetMm: PointMm) => void; onSelectionDragStart?: CanvasSelectionDragStart; visualBoundary?: VisualBoundary | null; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; worldTool?: CanvasWorldTool | null; editorRenderer?: (options: EditorRenderOptionsV2) => Promise<HTMLCanvasElement>; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onDeleteSelection?: () => void; onCopySelection?: () => string | null; onPasteSelection?: (marker: string) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; focusPoint?: { positionMm: PointMm; sequence: number; scope?: BoundsMm }; onFocusPartition?: (id: string) => void; sightOverlay?: { origin: PointMm; boundary: PointMm[] }; partitionOutline?: PointMm[]; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
-  const previewScope = useMemo(() => ({}), [project, floorId, audience, groundView, editorRenderer])
+export default function AssetCanvas({ floorId, project, selected, onSelect, audience = 'gm', groundView = false, persistenceBusy = false, disabled = false, onRenderMetrics, onPaint, placement, placementTop, fillCopy, onFillCopyCancel, onFillCopyPreview, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, onDeleteSelection, onCopySelection, onPasteSelection, memberMode = false, onMemberMode, focusPoint, onFocusPartition, sightOverlay, partitionOutline, fitRequest = 0, editorRenderer, artStyleDraft, onArtStylePaint, artStyleComparison, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, terrainBrush, visualBoundary, onVisualBoundaryChange, onVisualBoundaryFinish, onWallDragPreview, onSelectionDragStart, toolControlsTarget, viewControlsTarget }: { floorId?: string; groundView?: boolean; persistenceBusy?: boolean; terrainBrush?: CanvasTerrainBrush | null; fillCopy?: Omit<CanvasFillCopy, 'onPreview' | 'onCancel'> | null; onFillCopyPreview?: CanvasFillCopy['onPreview']; onFillCopyCancel?: () => void; onVisualBoundaryFinish?: (value: VisualBoundary) => void; onWallDragPreview?: (wallId: string, offsetMm: PointMm) => void; onSelectionDragStart?: CanvasSelectionDragStart; visualBoundary?: VisualBoundary | null; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; artStyleDraft?: SceneArtStyle; onArtStylePaint?: CanvasArtStyleComparison['onPaint']; artStyleComparison?: CanvasArtStyleComparison; worldTool?: CanvasWorldTool | null; editorRenderer?: (options: EditorRenderOptionsV2) => Promise<HTMLCanvasElement>; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onDeleteSelection?: () => void; onCopySelection?: () => string | null; onPasteSelection?: (marker: string) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; focusPoint?: { positionMm: PointMm; sequence: number; scope?: BoundsMm }; onFocusPartition?: (id: string) => void; sightOverlay?: { origin: PointMm; boundary: PointMm[] }; partitionOutline?: PointMm[]; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; placementTop?: PointMm[]; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
+  const comparisonEnabled = audience === 'gm' && !!artStyleComparison
+  const comparingAlternatives = comparisonEnabled && !!artStyleComparison.labels
+  const paintContext = useMemo(() => ({}), [project, floorId, audience, groundView, editorRenderer, comparingAlternatives])
+  const previewScope = useMemo(() => ({}), [paintContext, artStyleDraft])
+  const lastPaintContext = useRef<object | null>(null)
   const roadSources = useMemo(() => {
     if (!worldTool?.road) return null
     try { return prepareRoadSnapTargets(project.document, { ...worldTool.road, audience: worldTool.road.visibility === 'public' ? 'player' : audience, excludedEntityIds: selectionOptions?.hiddenIds }) }
@@ -236,6 +253,11 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   const [size, setSize] = useState<ViewportSizeV2>({ width: 1, height: 1 }), [view, setView] = useState<MapViewportV2>(FIT_VIEWPORT_V2), [mode, setMode] = useState<'select' | 'pan'>('select'), [dragging, setDragging] = useState(false), [renderCount, setRenderCount] = useState(0)
   const refinementView = useMemo(() => ({}), [previewScope, view.zoom, view.panX, view.panY, size.width, size.height])
   const targetFloorId = floorId ?? Object.keys(project.document.floors)[0]
+  const comparisonStyle = artStyleComparison?.style
+  const comparisonRequest = useMemo(() => comparisonEnabled
+    ? (signal: AbortSignal) => renderPreview({ audience: 'gm', floorId: targetFloorId, longEdgePx: 1200, signal, groundView, artStyleDraft: comparisonStyle })
+    : undefined, [comparisonEnabled, renderPreview, targetFloorId, groundView, comparisonStyle])
+  const comparisonPaint = useArtStyleComparison(paintContext, comparisonRequest, comparisonStyle, artStyleComparison?.onPaint)
   const bounds = resolveFloorOutput(project.document, targetFloorId).boundsMm
   const fillCopyBudget = useMemo(() => {
     if (!fillCopy) return undefined
@@ -387,20 +409,26 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   useEffect(() => () => previewScheduler.dispose(), [previewScheduler])
   useEffect(() => {
     setResult(null); setError(null)
-    const request = previewScheduler.runMain(previewScope, {
+    const paint = () => previewScheduler.runMain(previewScope, {
       run: signal => {
         const report = metricsCallback.current
-        return renderPreview({ audience, floorId: targetFloorId, longEdgePx: 1200, signal, onMetrics: report ? metrics => { if (!signal.aborted) report(metrics) } : undefined, groundView })
+        return renderPreview({ audience, floorId: targetFloorId, longEdgePx: 1200, signal, onMetrics: report ? metrics => { if (!signal.aborted) report(metrics) } : undefined, groundView, artStyleDraft })
       },
       publish: image => { setResult({ project, audience, token: previewScope, image }); setRenderCount(count => count + 1) },
       fail: reason => setError({ token: previewScope, message: reason instanceof Error ? reason.message : String(reason) }),
     })
-    return () => request.cancel()
-  }, [project, audience, groundView, previewScope, previewScheduler, renderPreview])
+    if (!artStyleDraft || lastPaintContext.current !== paintContext) {
+      const request = paint()
+      return () => request.cancel()
+    }
+    let request: ReturnType<typeof paint> | undefined
+    const timer = setTimeout(() => { request = paint() }, ART_STYLE_PREVIEW_DELAY_MS)
+    return () => { clearTimeout(timer); request?.cancel() }
+  }, [project, audience, groundView, previewScope, previewScheduler, renderPreview, artStyleDraft, paintContext])
   // Keep the existing world raster moving immediately. A bounded visible crop is
   // rebuilt only after the gesture settles; no selection dependency enters here.
   useLayoutEffect(() => {
-    if (!result || result.token !== previewScope || size.width <= 1 || size.height <= 1) return
+    if (comparisonEnabled || !result || result.token !== previewScope || size.width <= 1 || size.height <= 1) return
     const rect = viewportMapRectV2(view, size, bounds), scale = rect.width / bounds.width
     const x = Math.max(bounds.x, bounds.x - rect.x / scale), y = Math.max(bounds.y, bounds.y - rect.y / scale)
     const right = Math.min(bounds.x + bounds.width, bounds.x + (size.width - rect.x) / scale), bottom = Math.min(bounds.y + bounds.height, bounds.y + (size.height - rect.y) / scale)
@@ -408,13 +436,13 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
     const crop = { x, y, width: right - x, height: bottom - y }, dpr = Math.min(2, window.devicePixelRatio || 1)
     const longEdgePx = Math.max(256, Math.min(2048, Math.ceil(Math.max(crop.width, crop.height) * scale * dpr)))
     const request = previewScheduler.requestRefinement(previewScope, {
-      run: signal => renderPreview({ audience, floorId: targetFloorId, longEdgePx, viewBoundsMm: crop, screenScalePxPerMm: scale, signal, groundView }),
+      run: signal => renderPreview({ audience, floorId: targetFloorId, longEdgePx, viewBoundsMm: crop, screenScalePxPerMm: scale, signal, groundView, artStyleDraft }),
       publish: image => { setRefinement({ token: refinementView, bounds: crop, screenScalePxPerMm: scale, image }); setRefinementCount(count => count + 1); setError(null) },
       fail: reason => setError({ token: previewScope, message: reason instanceof Error ? reason.message : String(reason) }),
       onPending: setRefinementPending,
     })
     return () => request.cancel()
-  }, [project, audience, groundView, previewScope, refinementView, previewScheduler, result, view.zoom, view.panX, view.panY, size.width, size.height, renderPreview])
+  }, [project, audience, groundView, previewScope, refinementView, previewScheduler, result, view.zoom, view.panX, view.panY, size.width, size.height, renderPreview, comparisonEnabled, artStyleDraft])
   useLayoutEffect(() => {
     // Returning from a candidate can reuse the same project identity after an
     // earlier crop task was disposed. That released canvas must never be read.
@@ -422,13 +450,16 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
     const target = detailCanvas.current; target.width = refinement.image.width; target.height = refinement.image.height
     target.getContext('2d', { colorSpace: 'srgb' })?.drawImage(refinement.image, 0, 0)
   }, [refinementView, refinement])
+  const failed = error?.token === previewScope
   useLayoutEffect(() => {
-    if (!canvas.current || !result || result.project !== project || result.audience !== audience || result.token !== previewScope) return
+    if (!canvas.current || failed || !result || result.token !== previewScope) { onArtStylePaint?.(undefined); return }
     const target = canvas.current; target.width = result.image.width; target.height = result.image.height
     const ctx = target.getContext('2d', { colorSpace: 'srgb' })
-    if (!ctx) return
+    if (!ctx) { onArtStylePaint?.(undefined); return }
     ctx.drawImage(result.image, 0, 0)
-  }, [project, result, audience, previewScope])
+    lastPaintContext.current = paintContext
+    onArtStylePaint?.(artStyleDraft)
+  }, [result, previewScope, paintContext, artStyleDraft, onArtStylePaint, failed])
   useLayoutEffect(() => {
     if (!overlay.current || !result || result.project !== project || result.audience !== audience || result.token !== previewScope) return
     const target = overlay.current
@@ -471,11 +502,19 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
     // Optional tooling observers cannot turn a successful preview into an error.
     try { onPaint?.(project.document.revision) } catch { /* observer only */ }
   }, [project, result, previewScope, selected, selectedIds, sessionIds, selectionSummary, readGeometry, audience, disabled, onPaint, view.zoom, view.panX, view.panY, size.width, size.height, placement, placementImage])
-  const failed = error?.token === previewScope
   const ready = !failed && result?.project === project && result.audience === audience && result.token === previewScope
+  // A new slider value may briefly show the last complete paint of this exact
+  // scene, audience and view context while its replacement is rendered.
+  const showingPaint = ready || !failed && lastPaintContext.current === paintContext
   readyRef.current = !!ready
   const rect = viewportMapRectV2(view, size, bounds)
-  const refinementBounds = refinement?.token === refinementView && refinement.image.width > 0 && refinement.image.height > 0 ? refinement.bounds : null
+  const refinementBounds = !comparisonEnabled && refinement?.token === refinementView && refinement.image.width > 0 && refinement.image.height > 0 ? refinement.bounds : null
+  const compareArea = { x: 0, y: 0, width: size.width, height: size.height }
+  const divider = artStyleComparison?.divider
+  const comparing = !!divider && comparisonPaint.visible && rect.width > 0 && rect.height > 0
+  const afterClip = comparing ? artStyleClip(divider, compareArea, rect, false) : undefined
+  const beforeClip = comparing ? artStyleClip(divider, compareArea, rect, true) : undefined
+  const previewPending = !ready && !failed || comparisonPaint.pending
   const pointerWorld = (clientX: number, clientY: number, allowOutside = false): PointMm | null => {
     const image = canvas.current?.getBoundingClientRect()
     if (!image || !allowOutside && (clientX < image.left || clientX > image.right || clientY < image.top || clientY > image.bottom)) return null
@@ -541,7 +580,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
       <button aria-label="放大地图" disabled={!ready || view.zoom >= MAX_VIEW_ZOOM_V2} onClick={() => zoom(1.25)}><ZoomIn size={15}/></button>
       <button aria-label="适应全图" disabled={!ready} onClick={fit} title="适应全图（0）"><Maximize size={15}/><span>全图</span></button>
   </>
-  return <div className="asset-map-wrap" aria-busy={!ready && !failed}>
+  return <div className="asset-map-wrap" aria-busy={previewPending}>
     {audience === 'gm' && <NotePrivacyNotice project={project} floorId={targetFloorId} disabled={disabled} onSelect={onSelect}/>}
     <div className="asset-viewport-toolbar" role="group" aria-label="地图视口工具">
       {toolControlsTarget ? createPortal(<div className="asset-external-tool-controls" role="group" aria-label="地图选择与平移">{toolControls}</div>, toolControlsTarget) : toolControls}
@@ -768,8 +807,9 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
       {selectionMove && <div role="status" data-testid="selection-drag-status" style={{ position: 'absolute', zIndex: 3, left: 8, bottom: 8, maxWidth: 'calc(100% - 16px)', padding: '4px 7px', background: '#f6f0ddee', color: '#24594b', fontSize: 11, pointerEvents: 'none' }}>
         {selectionMove.message ?? `移动 ΔX ${selectionMove.offsetMm.x} · ΔY ${selectionMove.offsetMm.y} mm`}。Escape 取消，当前工程未修改。
       </div>}
-      <div className="asset-viewport-image" data-transparent={project.document.outputBackground?.mode === 'transparent' || undefined} style={{ width: rect.width, height: rect.height, transform: `translate(${rect.x}px, ${rect.y}px)`, visibility: ready ? 'visible' : 'hidden' }}>
-        <canvas ref={canvas} aria-label={audience === 'gm' ? '材质场景主持人预览' : '材质场景玩家预览'}/>
+      <div className="asset-viewport-image" data-transparent={project.document.outputBackground?.mode === 'transparent' || undefined} style={{ width: rect.width, height: rect.height, transform: `translate(${rect.x}px, ${rect.y}px)`, visibility: showingPaint ? 'visible' : 'hidden' }}>
+        <canvas ref={canvas} aria-label={comparingAlternatives ? '画风 B 侧' : audience === 'gm' ? '材质场景主持人预览' : '材质场景玩家预览'} style={afterClip ? { clipPath: afterClip, pointerEvents: 'none' } : undefined}/>
+        {comparisonEnabled && <canvas ref={comparisonPaint.ref} className="art-style-before" aria-label={artStyleComparison?.labels ? '画风 A 侧' : '画风调整前'} style={{ clipPath: beforeClip, visibility: comparing && showingPaint ? 'visible' : 'hidden' }}/>}
         {/* Session-only render inputs preserve precision that CSS percentage serialization can round. */}
         <canvas ref={detailCanvas} className="asset-detail-preview" aria-hidden="true" data-refinement-bounds={refinementBounds ? JSON.stringify(refinementBounds) : undefined} data-refinement-scale={refinementBounds ? refinement?.screenScalePxPerMm : undefined} style={refinementBounds ? { left: `${(refinementBounds.x - bounds.x) / bounds.width * 100}%`, top: `${(refinementBounds.y - bounds.y) / bounds.height * 100}%`, width: `${refinementBounds.width / bounds.width * 100}%`, height: `${refinementBounds.height / bounds.height * 100}%` } : { display: 'none' }}/>
         <canvas ref={overlay} className="asset-selection-overlay" aria-hidden="true"/>
@@ -877,9 +917,19 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
             owner.setPointerCapture(event.pointerId)
           }}/>
         </svg>}
+        {placementTop && placement && audience === 'gm' && <svg className="asset-selection-overlay" aria-hidden="true"
+          style={{ width: '100%', height: '100%', pointerEvents: 'none' }} viewBox={bounds.x + ' ' + bounds.y + ' ' + bounds.width + ' ' + bounds.height}>
+          <polygon data-prop-top-snap points={placementTop.map(point => point.x + ',' + point.y).join(' ')} fill="#3b9b6b55" stroke="#2b9067" strokeWidth={2 * bounds.width / rect.width}/>
+        </svg>}
         {terrainBrush && audience === 'gm' && <svg className="asset-selection-overlay terrain-brush-overlay" aria-hidden="true" data-testid="terrain-brush-overlay" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
           {terrainBrush.scope && <rect x={terrainBrush.scope.x} y={terrainBrush.scope.y} width={terrainBrush.scope.width} height={terrainBrush.scope.height} fill="none" stroke="#b16b2d" strokeWidth={2 * bounds.width / rect.width} strokeDasharray={`${6 * bounds.width / rect.width} ${4 * bounds.width / rect.width}`}/>}
-          {[...terrainBrush.strokes, ...(brushPoints.length ? [{ pointsMm: brushPoints, radiusMm: terrainBrush.radiusMm }] : [])].map((stroke, index) => <g key={index}>{stroke.pointsMm.length === 1 ? <circle cx={stroke.pointsMm[0].x} cy={stroke.pointsMm[0].y} r={stroke.radiusMm} fill="#4d956452"/> : <polyline points={stroke.pointsMm.map(point => `${point.x},${point.y}`).join(' ')} fill="none" stroke="#4d956452" strokeWidth={stroke.radiusMm * 2} strokeLinecap="round" strokeLinejoin="round"/>}</g>)}
+          {[...terrainBrush.strokes, ...(brushPoints.length ? [{ pointsMm: brushPoints, radiusMm: terrainBrush.radiusMm }] : [])].map((stroke, index) => <g key={index}>{stroke.pointsMm.length === 1 ? <circle cx={stroke.pointsMm[0].x} cy={stroke.pointsMm[0].y} r={stroke.radiusMm} fill={terrainBrush.color ?? "#4d956452"}/> : <polyline points={stroke.pointsMm.map(point => `${point.x},${point.y}`).join(' ')} fill="none" stroke={terrainBrush.color ?? "#4d956452"} strokeWidth={stroke.radiusMm * 2} strokeLinecap="round" strokeLinejoin="round"/>}</g>)}
+          {terrainBrush.stairMarks && (() => {
+            const marks = terrainBrush.stairMarks(brushPoints)
+            return marks.polygons.map((shape, index) => <polygon key={index} data-stair-support={marks.protected ? 'preserve' : 'conflict'}
+              points={shape.map(point => `${point.x},${point.y}`).join(' ')} fill={marks.protected ? '#36805377' : '#d02b3477'}
+              stroke={marks.protected ? '#2b6947' : '#a21b20'} strokeWidth={2 * bounds.width / rect.width}/>)
+          })()}
           {brushCursor && <circle cx={brushCursor.x} cy={brushCursor.y} r={terrainBrush.radiusMm} fill="none" stroke="#205d48" strokeWidth={1.5 * bounds.width / rect.width}/>}
         </svg>}
         {visualBoundary && audience === 'gm' && !disabled && <svg className="visual-controls" aria-label="曲线控制点" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%' }} onClick={event => event.stopPropagation()}
@@ -934,8 +984,10 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
           })()}
         </svg>}
       </div>
+      {showingPaint && comparing && artStyleComparison && <ArtStyleComparison divider={artStyleComparison.divider} area={compareArea} labels={artStyleComparison.labels} onChange={artStyleComparison.onChange}/>}
+      {showingPaint && comparisonEnabled && (!comparing || !ready || comparisonPaint.pending) && <div className="art-style-comparison-status" role="status">{comparisonPaint.failed ? '对比画面绘制失败。关闭后可重新打开对比。' : '正在绘制对比画面…'}</div>}
       {marquee && <div className="asset-marquee" data-testid="selection-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }}/> }
-      {!ready && <div className="asset-viewport-message"><div className="asset-preview-message" role={failed ? 'alert' : 'status'}>{failed ? <><strong>此场景暂时无法绘制</strong><p>{error.message}</p><p>完整工程仍保留，可继续备份与修改。</p></> : '正在解码素材并绘制场景…'}</div></div>}
+      {!showingPaint && <div className="asset-viewport-message"><div className="asset-preview-message" role={failed ? 'alert' : 'status'}>{failed ? <><strong>此场景暂时无法绘制</strong><p>{error.message}</p><p>完整工程仍保留，可继续备份与修改。</p></> : '正在解码素材并绘制场景…'}</div></div>}
     </div>
     <div className="asset-selection-notice" role="status">{wallOffsetMm ? `拖边 ΔX ${wallOffsetMm.x} · ΔY ${wallOffsetMm.y} mm；松开后生成候选并检查完整依赖，当前工程未修改。` : fillCopy ? fillReport ? `副本 ${fillReport.count} 份 · 每份偏移 ${fillReport.stepMm.x}, ${fillReport.stepMm.y} mm · ${fillReport.overlaps.length} 处重叠${fillReport.issues.length ? ` · ${fillReport.issues[0]}` : ''}` : selectionNotice || `拖动中心填充柄设置间距与方向；子格吸附${subgrid ? ` 1/${subgrid.divisions} · ${subgrid.anchor === 'center' ? '格心' : '格线'}` : '关闭'}。` : terrainBrush ? terrainBrush.label : worldTool ? roadHint ?? worldTool.label ?? (worldTool.kind === 'ruler' ? '量尺只在本次会话显示，不写入工程或 PNG。' : '按网格吸附顶点，在建筑面板预览并采用；当前工程尚未改变。') : selectionNotice || (audience === 'gm' ? '拖动物件预览 · 空白拖动框选 · Shift 增选 · Option/Alt 减选' : '玩家预览仅提供视口操作')}</div>
   </div>

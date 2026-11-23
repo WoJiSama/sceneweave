@@ -11,7 +11,8 @@ export interface IndustrialLevel {
   walkways?: [name: string, platform: string, widthMm: number, centerline: XY[]][]
   entrances?: [room: string, widthMm: number, leadLengthMm: number, connection: XY[]][]
   stairs?: [start: string, from: XY, end: string, to: XY]
-  fences: [name: string, closed: boolean, centerline: XY[], openings: [fromMm: number, toMm: number][]][]
+  fences?: [name: string, closed: boolean, centerline: XY[], openings: [fromMm: number, toMm: number][]][]
+  platformFences: [platform: string, insetMm: number, edgeIndices?: number[]][]
   pipes?: [name: string, widthMm: number, centerline: XY[]][]
   rooms?: [name: string, platform: string, bounds: [number, number, number, number], purpose: string][]
   props: [art: string, x: number, y: number, rotationDeg: number, support: string][]
@@ -50,12 +51,8 @@ const cooling: IndustrialLayout = {
     stairs: ['east', [50200,32500], 'service', [50200,35500]],
     fences: [
       ['yard', true, [[44500,16900],[55900,16900],[55900,25400],[44500,25400]], [[23500,26700]]],
-      ['west-north', false, [[3400,18400],[3500,16300],[6530,12600],[17400,12600],[20300,15500],[20300,21200]], []],
-      ['west-south', false, [[3400,33000],[3400,35500],[5200,36800],[18000,36800],[19900,34300]], []],
-      ['east-rim', false, [[56200,14550],[57600,16000],[57600,35400],[55490,38900]], []],
-      ['east-south', false, [[45200,39680],[43000,39680],[40100,36400],[40100,32800]], []],
-      ['service-rim', false, [[54400,38900],[54400,40840],[53300,41770],[47400,41770],[47300,38700]], []],
     ],
+    platformFences: [['west', 700], ['east', 700, [7, 8, 9, 0, 1, 2, 3, 4, 5]], ['service', 520]],
     pipes: [
       ['west-cooling', 1150, [[6700,34100],[10500,34100],[11800,35400],[15350,35400],[16780,34100]]],
       ['yard-loop', 980, [[48700,19700],[48700,18100],[52100,18100],[52100,19680]]],
@@ -84,14 +81,11 @@ const cooling: IndustrialLayout = {
       ['relay-cap', [[11900,21000],[19500,21000],[19500,25700],[11900,25700]], 6860],
     ],
     facades: [['compressor-cap', 'glazed-v1', { depthMm: 3250, pitchMm: 1980, facing: 'right' }],
-      ['relay-cap', 'ribbed-v1', { depthMm: 1450, lightColor: '#F18AA7', facing: 'right' }], ['north', 'glazed-v1', { depthMm: 6150, facing: 'right' }],
-      ['south', 'ribbed-v1', { depthMm: 1510, pitchMm: 1960, facing: 'right', lightIntensity: .26 }]],
+      ['relay-cap', 'ribbed-v1', { depthMm: 1450, lightColor: '#F18AA7', facing: 'right' }],
+      ['north', 'girder-v1'], ['south', 'girder-v1']],
     bridge: ['ion-bridge', 3600, [[32500,15200],[32500,38100]]],
     approaches: [['north', [[32500,5800],[32500,14600]]], ['south', [[32500,38800],[32500,41500]]]],
-    fences: [
-      ['north-rim', false, [[25700,9400],[26000,7400],[28700,4600],[38600,4600],[41700,7430],[41700,15000],[37000,16900]], []],
-      ['south-rim', false, [[28300,38500],[28300,42600],[41700,42600],[41700,38300],[39500,36100]], []],
-    ],
+    platformFences: [['north', 700], ['south', 700]],
     pipes: [
       ['north-return', 900, [[28000,10500],[28000,13250],[26900,14350],[26900,16200]]],
       ['south-return', 920, [[38500,40250],[38500,38100],[40100,38100]]],
@@ -135,9 +129,8 @@ const freight: IndustrialLayout = {
     stairs: ['north', [12700,6200], 'gantry', [12700,9300]],
     fences: [
       ['yard', true, [[34200,33400],[43500,33400],[43500,42300],[34200,42300]], [[3150,6850]]],
-      ['north-rim', false, [[9090,5880],[12100,3230],[33850,3230],[35700,5200],[35700,13200],[30000,15650]], []],
-      ['south-rim', false, [[18600,32800],[17150,35700],[17150,42000],[19100,43780],[40800,43800],[44800,41700],[44800,34600]], []],
     ],
+    platformFences: [['north', 700], ['south', 700]],
     pipes: [
       ['dispatch-feed', 1130, [[23100,5780],[25250,5780],[26900,4820],[31400,4820],[33100,6190],[33100,7340]]],
       ['yard-return', 980, [[40200,38300],[40200,36200],[42600,36200],[42600,40000]]],
@@ -170,11 +163,7 @@ const freight: IndustrialLayout = {
       ['west', 'ribbed-v1', { depthMm: 2730, pitchMm: 2010, facing: 'right', lightIntensity: .37 }]],
     bridge: ['ember-bridge', 3450, [[18300,21100],[26500,21600],[34900,24700],[41650,24900]]],
     approaches: [['west', [[10150,21900],[18300,21100]]], ['east', [[41650,24900],[52900,24700]]]],
-    fences: [
-      ['west-rim', false, [[8600,19600],[10500,18100],[16100,18100]], []],
-      ['west-outer', false, [[19500,25900],[17900,28100],[9500,28100],[8550,26400],[8550,22400]], []],
-      ['east-rim', false, [[41700,20500],[43000,18600],[53500,17750],[54800,19100],[54800,28250],[53100,30200],[43200,30200],[41300,28900]], []],
-    ],
+    platformFences: [['west', 700], ['east', 700]],
     pipes: [
       ['east-intake', 940, [[46060,27800],[47050,27800],[48050,28900],[50900,28900],[52050,27750],[53020,27750]]],
     ],

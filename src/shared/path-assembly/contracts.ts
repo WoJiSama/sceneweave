@@ -60,6 +60,16 @@ export const DEFAULT_BRIDGE_STRUCTURE = {
 const opening = z.object({ side: z.enum(['left', 'right', 'both']), fromMm: millimetres(0, 10000000), toMm: millimetres(1, 10000000) })
   .strict().refine(gap => gap.toMm > gap.fromMm, '边缘开口的结束里程须大于开始里程。')
 
+const platformFenceSelectionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('all') }).strict(),
+  z.object({ kind: z.literal('segments'), segmentIds: z.array(id).min(1).max(128) }).strict(),
+])
+export const platformFenceBindingSchema = z.object({
+  version: z.literal(1), platformId: id, selection: platformFenceSelectionSchema,
+  openingPolicy: z.literal('structural').optional(), insetMm: millimetres(0, 10000).optional(),
+}).strict()
+export type PlatformFenceBinding = z.infer<typeof platformFenceBindingSchema>
+
 export const pathAssemblyRecipeSchema = z.object({
   section, dimensions: dimensions.optional(), fit: z.literal(true).optional(),
   sides: z.enum(['left', 'right', 'both']),
@@ -115,11 +125,14 @@ export const pathAssemblyCommandSchema = z.object({
 }).strict().refine(command => !!command.roadRange || command.centerlineMm.length <= 128, '沿线装配路线最多 128 个点。')
 
 const fenceRecipeSchema = pathAssemblyRecipeSchema.omit({ sides: true, shoulderMm: true, structure: true }).strict()
-export const fenceAssemblySchema = pathAssemblySchema.omit({ bridge: true }).extend({ recipe: fenceRecipeSchema, pipeLinks: pipeLinksSchema.optional() }).strict()
+export const fenceAssemblySchema = pathAssemblySchema.omit({ bridge: true }).extend({ recipe: fenceRecipeSchema,
+  platformBinding: platformFenceBindingSchema.optional(), pipeLinks: pipeLinksSchema.optional() }).strict()
 export const fenceAssemblyCommandSchema = z.object({
   type: z.literal('setFenceAssembly'), id, floorId: id, layerId: id,
-  centerlineMm: z.array(point).min(2).max(33), closed: z.boolean(), visibility, recipe: fenceRecipeSchema,
-}).strict()
+  centerlineMm: z.array(point).min(2).max(33).optional(), closed: z.boolean().optional(), visibility, recipe: fenceRecipeSchema,
+  platformBinding: platformFenceBindingSchema.nullable().optional(),
+}).strict().refine(command => !!command.platformBinding || !!command.centerlineMm && command.closed !== undefined,
+  '独立围栏须提供中心线和首尾关系。')
 export const removeFenceAssemblySchema = z.object({ type: z.literal('removeFenceAssembly'), id }).strict()
 export type FenceAssembly = z.infer<typeof fenceAssemblySchema>
 export type FenceAssemblyCommand = z.infer<typeof fenceAssemblyCommandSchema>

@@ -30,9 +30,12 @@ function worldStations(start: number, end: number, spacing: number, limit: numbe
 
 /** Native opaque shapes, in world millimetres. No blur, raster enlargement or
  * slope-wide gradient enters the stair layer. Audience filtering happens upstream. */
-export function drawStaircase(ctx: CanvasRenderingContext2D, centerlineMm: readonly PointMm[], widthMm: number, config: StaircaseConfig, options: { footprintMm?: PointMm[]; ascending?: boolean; widthSections?: RouteWidthSection[] } = {}): void {
+export function drawStaircase(ctx: CanvasRenderingContext2D, centerlineMm: readonly PointMm[], widthMm: number, config: StaircaseConfig,
+  options: { footprintMm?: PointMm[]; ascending?: boolean; riseMm?: number; widthSections?: RouteWidthSection[] } = {}): StaircaseGeometry {
   const geometry = planStaircase(centerlineMm, widthMm, config, options.widthSections), palette = staircaseMaterial(config.material).palette
   const footprint = options.footprintMm ?? geometry.footprintMm, ascending = options.ascending !== false
+  const routeFraction = config.range ? (config.range.endPpm - config.range.startPpm) / 1_000_000 : 1
+  const risePerTread = (options.riseMm ?? 0) * routeFraction / geometry.treads.length
   const scale = config.textureScaleMm
   const at = (distance: number, lateral = 0) => staircasePointAt(geometry, distance, lateral)
   const patch = (start: number, end: number, low = -0.5, high = 0.5) => staircasePatch(geometry, start, end, low, high)
@@ -80,10 +83,12 @@ export function drawStaircase(ctx: CanvasRenderingContext2D, centerlineMm: reado
     ctx.restore()
   }
   ctx.restore()
+  return geometry
 
   function drawTread(context: CanvasRenderingContext2D, g: StaircaseGeometry, tread: StaircaseTread, style: StaircaseConfig, uphill: boolean): void {
     const { startMm: start, endMm: end, index } = tread, depth = end - start
-    const gap = Math.min(12, depth * 0.055), edge = Math.min(42, depth * 0.14), face = Math.min(45, depth * 0.18)
+    const gap = Math.min(12, depth * 0.055), edge = Math.min(42, depth * 0.14)
+    const face = risePerTread > 0 ? Math.min(82, depth * .28, 26 + risePerTread * .28) : Math.min(45, depth * .18)
     const point = (u: number, v: number) => at(start + depth * u, v)
     const polygon = (coords: [number, number][]) => coords.map(([u, v]) => point(u, v))
     const strip = (s: number, e: number, low = -0.5, high = 0.5, colour = palette.top) => fill(context, patch(s, e, low, high), colour)

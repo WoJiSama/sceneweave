@@ -10,7 +10,8 @@ import { polygonDistance, propFootprint, roomPoints, terrainPoints } from '../ge
 import { buildScatterRegeneration } from '../geometry/scatter.js'
 import { SCATTER_ALGORITHM_VERSIONS } from '../geometry/scatter-algorithm.js'
 import { sceneSchema } from '../validation/scene.js'
-import type { Editable, MaterialPaint, PointMm, SurfaceStyle, TerrainArea, TerrainEdge, VersionRef } from '../model/scene.js'
+import type { Editable, PointMm, SurfaceStyle, TerrainArea, TerrainEdge, VersionRef } from '../model/scene.js'
+import { defaultMaterialPaint } from '../appearance/surface-paint.js'
 import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
 import { orderedLayers } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
@@ -309,8 +310,7 @@ function styleFor(scene: SceneDocument, ref: VersionRef | undefined, kind: 'terr
   if (!ref) return null
   const material = required(scene.materials, ref.id, '固定材质')
   if (material.version !== ref.version || !material.applicableSurfaces.includes(kind)) throw new Error('材质版本或适用表面不匹配。')
-  const paint: MaterialPaint = { materialRef: cloneJson(ref), tileSizeMm: cloneJson(material.defaultTileSizeMm), rotationDeg: 0, alignment: 'world', originMm: { x: 0, y: 0 }, tint: null, opacity: 1 }
-  return { base: paint, overlays: [] }
+  return { base: defaultMaterialPaint(material, kind), overlays: [] }
 }
 function boundary(input: PointMm[]): PointMm[] {
   const value = cloneJson(input)
@@ -386,6 +386,7 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       scene.terrainAreas[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, boundaryMm, visibility: command.visibility ?? 'public', groundElevationMm: command.groundElevationMm ?? 0,
         coveragePriority: command.coveragePriority ?? 1, surfaceStyle: cloneJson(command.surfaceStyle === undefined ? styleFor(scene, command.materialRef, 'terrain') : command.surfaceStyle), blocksMovement: command.blocksMovement ?? false, blocksSight: command.blocksSight ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1,
         ...(command.boundaryBlendMm !== undefined ? { boundaryBlendMm: command.boundaryBlendMm } : {}),
+        ...(command.relief ? { relief: cloneJson(command.relief) } : {}),
         ...(command.facade ? { facade: cloneJson(command.facade) } : {}) }
       scene.entityLayers[command.id] = layer; break
     }

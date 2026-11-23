@@ -23,6 +23,7 @@ import { z } from 'zod'
 import { applyDecorationCommand, decorationCommandSchemas, isDecorationCommand, reconcileDecorationMembers, assertDecorationMemberUnlocked, type DecorationCommand } from '../decorations/commands.js'
 import { applySurfaceRuleCommand, isSurfaceRuleCommand, surfaceRuleCommandSchemas, type SurfaceRuleCommand } from '../surface-rules/commands.js'
 import { applyVisualCommand, isVisualCommand, visualCommandSchemas, type VisualCommand } from '../visual/commands.js'
+import { disableLostVisualLights } from '../visual/light-bindings.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { applyCommandDraft, createBasePlacedProp, isEntityEditLocked, type BasePlacePropOptions, type BaseSceneCommand } from './base.js'
@@ -32,18 +33,21 @@ import { certifyCompositionDraft } from '../validation/content.js'
 import { canvasBoundsCommandSchema, applyCanvasBoundsCommand, type CanvasBoundsCommand } from './canvas-bounds.js'
 import { sceneDisplayCommandSchema, applySceneDisplayCommand, type SceneDisplayCommand } from './scene-display.js'
 import { sceneBackgroundCommandSchema, applySceneBackgroundCommand, type SceneBackgroundCommand } from './scene-background.js'
+import { sceneArtStyleSchema, type SceneArtStyle } from '../visual/art-style.js'
 import { annotationCommandSchemas, applyAnnotationCommand, isAnnotationCommand, type AnnotationCommand } from './annotations.js'
 import { applyBuildingCommand, buildingCommandSchemasForBudget, isBuildingCommand, type BuildingCommand } from './building.js'
 import { applyOutdoorCommand, isOutdoorCommand, outdoorCommandSchemas, outdoorDependencies, type OutdoorCommand } from './outdoor.js'
 import { fenceAssemblyCommandSchema, pathAssemblyCommandSchema, removeFenceAssemblySchema, type FenceAssemblyCommand, type PathAssemblyCommand } from '../path-assembly/contracts.js'
-import { applyFenceAssembly, applyPathAssembly, detachBridgeRoad, followPipeLinks, moveBridge, removeFenceAssembly, removeIncomingBridgeLinks, retainRemovedPathSlots, setPipeLink } from '../path-assembly/commands.js'
+import { applyFenceAssembly, applyPathAssembly, detachBridgeRoad, followPipeLinks, followPlatformFences, moveBridge, removeFenceAssembly, removeIncomingBridgeLinks, retainRemovedPathSlots, setPipeLink } from '../path-assembly/commands.js'
 import { detachBridgeRoadSchema, moveBridgeSchema, type DetachBridgeRoad, type MoveBridge } from '../path-assembly/bridge-link-contracts.js'
+import { assertBridgeRoadContinuity } from '../path-assembly/bridge-link-geometry.js'
 import { setPipeLinkSchema, type SetPipeLink } from '../path-assembly/pipe-contracts.js'
 import { refreshScene5TransitionsAfterPhysicalEdit } from '../visual/derived-transitions.js'
 import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
 import { entitiesInLayer, enumerateLayerEntities, orderedLayers, previewLayerMove, previewLayerRemoval } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { pipePortsSchema, sightOccluderSchema } from '../validation/primitives.js'
+import { propVolumeSchema } from '../model/prop-volume.js'
 import { tryApplyPropUpdatesSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot } from '../validation/snapshots.js'
 import { COMMAND_LIMIT, LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS, USER_LAYER_LIMIT, type SceneDocument } from '../model/scene.js'
 import type { TransactionExecutionScope } from '../transaction/receipt.js'
@@ -66,6 +70,7 @@ export type SceneCommand =
   | CanvasBoundsCommand
   | SceneDisplayCommand
   | SceneBackgroundCommand
+  | { type: 'setSceneArtStyle'; style: SceneArtStyle }
   | { type: 'renameScene'; title: string }
   | OutdoorCommand
   | PathAssemblyCommand | FenceAssemblyCommand | { type: 'removeFenceAssembly'; id: string }
@@ -147,6 +152,7 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     canvasBoundsCommandSchema,
     sceneDisplayCommandSchema,
     sceneBackgroundCommandSchema,
+    z.object({ type: z.literal('setSceneArtStyle'), style: sceneArtStyleSchema }).strict(),
     z.object({ type: z.literal('renameScene'), title: z.string().trim().min(1).max(120) }).strict(),
     z.object({ type: z.literal('moveVertex'), id, positionMm: point }).strict(),
     z.object({ type: z.literal('setWallThickness'), id, thicknessMm: positive }).strict(),
@@ -172,6 +178,7 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     z.object({ type: z.literal('setPropBlocking'), id, blocksMovement: z.boolean() }).strict(),
     z.object({ type: z.literal('setPropSightOccluder'), id, component: sightOccluderSchema.nullable() }).strict(),
     z.object({ type: z.literal('setPropPipePorts'), id, ports: pipePortsSchema }).strict(),
+    z.object({ type: z.literal('setPropVolume'), id, volume: propVolumeSchema.nullable() }).strict(),
     z.object({ type: z.literal('replacePropAppearance'), id, definitionRef: version }).strict(),
     z.object({ type: z.literal('createLayer'), id, floorId: id, name }).strict(),
     z.object({ type: z.literal('renameLayer'), id, name }).strict(),
@@ -199,7 +206,8 @@ const equal = (a: unknown, b: unknown): boolean => {
   return ak.length === bk.length && ak.every(key => Object.hasOwn(b, key) && equal((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
 }
 const layerTypes = new Set(['createLayer', 'renameLayer', 'reorderLayers', 'moveEntitiesToLayer', 'removeLayer'])
-const category = (command: SceneCommand) => isPathCheckCommand(command) ? 'path-constraint' : command.type === 'setSceneDisplay' || command.type === 'setSceneBackground' || command.type === 'renameScene' ? 'display' : command.type === 'setEditLock' ? 'entity-lock' : command.type === 'setLayerLock' ? 'layer-lock' : layerTypes.has(command.type) ? 'organization' : 'content'
+const displayTypes = new Set(['setSceneDisplay', 'setSceneBackground', 'setSceneArtStyle', 'renameScene'])
+const category = (command: SceneCommand) => isPathCheckCommand(command) ? 'path-constraint' : displayTypes.has(command.type) ? 'display' : command.type === 'setEditLock' ? 'entity-lock' : command.type === 'setLayerLock' ? 'layer-lock' : layerTypes.has(command.type) ? 'organization' : 'content'
 const needsOutdoorExpansion = (scene: SceneDocument, command: SceneCommand): command is OutdoorCommand => isOutdoorCommand(command)
   && ((command.type !== 'deleteProp' && command.type !== 'updateProp' && command.type !== 'setPropBlocking' && command.type !== 'replacePropAppearance') || Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === command.id)))
 
@@ -378,13 +386,13 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
       options?.onOutdoorDraft?.(next, command)
     } else if (command.type === 'setFenceAssembly' || command.type === 'removeFenceAssembly') {
       if (command.type === 'setFenceAssembly') applyFenceAssembly(next, command, context, options?.appearance)
-      else removeFenceAssembly(next, command.id)
+      else removeFenceAssembly(next, command.id, options?.appearance)
       commandCost = nativeCommandCost(beforeTerrain, next) + 1
     } else if (command.type === 'setPathAssembly') {
       applyPathAssembly(next, command, context, options?.appearance)
       commandCost = nativeCommandCost(beforeTerrain, next)
     } else if (command.type === 'moveBridge' || command.type === 'detachBridgeRoad') {
-      if (command.type === 'moveBridge') moveBridge(next, command)
+      if (command.type === 'moveBridge') moveBridge(next, command, options?.appearance)
       else detachBridgeRoad(next, command)
       commandCost = nativeCommandCost(beforeTerrain, next)
     } else if (command.type === 'setPipeLink') {
@@ -427,6 +435,13 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     if (removedBindings) { commandCost += removedBindings; scope = undefined }
     retainRemovedPathSlots(beforeTerrain, next)
     followRockShells(beforeTerrain, next)
+    const changedFences = followPlatformFences(beforeTerrain, next, context, options?.appearance)
+    if (changedFences.length) {
+      const fenceProps = (doc: SceneDocument) => Object.fromEntries(changedFences.flatMap(({ id }) =>
+        Object.values(doc.visual.base.base.boundaries[id]?.fence?.members ?? {}).flatMap(row => row.state === 'placed' ? [[row.propId, doc.props[row.propId]]] : [])))
+      commandCost += changedFences.length + changedRecords(fenceProps(beforeTerrain), fenceProps(next))
+      scope = undefined
+    }
     if (Object.keys(beforeTerrain.attachments ?? {}).length || Object.keys(next.attachments ?? {}).length) {
       const impact = followAttachments(beforeTerrain, next, options?.historyIdentity)
       commandCost += impact.commandCost
@@ -447,6 +462,8 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
     }
     let chargedCost = commandCost
     if (beforeTerrain) {
+      const disabledLights = disableLostVisualLights(beforeTerrain, next)
+      if (disabledLights) { commandCost += disabledLights; scope = undefined }
       if (!isDecorationCommand(command) && !isSurfaceRuleCommand(command)) reconcileDecorationMembers(beforeTerrain, next)
       if (!derivedHandled) commandCost += refreshNativeDerivedTransitions(beforeTerrain, next)
       detachChangedOutputs(beforeTerrain, next)
@@ -526,12 +543,13 @@ function applyOrganization(scene: SceneDocument, commands: readonly SceneCommand
   return next
 }
 function candidate(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions, relationBudget?: PathAttachmentTransactionBudget): SceneDocument {
-  if (commands[0]?.type === 'setSceneDisplay' || commands[0]?.type === 'setSceneBackground' || commands[0]?.type === 'renameScene') {
+  if (commands[0] && displayTypes.has(commands[0].type)) {
     const next = cloneJson(scene)
     for (const command of commands) {
       if (command.type === 'renameScene') next.title = command.title
       else if (command.type === 'setSceneDisplay') applySceneDisplayCommand(next, command)
       else if (command.type === 'setSceneBackground') applySceneBackgroundCommand(next, command)
+      else if (command.type === 'setSceneArtStyle') next.artStyle = cloneJson(command.style)
       else throw new Error('工程设置须独立提交。')
       options?.onSceneDraft?.(next, command, 1)
     }
@@ -596,6 +614,7 @@ export function applyCommands(scene: SceneDocument, commands: readonly SceneComm
   relationScope?.finish(next)
   const result = validateSceneDocument(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
+  assertBridgeRoadContinuity(source.document, next)
   if (options?.budget) assertCommandBudget(options.budget, measureCommandBudget(source.document, next, manualBudgetMetadata(source.document, next, options), undefined, options.budget))
   return next
 }
@@ -619,9 +638,10 @@ export function applySnapshotCommands(scene: SceneDocument, commands: readonly S
     : candidate(source.document, checked, context, options)
   relationScope?.finish(next)
   if (options.preserveNoopIdentity !== false && equal(next, source.document)) return source.document
-  const result = checked.every(command => command.type === 'updateProp')
-    ? validateSceneDerivationSnapshot(next, source.document) : validateSceneSnapshot(next)
+  const onlyPropUpdates = checked.every(command => command.type === 'updateProp')
+  const result = onlyPropUpdates ? validateSceneDerivationSnapshot(next, source.document) : validateSceneSnapshot(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
+  if (!onlyPropUpdates) assertBridgeRoadContinuity(source.document, result.document)
   if (options.budget) assertCommandBudget(options.budget, measureCommandBudget(source.document, result.document, manualBudgetMetadata(source.document, result.document, options), undefined, options.budget))
   return result.document
 }

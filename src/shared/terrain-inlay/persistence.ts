@@ -24,6 +24,8 @@ export const terrainInlaySchema = z.object({
   algorithmId: z.literal('terrain-inlay1'), algorithmVersion: z.literal(1),
   /** Explicit paint intent. Omission retains the saved independent road style. */
   appearance: z.literal('source-ground').optional(),
+  /** Keep the adopted terrain while the authored road treatment is removed. */
+  groundOnly: z.literal(true).optional(),
   finish: terrainInlayFinishSchema.optional(),
   geometry: terrainInlayRequestSchema,
   centerlineVertexIds: z.array(id).min(2).max(256),

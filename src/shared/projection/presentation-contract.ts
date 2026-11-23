@@ -59,7 +59,7 @@ export function propPaintEnvelope(prop: Prop, presentation: PaintPresentation | 
   return near ? inflate(near, options.outlinePaddingMm ?? 0) : presentationBounds([...propPaintPolygon(prop, presentation), ...presentationContact(prop, presentation)], padding)!
 }
 export function propPresentationEnvelope(projection: Projection, prop: Prop, options: { full?: boolean; outlinePaddingMm?: number } = {}): PresentationEnvelope {
-  const presentation = projection.propPresentations?.[prop.id], shadow = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass])
+  const presentation = projection.propPresentations?.[prop.id], shadow = effectivePropShadow(prop, presentation, projection.theme?.shadowPresets[prop.shadowClass], projection.visual?.environment)
   const bounds = propPaintEnvelope(prop, presentation, shadow, projection.visual?.environment, options)
   const contact = prop.waterAppearance || !projection.visual?.environment.contactShadowOpacity ? 'none'
     : presentation?.mode === 'nearSide' ? options.full !== false && shadow ? 'physical-footprint' : 'none'
@@ -109,8 +109,8 @@ export interface ProjectionAssetClosure { readonly complete: boolean; readonly c
 // These exhaustively registered modules are the resource-consumer boundary.
 // A new projection module cannot silently inherit sprite-only decode behavior.
 const projectionModules = {
-  audience: true, floorId: true, sourceRevision: true, bounds: true, gridSizeMm: true, outputBackground: true, floorArtwork: true, rooms: true, terrain: true, walls: true, props: true,
-  decorations: true, spritePaintOrder: true, propPresentations: true, groundView: true, edges: true, paths: true, connections: true, rocks: true, inlays: true,
+  audience: true, floorId: true, sourceRevision: true, bounds: true, gridSizeMm: true, outputBackground: true, floorArtwork: true, artStyles: true, rooms: true, terrain: true, walls: true, props: true,
+  decorations: true, spritePaintOrder: true, propPresentations: true, propVolumes: true, groundView: true, edges: true, lineArtShorelines: true, paths: true, connections: true, rocks: true, inlays: true,
   pathJoinGroups: true, bridgeEntrances: true, pathJoinPaintOrder: true, pathTerrainJoins: true, pathPaintOrder: true, openingPaintOrder: true, notes: true, regions: true, masks: true, regional: true,
   maskPublicRooms: true, theme: true, materials: true, visual: true, assetIds: true, limitations: true, diagnostics: true,
 } satisfies Record<keyof Projection, true>

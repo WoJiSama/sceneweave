@@ -43,6 +43,7 @@ export const delivery: TutorialChapter = {
       <Figure file="delivery" width={1440} height={900} alt="驿站的导出菜单，分别提供玩家地图、主持人地图和可编辑工程备份">
         ① 玩家地图 PNG。② 主持人地图 PNG。③ 可编辑工程备份。逐份确认浏览器下载结果。
       </Figure>
+      <p>需要从侧上方展示地图时，在画布上方点「斜俯视」，取景后点「导出当前画面」。<LessonLink chapter="scene" section="oblique">斜俯视取景步骤</LessonLink></p>
     </> },
     { id: 'vtt', title: '导出给虚拟桌面使用', body: <>
       <ol>

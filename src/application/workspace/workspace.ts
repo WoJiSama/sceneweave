@@ -59,6 +59,7 @@ import { certifyCompositionContent, getCompositionRevisionTransaction, getPropUp
 import { validateCompositionIdentityContracts } from '../../shared/terrain-generation/composition-integrity.js'
 import { surfaceStyle } from '../../shared/appearance/graph.js'
 import { inspectDependencies } from '../../shared/geometry/dependencies.js'
+import { applyFloorArtwork } from '../../shared/floors/commands.js'
 import { reviseSceneSnapshot } from '../../shared/validation/snapshots.js'
 import { assertAllFloorPlayerProjections } from '../../shared/projection/projection.js'
 import { createHistoryIdentityTrace, mergeIdentityRecords, mergeHistoryIdentities } from '../../shared/history/identity.js'
@@ -1351,6 +1352,30 @@ export class Workspace {
     // Only this prepared, immutable Floor edit may release an unused fixed source.
     this.floorArtworkBaselines.set(candidate, current)
     const preview = await this.registerPrepared(candidate, request ? '更换楼层底图' : '清除楼层底图', checkpoint, [], preparation.budget)
+    if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
+    return preview
+  }
+  async previewFloorArtworkPatch(catalogInput: EditableProject, floorId: string, options: { checkpoint: number; signal?: ResourceOptions['signal'] }): Promise<CompositionPreview> {
+    this.assertWritable()
+    const current = this.requireProject(), { checkpoint } = options, signal = this.atomicSignal(options.signal)
+    this.assertCheckpoint(checkpoint); checkCancelled(signal)
+    const candidate = await validateEditableProject(catalogInput, { ...this.validation(), signal })
+    this.assertCheckpoint(checkpoint); checkCancelled(signal)
+    const before = current.document.floors[floorId]?.artwork, after = candidate.document.floors[floorId]?.artwork
+    const image = after && candidate.document.assets[after.assetId], refinement = image?.imageRefinement
+    if (!before || !after || !image || current.document.assets[image.id] || refinement?.kind !== 'model' || !refinement.patch
+      || refinement.sourceAssetId !== before.assetId || canonical(before.boundsMm) !== canonical(after.boundsMm)) {
+      throw new Error('底图候选必须来自本楼层的当前图片并保持其范围。')
+    }
+    // Reconstruct the identical append-only catalog by restoring the one
+    // checked Floor reference. No other existing document field may change.
+    const restored = { ...candidate, document: { ...candidate.document,
+      floors: { ...candidate.document.floors, [floorId]: { ...candidate.document.floors[floorId], artwork: before } } } }
+    this.assertCatalogImport(restored, checkpoint)
+    if (catalogAdditionCost(current, candidate) > CATALOG_ADOPTION_LIMIT) throw new Error('楼层底图的固定资源超过操作预算。')
+    const tested = { ...restored.document }
+    applyFloorArtwork(tested, floorId, after)
+    const preview = await this.registerPrepared(candidate, '楼层底图局部补画', checkpoint, [], this.manualPreparation().budget)
     if (signal.aborted) { this.cancelPreview(preview); checkCancelled(signal) }
     return preview
   }

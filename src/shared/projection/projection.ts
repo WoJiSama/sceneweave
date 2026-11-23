@@ -1,4 +1,5 @@
 import { connectionFootprint } from '../geometry/geometry.js'
+import { projectPropVolumes } from './spatial-props.js'
 import { connectionCenterline } from '../geometry/connection-route.js'
 import { carvedStripCenterline } from '../carved-rock/index.js'
 import polygonClipping, { type MultiPolygon } from 'polygon-clipping'
@@ -11,6 +12,8 @@ import { createPublicVisibility } from '../geometry/visibility.js'
 import { associateScenePresentations, copyScenePresentations, effectivePropShadow, scenePresentation } from '../appearance/presentation.js'
 import { visualBase } from '../visual/base.js'
 import { projectVisualSystem } from '../visual/projection.js'
+import { wallShadowStyle } from '../visual/directional-light.js'
+import { activeArtStyles } from '../visual/art-style.js'
 import { isShoreWaterTerrain } from '../visual/shore-surfaces.js'
 import { shorelinePaintPadding } from './shorelines.js'
 import { cloneJson } from '../validation/json.js'
@@ -19,7 +22,7 @@ import type { BoundsMm, EdgeStyle, Note, PointMm, Prop, ShadowStyle, SurfaceRef,
 import type { SceneDocument } from '../model/scene.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
 import { openingEndpoints, pathPolygon, pointInPolygon, roomPoints, terrainPoints } from '../geometry/geometry.js'
-import { planBridgeEntrances } from './bridge-entrances.js'
+import { fitSteelLandingFacades, planBridgeEntrances } from './bridge-entrances.js'
 import { pathAnchorPosition, pathDecorationPadding, pathEdgeStyle, projectDoorThreshold, projectPath } from './paths.js'
 import { regionalEntityVisibility } from '../terrain-generation/integrity.js'
 import { decorationPaintGeometry, decorationPaintBounds } from '../decorations/presentation.js'
@@ -120,13 +123,14 @@ export function terrainDecorationPadding(scene: SceneDocument, theme: Projection
     ...styles.map(style => Math.max(style.bandWidthMm * 1.7, style.strokeWidthMm / 2))) + (cliff?.opacity ? cliff.blurMm * 4 : 0)
 }
 /** Only this audience's surfaces enter coverage resolution. No GM hole/edge cache is reused. */
-function deriveTerrainEdges(scene: SceneDocument, areas: TerrainArea[], declarations: TerrainEdge[], theme: Projection['theme']): ProjectedTerrainEdge[] {
+function deriveTerrainEdges(scene: SceneDocument, areas: TerrainArea[], declarations: TerrainEdge[], theme: Projection['theme']) {
   const water = new Set(areas.filter(area => isShoreWaterTerrain(scene, area)).map(area => area.id))
   // This local index is built only after audience filtering and never survives the projection.
   const byPriority = [...areas].sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id)).map(area => ({ area, points: terrainPoints(area) }))
   const support = (p: PointMm) => byPriority.find(item => pointInPolygon(p, item.points, false))?.area
   const declared = new Map(declarations.map(e => [`${e.source.areaId}\0${e.source.segmentId}`, e]))
   const result = new Map<string, ProjectedTerrainEdge>()
+  const shores = new Map<string, { points: [PointMm, PointMm]; areaIds: [string, string] }>()
   for (const area of [...areas].sort((a, b) => a.id.localeCompare(b.id))) for (let i = 0; i < area.boundaryMm.length; i++) {
     const vertex = area.boundaryMm[i], a = vertex.positionMm, b = area.boundaryMm[(i + 1) % area.boundaryMm.length].positionMm
     const dx = b.x - a.x, dy = b.y - a.y, length = Math.hypot(dx, dy)
@@ -135,9 +139,17 @@ function deriveTerrainEdges(scene: SceneDocument, areas: TerrainArea[], declarat
     const inside = support(point(mid.x + inward.x, mid.y + inward.y)), outside = support(point(mid.x - inward.x, mid.y - inward.y))
     if (inside?.id !== area.id || outside?.id === area.id) continue
     const declaration = declared.get(`${area.id}\0${vertex.segmentId}`), neighborElevationMm = outside?.groundElevationMm ?? 0
-    if (!declaration && area.groundElevationMm === neighborElevationMm) continue
-    const kind = area.groundElevationMm !== neighborElevationMm ? 'cliff' : declaration?.kind ?? 'materialTransition'
+    const level = area.groundElevationMm === neighborElevationMm
+    const unpaintedShore = outside && level && water.has(area.id) !== water.has(outside.id)
+      && !declaration?.shoreline && declaration?.kind !== 'shore'
+    if (level && !declaration && !unpaintedShore) continue
     const key = [a, b].map(p => `${p.x},${p.y}`).sort().join('|')
+    // A water material can define a shore even when the project has no painted edge.
+    if (unpaintedShore && !shores.has(key)) {
+      shores.set(key, { points: [clone(a), clone(b)], areaIds: [area.id, outside.id] })
+    }
+    if (level && !declaration) continue
+    const kind = level ? declaration?.kind ?? 'materialTransition' : 'cliff'
     if (result.has(key)) continue
     const shoreline = !!declaration?.shoreline || declaration?.kind === 'shore'
     const shoreStyle = shoreline && declaration?.shoreStyle
@@ -153,7 +165,8 @@ function deriveTerrainEdges(scene: SceneDocument, areas: TerrainArea[], declarat
       ...(declaration?.styleOverride ? { customFinish: true } : {}),
       ...(shoreStyle ? { shorePaint: { style: clone(shoreStyle), waterSide } } : {}) })
   }
-  return [...result.values()].sort((a, b) => Math.max(a.elevationMm, a.neighborElevationMm) - Math.max(b.elevationMm, b.neighborElevationMm) || a.start.y - b.start.y || a.start.x - b.start.x || a.end.y - b.end.y || a.end.x - b.end.x)
+  const edges = [...result.values()].sort((a, b) => Math.max(a.elevationMm, a.neighborElevationMm) - Math.max(b.elevationMm, b.neighborElevationMm) || a.start.y - b.start.y || a.start.x - b.start.x || a.end.y - b.end.y || a.end.x - b.end.x)
+  return { edges, shores }
 }
 
 const polygonRegion = (points: PointMm[]): MultiPolygon => [[points.map(p => [p.x, p.y])]]
@@ -184,11 +197,12 @@ function splitInlaySourceEdges(edges: ProjectedTerrainEdge[], scene: SceneDocume
 }
 
 export interface EditorProjectionOptions {
+  spatial?: boolean
   /** Current GM editor session only. Never used for either published audience. */
   hiddenLayerIds?: ReadonlySet<string>
   floorId?: string
 }
-export interface ProjectSceneOptions { floorId?: string }
+export interface ProjectSceneOptions { floorId?: string; spatial?: boolean }
 
 function checkedScene(input: SceneDocument): SceneDocument {
   const result = validateSceneSnapshot(input)
@@ -199,7 +213,9 @@ function checkedScene(input: SceneDocument): SceneDocument {
 /** Strict v3 audience filtering precedes textures, joins, shadows and resources. */
 export function projectScene(scene: SceneDocument, audience: Audience, appearance?: import('../model/appearance.js').AppearanceGraph, options: ProjectSceneOptions = {}): Projection {
   const checked = checkedScene(scene); copyScenePresentations(scene, checked); if (appearance) associateScenePresentations(checked, appearance)
-  return projectSceneInternal(checked, audience, selectedFloorOutput(checked, options.floorId), undefined, options.floorId !== undefined)
+  const projection = projectSceneInternal(checked, audience, selectedFloorOutput(checked, options.floorId), undefined, options.floorId !== undefined)
+  if (options.spatial) projection.propVolumes = projectPropVolumes(checked, projection)
+  return projection
 }
 
 /** Authoring-only diagnosis: uses the exact published player projection checks.
@@ -215,7 +231,9 @@ export function getPlayerCoverageDiagnostics(scene: SceneDocument, appearance?: 
 /** GM session hiding uses the intact source; no support or stored relationship is removed. */
 export function projectEditorScene(scene: SceneDocument, options: EditorProjectionOptions = {}, appearance?: import('../model/appearance.js').AppearanceGraph): Projection {
   const checked = checkedScene(scene); copyScenePresentations(scene, checked); if (appearance) associateScenePresentations(checked, appearance)
-  return projectSceneInternal(checked, 'gm', selectedFloorOutput(checked, options.floorId), options.hiddenLayerIds?.size ? options.hiddenLayerIds : undefined, options.floorId !== undefined)
+  const projection = projectSceneInternal(checked, 'gm', selectedFloorOutput(checked, options.floorId), options.hiddenLayerIds?.size ? options.hiddenLayerIds : undefined, options.floorId !== undefined)
+  if (options.spatial) projection.propVolumes = projectPropVolumes(checked, projection)
+  return projection
 }
 
 function selectedFloorOutput(scene: SceneDocument, floorId?: string): FloorOutput {
@@ -331,7 +349,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   const audienceTerrain = floorValues(scene.terrainAreas).filter(a => audience === 'gm' || areaPublic(a.id))
   const visibleTerrain = audienceTerrain.filter(a => entityShown(a.id))
   const rooms = visibleRooms.map(r => ({ id: r.id, points: simplify(roomPoints(scene, r)), style: clone(r.floorStyle), elevationMm: r.groundElevationMm, priority: 0 })).sort((a, b) => compareLayer(a, b) || roomOrder.get(a.id)! - roomOrder.get(b.id)! || a.id.localeCompare(b.id))
-  const terrain: ProjectedSurface[] = visibleTerrain.map(a => ({ id: a.id, points: simplify(terrainPoints(a)), style: clone(a.surfaceStyle), elevationMm: a.groundElevationMm, priority: a.coveragePriority, ...(deckOwners.has(a.id) && { bridgeSupport: true as const }), ...(a.boundaryBlendMm ? { boundaryBlendMm: a.boundaryBlendMm } : {}), ...(a.waterSurface ? { waterSurface: clone(a.waterSurface) } : {}), ...(a.facade ? { facade: clone(a.facade) } : {}) })).sort((a, b) => a.priority - b.priority || compareLayer(a, b) || a.id.localeCompare(b.id))
+  const terrain: ProjectedSurface[] = visibleTerrain.map(a => ({ id: a.id, points: simplify(terrainPoints(a)), style: clone(a.surfaceStyle), elevationMm: a.groundElevationMm, priority: a.coveragePriority, ...(deckOwners.has(a.id) && { bridgeSupport: true as const }), ...(a.boundaryBlendMm ? { boundaryBlendMm: a.boundaryBlendMm } : {}), ...(a.waterSurface ? { waterSurface: clone(a.waterSurface) } : {}), ...(a.facade ? { facade: clone(a.facade) } : {}), ...(a.relief ? { relief: clone(a.relief) } : {}) })).sort((a, b) => a.priority - b.priority || compareLayer(a, b) || a.id.localeCompare(b.id))
   {
     const byId = new Map(terrain.map(area => [area.id, area]))
     for (const { rule, regionsMm } of resolveSurfaceRules(scene, floorValues(scene.surfaceRules), { audience, hiddenLayerIds })) {
@@ -342,7 +360,9 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   }
   // Coverage/elevation resolution uses the audience's intact physical surfaces.
   // Hiding a source omits its decoration instead of inventing replacement cliffs.
-  const edges = deriveTerrainEdges(scene, audienceTerrain.filter(area => !deckOwners.has(area.id)), floorValues(scene.terrainEdges).filter(e => audience === 'gm' || edgePublic(e.id)), theme)
+  const physicalEdges = deriveTerrainEdges(scene, audienceTerrain.filter(area => !deckOwners.has(area.id)), floorValues(scene.terrainEdges).filter(e => audience === 'gm' || edgePublic(e.id)), theme)
+  const lineArtShorelines = Array.from(physicalEdges.shores.values()).flatMap(({ points, areaIds }) => areaIds.every(id => entityShown(id)) ? [points] : [])
+  const edges = physicalEdges.edges
     .filter(e => entityShown(e.sourceAreaId) && (!e.neighborAreaId || entityShown(e.neighborAreaId)) && (!scene.terrainEdges[e.id] || entityShown(e.id)))
     .sort((a, b) => Math.max(a.elevationMm, a.neighborElevationMm) - Math.max(b.elevationMm, b.neighborElevationMm) || layerOrder(scene.terrainEdges[a.id] ? a.id : a.sourceAreaId) - layerOrder(scene.terrainEdges[b.id] ? b.id : b.sourceAreaId) || a.start.y - b.start.y || a.start.x - b.start.x || a.end.y - b.end.y || a.end.x - b.end.x)
 
@@ -442,6 +462,8 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   let pathTerrainJoins: Projection['pathTerrainJoins']
   const publicJoinPaths = paths.filter(path => pathPublic(path.id)), publicJoinTerrain = terrain.filter(area => areaPublic(area.id))
   const publicJoinRooms = rooms.filter(room => roomPublic(room.id))
+  const bridgeJoinPaths = audience === 'gm' ? paths : publicJoinPaths
+  const bridgeJoinTerrain = audience === 'gm' ? terrain : publicJoinTerrain
   if (publicJoinPaths.length <= 128 && publicJoinTerrain.length <= 256 && publicJoinRooms.length <= 256) {
     const joins = publicJoinPaths.flatMap(projected => {
       const path = scene.paths[projected.id]
@@ -488,6 +510,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
     else openingsByWall.set(opening.wallId, [opening])
   }
   const walls: ProjectedWall[] = [], wallCoverage: PlayerCoverageRequirement[] = []
+  const wallShadowPadding = shadowPadding(wallShadowStyle(theme?.shadowPresets.wall, floorOutput.environment))
   for (const wall of floorWalls) {
     if (!entityShown(wall.id)) continue
     const av = scene.vertices[wall.startVertexId], bv = scene.vertices[wall.endVertexId]
@@ -502,6 +525,10 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
         // A nearby public-room hole cannot grant them public authority.
         if (boundsCovered(inflate(pointsBounds([start, end]), bodyPadding), rectangles)) {
           if (wall.edgeProfile && !boundsCovered(inflate(pointsBounds([start, end]), bodyPadding + WALL_RELIEF_LIMIT_MM), rectangles)) wallCoverage.push({ entityKind: 'wall', entityId: wall.id, boundsMm: inflate(pointsBounds([start, end]), bodyPadding + WALL_RELIEF_LIMIT_MM), reason: 'wall-relief' })
+          if (wallShadowPadding > shadowPadding(theme?.shadowPresets.wall)) {
+            wallCoverage.push({ entityKind: 'wall', entityId: wall.id,
+              boundsMm: inflate(pointsBounds([start, end]), wall.thicknessMm / 2 + wallShadowPadding + (wall.edgeProfile ? WALL_RELIEF_LIMIT_MM : 0)) })
+          }
           continue
         }
       }
@@ -565,7 +592,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
         const privateWalls = adjacent.filter(wall => !allRoomEdges.get(edgeKey(wall.startVertexId, wall.endVertexId))!.some(roomPublic))
         const thickness = Math.max(0, ...adjacent.map(wall => wall.thicknessMm))
         const hasRelief = adjacent.some(wall => wall.edgeProfile)
-        const padding = thickness + (hasRelief ? WALL_RELIEF_LIMIT_MM : 0) + shadowPadding(theme?.shadowPresets.wall)
+        const padding = thickness + (hasRelief ? WALL_RELIEF_LIMIT_MM : 0) + wallShadowPadding
         const rectangular = ring.length === 4 && ring.every((p, i) => p.x === ring[(i + 1) % ring.length].x || p.y === ring[(i + 1) % ring.length].y)
         const privateEnds = new Set(privateWalls.flatMap(wall => [wall.startVertexId, wall.endVertexId]))
         const complexJoin = floorWalls.some(wall => (wall.thicknessMm > thickness || wall.edgeProfile)
@@ -588,7 +615,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
       }
     }
     for (const prop of floorValues(scene.props)) if (!propPublic(prop)) {
-      const presentation = scenePresentation(scene, prop.id), shadow = effectivePropShadow(prop, presentation, theme?.shadowPresets[prop.shadowClass])
+      const presentation = scenePresentation(scene, prop.id), shadow = effectivePropShadow(prop, presentation, theme?.shadowPresets[prop.shadowClass], floorOutput.environment)
       privateBounds.push({ entityKind: 'prop', entityId: prop.id, boundsMm: propPaintEnvelope(prop, presentation, shadow, floorOutput.environment) })
     }
     for (const value of floorValues(scene.decorations ?? {})) if (!decorationPublic(value)) privateBounds.push({ entityKind: 'decoration', entityId: value.id, boundsMm: decorationPaintBounds(decorationPaintGeometry(scene, value)) })
@@ -659,6 +686,9 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   const result: Projection = { ...(explicitFloor ? { floorId: targetFloorId } : {}), ...(Object.keys(propPresentations).length ? { propPresentations } : {}), ...(regional ? { regional } : {}), audience, sourceRevision: scene.revision, bounds, gridSizeMm: scene.units.gridVisible ? scene.units.gridSizeMm : null, rooms, terrain, walls: orderedWalls, ...(openingPaintOrder ? { openingPaintOrder } : {}), props, edges, paths, ...(pathJoinGroups.length ? { pathJoinGroups } : {}), ...(pathPaintOrder ? { pathPaintOrder } : {}), connections, notes: notes.sort((a, b) => compareLayer(a, b) || noteOrder.get(a.id)! - noteOrder.get(b.id)! || a.id.localeCompare(b.id)), regions, masks, theme, materials, assetIds: [...assetIds].sort(), limitations, diagnostics }
   if (scene.outputBackground) result.outputBackground = clone(scene.outputBackground)
   if (floorArtwork) result.floorArtwork = clone(floorArtwork)
+  if (lineArtShorelines.length) result.lineArtShorelines = lineArtShorelines
+  const artStyles = activeArtStyles(scene.artStyle)
+  if (artStyles) result.artStyles = artStyles
   if (audience === 'player' && maskPublicRooms.some(rings => rings.length)) result.maskPublicRooms = maskPublicRooms
   if (rocks.length) result.rocks = rocks
   if (inlays.length) result.inlays = inlays
@@ -667,16 +697,17 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
     result.spritePaintOrder = [...props, ...decorations].sort((a, b) => propLayer[a.renderLayer] - propLayer[b.renderLayer] || compareLayer(a, b) || a.renderOrder - b.renderOrder
       || (scenePresentation(scene, a.id)?.mode === 'nearSide' && scenePresentation(scene, b.id)?.mode === 'nearSide' ? a.positionMm.y - b.positionMm.y : 0) || a.id.localeCompare(b.id)).map(value => value.id)
   }
-  if (scene.visual) result.visual = projectVisualSystem(scene, visualBase(scene)!, result, audience, hiddenLayerIds, visibleWallIds, floorOutput)
-  if (publicJoinPaths.some(path => path.bridge)) {
+  if (scene.visual) result.visual = projectVisualSystem(scene, visualBase(scene)!, result, audience, hiddenLayerIds, visibleWallIds, floorOutput, walls)
+  if (bridgeJoinPaths.some(path => path.bridge)) {
     const filtered = new Set(result.visual?.filters.flatMap(filter => filter.sourceEntityIds ?? []))
-    const rows = publicJoinPaths.flatMap(projected => {
+    const rows = bridgeJoinPaths.flatMap(projected => {
       if (filtered.has(projected.id)) return []
       const source = scene.paths[projected.id], elevations = new Set(source.supportRefs.map(surfaceElevation))
       return elevations.size === 1 ? [{ projected, source, elevationMm: [...elevations][0] }] : []
     })
-    const entrances = planBridgeEntrances(rows, publicJoinTerrain, publicJoinRooms, scene.floors[targetFloorId])
+    const entrances = planBridgeEntrances(rows, bridgeJoinTerrain, audience === 'gm' ? rooms : publicJoinRooms, scene.floors[targetFloorId])
     if (entrances.length) result.bridgeEntrances = entrances
+    fitSteelLandingFacades(bridgeJoinTerrain, bridgeJoinPaths, entrances, audience === 'player' ? masks : [])
   }
   if (pathTerrainJoins) result.pathTerrainJoins = pathTerrainJoins
   if (pathJoinGroups.length || pathTerrainJoins) result.pathJoinPaintOrder = pathJoinPaintOrder

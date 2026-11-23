@@ -152,13 +152,13 @@ export function createRouteSupportCheck(scene: SceneDocument, floorId: string, r
     const room = ref.kind === 'room' ? own(scene.rooms, ref.id) : undefined
     return room ? [roomPoints(scene, room)] : []
   })]
-  const point = (p: PointMm) => refs.some(ref => pointOnQueriedSurface(scene, p, ref, floorId, query))
+  const point = (p: PointMm) => refs.some(ref => pointOnQueriedSurface(scene, p, ref, floorId, query, true))
   return {
     point,
     band: (polygon: PointMm[]) => polygonValid(polygon, true) && coveredEverywhere(polygon, boundaries, point),
   }
 }
-function pointOnQueriedSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef, floorId: string, query: SupportQuery | undefined): boolean {
+function pointOnQueriedSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef, floorId: string, query: SupportQuery | undefined, allowRelief = false): boolean {
   const floor = own(scene.floors, floorId)
   if (!floor || !boundsContain(p, floor.boundsMm)) return false
   if (ref.kind === 'room') {
@@ -166,13 +166,17 @@ function pointOnQueriedSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef
     return !!room && room.floorId === floorId && pointInPolygon(p, roomPoints(scene, room)) && pointOnQueriedSurface(scene, p, room.supportRef, floorId, query)
   }
   const candidate = ref.kind === 'terrainArea' ? own(scene.terrainAreas, ref.id) : undefined
+  if (allowRelief && candidate?.relief && candidate.floorId === floorId) {
+    const actual = query?.sample(p)
+    return !!actual && refEqual(actual.rootSupportRef, ref) && !actual.sourceConnectionId && !actual.sourceRockShellAreaId
+  }
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !pointInPolygon(p, terrainPoints(candidate))) return false
   return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && pointInPolygon(p, terrainPoints(item), false)) && !!query?.flatOn(p, ref)
 }
 export function supportedPolygon(scene: SceneDocument, polygon: PointMm[], ref: SurfaceRef, floorId: string): boolean {
-  return polygonOnQueriedSurface(scene, polygon, ref, floorId, createSupportQuery(scene, floorId))
+  return polygonOnQueriedSurface(scene, polygon, ref, floorId, createSupportQuery(scene, floorId), true)
 }
-function polygonOnQueriedSurface(scene: SceneDocument, polygon: PointMm[], ref: SurfaceRef, floorId: string, query: SupportQuery | undefined): boolean {
+function polygonOnQueriedSurface(scene: SceneDocument, polygon: PointMm[], ref: SurfaceRef, floorId: string, query: SupportQuery | undefined, allowRelief = false): boolean {
   if (ref.kind === 'room') {
     const room = own(scene.rooms, ref.id)
     return !!room && room.floorId === floorId && polygonInside(polygon, roomPoints(scene, room)) && polygonOnQueriedSurface(scene, polygon, room.supportRef, floorId, query)
@@ -182,9 +186,10 @@ function polygonOnQueriedSurface(scene: SceneDocument, polygon: PointMm[], ref: 
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !polygonInside(polygon, terrainPoints(candidate))) return false
   if (Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && polygonsOverlap(polygon, terrainPoints(item)))) return false
   if (!query) return false
+  if (candidate?.relief && allowRelief) return coveredEverywhere(polygon, query.boundaries, p => pointOnQueriedSurface(scene, p, ref, floorId, query, true))
   // Failed samplers are absent from query arrays but must still reject support.
   return !Object.values(scene.terrainConnections).some(row => row.floorId === floorId && (row.carvedStrip || row.terrainInlay))
-    && !Object.values(scene.terrainAreas).some(row => row.floorId === floorId && row.rockBody?.shell)
+    && !Object.values(scene.terrainAreas).some(row => row.floorId === floorId && (row.rockBody?.shell || row.relief))
     || coveredEverywhere(polygon, query.boundaries, point => query.flatOn(point, ref))
 }
 export function corridor(a: PointMm, b: PointMm, width: number, squareCaps = false): PointMm[] {
@@ -206,37 +211,53 @@ export function widthProfileBand(points: readonly PointMm[], widthMm: number, se
 }
 /** One continuous miter2/bevel band; caps are explicit so legacy paths and
  * legacy straight connections retain their distinct historical contracts. */
-export function polylineBand(p: readonly PointMm[], widthMm: number | readonly number[], squareCaps = false): PointMm[] {
+export function polylineSides(p: readonly PointMm[], widthMm: number | readonly number[], squareCaps = false) {
   const radius = (index: number) => (typeof widthMm === 'number' ? widthMm : widthMm[index]) / 2
   const lastIndex = p.length - 1
-  if (p.length < 2 || p.some((point, i) => i > 0 && same(point, p[i - 1]))) return []
+  if (p.length < 2 || p.some((point, i) => i > 0 && same(point, p[i - 1]))) return { left: [], right: [], leftEnds: [], rightEnds: [] }
   const directions = p.slice(1).map((point, i) => { const length = Math.hypot(point.x - p[i].x, point.y - p[i].y); return { x: (point.x - p[i].x) / length, y: (point.y - p[i].y) / length } })
-  const side = (sign: number): PointMm[] => {
+  const side = (sign: number): { points: PointMm[]; ends: number[] } => {
     const first = directions[0], last = directions.at(-1)!
     const firstRadius = radius(0), firstExtension = squareCaps ? firstRadius : 0
     const result: PointMm[] = [{ x: p[0].x - first.x * firstExtension - first.y * firstRadius * sign, y: p[0].y - first.y * firstExtension + first.x * firstRadius * sign }]
+    const ends = [0]
     for (let i = 1; i < p.length - 1; i++) {
       const before = directions[i - 1], after = directions[i]
       const r = radius(i)
       const a = { x: p[i].x - before.y * r * sign, y: p[i].y + before.x * r * sign }, b = { x: p[i].x - after.y * r * sign, y: p[i].y + after.x * r * sign }
       const determinant = before.x * after.y - before.y * after.x
-      if (Math.abs(determinant) < 1e-12) { if (before.x * after.x + before.y * after.y < 0) return []; result.push(a); continue }
-      const t = ((b.x - a.x) * after.y - (b.y - a.y) * after.x) / determinant
-      const intersection = { x: a.x + before.x * t, y: a.y + before.y * t }
-      if (Math.hypot(intersection.x - p[i].x, intersection.y - p[i].y) <= 2 * r + EPS) result.push(intersection)
-      else result.push(a, b)
+      if (Math.abs(determinant) < 1e-12) {
+        if (before.x * after.x + before.y * after.y < 0) return { points: [], ends: [] }
+        result.push(a)
+      } else {
+        const t = ((b.x - a.x) * after.y - (b.y - a.y) * after.x) / determinant
+        const intersection = { x: a.x + before.x * t, y: a.y + before.y * t }
+        if (Math.hypot(intersection.x - p[i].x, intersection.y - p[i].y) <= 2 * r + EPS) result.push(intersection)
+        else result.push(a, b)
+      }
+      ends.push(result.length - 1)
     }
     const lastRadius = radius(lastIndex), lastExtension = squareCaps ? lastRadius : 0
     result.push({ x: p[lastIndex].x + last.x * lastExtension - last.y * lastRadius * sign, y: p[lastIndex].y + last.y * lastExtension + last.x * lastRadius * sign })
-    return result
+    ends.push(result.length - 1)
+    return { points: result, ends }
   }
   const left = side(-1), right = side(1)
+  return { left: left.points, right: right.points, leftEnds: left.ends, rightEnds: right.ends }
+}
+
+export function polylineBand(p: readonly PointMm[], widthMm: number | readonly number[], squareCaps = false): PointMm[] {
+  const { left, right } = polylineSides(p, widthMm, squareCaps)
   if (!left.length || !right.length) return []
   const polygon = [...left, ...right.reverse()]
   return area(polygon) < 0 ? polygon.reverse() : polygon
 }
 /** All physical/render/selection consumers share the exact saved-route band. */
 export function connectionBand(points: readonly PointMm[], widthMm: number): PointMm[] {
+  return polylineBand(connectionBandCenterline(points), widthMm)
+}
+
+export function connectionBandCenterline(points: readonly PointMm[]): PointMm[] {
   // Tessellation adds collinear points near polyline corners. They must not
   // introduce short offset edges that backtrack across the true miter join.
   // Only redundant points on the exact same forward segment are removed;
@@ -250,7 +271,7 @@ export function connectionBand(points: readonly PointMm[], widthMm: number): Poi
     }
     reduced.push(point)
   }
-  return polylineBand(reduced, widthMm)
+  return reduced
 }
 export function connectionFootprint(connection: ConnectionRouteGeometry & { carvedStrip?: import('../carved-rock/contracts.js').CarvedStrip }): PointMm[] {
   if (connection.terrainInlay) return connection.terrainInlay.geometry.walkBoundaryVertexIds.map(id => {
@@ -362,7 +383,7 @@ function validateQueriedPropGeometry(scene: SceneDocument, props: readonly Prop[
     const attached = Object.values(scene.attachments ?? {}).some(row => row.child.kind === 'prop' && row.child.id === prop.id)
     if (attached) {
       try { resolvePropContact(scene, prop.id) } catch (cause) { error('PROP_SUPPORT', cause instanceof Error ? cause.message : '附着物件实际接触校验失败。', prop.id) }
-    } else if (!polygonOnQueriedSurface(scene, physical, prop.supportRef, prop.floorId, queries.get(prop.floorId))) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
+    } else if (!polygonOnQueriedSurface(scene, physical, prop.supportRef, prop.floorId, queries.get(prop.floorId), true)) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
   }
   return errors
 }
@@ -674,7 +695,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
           return cap && actual.sourceConnectionId === connection.id || refEqual(actual.rootSupportRef, end.surfaceRef) && Math.abs(actual.normal.x) <= EPS && Math.abs(actual.normal.y) <= EPS
         })) error('CARVED_CONNECTION_APPROACH', '连续岩台端面及半净宽深度的真实接入地面必须完整同高、同根基且不悬空。', connection.id)
       }
-    } else if (!coveredEverywhere(band, [...terrainBoundaries(connection.floorId), ...validRooms.filter(item=>item.room.floorId===connection.floorId).map(item => item.points)], p => refs.some(ref => pointOnQueriedSurface(scene, p, ref, connection.floorId, supportQueries.get(connection.floorId))))) error('CONNECTION_CORRIDOR', '连接完整净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
+    } else if (!coveredEverywhere(band, [...terrainBoundaries(connection.floorId), ...validRooms.filter(item=>item.room.floorId===connection.floorId).map(item => item.points)], p => refs.some(ref => pointOnQueriedSurface(scene, p, ref, connection.floorId, supportQueries.get(connection.floorId), true)))) error('CONNECTION_CORRIDOR', '连接完整净宽带只可跨越声明的两地面，不得侵入第三支撑面。', connection.id)
     const transitions: string[] = []
     for (let segment = 1; segment < centerline.length; segment++) {
       const a = centerline[segment - 1], b = centerline[segment], cuts = segmentCuts(a, b, terrainBoundaries(connection.floorId).flatMap(edges))
@@ -716,7 +737,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (path.widthSections?.length && (path.assembly?.bridge || Object.values(scene.pathAttachments ?? {}).some(row => row.pathId === path.id))) {
       error('PATH_WIDTH_DEPENDENCY', '桥面或门口接点当前使用等宽的道路。', path.id)
     }
-    if (!coveredEverywhere(band, [...terrainBoundaries(path.floorId), ...validRooms.filter(item=>item.room.floorId===path.floorId).map(item => item.points)], p => path.supportRefs.some(ref => pointOnQueriedSurface(scene, p, ref, path.floorId, supportQueries.get(path.floorId))))) error('PATH_SUPPORT', '整条方端帽/转角带区须位于声明支撑面并集内。', path.id)
+    if (!coveredEverywhere(band, [...terrainBoundaries(path.floorId), ...validRooms.filter(item=>item.room.floorId===path.floorId).map(item => item.points)], p => path.supportRefs.some(ref => pointOnQueriedSurface(scene, p, ref, path.floorId, supportQueries.get(path.floorId), true)))) error('PATH_SUPPORT', '整条方端帽/转角带区须位于声明支撑面并集内。', path.id)
     let previousPathSurface: SurfaceRef | null = null
     const localWidths = path.widthSections?.length ? routeWidthFrame(path.centerlineMm, path.widthMm, path.widthSections) : null
     for (let i = 1; i < path.centerlineMm.length; i++) {

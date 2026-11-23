@@ -1,11 +1,13 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { PencilRuler, Route } from 'lucide-react'
 import type { SceneCommand } from '../../shared/commands/commands'
 import type { Path, SceneDocument } from '../../shared/model/scene'
-import type { PathAssemblyCommand, PathAssemblyRecipe } from '../../shared/path-assembly/contracts'
+import { bridgeDeckIds, type PathAssemblyCommand, type PathAssemblyRecipe } from '../../shared/path-assembly/contracts'
 import { PATH_ENDS } from '../../shared/path-assembly/bridge-link-contracts'
+import { DEFAULT_PLATFORM_FENCE_INSET_MM } from '../../shared/path-assembly/platform-fence-binding'
 import { isCoolantPipeSection, isPipeBoundary } from '../../shared/path-assembly/pipe-geometry'
 import { rootSurfaceElevation } from '../../shared/geometry/support-sample'
+import { effectiveEditLocked } from '../../shared/commands/layers'
 import type { RouteWidthSection } from '../../shared/geometry/route-width'
 import { fenceRoutePoints } from '../../shared/path-assembly/fitted-layout'
 import type { VisualBoundary } from '../../shared/visual/types'
@@ -16,6 +18,7 @@ import { outdoorPoints, pointText } from './outdoor-coordinates'
 import { outdoorInspectorStyle } from './outdoor-inspector-style'
 import PathLocalWidthFields, { readPathWidthSections } from './PathLocalWidthFields'
 import PipeLinkControls from './PipeLinkControls'
+import { createEntityLabeler } from './entity-label'
 import type { OutdoorSketch } from './OutdoorToolsPanel'
 
 interface Props {
@@ -60,7 +63,21 @@ export default function PathAssemblyPanel({ scene, layerId, path, fence, mode, d
   const [shoulder, setShoulder] = useState(path?.assembly?.recipe.shoulderMm ?? (isBridge ? 720 : 460))
   const [endClearance, setEndClearance] = useState(priorRecipe?.endClearanceMm ?? (isFence ? 0 : 200))
   const [gaps, setGaps] = useState<NonNullable<PathAssemblyRecipe['gaps']>>(priorRecipe?.gaps ?? [])
+  const priorBinding = fence?.fence?.platformBinding
+  const [platformId, setPlatformId] = useState(priorBinding?.platformId ?? '')
+  const [platformSegments, setPlatformSegments] = useState<string[] | undefined>(() =>
+    priorBinding?.selection.kind === 'segments' ? [...priorBinding.selection.segmentIds] : undefined)
+  const [insetMm, setInsetMm] = useState(priorBinding?.insetMm ?? DEFAULT_PLATFORM_FENCE_INSET_MM)
   const [error, setError] = useState('')
+  const floorId = scene.userLayers[layerId]?.floorId
+  const platforms = useMemo(() => {
+    if (!isFence) return []
+    const decks = bridgeDeckIds(scene)
+    return Object.values(scene.terrainAreas).filter(area =>
+      area.floorId === floorId && !area.waterSurface && !decks.has(area.id))
+  }, [scene, floorId, isFence])
+  const platform = platforms.find(area => area.id === platformId)
+  const name = useMemo(() => isFence ? createEntityLabeler(scene) : (id: string) => id, [scene, isFence])
   const purpose = isFence ? 'fence' : 'bridge'
   const sketchPoints = canvas?.sketch?.purpose === purpose ? canvas.sketch.points : undefined
   const routeText = sketchPoints ? pointText(sketchPoints) : pointsText
@@ -69,9 +86,17 @@ export default function PathAssemblyPanel({ scene, layerId, path, fence, mode, d
   const run = () => {
     try {
       setError('')
-      const floorId = scene.userLayers[layerId]?.floorId
       if (!floorId) throw new Error('请选择目标图层。')
       const id = path?.id ?? fence?.id ?? (isFence ? 'fence-' : 'bridge-') + crypto.randomUUID()
+      if (platform) {
+        onPreview([{ type: 'setFenceAssembly', id, layerId, floorId, visibility,
+          platformBinding: { version: 1, platformId: platform.id, insetMm, openingPolicy: 'structural',
+            selection: platformSegments ? { kind: 'segments', segmentIds: platformSegments } : { kind: 'all' },
+          },
+          recipe: { ...appliedStyle(scene, style), fit: true, endClearanceMm: 0 },
+        }], fence ? '更新平台护栏' : '安装平台护栏')
+        return
+      }
       const centerlineMm = converting && path ? path.centerlineMm : outdoorPoints(routeText, closed ? 3 : 2)
       const common = { ...appliedStyle(scene, style, isBridge), endClearanceMm: closed ? 0 : endClearance, ...(gaps.length ? { gaps } : {}) }
       if (isFence) {
@@ -86,7 +111,7 @@ export default function PathAssemblyPanel({ scene, layerId, path, fence, mode, d
         command.bridge = { finish, elevationMm: elevation, visibility }
         if (converting) command.roadRange = roadRange
         if (!path && roadMaterial) commands.push({ type: 'updatePath', id,
-          changes: { surfaceStyle: outdoorInspectorStyle(scene, roadMaterial, null) } })
+          changes: { surfaceStyle: outdoorInspectorStyle(scene, roadMaterial, null, 'path') } })
       }
       onPreview(commands, converting ? '将道路选段改成桥并接续引道' : path ? isBridge ? '更新桥梁与构件' : '沿道路铺设构件' : '绘制桥梁', id)
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
@@ -95,7 +120,7 @@ export default function PathAssemblyPanel({ scene, layerId, path, fence, mode, d
   useLayoutEffect(() => { finishRef.current = run })
   const finishSketch = useCallback(() => finishRef.current(), [])
   const onFinishReady = canvas?.onFinishReady
-  const canFinish = !disabled && !!sketchPoints && sketchPoints.length >= (closed ? 3 : 2)
+  const canFinish = !disabled && !platform && !!sketchPoints && sketchPoints.length >= (closed ? 3 : 2)
   useLayoutEffect(() => {
     onFinishReady?.(canFinish ? finishSketch : null)
     return () => onFinishReady?.(null)
@@ -108,7 +133,7 @@ export default function PathAssemblyPanel({ scene, layerId, path, fence, mode, d
     if (!path || roadMaterial === (path.surfaceStyle?.base.materialRef.id ?? '')) return
     try {
       setError('')
-      const surfaceStyle = outdoorInspectorStyle(scene, roadMaterial, path.surfaceStyle)
+      const surfaceStyle = outdoorInspectorStyle(scene, roadMaterial, path.surfaceStyle, 'path')
       onPreview([{ type: 'updatePath', id: path.id, changes: { surfaceStyle } }], '更新桥上道路铺装', path.id)
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
   }
@@ -122,15 +147,38 @@ export default function PathAssemblyPanel({ scene, layerId, path, fence, mode, d
     <button type="button" className="secondary asset-wide" onClick={previewRoadMaterial}
       disabled={roadMaterial === (path.surfaceStyle?.base.materialRef.id ?? '')}>预览更新道路铺装</button>
   </fieldset>}<fieldset disabled={disabled} aria-label={converting ? '道路转桥参数' : isFence ? '实体围栏参数' : isBridge ? '桥梁参数' : '沿线构件参数'}>
-    {canvas && <button type="button" className="secondary asset-wide" onClick={() => canvas.setSketch(sketchPoints ? null : { kind: 'polyline', purpose, points: [], cursor: null })}>
+    {isFence && platforms.length > 0 && <label>护栏平台<select aria-label="护栏平台" value={platformId} onChange={event => {
+      setPlatformId(event.target.value); setPlatformSegments(undefined); canvas?.setSketch(null)
+    }}>
+      {!priorBinding && <option value="">沿手绘路线</option>}
+      {platforms.map(area => {
+        const { x, y } = area.boundaryMm[0].positionMm
+        return <option key={area.id} value={area.id} disabled={effectiveEditLocked(scene, area.id) || visibility === 'public' && area.visibility !== 'public'}>
+          {name(area.id)} · {x / 1000}, {y / 1000} m
+        </option>
+      })}
+    </select></label>}
+    {platform && <>
+      <label>护栏范围<select aria-label="护栏范围" value={platformSegments ? 'segments' : 'all'} onChange={event =>
+        setPlatformSegments(event.target.value === 'segments' ? [] : undefined)}>
+        <option value="all">完整轮廓</option><option value="segments">指定连续边段</option>
+      </select></label>
+      {platformSegments && <label>护栏边段<select multiple aria-label="护栏边段" value={platformSegments}
+        onChange={event => setPlatformSegments([...event.target.selectedOptions].map(option => option.value))}>
+        {platform.boundaryMm.map(({ segmentId, positionMm }, index) => <option key={segmentId} value={segmentId}>第 {index + 1} 段 · {positionMm.x}, {positionMm.y}</option>)}
+      </select></label>}
+      <NumberInput label="护栏向内距离" value={insetMm} displayUnit={unit} onCommit={setInsetMm}/>
+      <small>护栏跟随平台轮廓，在桥头、台阶和坡道处为通行留口。</small>
+    </>}
+    {canvas && !platform && <button type="button" className="secondary asset-wide" onClick={() => canvas.setSketch(sketchPoints ? null : { kind: 'polyline', purpose, points: [], cursor: null })}>
       <PencilRuler size={14}/>{sketchPoints ? '结束取点' : isFence ? '在画布绘制围栏路线' : '在画布绘制桥梁路线'}
     </button>}
     {converting ? <div className="workspace-form-pair">
       <label>桥段起点（%）<input type="number" min="0" max="100" step="0.1" value={roadRange.startPpm / 10000} onChange={event => setRoadRange({ ...roadRange, startPpm: Math.round(Number(event.target.value) * 10000) })}/></label>
       <label>桥段终点（%）<input type="number" min="0" max="100" step="0.1" value={roadRange.endPpm / 10000} onChange={event => setRoadRange({ ...roadRange, endPpm: Math.round(Number(event.target.value) * 10000) })}/></label>
-    </div> : <OutdoorCoordinates text={routeText} onChange={text => { setPointsText(text); if (sketchPoints) canvas?.setSketch(null) }}
+    </div> : !platform && <OutdoorCoordinates text={routeText} onChange={text => { setPointsText(text); if (sketchPoints) canvas?.setSketch(null) }}
       label={isFence ? '围栏路线' : isBridge ? '桥梁路线' : '装配路线'} ariaLabel="沿线构件坐标" minimum={closed ? 3 : 2} unit={unit}/>}
-    {isFence && <label className="asset-check"><input type="checkbox" aria-label="闭合围栏" checked={closed} onChange={event => setClosed(event.target.checked)}/>闭合围栏 · 自动连接首尾</label>}
+    {isFence && !platform && <label className="asset-check"><input type="checkbox" aria-label="闭合围栏" checked={closed} onChange={event => setClosed(event.target.checked)}/>闭合围栏 · 自动连接首尾</label>}
     {!isFence && <NumberInput label="通行净宽" ariaLabel="装配通行净宽" value={width} displayUnit={unit} onCommit={setWidth}/>}
     {editLocalWidth && <PathLocalWidthFields sections={widthSections} setSections={setWidthSections} widthMm={width} unit={unit}/>}
     {isBridge && <>
@@ -144,11 +192,11 @@ export default function PathAssemblyPanel({ scene, layerId, path, fence, mode, d
     <StyleSourceSelect scene={scene} value={style.source} allowEmpty={!isFence} onChange={source => setStyle({ source, defaults: styleDefaults(scene, source) })}/>
     {(style.source === 'profile:coolantPipe' || style.source.startsWith('prefab:') && isCoolantPipeSection(scene.prefabDefinitions[style.source.slice(7)]?.members ?? []))
       && <small>接合铺设会在转角加装接头，在起终点和开口加装套筒。将路线端点对准设备接口即可对接。</small>}
-    <PathStyleFields scene={scene} form={style} onChange={setStyle} allowStructure={isBridge}/>
+    <PathStyleFields scene={scene} form={style} onChange={setStyle} allowStructure={isBridge} forceFit={!!platform}/>
     {!isFence && <label>铺设侧<select aria-label="铺设侧" value={sides} onChange={event => setSides(event.target.value as PathAssemblyRecipe['sides'])}>
       <option value="both">双侧镜像</option><option value="left">路线左侧</option><option value="right">路线右侧</option>
     </select></label>}
-    <details className="outdoor-advanced">
+    {!platform && <details className="outdoor-advanced">
       <summary>{isFence ? '入口与端部留空' : '边带与入口留空'}</summary>
       {!isFence && <NumberInput label="单侧边带宽" value={shoulder} displayUnit={unit} onCommit={setShoulder}/>}
       {!closed && <NumberInput label="两端留空长度" value={endClearance} displayUnit={unit} onCommit={setEndClearance}/>}
@@ -162,12 +210,18 @@ export default function PathAssemblyPanel({ scene, layerId, path, fence, mode, d
       </div>)}
       <button type="button" className="secondary asset-wide" disabled={gaps.length >= 8} onClick={() => setGaps(current => [...current, { side: isFence ? 'both' : 'left', fromMm: 0, toMm: style.defaults.lengthMm }])}>添加沿线开口</button>
       <small>里程从第一个路线点起算。{(style.defaults.fit || isBridge && style.defaults.structure || style.source.startsWith('profile:')) ? '接合铺设按起止里程留口。' : '开口与整节相交时跳过该节。'}</small>
-    </details>
+    </details>}
     {!converting && (isBridge || isFence) && <label>{isFence ? '围栏可见性' : '桥梁可见性'}<select aria-label={isFence ? '围栏可见性' : '桥梁可见性'} value={visibility} onChange={event => setVisibility(event.target.value as typeof visibility)}>
       <option value="public">公开</option><option value="gm">仅主持人</option>
     </select></label>}
     {error && <p role="alert" className="asset-form-error">{error}</p>}
-    <button type="button" className="primary asset-wide" onClick={run} disabled={!layerId || !routeText.trim() || converting && roadRange.startPpm >= roadRange.endPpm}><Route size={14}/>{converting ? '预览将选段改成桥' : isFence ? fence ? '预览更新实体围栏' : '预览实体围栏' : path ? '预览更新沿线构件' : '预览桥梁'}</button>
+    <button type="button" className="primary asset-wide" onClick={run} disabled={!layerId || (platform ? platformSegments?.length === 0 : !routeText.trim()) || converting && roadRange.startPpm >= roadRange.endPpm}>
+      <Route size={14}/>{platform ? '预览平台护栏' : converting ? '预览将选段改成桥' : isFence ? fence ? '预览更新实体围栏' : '预览实体围栏' : path ? '预览更新沿线构件' : '预览桥梁'}
+    </button>
+    {fence && priorBinding && <button type="button" className="secondary asset-wide" onClick={() => onPreview([{
+      type: 'setFenceAssembly', id: fence.id, floorId: fence.floorId, layerId: fence.layerId, visibility: fence.visibility,
+      centerlineMm: fenceRoutePoints(fence), closed: fence.closed, recipe: fence.fence!.recipe, platformBinding: null,
+    }], '解除平台护栏绑定')}>预览解除平台绑定</button>}
     {path && bridge && <details className="outdoor-advanced">
       <summary>桥头链接</summary>
       <small>拖桥靠近道路端点建立链接。按住 Shift 可自由放置。</small>

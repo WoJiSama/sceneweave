@@ -1,5 +1,5 @@
 import license from '../../LICENSE?raw'
-import { Check, Figure, tutorialImage, type TutorialChapter } from './lesson'
+import { Check, Figure, LessonLink, tutorialImage, type TutorialChapter } from './lesson'
 
 export const images: TutorialChapter = {
   id: 'images', label: '图片拆解', title: '从平面图拆出可编辑物件',
@@ -14,6 +14,7 @@ export const images: TutorialChapter = {
         <li>「编辑比例尺」依次点 <code>(230,495)</code> 和 <code>(430,495)</code> 附近。两点间实际距离填 <code>3000</code> 毫米。本例可将「比例依据」选为「已知实际尺寸」。换原图时用已知尺度的墙段或格线标定。没有实测尺寸时保留「暂定比例」。</li>
       </ol>
       <Check>结构页显示房间轮廓和两个比例点，画布预览中的大厅约 6 × 5 米。保留外框罩过墙沿，房间轮廓沿内侧。</Check>
+      <p>想给整张底图加线稿，可以按<LessonLink chapter="atmosphere" section="line-art">位图提线教程</LessonLink>从楼层底图开始。</p>
     </> },
     { id: 'selection', title: '沿圆桌抠取边缘', body: <>
       <ol>

@@ -17,7 +17,7 @@ export function mayMutatePathAttachments(scene: SceneDocument, commands: readonl
       case 'updateProp': case 'addProp': case 'copyProp': case 'deleteProp': case 'replacePropAppearance':
       case 'setVisualSurface': case 'setSurfacePaint': case 'setSurfaceMaterial':
       case 'setAppearanceAdjustment': case 'toggleAppearanceAdjustment': case 'removeAppearanceAdjustment': case 'setAppearanceSource':
-      case 'setSceneDisplay': case 'setSceneBackground': case 'renameScene': case 'setFloorEnvironment': case 'setFloorOutputBounds': case 'renameFloor':
+      case 'setSceneDisplay': case 'setSceneBackground': case 'setSceneArtStyle': case 'renameScene': case 'setFloorEnvironment': case 'setFloorOutputBounds': case 'renameFloor':
       case 'setVisualEnvironment': return false
       case 'setEditLock': return command.kind === 'pathAttachment'
       case 'updatePath': return !Object.keys(command.changes).every(key => ['surfaceStyle', 'renderOrder', 'movementCostMultiplier'].includes(key))

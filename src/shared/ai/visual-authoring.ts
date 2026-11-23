@@ -12,6 +12,7 @@ import { applyCompositionCommands } from '../appearance/commands.js'
 import { applyVisualCommand, type VisualCommand } from '../visual/commands.js'
 import { sampleVisualBoundary, signedVisualArea, visualSampleAtDistance } from '../visual/geometry.js'
 import { VISUAL_ENTITY_COLLECTIONS } from '../visual/diagnostics.js'
+import { lightHostIds, lightPaintFootprint, lightSourcePoints } from '../visual/light-geometry.js'
 import type { VisualEntity, VisualBoundary } from '../visual/types.js'
 import { corridor, openingEndpoints, pointInPolygon, polygonsOverlap, propFootprint, validateGeometry } from '../geometry/geometry.js'
 import { sha256Text } from '../validation/hash.js'
@@ -47,7 +48,7 @@ function shapes(project: ProjectData, id: string): { points: PointMm[]; padding:
   const edge = visual.edgeLooks[id]
   if (edge) return { points: sampleVisualBoundary(visual.boundaries[edge.boundaryId]).points, padding: edge.widthMm * 2 }
   const light = visual.lights[id]
-  if (light) return { points: [light.positionMm], padding: light.radiusMm }
+  if (light) return lightPaintFootprint(project.document, light)
   const fog = visual.fogs[id]
   if (fog) return { points: fog.boundaryMm, padding: 0 }
   const filter = visual.filters[id]
@@ -64,13 +65,14 @@ function assertVisual(project: ProjectData, scope: VisualAuthoringScope, id: str
       width: Math.max(1, Math.max(...xs) - Math.min(...xs) + shape.padding * 2), height: Math.max(1, Math.max(...ys) - Math.min(...ys) + shape.padding * 2) })
     if (polygonsOverlap(band, mask.boundaryMm) || band.some(point => pointInPolygon(point, mask.boundaryMm)) || mask.boundaryMm.some(point => pointInPolygon(point, band))) deny('视觉范围包含玩家遮罩。', 'outside_scope')
   }
-  return [id, value.floorId, value.layerId]
+  const hosts = visualBase(scene)?.lights[id]
+  return [id, value.floorId, value.layerId, ...(hosts ? lightHostIds(scene, hosts) : [])]
 }
 function visualReferences(project: ProjectData, id: string): string[] {
   const visual = visualBase(project.document)
-  const boundary = visual?.boundaries[id], edge = visual?.edgeLooks[id], filter = visual?.filters[id]
+  const boundary = visual?.boundaries[id], edge = visual?.edgeLooks[id], filter = visual?.filters[id], light = visual?.lights[id]
   return boundary?.binding.kind === 'terrain' ? boundary.binding.sides.map(side => side.areaId) : boundary?.binding.kind === 'path' ? [boundary.binding.pathId]
-    : edge ? [edge.boundaryId] : filter?.target.kind === 'entities' ? filter.target.ids : []
+    : edge ? [edge.boundaryId] : filter?.target.kind === 'entities' ? filter.target.ids : light ? lightHostIds(project.document, light) : []
 }
 export function validateVisualAuthoringScope(project: ProjectData, input: VisualAuthoringScope, capability?: CurrentAuthoringCapability): VisualAuthoringScope {
   const scope = VisualAuthoringScopeSchema.parse(captureJson(input)), scene = project.document
@@ -268,6 +270,7 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
   if ('id' in operation && visualEntity(project, operation.id)) required(operation.id)
   if (operation.kind === 'visualRemove') required(operation.id)
   const command = commandFor(project, scope, operation), previewScene = cloneJson(project.document), tape: string[] = []
+  if (command.type === 'upsertVisualLight') lightHostIds(project.document, command.light).forEach(required)
   const impact = applyVisualCommand(previewScene, command, { clock: context.clock, ids: { nextId: () => { const id = context.ids.nextId(); tape.push(id); return id } } })
   let cursor = 0
   const content = (() => {
@@ -299,7 +302,25 @@ export function applyVisualAuthoringOperation(project: ProjectData, scope: Visua
 
 export function publicVisualAuthoringContext(project: ProjectData, scope: VisualAuthoringScope, created: ReadonlySet<string>) {
   const allowed = new Set([...scope.entityIds, ...created])
-  const entities = VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.values(visualBase(project.document)?.[collection] ?? {}).filter(value => allowed.has(value.id) && value.visibility === 'public').map(value => ({ collection, ...cloneJson(value) })))
+  const scene = project.document, visual = visualBase(scene)
+  const entities = VISUAL_ENTITY_COLLECTIONS.flatMap(collection => Object.values(visual?.[collection] ?? {}).flatMap(value => {
+    if (!allowed.has(value.id) || value.visibility !== 'public') return []
+    const light = collection === 'lights' ? visual?.lights[value.id] : undefined
+    const hosts = light ? lightHostIds(scene, light) : []
+    if (!light || !hosts.length) return [{ collection, ...cloneJson(value) }]
+    try {
+      assertVisual(project, scope, light.id)
+      for (const host of hosts) {
+        if (!allowed.has(host)) return []
+        assertPublicSceneEntity(project, scope, host)
+      }
+      const origin = lightSourcePoints(scene, light)[0]
+      return [{ collection, ...cloneJson(light), positionMm: { x: Math.round(origin.x), y: Math.round(origin.y) } }]
+    } catch (error) {
+      if (error instanceof OperationRejected) return []
+      throw error
+    }
+  }))
   return { floorId: scope.floorId, layerId: scope.layerId, boundsMm: scope.boundsMm, allowedOperations: scope.operations, allowGlobalEnvironment: scope.allowGlobalEnvironment ?? false,
     entities, environment: scope.allowGlobalEnvironment ? visualBase(project.document)!.environment : null }
 }
@@ -312,5 +333,7 @@ export function assertFinalVisualAuthoringTargets(project: ProjectData, scope: V
   for (const id of allowed) if (visualEntity(project, id)) {
     assertVisual(project, scope, id)
     for (const reference of visualReferences(project, id)) if (!allowed.has(reference)) deny('视觉引用超出冻结的最终目标。', 'outside_scope')
+    const light = visualBase(project.document)?.lights[id]
+    if (light) for (const host of lightHostIds(project.document, light)) assertPublicSceneEntity(project, scope, host)
   }
 }

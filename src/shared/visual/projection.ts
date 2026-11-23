@@ -2,7 +2,7 @@ import type { BoundsMm, PointMm, SceneDocument } from '../model/scene.js'
 import { propFootprint, connectionBand } from '../geometry/geometry.js'
 import { propSightLine } from '../geometry/sight-occluder.js'
 import { cloneJson } from '../validation/json.js'
-import type { Audience, ProjectedVisualBoundary, ProjectedVisualFilter, ProjectedVisualSystem, ProjectedVisualTransition, Projection } from '../projection/types.js'
+import type { Audience, ProjectedVisualBoundary, ProjectedVisualFilter, ProjectedVisualSystem, ProjectedVisualTransition, ProjectedWall, Projection } from '../projection/types.js'
 import { sampleVisualBoundary } from './geometry.js'
 import type { VisualSystem } from './types.js'
 import { getLegacyVisual } from '../terrain-generation/composition-contracts.js'
@@ -16,6 +16,7 @@ import { planTerrainCliffs } from './terrain-cliff-plan.js'
 import { terrainTransitionStrokePolygon } from './transition.js'
 import { planTerrainInlayVisualScope, terrainInlayCarrierRange } from '../terrain-inlay/visual-scope.js'
 import { presentationBounds } from '../appearance/presentation.js'
+import { normalizeLightDirection, projectLight } from './light-geometry.js'
 
 const copy = <T>(value: T): T => cloneJson(value)
 const bounds = (points: PointMm[]): BoundsMm => ({ x: Math.min(...points.map(p => p.x)), y: Math.min(...points.map(p => p.y)), width: Math.max(...points.map(p => p.x)) - Math.min(...points.map(p => p.x)), height: Math.max(...points.map(p => p.y)) - Math.min(...points.map(p => p.y)) })
@@ -40,13 +41,17 @@ function projectFixtureGlows(assemblies: readonly (PathAssembly | FenceAssembly)
     const positionMm = { x: Math.round(prop.positionMm.x + x * Math.cos(tilt) - y * Math.sin(tilt)),
       y: Math.round(prop.positionMm.y + x * Math.sin(tilt) + y * Math.cos(tilt)) }
     if (projection.audience === 'player' && playerMaskContains(positionMm, projection.masks, projection.maskPublicRooms)) return []
+    const beam = glow.beam && { ...glow.beam, directionDeg: normalizeLightDirection(prop.rotationDeg + glow.beam.directionDeg * (prop.appearance.mirrorY ? -1 : 1)) }
+    const emitterOccluder = beam && (prop.sightOccluder ? propSightLine(prop) : prop.blocksSight ? propFootprint(prop) : undefined)
     return [{ color: glow.color, radiusMm: glow.radiusMm, positionMm, intensity: glow.intensity * prop.appearance.opacity,
-      ...(!glowByLamp.has(prop.id) && { wallOcclusion: true as const }) }]
+      ...((beam || !glowByLamp.has(prop.id)) && { wallOcclusion: true as const }), ...(beam && { beam }),
+      ...(emitterOccluder && emitterOccluder.length > 1 && { emitterOccluder }) }]
   })
 }
 
 /** This boundary receives the audience's completed physical projection, never a GM render cache. */
-export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, projection: Projection, audience: Audience, hiddenLayerIds?: ReadonlySet<string>, visibleWallIds?: ReadonlySet<string>, resolvedFloor?: FloorOutput): ProjectedVisualSystem {
+export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, projection: Projection, audience: Audience,
+  hiddenLayerIds?: ReadonlySet<string>, visibleWallIds?: ReadonlySet<string>, resolvedFloor?: FloorOutput, apertureWalls?: readonly ProjectedWall[]): ProjectedVisualSystem {
   const floorId = resolvedFloor?.floorId ?? projection.floorId ?? (Object.keys(scene.floors).length === 1 ? Object.keys(scene.floors)[0] : undefined)
   if (floorId === undefined) throw new Error('多楼层视觉投影必须明确选择目标Floor。')
   const output = resolvedFloor ?? resolveFloorOutput(scene, floorId)
@@ -158,7 +163,10 @@ export function projectVisualSystem(scene: SceneDocument, visual: VisualSystem, 
   const result: ProjectedVisualSystem = { environment: copy(output.environment), boundsMm: copy(output.boundsMm), boundaries, transitions, edgeLooks,
     ...(legacyVisual ? { materializedEdges, edgePaintOrder } : {}),
     ...(fixtureGlows.length ? { fixtureGlows } : {}),
-    lights: Object.values(visual.lights).filter(light => shown(light) && (audience === 'gm' || !playerMaskContains(light.positionMm, projection.masks, projection.maskPublicRooms))).sort((a, b) => a.id.localeCompare(b.id)).map(copy),
+    lights: Object.values(visual.lights).filter(shown).sort((a, b) => a.id.localeCompare(b.id)).flatMap(light => {
+      const value = projectLight(scene, projection, light, audience, apertureWalls)
+      return value ? [copy(value)] : []
+    }),
     fogs: Object.values(visual.fogs).filter(shown).sort((a, b) => a.id.localeCompare(b.id)).map(copy), filters,
     ...projectedSightOccluders(projection),
     contactRings: projection.props.filter(prop => !prop.waterAppearance && prop.renderLayer !== 'ground' && prop.shadowClass !== 'none').map(propVisualRing),

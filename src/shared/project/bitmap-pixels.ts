@@ -8,7 +8,10 @@ type BitmapProvenance = Pick<ProjectData, 'authoringSources' | 'appearance'> & P
  * and processor-1 roots retain their established native path. */
 export function createBitmapPixelPipelineLookup(project: BitmapProvenance): (assetId: string) => BitmapPixelPipeline {
   const roots = new Map(Object.entries(project.authoringSources).map(([id, source]) => [id, source.processorVersion] as const))
-  for (const asset of Object.values(project.document?.assets ?? {})) if (asset.imageEnhancement || asset.imageRefinement?.kind === 'vector') roots.set(asset.id, 2)
+  for (const asset of Object.values(project.document?.assets ?? {})) {
+    const refinement = asset.imageRefinement
+    if (asset.imageEnhancement || refinement?.kind === 'vector' || refinement?.kind === 'model' && refinement.patch) roots.set(asset.id, 2)
+  }
   const parents = new Map<string, string>(), known = new Map<string, BitmapPixelPipeline>()
   for (const variant of Object.values(project.appearance.variants)) {
     if (parents.has(variant.outputAssetId)) throw new Error('派生位图输出ID不能重用。')

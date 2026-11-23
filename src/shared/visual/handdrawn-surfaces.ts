@@ -71,9 +71,10 @@ function grain(seed: number, colors: readonly string[]): string {
   }
   return pigment.svg()
 }
-function oak(seed: number): string {
-  const faces = new Pigment(), marks = new Pigment()
-  const colors = ['#947458', '#A48260', '#9C7959', '#AD8D6A', '#A38663', '#907457', '#A88A66', '#9C8061']
+export interface OakBoard { left: number; top: number; right: number; bottom: number; width: number; height: number; index: number }
+
+/** The periodic SVG artwork and the art-style brushwork share these exact board faces. */
+export function forEachOakBoard(seed: number, draw: (board: OakBoard) => void): void {
   // Twenty-four boards across 6.4m: nominal width 267mm, lengths 1.5–2.7m.
   let y = 0
   const heights = Array.from({ length: 24 }, (_, row) => 18 + noise(seed, row) * 7)
@@ -86,22 +87,29 @@ function oak(seed: number): string {
       const left = cuts[column] + shift, width = cuts[column + 1] - cuts[column], local = row * 7 + column
       wrap(left + width / 2, y + height / 2, width / 2 + 2, height / 2 + 2, (dx, dy) => {
         const x = left + dx + .65, top = y + dy + .6, right = x + width - 1.3, bottom = top + height - 1.2
-        faces.add(`M${point(x, top)}L${point(right - .9, top + .3)}L${point(right, bottom - .3)}L${point(x + .6, bottom)}Z`, colors[Math.floor(noise(seed + 59, local) * colors.length)])
-        marks.add(`M${point(x + 2, top + 1.2)}L${point(right - 3, top + 1.4)}`, 'none', .29, '#DAC29A', .7)
-        for (let line = 0; line < 3; line++) {
-          const lineY = top + height * (.24 + line * .25), bend = (noise(seed + 87, local * 3 + line) - .5) * 4
-          marks.add(`M${point(x + 3, lineY)}q${point(width * .23, bend)} ${point(width * .46, .4)}t${point(width * .46 - 6, -.3)}`, 'none', line % 2 ? .16 : .2, line % 2 ? '#E2CDA7' : '#594C3B', .5)
-        }
-        // Short splits and grain eyes remain inside each board, never on a hidden tile border.
-        if (noise(seed + 103, local) > .5) {
-          const cx = x + width * .57, cy = top + height * .57
-          marks.add(`M${point(cx - 8, cy)}q8 -3 16 0q-8 3 -16 0Z`, 'none', .24, '#594C3B', .65)
-          marks.add(`M${point(cx - 18, cy)}q10 -2 13 0M${point(cx + 10, cy)}l14 1`, 'none', .23, '#594C3B', .5)
-        }
+        draw({ left: x, top, right, bottom, width, height, index: local })
       })
     }
     y += height
   }
+}
+function oak(seed: number): string {
+  const faces = new Pigment(), marks = new Pigment()
+  const colors = ['#947458', '#A48260', '#9C7959', '#AD8D6A', '#A38663', '#907457', '#A88A66', '#9C8061']
+  forEachOakBoard(seed, ({ left: x, top, right, bottom, width, height, index: local }) => {
+    faces.add(`M${point(x, top)}L${point(right - .9, top + .3)}L${point(right, bottom - .3)}L${point(x + .6, bottom)}Z`, colors[Math.floor(noise(seed + 59, local) * colors.length)])
+    marks.add(`M${point(x + 2, top + 1.2)}L${point(right - 3, top + 1.4)}`, 'none', .29, '#DAC29A', .7)
+    for (let line = 0; line < 3; line++) {
+      const lineY = top + height * (.24 + line * .25), bend = (noise(seed + 87, local * 3 + line) - .5) * 4
+      marks.add(`M${point(x + 3, lineY)}q${point(width * .23, bend)} ${point(width * .46, .4)}t${point(width * .46 - 6, -.3)}`, 'none', line % 2 ? .16 : .2, line % 2 ? '#E2CDA7' : '#594C3B', .5)
+    }
+    // Short splits and grain eyes remain inside each board, never on a hidden tile border.
+    if (noise(seed + 103, local) > .5) {
+      const cx = x + width * .57, cy = top + height * .57
+      marks.add(`M${point(cx - 8, cy)}q8 -3 16 0q-8 3 -16 0Z`, 'none', .24, '#594C3B', .65)
+      marks.add(`M${point(cx - 18, cy)}q10 -2 13 0M${point(cx + 10, cy)}l14 1`, 'none', .23, '#594C3B', .5)
+    }
+  })
   return `<rect x="0" y="0" width="512" height="512" fill="#655847"/>` + faces.svg() + washes(seed + 178, ['#E8D0A1', '#5D6651', '#5B4334']) + marks.svg() + grain(seed + 300, ['#F0DAB2', '#473D31'])
 }
 function flags(seed: number, dark: boolean): string {

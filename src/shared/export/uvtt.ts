@@ -152,7 +152,7 @@ function temporaryProjection(projection: Projection, boundsMm: BoundsMm): Projec
   const result = cloneJson(projection)
   result.bounds = cloneJson(boundsMm); result.gridSizeMm = null; result.notes = []; result.regions = []
   for (const wall of result.walls) for (const opening of wall.openings) opening.paintSymbol = false
-  if (result.visual) result.visual.lights = []
+  if (result.visual) result.visual.lights = result.visual.lights.filter(light => light.shape)
   return result
 }
 
@@ -289,11 +289,16 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
   if (Object.keys(scene.notes).length || Object.keys(scene.regions).length) add(report.warnings, '注记和区域边框不写入 UVTT 底图，也不作为文字或区域元数据导出。')
   for (const light of projection.visual?.lights ?? []) {
     if (!light.enabled || light.visibility !== 'public' || !light.intensity) continue
+    if (light.shape) continue
     if (!inside(light.positionMm, sourceBoundsMm)) { add(report.warnings, '中心位于原导出范围外的点光不导出；目标端不会保留这些范围外灯光对画面的影响。'); continue }
     geometry.lights.push({ position: worldGrid(light.positionMm), range: light.radiusMm / grid, intensity: light.intensity * 10, color: `FF${light.color.slice(1).toUpperCase()}`, shadows: light.wallOcclusion })
     if (!light.wallOcclusion) add(report.warnings, '导入器忽略 shadows，无法保留不受墙遮挡的点光设置；请在目标端复核灯光遮挡。')
     if (light.positionMm.x - light.radiusMm < sourceBoundsMm.x || light.positionMm.y - light.radiusMm < sourceBoundsMm.y || light.positionMm.x + light.radiusMm > sourceBoundsMm.x + sourceBoundsMm.width || light.positionMm.y + light.radiusMm > sourceBoundsMm.y + sourceBoundsMm.height)
       add(report.warnings, '部分点光半径越过原导出范围；原生点光不截短半径，目标端光效可能延伸到图片外。')
+  }
+  if (projection.visual?.lights.some(light => light.shape && (light.intensity || light.shape.kind === 'area' && light.shape.surfaceIntensity))
+    || projection.visual?.environment.directionalLight?.intensity || projection.visual?.fixtureGlows?.some(light => light.beam)) {
+    add(report.warnings, '窗光、聚光、线光、面光与日月光按实际画面烘焙进底图。独立圆形点光仍可作为目标原生灯。')
   }
   report.counts.wallSegments = geometry.line_of_sight.length
   report.counts.portals = geometry.portals.length; report.counts.lights = geometry.lights.length

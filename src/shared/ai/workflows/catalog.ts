@@ -126,7 +126,7 @@ export function queryWorkflow(raw: unknown, host: WorkflowHost) {
 
 /** A short bootstrap replaces unconditional injection of all specialist text. */
 export const WORKFLOW_DISCOVERY_INSTRUCTIONS = [
-  'Shared Sceneweave workflows: sceneweave-project-creation@1. Start with sceneweave_workflow action=list to find the relevant workflow.',
+  'Shared Sceneweave workflows. Start with sceneweave_workflow action=list to find the relevant workflow.',
   ...definitions.map(definition => `${definition.id}@${definition.version}: ${definition.summary}`),
   'Read only the needed workflow/step/schema/effects. Actual host tools, scope, inputs and remaining budgets decide execution; a workflow grants no capability.',
   'Use progress and actual tool results/previews to continue. Report unsupported requirements and unknown quality; preserve source data, checkpoints and unknown paid requests.',

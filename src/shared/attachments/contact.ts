@@ -1,5 +1,6 @@
 import type { Issue, PointMm, Prop, SurfaceRef } from '../model/scene.js'
-import { pointInPolygon, polygonInside, propFootprint, roomPoints, supportedPolygon } from '../geometry/geometry.js'
+import { pointInPolygon, polygonInside, propFootprint, roomPoints, supportedPolygon, terrainPoints } from '../geometry/geometry.js'
+import { reliefBounds, sampleTerrainRelief } from '../geometry/terrain-relief.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { attachmentHash, type AttachmentScene } from './topology.js'
 import type { AttachmentOwner, AttachmentSurface, PropAttachment } from './contracts.js'
@@ -28,6 +29,11 @@ function rootElevation(scene: AttachmentScene, ref: SurfaceRef): number {
   const value = ref.kind === 'floor' ? scene.floors[ref.id] && 0 : ref.kind === 'room' ? scene.rooms[ref.id]?.groundElevationMm : scene.terrainAreas[ref.id]?.groundElevationMm
   if (value === undefined) throw new Error('附着根基不存在。')
   return value
+}
+function propRootElevation(scene: AttachmentScene, prop: Prop): number {
+  const terrain = prop.supportRef.kind === 'terrainArea' ? scene.terrainAreas[prop.supportRef.id] : undefined
+  const offset = terrain?.relief ? sampleTerrainRelief(terrain.relief, reliefBounds(terrainPoints(terrain)), prop.positionMm).offsetMm : 0
+  return rootElevation(scene, prop.supportRef) + Math.round(offset)
 }
 function relationFor(scene: AttachmentScene, childId: string): PropAttachment | undefined {
   const rows = Object.values(scene.attachments ?? {}).filter((row): row is PropAttachment => row.mode !== 'embed' && row.child.id === childId)
@@ -114,7 +120,7 @@ function propElevation(scene: AttachmentScene, propId: string, seen: Set<string>
   const prop = scene.props[propId]
   if (!prop) throw new Error('附着链子物件已不存在。')
   const row = relationFor(scene, propId)
-  if (!row) return rootElevation(scene, prop.supportRef)
+  if (!row) return propRootElevation(scene, prop)
   return evaluatePropAttachment(scene, row, new Set([...seen, propId])).contactElevationMm
 }
 export function evaluatePropAttachment(scene: AttachmentScene, row: PropAttachment, seen = new Set<string>()): PropContact {
@@ -185,7 +191,7 @@ export function resolvePropContact(scene: AttachmentScene, propId: string, seen 
   if (row) return evaluatePropAttachment(scene, row, new Set([...seen, propId]))
   const footprint = propFootprint(child)
   if (!supportedPolygon(scene, footprint, child.supportRef, child.floorId)) throw new Error('根基完整占地无有效支撑。')
-  return { propId, actualSurfaceId: null, rootSupportRef: child.supportRef, contactElevationMm: rootElevation(scene, child.supportRef), footprintMm: footprint,
+  return { propId, actualSurfaceId: null, rootSupportRef: child.supportRef, contactElevationMm: propRootElevation(scene, child), footprintMm: footprint,
     childGeometryHash: propContactGeometryHash(child), surfaceGeometryHash: null }
 }
 export function propAttachmentMaterialized(scene: AttachmentScene, row: PropAttachment): PropAttachment['materialized'] {

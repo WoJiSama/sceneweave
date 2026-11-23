@@ -7,20 +7,23 @@ import type { AppearanceGraph } from '../model/appearance.js'
 import type { Path, PointMm, Prop, SceneDocument, SurfaceRef, TerrainArea } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
-import { isPathLampMember, isPipeFittingMember, PATH_ASSEMBLY_MEMBER_LIMIT, type FenceAssemblyCommand, type PathAssembly, type PathAssemblyCommand, type PathAssemblyRecipe } from './contracts.js'
+import { isPathLampMember, isPipeFittingMember, PATH_ASSEMBLY_MEMBER_LIMIT, type FenceAssembly, type FenceAssemblyCommand, type PathAssembly, type PathAssemblyCommand, type PathAssemblyRecipe, type PlatformFenceBinding } from './contracts.js'
 import { bridgeDeckGeometry, bridgeNodeLamp, planPathSections, standardPathLamp, type SectionPart } from './layout.js'
 import { assemblyMemberFingerprint, assemblyRouteFingerprint, fenceRouteFingerprint } from './validation.js'
-import { fenceRoutePoints, planFenceSections, planFittingPathSections, sizeSection } from './fitted-layout.js'
+import { fenceRoutePoints, planFenceSections, planFittingPathSections, sectionSideReachMm, sizeSection } from './fitted-layout.js'
 import { resolvePathProp, resolvePathSection } from './sources.js'
 import { visualBase } from '../visual/base.js'
 import type { VisualBoundary } from '../visual/types.js'
 import { PATH_ENDS, type DetachBridgeRoad, type MoveBridge } from './bridge-link-contracts.js'
 import { assertBridgeUnlocked, planBridgeMove } from './bridge-links.js'
 import { BRIDGE_FOLLOW_DISTANCE_MM, distance, offsetPoint, samePoint, subtract, translateBridgeSurfaceStyle } from './bridge-link-geometry.js'
-import { isPipeBoundary, linkedPipes, occupiedPipePorts, pipeEnd, pipePortWorld, PIPE_PORTS, PIPE_SNAP_DISTANCE_MM, resolvePipePort } from './pipe-geometry.js'
+import { isCoolantPipeSection, isPipeBoundary, linkedPipes, occupiedPipePorts, pipeEnd, pipePortWorld, PIPE_PORTS, PIPE_SNAP_DISTANCE_MM, resolvePipePort } from './pipe-geometry.js'
 import type { PipeLinks, SetPipeLink } from './pipe-contracts.js'
 import { OperationRejected } from '../validation/operation-rejection.js'
 import { placeBridgeApproaches, splitRoadForBridge } from './bridge-conversion.js'
+import { blocksPlatformFenceOpening, planBoundPlatformFence } from './platform-fence-binding.js'
+import { planPlatformFenceRoutes } from './platform-fence-route.js'
+import { isRetainedAssemblyMember as isRetained } from './member-protection.js'
 
 function unlocked(scene: SceneDocument, entity: { id: string; editLocked: boolean; layerId?: string }): boolean {
   return !entity.editLocked && !scene.userLayers[entity.layerId ?? scene.entityLayers[entity.id]]?.editLocked
@@ -46,14 +49,6 @@ function placeBridgeDeck(scene: SceneDocument, path: Path, bridge: NonNullable<P
   scene.terrainAreas[target.id] = target
   scene.entityLayers[target.id] = deck ? scene.entityLayers[deck.id] : layerId
   return target
-}
-
-function isRetained(scene: SceneDocument, member: Extract<PathAssembly['members'][string], { state: 'placed' }>): boolean {
-  const prop = scene.props[member.propId]
-  return !prop || member.manualAppearance === true || !unlocked(scene, prop) || assemblyMemberFingerprint(prop, scene.entityLayers[prop.id]) !== member.fingerprint
-    || Object.values(scene.notes).some(note => note.anchor.type === 'entity' && note.anchor.entityId === prop.id)
-    || Object.values(scene.attachmentSurfaces ?? {}).some(row => row.owner.kind === 'prop' && row.owner.id === prop.id)
-    || Object.values(scene.attachments ?? {}).some(row => row.child.kind === 'prop' && row.child.id === prop.id)
 }
 
 function removeProp(scene: SceneDocument, id: string) {
@@ -120,8 +115,8 @@ export function applyPathAssembly(scene: SceneDocument, command: PathAssemblyCom
     deck: deck ? terrainPoints(deck) : undefined })
 }
 
-export function moveBridge(scene: SceneDocument, command: MoveBridge): void {
-  const { path, deck, links, feedback } = planBridgeMove(scene, command)
+export function moveBridge(scene: SceneDocument, command: MoveBridge, graph?: AppearanceGraph): void {
+  const { path, deck, links, feedback } = planBridgeMove(scene, command, graph)
   const assembly = path.assembly!, bridge = assembly.bridge!, offset = command.offsetMm
   if (offset.x || offset.y) {
     const moved = new Set<string>()
@@ -183,6 +178,7 @@ interface Placement {
   support?: SurfaceRef
   clear?: PointMm[][]
   deck?: PointMm[]
+  boundFenceAppearance?: AppearanceGraph
 }
 
 function sectionIdentity(section: AssemblyRecipe['section'] | undefined) {
@@ -198,7 +194,7 @@ function placeAssemblyMembers(scene: SceneDocument, input: Placement): void {
   const sameSection = canonicalJson(sectionIdentity(existing?.recipe.section)) === canonicalJson(sectionIdentity(recipe.section))
   const sameLamp = canonicalJson(existing?.recipe.lamps?.ref ?? null) === canonicalJson(recipe.lamps?.ref ?? null)
   for (const [key, member] of Object.entries(existing?.members ?? {})) {
-    if (member.state === 'removed' || isRetained(scene, member)) {
+    if (member.state === 'removed' || isRetained(scene, member, input.boundFenceAppearance)) {
       if (!sameSection && key.includes(':section:') && !plannedKeys.has(key) && prefixes.has(key.split(':').slice(0, 3).join(':'))) {
         throw new Error('该路线有人工移动、删除或锁定的源节部件，新样式的部件无法逐一对应。请先在构件列表核对这些位置。')
       }
@@ -236,35 +232,132 @@ function placeAssemblyMembers(scene: SceneDocument, input: Placement): void {
   if (Object.keys(members).length > PATH_ASSEMBLY_MEMBER_LIMIT) throw new Error('保留的局部修改与新构件合计超过单条路线预算。')
 }
 
-export function applyFenceAssembly(scene: SceneDocument, command: FenceAssemblyCommand, context: PreparationContext, graph?: AppearanceGraph): void {
+type BoundFencePlan = ReturnType<typeof planBoundPlatformFence>
+
+function sourceLegKeys(area: TerrainArea, ids: readonly string[]): string[] {
+  const keys = new Map(area.boundaryMm.map(({ id, segmentId }, index, ring) => [segmentId, JSON.stringify([segmentId, id, ring[(index + 1) % ring.length].id])]))
+  return ids.map(id => keys.get(id)!)
+}
+
+function savedLegKeys(area: TerrainArea | undefined, binding: PlatformFenceBinding | undefined): string[] {
+  if (!area || !binding) return []
+  return sourceLegKeys(area, planPlatformFenceRoutes(area, binding.selection)[0]?.segmentIds ?? [])
+}
+
+function priorFenceLayout(scene: SceneDocument, boundary: VisualBoundary, plan: BoundFencePlan, priorKeys: string[],
+  old: FenceAssembly, graph?: AppearanceGraph) {
+  const nextByEdge = new Map(sourceLegKeys(plan.area, plan.route.segmentIds).map((key, index) => [key, index]))
+  const remap = priorKeys.map(key => nextByEdge.get(key))
+  const segmentIds = new Map<number, string>()
+  remap.forEach((index, oldIndex) => { if (index !== undefined) segmentIds.set(index, boundary.segments[oldIndex].id) })
+  const members: FenceAssembly['members'] = {}
+  for (const [key, member] of Object.entries(old.members)) {
+    const [side, leg, ...part] = key.split(':'), index = remap[Number(leg)]
+    if (index !== undefined) members[[side, index, ...part].join(':')] = member
+    else {
+      if (member.state === 'removed' || isRetained(scene, member, graph)) {
+        throw new OperationRejected('locked_dependency', '平台护栏改边会失去已有的手工、已删除或锁定槽位。请先解除绑定或处理原护栏。')
+      }
+      removeProp(scene, member.propId)
+    }
+  }
+  return { segmentIds, members }
+}
+
+function boundFenceRecipe(recipe: FenceAssembly['recipe'], plan: BoundFencePlan): FenceAssembly['recipe'] {
+  const result = cloneJson(recipe)
+  if (plan.route.closed) result.endClearanceMm = 0
+  if (plan.route.gaps.length) result.gaps = plan.route.gaps
+  else delete result.gaps
+  return result
+}
+
+export function applyFenceAssembly(scene: SceneDocument, command: FenceAssemblyCommand, context: PreparationContext, graph?: AppearanceGraph,
+  prepared?: { plan: BoundFencePlan; priorKeys: string[] }): void {
   if (scene.mapMode !== 'scene' || !scene.floors[command.floorId]) throw new Error('实体围栏须在场景楼层中绘制。')
-  const boundaries = scene.visual.base.base.boundaries, old = boundaries[command.id]
+  const boundaries = scene.visual.base.base.boundaries, old = Object.hasOwn(boundaries, command.id) ? boundaries[command.id] : undefined
   const layer = scene.userLayers[command.layerId]
-  if (old && (!old.fence || old.floorId !== command.floorId || old.layerId !== command.layerId || !unlocked(scene, old))) throw new Error('请选择可编辑的实体围栏。')
-  if (!layer || layer.floorId !== command.floorId || layer.editLocked) throw new Error('请选择同 Floor 的可编辑图层。')
-  const allocate = assemblyIds(scene, command.id, !!old, context), recipe = cloneJson(command.recipe)
-  const points = cloneJson(command.centerlineMm), closed = command.closed
+  if (old && (!old.fence || old.floorId !== command.floorId || old.layerId !== command.layerId)) throw new Error('请选择本 Floor 和图层的实体围栏。')
+  if (old && !unlocked(scene, old)) throw new OperationRejected('locked_dependency', '围栏或所在图层已锁定。')
+  if (!layer || layer.floorId !== command.floorId || layer.editLocked) throw new OperationRejected(layer?.editLocked ? 'locked_dependency' : 'invalid_geometry', '请选择同 Floor 的可编辑图层。')
+  const oldFence = old?.fence, previousBinding = oldFence?.platformBinding
+  const sameRoute = !old || (command.centerlineMm === undefined || canonicalJson(command.centerlineMm) === canonicalJson(fenceRoutePoints(old)))
+    && (command.closed === undefined || command.closed === old.closed)
+  if (previousBinding && command.platformBinding === null) {
+    if (!sameRoute || command.visibility !== old!.visibility || canonicalJson(command.recipe) !== canonicalJson(oldFence!.recipe)) throw new Error('解除平台绑定须保留当时的路线、样式与受众。')
+    delete oldFence!.platformBinding
+    return
+  }
+  if (previousBinding && command.platformBinding === undefined && !sameRoute) throw new Error('平台护栏路线由平台轮廓决定，请编辑平台或解除绑定。')
+  const binding: PlatformFenceBinding | undefined = command.platformBinding ?? previousBinding
+  const plan = binding && (prepared?.plan ?? planBoundPlatformFence(scene, command, binding))
+  if (plan && !unlocked(scene, plan.area)) throw new OperationRejected('locked_dependency', '护栏来源平台或所在图层已锁定。')
+  if (plan && (oldFence?.pipeLinks || command.recipe.gaps?.length && canonicalJson(command.recipe.gaps) !== canonicalJson(oldFence?.recipe.gaps ?? []))) {
+    throw new Error('平台护栏的开口只能由实际结构派生。请先处理独立开口或管端链接。')
+  }
+  const allocate = assemblyIds(scene, command.id, !!old, context)
+  const recipe = plan ? boundFenceRecipe(command.recipe, plan) : cloneJson(command.recipe)
+  const route = plan ? plan.route.centerlineMm : command.centerlineMm, closed = plan ? plan.route.closed : command.closed
+  if (!route || closed === undefined) throw new Error('独立围栏须提供中心线和首尾关系。')
+  const points = cloneJson(route)
   const line = closed ? [...points, points[0]] : points
   if (line.length > 33 || closed && points.length < 3) throw new Error('闭合围栏需要 3–32 个点。')
   if (closed && recipe.endClearanceMm) throw new Error('请用沿线开口设置闭合围栏的入口。')
   if (recipe.gaps?.some(gap => gap.side !== 'both')) throw new Error('实体围栏只有一条中心线，请对整条线设置开口。')
   if (recipe.section.kind === 'none') throw new Error('请选择围栏源节。')
   const members: PathAssembly['members'] = {}
+  const previousArea = previousBinding && plan?.area.id === previousBinding.platformId ? scene.terrainAreas[previousBinding.platformId] : undefined
+  const prior = plan && old && oldFence ? priorFenceLayout(scene, old, plan,
+    prepared?.priorKeys ?? savedLegKeys(previousArea, previousBinding), oldFence, graph) : undefined
   const boundary: VisualBoundary = { id: command.id, floorId: command.floorId, layerId: layer.id, visibility: command.visibility,
     editLocked: old?.editLocked ?? false, closed, binding: { kind: 'decoration' }, sampleSpacingMm: 20000, toleranceMm: 1,
     segments: line.slice(1).map((end, index) => {
-      const start = line[index], prior = old?.segments[index]
+      const start = line[index], priorId = prior ? prior.segmentIds.get(index) : old?.segments[index]?.id
       const lerp = (n: number) => ({ x: Math.round(start.x + (end.x - start.x) * n) || 0, y: Math.round(start.y + (end.y - start.y) * n) || 0 })
-      return { id: prior?.id ?? allocate(), start, control1: lerp(1 / 3), control2: lerp(2 / 3), end }
+      return { id: priorId ?? allocate(), start, control1: lerp(1 / 3), control2: lerp(2 / 3), end }
     }) }
   boundary.fence = { version: 1, recipe, routeFingerprint: fenceRouteFingerprint(boundary), members,
+    ...(binding && { platformBinding: cloneJson(binding) }),
     ...(old?.fence?.pipeLinks ? { pipeLinks: old.fence.pipeLinks } : {}) }
   const section = sizeSection(resolvePathSection(scene, graph, recipe.section, command.visibility === 'public'), recipe.dimensions)
   const lamp = recipe.lamps && (recipe.lamps.ref ? resolvePathProp(scene, graph, recipe.lamps.ref) : standardPathLamp())
-  const planned = planFenceSections(points, closed, recipe, section, lamp)
+  if (plan && isCoolantPipeSection(section)) throw new Error('平台护栏请选用护栏构件。管线可以单独绘制。')
+  if (plan && sectionSideReachMm(section) > plan.sideReachMm) throw new Error('固定源节的外观宽度与保存尺寸不一致，无法检验平台开口。')
+  const planned = planFenceSections(points, closed, recipe, section, lamp, !!plan)
   boundaries[command.id] = boundary
   placeAssemblyMembers(scene, { floorId: layer.floorId, layerId: layer.id, publicAssembly: command.visibility === 'public', recipe,
-    existing: old?.fence, members, planned, allocate })
+    existing: prior && oldFence ? { recipe: oldFence.recipe, members: prior.members } : oldFence, members, planned, allocate,
+    ...(plan && { support: { kind: 'terrainArea', id: plan.area.id }, deck: terrainPoints(plan.area), clear: plan.bands, boundFenceAppearance: graph }) })
+  if (plan?.bands.length) for (const member of Object.values(members)) {
+    if (member.state !== 'placed') continue
+    const prop = scene.props[member.propId]
+    if (blocksPlatformFenceOpening(prop, plan.bands)) {
+      throw new OperationRejected(unlocked(scene, prop) ? 'invalid_geometry' : 'locked_dependency',
+        `护栏构件 ${prop.id} 占用桥头、楼梯或坡道的净空。请先移开这件构件。`)
+    }
+  }
+}
+
+/** Returns the ordinary assembly commands executed on the same physical draft. */
+export function followPlatformFences(before: SceneDocument, scene: SceneDocument, context: PreparationContext, graph?: AppearanceGraph): FenceAssemblyCommand[] {
+  const rows = Object.values(scene.visual.base.base.boundaries).filter(row => row.fence?.platformBinding)
+  if (!rows.length) return []
+  const geometryChanged = (['terrainAreas', 'terrainConnections', 'paths', 'regions', 'rooms', 'openings', 'walls'] as const)
+    .some(key => canonicalJson(before[key]) !== canonicalJson(scene[key]))
+  if (!geometryChanged) return []
+  const applied: FenceAssemblyCommand[] = []
+  for (const row of rows) {
+    const fence = row.fence!, platformBinding = fence.platformBinding!, { id, floorId, layerId, visibility } = row
+    const plan = planBoundPlatformFence(scene, { ...row, recipe: fence.recipe }, platformBinding)
+    const priorKeys = savedLegKeys(before.terrainAreas[platformBinding.platformId], platformBinding)
+    if (plan.route.closed === row.closed && canonicalJson(plan.route.centerlineMm) === canonicalJson(fenceRoutePoints(row))
+      && canonicalJson(plan.route.gaps) === canonicalJson(fence.recipe.gaps ?? [])
+      && canonicalJson(priorKeys) === canonicalJson(sourceLegKeys(plan.area, plan.route.segmentIds))) continue
+    const command: FenceAssemblyCommand = { type: 'setFenceAssembly', id, floorId, layerId, visibility, recipe: fence.recipe, platformBinding }
+    applyFenceAssembly(scene, command, context, graph, { plan, priorKeys })
+    applied.push(command)
+  }
+  return applied
 }
 
 function updatePipeLinks(boundary: VisualBoundary, links: PipeLinks) {
@@ -391,7 +484,7 @@ function assemblyOwners(scene: SceneDocument) {
   ]
 }
 
-export function removeFenceAssembly(scene: SceneDocument, id: string): void {
+export function removeFenceAssembly(scene: SceneDocument, id: string, graph?: AppearanceGraph): void {
   const visual = scene.visual.base.base, boundary = visual.boundaries[id]
   if (!boundary?.fence || !unlocked(scene, boundary)) throw new Error('该围栏不存在或已锁定。')
   if (Object.values(visual.edgeLooks).some(row => row.boundaryId === id)
@@ -400,7 +493,7 @@ export function removeFenceAssembly(scene: SceneDocument, id: string): void {
   const visibility = createPublicVisibility(scene)
   for (const member of Object.values(boundary.fence.members)) if (member.state === 'placed') {
     const prop = scene.props[member.propId]
-    if (!isRetained(scene, member)) removeProp(scene, member.propId)
+    if (!isRetained(scene, member, boundary.fence.platformBinding ? graph : undefined)) removeProp(scene, member.propId)
     else if (prop && !visibility.prop(prop) && prop.visibility !== 'gm') {
       if (!unlocked(scene, prop)) throw new Error('保留的私密构件已锁定。')
       prop.visibility = 'gm'

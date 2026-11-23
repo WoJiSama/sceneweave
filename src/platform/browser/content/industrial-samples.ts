@@ -2,12 +2,14 @@ import { prepareCompositionCommands, prepareFloorArtwork } from '../../../applic
 import { fromBundle, toBundle, type EditableProject } from '../../../application/workspace/project.js'
 import { selectManualCommandBudget } from '../../../shared/budget/manual-request.js'
 import { TERRAIN_FACADES } from '../../../shared/appearance/terrain-facade.js'
+import { defaultMaterialPaint } from '../../../shared/appearance/surface-paint.js'
 import { terrainEdgeFinishCommands } from '../../../shared/commands/terrain-edge-finish.js'
 import { resolveBuildingEntrancePort } from '../../../shared/generation/building-port.js'
 import { adoptLibraryEntries } from '../../../shared/library/content.js'
 import type { PreparedLibraryEntry } from '../../../shared/library/types.js'
 import type { CompositionCommand } from '../../../shared/model/appearance.js'
 import type { SurfaceStyle } from '../../../shared/model/scene.js'
+import { bridgeSideOffset } from '../../../shared/path-assembly/profiles.js'
 import { defaultStaircase } from '../../../shared/stairs/contracts.js'
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { runtime, validation } from '../runtime.js'
@@ -44,11 +46,9 @@ export async function createIndustrialSampleProject(variant: 0 | 1, signal?: Abo
       throw new Error(label + ' · ' + (cause instanceof Error ? cause.message : String(cause)), { cause })
     }
   }
-  const material = (key: string, rotationDeg = 0, tileSizeMm?: SurfaceStyle['base']['tileSizeMm']): SurfaceStyle => {
-    const materialRef = ref('material', key)
-    return { base: { materialRef, tileSizeMm: tileSizeMm ?? project.document.materials[materialRef.id].defaultTileSizeMm,
-      rotationDeg, alignment: 'world', originMm: { x: 0, y: 0 }, tint: null, opacity: 1 }, overlays: [] }
-  }
+  const material = (key: string, kind?: 'path'): SurfaceStyle => ({
+    base: defaultMaterialPaint(project.document.materials[ref('material', key).id], kind), overlays: [],
+  })
   const environment = { ...emptyVisualSystem().environment, ambientColor: '#132D3D', ambientOpacity: .24,
     lightDirectionDeg: 318, contactShadowMm: 245, contactShadowOpacity: .48 }
   await commit('建立叠绘楼层', [
@@ -70,7 +70,11 @@ export async function createIndustrialSampleProject(variant: 0 | 1, signal?: Abo
 
   for (const [floorId, level] of levels) {
     const streetLayer = streets(floorId), fixtureLayer = fixtures(floorId)
-    const facades = new Map(level.facades?.map(([name, profile, settings]) => [name, { ...TERRAIN_FACADES[profile], ...settings }]))
+    const bridgeDepthMm = floorId === 'upper' ? 2200 : 1050
+    const visibleBridgeDepthMm = Math.round(bridgeSideOffset(bridgeDepthMm).y)
+    const facades = new Map(level.facades?.map(([name, profile, settings]) => [name, {
+      ...TERRAIN_FACADES[profile], ...(profile === 'girder-v1' && { depthMm: visibleBridgeDepthMm }), ...settings,
+    }]))
     await commit('设置钢构平台', level.platforms.map(([name, outline, elevation = level.height, finish = 'service-floor'], index) => ({
       type: 'createTerrainArea', id: platform(floorId, name).id, floorId, layerId: name.endsWith('-cap') ? roofLayer : streetLayer,
       boundaryMm: outline.map(point), groundElevationMm: elevation, coveragePriority: index + 1,
@@ -93,13 +97,13 @@ export async function createIndustrialSampleProject(variant: 0 | 1, signal?: Abo
     const { lengthMm, ...style } = project.document.prefabDefinitions[bridgeRef.id].pathStyle!
     await commit('组装桥面与边梁', [{ type: 'setPathAssembly', id: bridgeId, floorId, layerId: streetLayer, widthMm, centerlineMm: centerline.map(point),
       recipe: { ...style, section: { kind: 'prefab', ref: bridgeRef, lengthMm }, sides: 'both', shoulderMm: 1500, endClearanceMm: 340,
-        structure: { ...style.structure!, relief: { depthMm: floorId === 'upper' ? 2200 : 1050, shadowOpacity: .66 } },
+        structure: { ...style.structure!, relief: { depthMm: bridgeDepthMm, shadowOpacity: .66 } },
         ...(style.lamps && { lamps: { ...style.lamps, glow: { color: '#FFD08B', radiusMm: floorId === 'upper' ? 1280 : 1460, intensity: .66 } } }),
       },
       bridge: { elevationMm: level.height, visibility: 'public', finish: 'steel' } }])
     const deck = ground(project.document.paths[bridgeId].assembly!.bridge!.deckId)
     const asphalt = floorId === 'lower' && variant === 0
-    const bridgePaint = material(asphalt ? 'service-asphalt' : 'deck', variant === 0 && floorId === 'upper' ? 90 : 0)
+    const bridgePaint = material(asphalt ? 'service-asphalt' : 'deck', 'path')
     await commit('铺设道路', [
       { type: 'setVisualSurface', kind: 'path', id: bridgeId, style: bridgePaint },
       ...level.approaches.map(([support, points, approachWidth], index): CompositionCommand => ({ type: 'createPath', id: floorId + '-approach-' + index,
@@ -108,7 +112,6 @@ export async function createIndustrialSampleProject(variant: 0 | 1, signal?: Abo
       ...(level.walkways ?? []).map(([name, support, widthMm, centerline]): CompositionCommand => ({ type: 'createPath',
         id: floorId + '-walkway-' + name, floorId, layerId: streetLayer, widthMm, centerlineMm: centerline.map(point),
         supportRefs: [platform(floorId, support), deck], materialRef: ref('material', 'service-asphalt') })),
-      ...(floorId === 'upper' ? level.approaches.map((_, index): CompositionCommand => ({ type: 'setVisualSurface', kind: 'path', id: floorId + '-approach-' + index, style: bridgePaint })) : []),
     ])
     if (level.stairs) {
       const [start, from, end, to] = level.stairs
@@ -116,7 +119,7 @@ export async function createIndustrialSampleProject(variant: 0 | 1, signal?: Abo
         widthMm: 2120, from: { surfaceRef: platform(floorId, start), positionMm: point(from) }, to: { surfaceRef: platform(floorId, end), positionMm: point(to) },
         staircase: { ...defaultStaircase(), preset: 'metal-grate', material: 'iron', layout: { kind: 'repeat', treadDepthMm: 320 } } }])
     }
-    for (const [name, closed, points, gaps] of level.fences) {
+    for (const [name, closed, points, gaps] of level.fences ?? []) {
       const fenceRef = ref('prefab', closed ? 'service-fence' : floorId === 'upper' ? 'ion-bridge' : 'ember-bridge')
       const fence = project.document.prefabDefinitions[fenceRef.id].pathStyle!
       await commit('安装护栏和入口', [{ type: 'setFenceAssembly', id: floorId + '-fence-' + name, floorId, layerId: streetLayer,
@@ -126,6 +129,19 @@ export async function createIndustrialSampleProject(variant: 0 | 1, signal?: Abo
           ...(closed && { lamps: { every: 4, glow: { color: '#FFC480', radiusMm: 1060, intensity: .54 } } }),
           ...(gaps.length ? { gaps: gaps.map(([fromMm, toMm]) => ({ side: 'both', fromMm, toMm })) } : {}),
         } }])
+    }
+    const rimRef = ref('prefab', floorId === 'upper' ? 'ion-bridge' : 'ember-bridge')
+    const rim = project.document.prefabDefinitions[rimRef.id].pathStyle!
+    for (const [name, insetMm, edgeIndices] of level.platformFences) {
+      const area = project.document.terrainAreas[platform(floorId, name).id]
+      await commit('沿平台轮廓安装护栏 · ' + name, [{
+        type: 'setFenceAssembly', id: floorId + '-fence-' + name + '-rim', floorId, layerId: streetLayer, visibility: 'public',
+        platformBinding: { version: 1, platformId: area.id, insetMm, openingPolicy: 'structural',
+          selection: edgeIndices ? { kind: 'segments', segmentIds: edgeIndices.map(index => area.boundaryMm[index].segmentId) } : { kind: 'all' },
+        },
+        recipe: { section: { kind: 'prefab', ref: rimRef, lengthMm: rim.lengthMm }, fit: true,
+          dimensions: { visualWidthMm: 880, footprintWidthMm: 235 }, endClearanceMm: 0 },
+      }])
     }
     const rooms = new Map<string, string>()
     for (const [name, support, [left, top, right, bottom], purpose] of level.rooms ?? []) {

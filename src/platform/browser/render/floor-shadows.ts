@@ -11,7 +11,7 @@ function regionPath(regions: ProjectedFloorShadow['caster']): Path2D {
 }
 
 /** Compose onto the finished lower image, before the caster's own Floor. */
-export function drawFloorShadows(ctx: CanvasRenderingContext2D, view: BoundsMm, shadows: readonly ProjectedFloorShadow[]): void {
+export function drawFloorShadows(ctx: CanvasRenderingContext2D, view: BoundsMm, shadows: readonly ProjectedFloorShadow[], amount = 1): void {
   if (!shadows.length) return
   const sx = ctx.canvas.width / view.width, sy = ctx.canvas.height / view.height
   ctx.save()
@@ -23,7 +23,7 @@ export function drawFloorShadows(ctx: CanvasRenderingContext2D, view: BoundsMm, 
     ctx.clip(regionPath(receiver), 'evenodd')
     ctx.translate(offsetMm.x, offsetMm.y)
     ctx.filter = 'blur(' + blurMm * Math.max(sx, sy) + 'px)'
-    ctx.globalAlpha = opacity
+    ctx.globalAlpha = opacity * amount
     ctx.fill(regionPath(caster), 'evenodd')
     ctx.restore()
   }

@@ -6,6 +6,8 @@ import { sha256Text } from '../geometry/scatter.js'
 import { pointInPolygon } from '../geometry/geometry.js'
 import { assertSimpleVisualPolyline } from '../visual/geometry.js'
 import { getPropUpdateTransaction } from '../validation/snapshots.js'
+import { directionalShadowStyle } from '../visual/directional-light.js'
+import type { VisualEnvironment } from '../visual/types.js'
 
 /** Disposable paint inputs; fixed-source identity and orientation metadata stay in the GM graph. */
 export type PaintPresentation = Pick<FixedPresentation, 'mode' | 'rootAnchorMm' | 'groundShadowMm'>
@@ -80,13 +82,18 @@ export function nearSidePaintEnvelope(
  * not inherit the heavier top-down vegetation theme. Explicit overrides still
  * win, and `none` remains shadowless.
  */
-export function effectivePropShadow(prop: Pick<Prop, 'shadowClass' | 'shadowOverride'>, presentation?: PaintPresentation, themed?: ShadowStyle | null): ShadowStyle | null {
+export function effectivePropShadow(prop: Pick<Prop, 'shadowClass' | 'shadowOverride'>, presentation?: PaintPresentation, themed?: ShadowStyle | null,
+  environment?: VisualEnvironment): ShadowStyle | null {
+  if (prop.shadowOverride) return prop.shadowOverride
+  if (environment && prop.shadowClass !== 'none') {
+    const directional = directionalShadowStyle(environment, prop.shadowClass === 'vegetation' ? 640 : 280, 3500)
+    if (directional) return directional
+  }
   if (presentation?.mode === 'nearSide') {
-    if (prop.shadowOverride) return prop.shadowOverride
     if (prop.shadowClass === 'none') return null
     return { directionDeg: 50, offsetMm: 150, blurMm: 48, opacity: .12, color: '#32493F' }
   }
-  return prop.shadowOverride ?? themed ?? null
+  return themed ?? null
 }
 export function propShadowDirection(prop: Pick<Prop, 'shadowOverride'>, shadow: Pick<ShadowStyle, 'directionDeg'> | null | undefined, lightDirectionDeg?: number): number {
   return prop.shadowOverride?.directionDeg ?? lightDirectionDeg ?? shadow?.directionDeg ?? 50

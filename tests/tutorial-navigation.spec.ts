@@ -65,6 +65,10 @@ test('a narrow tutorial deep link positions the heading and offers a collapsible
   await chapters.getByRole('link', { name: 'AI 与外部工具', exact: true }).click()
   await expect(page.getByRole('heading', { level: 1, name: '连接 AI、审阅草稿与使用本机工具', exact: true })).toBeFocused()
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await page.goto('./#tutorial/atmosphere/line-art')
+  const lineArtHeading = page.getByRole('heading', { name: '做线稿并核对道路接合', exact: true })
+  await expect(lineArtHeading).toBeFocused()
+  await expect(lineArtHeading).toBeInViewport()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
 })
 
@@ -81,6 +85,18 @@ test('workspace help opens the tutorial in another tab and keeps the current dra
     page.getByRole('link', { name: '阅读完整教程（新标签页）', exact: true }).click(),
   ])
   await expect(tutorial.getByRole('heading', { level: 1, name: '从零制作林边驿站', exact: true })).toBeVisible()
+  const [obliqueLesson] = await Promise.all([
+    context.waitForEvent('page'),
+    page.getByRole('link', { name: '斜俯视取景教程（新标签页）', exact: true }).click(),
+  ])
+  await expect(obliqueLesson).toHaveURL(/#tutorial\/scene\/oblique$/)
+  await expect(obliqueLesson.getByRole('heading', { name: '旋转斜俯视并导出图片', exact: true })).toBeFocused()
+  const [artStyleLesson] = await Promise.all([
+    context.waitForEvent('page'),
+    page.getByRole('link', { name: '全图画风教程（新标签页）', exact: true }).click(),
+  ])
+  await expect(artStyleLesson).toHaveURL(/#tutorial\/atmosphere\/art-style$/)
+  await expect(artStyleLesson.getByRole('heading', { name: '切换全图画风', exact: true })).toBeFocused()
   await expect(page).toHaveURL(/#workspace$/)
   await expect(page.getByRole('heading', { level: 1, name: '教程入口验证', exact: true })).toBeVisible()
   await expect(draftTitle).toHaveValue('暂未保存的名称')

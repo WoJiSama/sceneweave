@@ -24,10 +24,10 @@ import { createWaysideInnProject, WAYSIDE_INN_NAME } from '../../platform/browse
 import { STYLED_BUILDING_SHELLS, createStyledBuildingShellProject } from '../../platform/browser/content/styled-building-shells'
 import AssociatedNotes from './AssociatedNotes'
 import FloorTools from './FloorTools'
-import { defaultDisplayFloorId, resolveFloorOutput } from '../../shared/floors/output'
+import { defaultDisplayFloorId, floorDisplayStack, resolveFloorOutput } from '../../shared/floors/output'
 import ImageImportTool from './ImageImportTool'
 import SceneAssetEditor, { type SceneAssetTarget } from './SceneAssetEditor'
-import { prepareImageEnhancementCandidate, type ImageEnhancementSource } from '../../platform/browser/content/image-enhancement'
+import { inspectImageEnhancementTarget, prepareImageEnhancementCandidate, type ImageEnhancementSource } from '../../platform/browser/content/image-enhancement'
 import { prepareImageRefinementCandidate, type ImageRefinementCandidate } from '../../platform/browser/content/image-refinement'
 import type { ImageEnhancementRecipe } from '../../shared/image-enhancement'
 import { installSavedImageImportItems } from '../../platform/browser/content/image-import-library'
@@ -96,6 +96,7 @@ import { inspectBuildingChanges, roomMoveParts } from '../../shared/commands/bui
 import { effectiveEditLocked } from '../../shared/commands/layers'
 import type { BoundsMm, SceneDocument, PointMm, Prop, SurfaceRef } from '../../shared/model/scene'
 import { attachmentLocalPoint } from '../../shared/attachments/contact'
+import { bindPropTopSnap, propTopSnap } from '../../shared/attachments/prop-top-snap'
 import { SIGHT_OCCLUDER_POINT_LIMIT } from '../../shared/validation/primitives'
 import type { CompositionCommand } from '../../shared/model/appearance'
 import type { FillCopyReport, FillCopyRequest } from '../../application/workspace/fill-copy'
@@ -108,6 +109,7 @@ import OutdoorToolsPanel, { type OutdoorSketch, type OutdoorTask } from './Outdo
 import type { RoadDrawingSettings, RoadStrokeSettings } from '../native-canvas/road-sketch'
 import TerrainElevationTools from './TerrainElevationTools'
 import TerrainSculptTools from './TerrainSculptTools'
+import ReliefBrushTools from './ReliefBrushTools'
 import { createTerrainSculptToolState, type TerrainSculptToolState } from './terrain-sculpt-tools'
 import { prepareRoadDoorStart, type RoadDoorStartRequest, type RoadDoorStart } from './road-door-start'
 import { createTerrainElevationToolState, sampleTerrainElevation, stepTerrainElevation, type TerrainElevationToolState } from './terrain-elevation-tools'
@@ -149,9 +151,13 @@ import { selectBrowserGenerationBudget } from '../../platform/browser/budget'
 import { prepareBaseMapRequestV2 } from '../../shared/terrain-generation/base-map-v2'
 import { CONTINUATION_POLICY } from '../../shared/ai/budget-policy'
 import type { BaseMapGenerationExecution } from '../../platform/browser/terrain-generation/base-map-client'
-import { captureJson } from '../../shared/validation/json'
+import { captureJson, equalCheckedJson } from '../../shared/validation/json'
 import BaseMapGenerationSettings, { type BaseMapGenerationSettingsValue } from './BaseMapGenerationSettings'
 import VisualPanel, { type VisualBoundaryEditor, type VisualTab } from './VisualPanel'
+import ArtStylePanel, { artStyleSideLabel, type ArtStyleAlternatives, type ArtStyleSide } from './ArtStylePanel'
+import { CURRENT_ART_STYLE_PAINT_VERSION, defaultSceneArtStyle, enabledArtStylePresets, type ArtStyleRecipe, type SceneArtStyle } from '../../shared/visual/art-style'
+import { artStyleArtworkIds, artStyleSource } from '../../shared/visual/art-style-sources'
+import { INITIAL_ART_STYLE_DIVIDER } from '../native-canvas/art-style-divider'
 import OutpostTravelPanel from './OutpostTravelPanel'
 import CatalogLibrary, { type CatalogSelectorV1 } from './CatalogLibrary'
 import { createEntityLabeler } from './entity-label'
@@ -195,6 +201,7 @@ import TerrainTravelPanel from './TerrainTravelPanel'
 import HistoryPanel, { RestoreChangesPanel } from './HistoryPanel'
 import { StructureRestoreChangesPanel } from './StructureHistoryPanel'
 import AssetCanvas from '../native-canvas/AssetCanvas'
+import ObliquePreview from './ObliquePreview'
 import NewSceneForm, { type NewSceneOptions } from './NewSceneForm'
 import PlacementInspector from './PlacementInspector'
 import SelectionInspector from './SelectionInspector'
@@ -253,6 +260,9 @@ const fileController = createWorkspaceFileController({
   download,
 })
 type Candidate = { project: EditableProject; checkpoint: number; description: string; imageDraftToken?: string }
+type ArtStyleComparisonSession =
+  | { base: EditableProject; mode: 'baseline' }
+  | { base: EditableProject; mode: 'alternatives'; sides: ArtStyleAlternatives; selectedSide: ArtStyleSide }
 type CatalogUse = { selector: CatalogSelectorV1; layerId: string; ids: string[] }
 type StructurePreview = { libraryPublication?: { revision: number; entry: PreparedCatalogEntryV1 }; prefabRevisionNotes?: string[]; privacyIteration?: number; privacyAdjusting?: boolean; resumeForm?: WorkspaceFormDraft; privacyReview?: BuildingPrivacyReview; privacyReady?: boolean; publicPrivacyConfirmed?: boolean; furnishing?: FurnishingReview; inlayReview?: TerrainInlayReview[]; assetQuality?: readonly AssetQualityAssessment[]; qualityAcknowledgments?: readonly string[]; afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display' | 'path-check' | 'image-enhancement'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
 function AffectedObjectNames({ before, after, ids }: { before: SceneDocument; after: SceneDocument; ids: readonly string[] }) {
@@ -305,6 +315,11 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const [outdoorTask, setOutdoorTask] = useState<OutdoorTask>('terrain')
   const [surfaceRequest, setSurfaceRequest] = useState(0)
   const [visualTab, setVisualTab] = useState<VisualTab>('surface')
+  const [artStyleDraft, setArtStyleDraft] = useState<{ base: EditableProject; value: SceneArtStyle } | null>(null)
+  const [paintedArtStyle, setPaintedArtStyle] = useState<SceneArtStyle | undefined>()
+  const [paintedArtStyleA, setPaintedArtStyleA] = useState<SceneArtStyle | undefined>()
+  const [artStyleComparison, setArtStyleComparison] = useState<ArtStyleComparisonSession | null>(null)
+  const [artStyleDivider, setArtStyleDivider] = useState(INITIAL_ART_STYLE_DIVIDER)
   const [catalogDetailOpen, setCatalogDetailOpen] = useState(false)
   const [buildingTarget, setBuildingTarget] = useState<HTMLDivElement | null>(null)
   const [outdoorTarget, setOutdoorTarget] = useState<HTMLDivElement | null>(null)
@@ -443,6 +458,9 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const [terrainEditDraft, setTerrainEditDraft] = useState(false), [terrainEditReset, setTerrainEditReset] = useState(0)
   const [terrainEditCanvas, setTerrainEditCanvas] = useState<TerrainEditCanvasSession | null>(null)
   const [canopyBrush, setCanopyBrush] = useState<CanvasTerrainBrush | null>(null)
+  const [reliefMode, setReliefMode] = useState<{ areaId?: string; floorId: string; sceneId: string } | null>(null)
+  const [reliefBrush, setReliefBrush] = useState<CanvasTerrainBrush | null>(null)
+  const closeReliefBrush = useCallback(() => setReliefMode(null), [])
   const terrainEditDraftRef = useRef(false)
   terrainEditDraftRef.current = terrainEditDraft
   const terrainEditBaseline = useRef(compositionWorkspace.checkpoint())
@@ -516,7 +534,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const [structureRestore, setStructureRestore] = useState<StructureRestorePreview | null>(null)
   const structureRestoreRef = useRef<StructureRestorePreview | null>(null)
   structureRestoreRef.current = structureRestore
-  const [enhancementTarget, setEnhancementTarget] = useState<SceneAssetTarget | null>(null)
+  const [enhancementTarget, setEnhancementTarget] = useState<(SceneAssetTarget & { localPaint?: true }) | null>(null)
   const assetEditorDraft = useRef(false)
   const [assetEditorResume, setAssetEditorResume] = useState(0)
   const onAssetEditorDraft = useCallback((dirty: boolean) => { assetEditorDraft.current = dirty }, [])
@@ -532,6 +550,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   structureRef.current = structure
   const [sketch, setSketch] = useState<BuildingSketch | null>(null)
   const [openingTool, setOpeningTool] = useState<OpeningTool | null>(null)
+  const [lightCanvasTool, setLightCanvasTool] = useState<CanvasWorldTool | null>(null)
   const [outdoorSketch, setOutdoorSketch] = useState<OutdoorSketch | null>(null)
   const [sightSketch, setSightSketch] = useState<{ id: string; points: PointMm[]; cursor: PointMm | null } | null>(null)
   const [pipePortTool, setPipePortTool] = useState<{ id: string; port: PipePort } | null>(null)
@@ -591,6 +610,11 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (reason) { setMessage(reason); return false }
     return true
   }
+  const openLocalPaint = (target: SceneAssetTarget) => {
+    if (!guardAssetEditorDeparture() || !guard()) return
+    setEnhancementTarget({ ...target, localPaint: true })
+    setAssetEditorResume(value => value + 1)
+  }
   const hasDraft = imageImportDraft !== null || generationSummary.hasDraft || regionalDraft || terrainEditDraft || !!placement || !!fillCopy || !!prefabPlacement || !!sketch || !!outdoorSketch || !!openingTool || !!sightSketch || !!pipePortTool || !!scatterClearing || Object.values(formDrafts).some(Boolean)
   const editDisabled = busy || catalogBusy || editingBlocked || hasDraft
   const markFormDraft = (key: keyof typeof formDrafts) => setFormDrafts(current => current[key] ? current : { ...current, [key]: true })
@@ -598,6 +622,8 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     setFormDrafts(current => ({ ...current, [key]: false }))
     if (reset) setFormReset(current => ({ ...current, [key]: current[key] + 1 }))
   }
+  const closeArtComparison = () => { setArtStyleComparison(null); setPaintedArtStyleA(undefined) }
+  const cancelArtStyle = () => { setArtStyleDraft(null); setPaintedArtStyle(undefined); closeArtComparison(); finishFormDraft('artStyleForm') }
   const toolDisabled = (completing: readonly WorkspaceDraft[]) => !!workspaceTransitionReason(transient(), completing)
   const sessionActions = useRef<WorkspaceController | null>(null)
   const action = async (run: () => Promise<void>, failureSource = '工程操作', progressMessage = '正在处理完整工程…') => {
@@ -635,9 +661,17 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     setSelected(null)
     setDetailMode('selection'); setCatalogDetailOpen(false); setInspectedLayerId('')
     setFormDrafts(initialFormDrafts())
+    setArtStyleDraft(null); setPaintedArtStyle(undefined); closeArtComparison(); setArtStyleDivider(INITIAL_ART_STYLE_DIVIDER)
     sculptEpoch.current++; setSculptSession(null); setRoadStart(null); setPartitionView(undefined); setAtmosphereBypass(false)
     elevationEpoch.current++; setElevationSession(null); setOpeningTool(null); setStructure(null); setRestore(null); setStructureRestore(null); setSketch(null); setOutdoorSketch(null); setPrefabPlacement(null); setTemplatePlacement(null); setAudience('gm'); setMemberMode(false); setHiddenLayerIds(new Set()); setSoloLayerId(null); setCurrentOnly(false); setChosenFloorId(''); setLayerMoveRequest(0); setCurrentLayerId(Object.keys(completeProject?.document.userLayers ?? {})[0] ?? '')
   }, [project?.document.sceneId, sessionGeneration])
+  useEffect(() => {
+    if (artStyleDraft && artStyleDraft.base !== completeProject) {
+      setArtStyleDraft(null)
+      finishFormDraft('artStyleForm')
+    }
+    if (artStyleComparison && (artStyleComparison.base !== completeProject || audience !== 'gm')) closeArtComparison()
+  }, [completeProject, artStyleDraft, artStyleComparison, audience])
   useEffect(() => { if (structureRef.current) compositionWorkspace.cancelPreview(structureRef.current.prepared); setStructure(null) }, [project?.document.sceneId, project?.document.revision])
   useEffect(() => { if (restoreRef.current) compositionWorkspace.cancelRestore(restoreRef.current); setRestore(null) }, [project?.document.sceneId, project?.document.revision])
   useEffect(() => { setRestoreConfirmed(false) }, [restore])
@@ -1209,7 +1243,11 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     void action(async () => {
       compositionWorkspace.assertCheckpoint(placement.checkpoint)
       const prop = placement.prop
-      await compositionWorkspace.execute([{ type: 'addProp', id: prop.id, floorId: prop.floorId, definitionRef: prop.definitionRef!, positionMm, rotationDeg: prop.rotationDeg, supportRef: prop.supportRef, layerId: currentLayerId }])
+      const top = completeProject ? propTopSnap(completeProject.document, prop, positionMm, scopedHiddenIds) : undefined
+      const commands: SceneCommand[] = [{ type: 'addProp', id: prop.id, floorId: prop.floorId, definitionRef: prop.definitionRef!, positionMm: top?.positionMm ?? positionMm,
+        rotationDeg: prop.rotationDeg, supportRef: top?.supportRef ?? prop.supportRef, layerId: currentLayerId }]
+      if (top) commands.push(bindPropTopSnap(top, prop.id, newId()))
+      await compositionWorkspace.execute(commands)
       setPlacement(null); setSelected(prop.id)
     }, '放置物件')
   }
@@ -1295,6 +1333,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       if (clearing) setScatterClearing(null)
       if (form === 'elevationForm') setElevationSession(null)
       if (form === 'sculptForm') setSculptSession(null)
+      if (commands.some(command => command.type === 'createTerrainArea' && command.relief || command.type === 'updateTerrainArea' && command.changes.relief)) closeReliefBrush()
       finishFormDraft(form)
       setStructure({ prepared, checkpoint, commands, document: after, description, kind: 'outdoor', scopeIds, layerIds, confirmed: false, selectionAfterAdopt, inlayReview })
     }, '室外候选未通过，工程未修改')
@@ -1336,10 +1375,13 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     try {
       const candidate = await prepare(current, abort.signal)
       abort.signal.throwIfAborted(); compositionWorkspace.assertCheckpoint(checkpoint)
-      const prepared = await compositionWorkspace.previewCatalogCommands(candidate.catalog, candidate.commands, { checkpoint, signal: abort.signal })
+      const prepared = candidate.floorArtwork
+        ? await compositionWorkspace.previewFloorArtworkPatch(candidate.catalog, source.target.id, { checkpoint, signal: abort.signal })
+        : await compositionWorkspace.previewCatalogCommands(candidate.catalog, candidate.commands, { checkpoint, signal: abort.signal })
       if (abort.signal.aborted) { compositionWorkspace.cancelPreview(prepared); abort.signal.throwIfAborted() }
       setStructure({ prepared, checkpoint, commands: candidate.commands, document: prepared.document,
         description: candidate.label, kind: 'image-enhancement', scopeIds: [source.target.id] })
+      inspect('selection')
     } finally {
       signal?.removeEventListener('abort', cancel)
       if (controller.current === abort) controller.current = null
@@ -1692,14 +1734,18 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     }, '遮罩重检失败，输入及当前工程已保留')
   }
   const select = (id: string | null, operation: 'replace' | 'add' | 'subtract' = 'replace') => {
-    if (!guard()) return
+    const artStyleInspection = detailMode === 'visual' && visualTab === 'artStyle'
+    if (!guard(artStyleInspection ? 'artStyleForm' : undefined)) return
     if (id && scopedHiddenIds.has(id)) {
       const name = completeProject ? createEntityLabeler(completeProject.document)(id) : '该对象'
       setMessage(hiddenIds.has(id) ? `「${name}」在编辑视图中隐藏；请在图层中显示它、退出独显，或检查隐藏的支撑/附着对象。` : `「${name}」在当前选择范围外；请在图层中切换当前层或选择「所有可见图层」。`)
       return
     }
-    setMenu(null); setMessage(null); setCatalogDetailOpen(false); setDetailMode('selection')
-    requestAnimationFrame(() => shell.current?.querySelector('.workspace-inspector .workspace-panel-body')?.scrollTo({ top: 0 }))
+    setMenu(null); setMessage(null); setCatalogDetailOpen(false)
+    if (!artStyleInspection) {
+      setDetailMode('selection')
+      requestAnimationFrame(() => shell.current?.querySelector('.workspace-inspector .workspace-panel-body')?.scrollTo({ top: 0 }))
+    }
     if (!id || !project) { selectionSession.set([]); return }
     const scene = project.document, parent = selectionUnitId(scene, id)
     if (parent && parent !== id) setMemberMode(true)
@@ -1707,7 +1753,10 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     const current = selectionSession.getSnapshot()
     selectionSession.set(normalizeSelection(scene, operation === 'replace' ? [id] : operation === 'add' ? [...current, id] : current.filter(value => value !== id), true))
   }
-  const selectMany = (ids: readonly string[]) => { if (!guard()) return; setMenu(null); setMessage(null); selectionSession.set(ids.filter(id => !scopedHiddenIds.has(id))) }
+  const selectMany = (ids: readonly string[]) => {
+    if (!guard(detailMode === 'visual' && visualTab === 'artStyle' ? 'artStyleForm' : undefined)) return
+    setMenu(null); setMessage(null); selectionSession.set(ids.filter(id => !scopedHiddenIds.has(id)))
+  }
   const batchAction = (kind: SelectionAction, values?: { dx?: number; dy?: number; angle?: number }, ids = selectionSession.getSnapshot(), checkpoint = compositionWorkspace.checkpoint()) => {
     if (!project || audience !== 'gm' || !guard(kind === 'move' || kind === 'rotate' ? 'selectionForm' : undefined)) return
     void action(async () => {
@@ -1780,6 +1829,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     compositionWorkspace.cancelPreview(candidate.prepared)
     structureRef.current = null
     setStructure(null)
+    if (candidate.kind === 'image-enhancement' && enhancementTarget) setAssetEditorResume(value => value + 1)
     if (templatePlacement) markFormDraft('templatePlacementForm')
     if (candidate.resumeForm) markFormDraft(candidate.resumeForm)
     setMessage(`已取消「${candidate.description}」预览，工程未修改。`)
@@ -1873,6 +1923,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const closeMenu = (restore = false) => { const origin = menu?.origin; setMenu(null); if (restore) requestAnimationFrame(() => origin?.isConnected && origin.focus({ preventScroll: true })) }
   const visibleCompleteProject = useMemo(() => generationPreview?.project ?? regionalPreview?.project ?? terrainLocalPreview?.project ?? terrainEditPreview?.project ?? (aiShown ? aiPreview!.project : terrainPreview?.project ?? structureRestore?.project ?? restore?.project ?? (structure?.prepared.project ?? completeProject)), [completeProject, structure, restore, structureRestore, aiShown, aiPreview, terrainPreview, terrainEditPreview, terrainLocalPreview, regionalPreview, generationPreview])
   const renderProject = useMemo(() => visibleCompleteProject ? visibleCompleteProject : null, [visibleCompleteProject])
+  const obliqueBundle = useMemo(() => renderProject ? toBundle(renderProject) : null, [renderProject])
   const visibleProject = useMemo(() => renderProject ? domainProject(renderProject) : null, [renderProject])
   const visibleFloorId = visibleProject && visibleProject.document.sceneId !== completeProject?.document.sceneId
     ? defaultDisplayFloorId(visibleProject.document) ?? '' : activeFloorId
@@ -1902,7 +1953,74 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (reason) { setMessage(reason); return false }
     return true
   }
+  const savedArtStyle = useMemo(() => completeProject?.document.artStyle ?? defaultSceneArtStyle(), [completeProject?.document.artStyle])
+  const pendingArtStyle = artStyleDraft?.base === completeProject && renderProject === completeProject ? artStyleDraft?.value : undefined
+  const comparison = audience === 'gm' && !atmosphereBypass && artStyleComparison?.base === completeProject && renderProject === completeProject
+    ? artStyleComparison : null
+  const alternatives = comparison?.mode === 'alternatives' ? comparison.sides : undefined
+  const artStyleSide = comparison?.mode === 'alternatives' ? comparison.selectedSide : 'b'
+  const artStylePreview = alternatives?.b ?? pendingArtStyle
+  const artStyleA = alternatives?.a
   const editorRenderer = useMemo(() => renderProject ? (options: Parameters<typeof renderEditorProject>[1]) => renderEditorProject(toBundle(renderProject), { ...options, floorId: visibleFloorId, hiddenLayerIds: renderHiddenLayers, atmosphereBypass }) : undefined, [renderProject, visibleFloorId, renderHiddenLayers, atmosphereBypass])
+  const structuredArt = useMemo(() => {
+    if (!completeProject || sidebar !== 'visual' || visualTab !== 'artStyle' || audience !== 'gm') return null
+    try {
+      let guide = false, svg = false
+      for (const floor of floorDisplayStack(completeProject.document, activeFloorId)) {
+        const drawing = projectEditorScene(completeProject.document, { floorId: floor.id, hiddenLayerIds: renderHiddenLayers }, completeProject.appearance)
+        for (const id of artStyleArtworkIds(drawing)) {
+          const kind = artStyleSource(completeProject.document.assets[id], completeProject.authoringSources[id], CURRENT_ART_STYLE_PAINT_VERSION)
+          if (kind === 'svg') svg = true
+          else if (kind) guide = true
+        }
+        if (guide && svg) break
+      }
+      return { guide, svg }
+    } catch { return null }
+  }, [completeProject, sidebar, visualTab, audience, activeFloorId, renderHiddenLayers])
+  const editMapArtStyle = (value: SceneArtStyle) => {
+    if (!completeProject || !guard('artStyleForm')) return
+    setAtmosphereBypass(false)
+    if (equalCheckedJson(value, savedArtStyle)) {
+      setArtStyleDraft(null); finishFormDraft('artStyleForm')
+    } else {
+      setArtStyleDraft({ base: completeProject, value }); markFormDraft('artStyleForm')
+    }
+  }
+  const editArtStyle = (value: SceneArtStyle, side?: ArtStyleSide) => {
+    if (comparison?.mode !== 'alternatives') { editMapArtStyle(value); return }
+    if (!guard('artStyleForm')) return
+    setArtStyleComparison({ ...comparison, sides: { ...comparison.sides, [side ?? comparison.selectedSide]: value } })
+  }
+  const toggleArtComparison = (mode: ArtStyleComparisonSession['mode']) => {
+    if (!completeProject || !guard('artStyleForm')) return
+    if (comparison?.mode === mode) { closeArtComparison(); return }
+    setAtmosphereBypass(false)
+    if (mode === 'baseline') { setArtStyleComparison({ base: completeProject, mode }); enterCanvas(); return }
+    const current = pendingArtStyle ?? savedArtStyle
+    const keepCurrent = current.active === 'both' || enabledArtStylePresets(current.active).includes('lineArt')
+    const sideA: SceneArtStyle = keepCurrent ? current : { ...current, active: 'handDrawn' }
+    const sideB: SceneArtStyle = { ...current, active: 'tea' }
+    setPaintedArtStyleA(undefined)
+    setArtStyleComparison({ base: completeProject, mode, sides: { a: sideA, b: sideB }, selectedSide: 'b' })
+  }
+  const chooseArtStyleSide = (side: ArtStyleSide) => {
+    setArtStyleComparison(current => current?.mode === 'alternatives' ? { ...current, selectedSide: side } : current)
+  }
+  const artStyleToAdopt = alternatives?.[artStyleSide] ?? pendingArtStyle
+  const artStyleAdoptionReady = artStylePreview !== undefined && artStylePreview === paintedArtStyle && (!alternatives || alternatives.a === paintedArtStyleA)
+  const adoptArtStyle = () => {
+    if (!completeProject || !artStyleToAdopt || !artStyleAdoptionReady || !guard('artStyleForm')) return
+    if (equalCheckedJson(artStyleToAdopt, savedArtStyle)) { cancelArtStyle(); return }
+    void action(async () => {
+      if (compositionWorkspace.getState().project !== completeProject) throw new Error('工程已更新，请重新预览画风。')
+      const candidate = await compositionWorkspace.preview([{ type: 'setSceneArtStyle', style: artStyleToAdopt }])
+      try { await compositionWorkspace.adoptPreview(candidate) }
+      catch (error) { compositionWorkspace.cancelPreview(candidate); throw error }
+      cancelArtStyle()
+      setMessage('已采用全图画风，可用顶部「撤销」恢复。')
+    }, '画风未采用', '正在校验并采用画风…')
+  }
   const pointHitTest = useMemo(() => visibleCompleteProject ? hitTestLayers(visibleCompleteProject.document, hiddenIds) : undefined, [visibleCompleteProject?.document, hiddenIds])
   const boundsSelector = useMemo(() => visibleCompleteProject ? selectInBoundsLayers(visibleCompleteProject.document, hiddenIds) : undefined, [visibleCompleteProject?.document, hiddenIds])
   const selectionGeometry = useMemo(() => visibleCompleteProject ? selectionGeometryLayers(visibleCompleteProject.document, hiddenIds) : undefined, [visibleCompleteProject?.document, hiddenIds])
@@ -2046,7 +2164,8 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     onClearCursor: () => setScatterClearing(current => current ? { ...current, cursor: null } : null),
     onCancel: () => setScatterClearing(null), onFinish: finishScatterClearing,
   } : null
-  const canvasWorldTool = templateWorldTool ?? sculptWorldTool ?? elevationWorldTool ?? openingWorldTool ?? terrainEditCanvas?.scopeTool ?? sightWorldTool ?? pipePortWorldTool ?? clearingTool ?? sightViewTool ?? (outdoorSketch && audience === 'gm' ? {
+  const lightPlacementTool = audience === 'gm' && sidebar === 'visual' && visualTab === 'light' && !catalogDetailOpen ? lightCanvasTool : null
+  const canvasWorldTool = templateWorldTool ?? sculptWorldTool ?? elevationWorldTool ?? openingWorldTool ?? lightPlacementTool ?? terrainEditCanvas?.scopeTool ?? sightWorldTool ?? pipePortWorldTool ?? clearingTool ?? sightViewTool ?? (outdoorSketch && audience === 'gm' ? {
     kind: outdoorSketch.kind, points: outdoorSketch.points, cursor: outdoorSketch.cursor,
     road: outdoorSketch.purpose === 'path' ? roadSettings ?? undefined : undefined,
     roadStroke: outdoorSketch.roadStroke && roadStrokeSettings ? { settings: roadStrokeSettings, onEnd: (points: PointMm[], drawnSupports: SurfaceRef[]) => {
@@ -2144,6 +2263,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (elevationSession) { setSidebar('outdoor'); inspect('elevation'); return }
     if (localGenerationDraft) { setSidebar('outdoor'); setOutdoorTab('regenerate'); inspect('regenerate'); return }
     if (terrainEditDraft) { setSidebar('outdoor'); setOutdoorTab('edit'); inspect('outdoorEdit'); return }
+    if (formDrafts.artStyleForm) { setSidebar('visual'); setVisualTab('artStyle'); inspect('visual'); return }
     const generationDraft = generationSummary.hasDraft ? domainOperations.active()?.domain : regionalDraft ? 'regional' : null
     if (generationDraft && generationDraft !== 'local') { setGenerationTab(generationDraft); openResources('generate'); return }
     if (templatePlacement) { enterCanvas(); return }
@@ -2179,6 +2299,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             if (key === 'elevationForm') { elevationEpoch.current++; setElevationSession(null) }
             if (key === 'prefabForm') setPrefabPlacement(null)
             if (key === 'templatePlacementForm') setTemplatePlacement(null)
+            if (key === 'artStyleForm') { cancelArtStyle(); return }
             finishFormDraft(key as keyof typeof formDrafts, true)
           }}>{workspaceFormDraftLabels[key as WorkspaceFormDraft].cancel}</button>)}</>
   const historyBrowser = completeProject && <HistoryPanel key={panelKey} detailsTarget={historyTarget} detailsActive={detailMode === 'history' && !catalogDetailOpen} onInspect={() => inspect('history')} active={active && audience === 'gm' && sidebar === 'history'} project={completeProject} repository={repository} workspace={compositionWorkspace}
@@ -2272,13 +2393,36 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
           <div hidden={sidebar !== 'building' || audience !== 'gm'} onChangeCapture={event => { if (!(event.target as HTMLElement).closest('[data-aggregate-session-control]')) markFormDraft('buildingForm') }}>{completeProject && <BuildingPanel detailsTarget={buildingTarget} detailsActive={detailMode === 'building' && !catalogDetailOpen} activeTask={buildingTask} onTaskChange={task => { if (task !== buildingTask && !guard(['buildingForm', 'sketch'])) return; setBuildingTask(task); inspect('building') }} onBrowseScene={openLayers} onOpenSettings={showSettings} onOpenings={() => { if (guard()) { setOpeningTool({ kind: 'door', widthMm: 900 }); inspect('selection') } }} key={`${panelKey}-${formReset.buildingForm}`} scene={completeProject.document} layerId={currentLayerId}
             disabled={toolDisabled(['sketch', 'buildingForm']) || effectiveHiddenLayers.has(currentLayerId)} sketch={sketch}
             onSketch={next => { if (!next) setSketch(null); else if (guard('buildingForm')) { setSketch(next); if (next.kind !== 'ruler') markFormDraft('buildingForm'); setDetailMode('building'); setCatalogDetailOpen(false); enterCanvas() } }} onPreview={previewBuilding} onSelect={select} onSelectMany={selectMany} onFinishReady={onBuildingFinishReady}/>}</div>
-          <div hidden={sidebar !== 'visual' || audience !== 'gm'} onChangeCapture={() => markFormDraft('visualForm')}>{completeProject && <SelectionSubscriber session={selectionSession}>{ids => <VisualPanel surfaceRequest={surfaceRequest} detailsTarget={visualTarget} detailsActive={detailMode === 'visual' && !catalogDetailOpen} activeTab={visualTab} onTabChange={tab => { if (tab !== visualTab && !guard('visualForm')) return; setVisualTab(tab); inspect('visual') }} onInspect={() => inspect('visual')} key={`${panelKey}-${completeProject.document.revision}-${formReset.visualForm}`} scene={completeProject.document} appearance={completeProject.appearance} historyIdentity={completeProject.historyIdentity} layerId={currentLayerId} selectedIds={ids} disabled={toolDisabled(['visualForm'])} onPreview={(commands, label) => preview(commands, label, undefined, 'visualForm')}  onBoundaryEditor={setBoundaryEditor} onDraftChange={() => markFormDraft('visualForm')}/>}</SelectionSubscriber>}</div>
+          <div hidden={sidebar !== 'visual' || audience !== 'gm'} onChangeCapture={event => {
+            if (!(event.target as HTMLElement).closest('[data-art-style-controls]')) markFormDraft('visualForm')
+          }}>{completeProject && <SelectionSubscriber session={selectionSession}>{ids => {
+            const selected = ids.length === 1 ? completeProject.document.props[ids[0]] : undefined
+            const definition = ids.length === 1 ? completeProject.document.decorations[ids[0]]?.definitionRef : undefined
+            const appearance = selected?.appearance ?? (definition && completeProject.document.propDefinitions[definition.id]?.defaultAppearance)
+            const image = appearance?.kind === 'image' ? appearance.assetId : undefined
+            const selectedBitmap = (version: ArtStyleRecipe['paintVersion']) => !!image && !artStyleSource(completeProject.document.assets[image], completeProject.authoringSources[image], version)
+            const localTarget = selected && ids[0] && visualTab === 'artStyle' && sidebar === 'visual'
+              ? { kind: 'prop', id: ids[0] } as const : undefined
+            const localPaint = localTarget && selectedBitmap(CURRENT_ART_STYLE_PAINT_VERSION) && inspectImageEnhancementTarget(completeProject, localTarget)
+              ? () => openLocalPaint(localTarget) : undefined
+            return <VisualPanel surfaceRequest={surfaceRequest} detailsTarget={visualTarget} detailsActive={detailMode === 'visual' && !catalogDetailOpen} activeTab={visualTab}
+              onTabChange={tab => { if (tab !== visualTab && !guard(tab === 'artStyle' ? 'artStyleForm' : 'visualForm')) return; setVisualTab(tab); inspect('visual') }}
+              onInspect={() => inspect('visual')} key={`${panelKey}-${completeProject.document.revision}-${formReset.visualForm}`} scene={completeProject.document}
+              appearance={completeProject.appearance} historyIdentity={completeProject.historyIdentity} layerId={currentLayerId} selectedIds={ids} disabled={toolDisabled(['visualForm'])}
+              artStyleControls={<ArtStylePanel value={alternatives?.[artStyleSide] ?? pendingArtStyle ?? savedArtStyle} disabled={toolDisabled(['artStyleForm'])} dirty={!!pendingArtStyle} ready={artStyleAdoptionReady}
+                comparing={!!comparison} alternatives={alternatives} selectedSide={artStyleSide} selectedBitmap={selectedBitmap} onChange={editArtStyle}
+                onCopyFilter={(side, style) => editArtStyle(style, side)} onLocalPaint={localPaint}
+                hasStructuredArtwork={version => !!(structuredArt?.guide || version === CURRENT_ART_STYLE_PAINT_VERSION && structuredArt?.svg)}
+                onToggleComparison={toggleArtComparison} onSelectSide={chooseArtStyleSide} onAdopt={adoptArtStyle} onCancel={cancelArtStyle}/>}
+              onPreview={(commands, label) => preview(commands, label, undefined, 'visualForm')} onBoundaryEditor={setBoundaryEditor} onDraftChange={() => markFormDraft('visualForm')}
+              onLightCanvasTool={setLightCanvasTool} onCanvasStart={enterCanvas}/>
+          }}</SelectionSubscriber>}</div>
           <div hidden={sidebar !== 'generate' || audience !== 'gm'}>{generationTools}</div>
           <div hidden={sidebar !== 'history' || audience !== 'gm'}>{historyBrowser}</div>
           <div hidden={sidebar !== 'scene' && audience === 'gm'}>{audience === 'gm' && <><ImageImportTool key={imageImportReset} disabled={toolDisabled(['imageImport'])} requestKey={imageImportRequest} onDraftChange={updateImageImportDraft} onPrepare={(factory, description, token) => prepare(factory, description, token)}/>{imageLibraryStatus && imageLibraryStatus.sceneId === project?.document.sceneId && <div role="status" className="asset-muted"><p>{imageLibraryStatus.message}</p>{imageLibraryStatus.failed && <button className="secondary" disabled={editDisabled} onClick={() => { if (project) void syncImageItems(project.document.sceneId, Object.keys(project.document.props)) }}>重试保存拆解素材</button>}</div>}</>}<div className="workspace-scene-actions"><button className="secondary" disabled={!project || audience === 'player'} onClick={showSettings}>场景设置</button></div>{completeProject && audience === 'gm' && <><FloorOverview project={completeProject} floorId={activeFloorId} disabled={editDisabled} onNavigate={changeFloor}/><FloorArtworkPanel key={`${panelKey}-artwork-${completeProject.document.revision}-${formReset.displayForm}`}
           scene={completeProject.document} floorId={activeFloorId} disabled={toolDisabled(['displayForm'])}
           onDraftChange={dirty => dirty ? markFormDraft('displayForm') : finishFormDraft('displayForm')}
-          onImport={request => previewFloorArtwork(activeFloorId, request)} onClear={() => previewFloorArtwork(activeFloorId, null)}/><FloorUnderlay key={`${panelKey}-underlay-${activeFloorId}-${completeProject.document.revision}`} scene={completeProject.document} floorId={activeFloorId} disabled={toolDisabled(['displayForm'])} onDraftChange={dirty => dirty ? markFormDraft('displayForm') : finishFormDraft('displayForm')} onPreview={(commands, label) => previewBuilding(commands, label, 'displayForm')}/><FloorLinks key={`${panelKey}-${completeProject.document.revision}`} scene={completeProject.document} floorId={activeFloorId} disabled={toolDisabled(['displayForm'])} onDraftChange={() => markFormDraft('displayForm')} onPreview={(commands, label) => previewBuilding(commands, label, 'displayForm')} onNavigate={navigateEntrance}/></>}{layerPanel}{inspectedLayerId && <button className="secondary asset-wide" onClick={() => setInspectedLayerId('')}>显示所有图层的对象</button>}{sceneBrowser}</div>
+          onLocalPaint={() => openLocalPaint({ kind: 'floorArtwork', id: activeFloorId })} onImport={request => previewFloorArtwork(activeFloorId, request)} onClear={() => previewFloorArtwork(activeFloorId, null)}/><FloorUnderlay key={`${panelKey}-underlay-${activeFloorId}-${completeProject.document.revision}`} scene={completeProject.document} floorId={activeFloorId} disabled={toolDisabled(['displayForm'])} onDraftChange={dirty => dirty ? markFormDraft('displayForm') : finishFormDraft('displayForm')} onPreview={(commands, label) => previewBuilding(commands, label, 'displayForm')}/><FloorLinks key={`${panelKey}-${completeProject.document.revision}`} scene={completeProject.document} floorId={activeFloorId} disabled={toolDisabled(['displayForm'])} onDraftChange={() => markFormDraft('displayForm')} onPreview={(commands, label) => previewBuilding(commands, label, 'displayForm')} onNavigate={navigateEntrance}/></>}{layerPanel}{inspectedLayerId && <button className="secondary asset-wide" onClick={() => setInspectedLayerId('')}>显示所有图层的对象</button>}{sceneBrowser}</div>
         </div>
   const editInspectorProp = (selected: string, commands: SceneCommand[], description: string, selectionAfterCommit?: string | null) => {
     if (!completeProject) return
@@ -2378,7 +2522,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             <button type="button" className="primary" disabled={busy || editingBlocked || scatterClearing.points.length < 3} onClick={finishScatterClearing}>预览留空区</button>
             <button type="button" className="secondary" disabled={busy} onClick={() => setScatterClearing(null)}>取消圈定留空区</button>
           </div>}
-          <div className="asset-view-bar">{completeProject && <label className="workspace-floor-switch">当前楼层<select aria-label="当前楼层" value={activeFloorId} disabled={editDisabled} onChange={event => changeFloor(event.target.value)}>{Object.values(completeProject.document.floors).map(floor => <option key={floor.id} value={floor.id}>{floor.name}</option>)}</select></label>}<div role="group" aria-label="预览受众" className="asset-audience"><button disabled={editDisabled} aria-pressed={audience === 'gm'} onClick={() => { if (guard()) { setPartitionView(undefined); setAudience('gm') } }}>主持人</button><button disabled={editDisabled} aria-pressed={audience === 'player'} onClick={() => { if (guardAssetEditorDeparture() && guard()) { setPartitionView(undefined); setAudience('player'); setGroundView(false); setSelected(null); setDetailMode('selection'); setCatalogDetailOpen(false) } }}>玩家</button></div><div className="asset-view-actions"><span>{visibleProject && visibleFloor ? `${formatDistanceMm(resolveFloorOutput(visibleProject.document, visibleFloorId).boundsMm.width, visibleProject.document.units.display)} × ${formatDistanceMm(resolveFloorOutput(visibleProject.document, visibleFloorId).boundsMm.height, visibleProject.document.units.display)} · 固定范围` : '二维俯视 · 毫米世界坐标'}</span>{project && audience === 'gm' && <button className="secondary" disabled={busy} aria-pressed={atmosphereBypass} title="暂时关闭氛围调色、点光、薄雾和滤镜，保留材质与高差阴影；仅影响主持人预览。" onClick={() => setAtmosphereBypass(value => !value)}>对比原色（仅预览）</button>}{project && audience === 'gm' && <button className="secondary" disabled={editDisabled} aria-pressed={groundView} onClick={() => setGroundView(value => !value)}>地面查看</button>}{project && (audience === 'gm' || activeSight) && <button className="secondary" disabled={busy || !activeSight && editDisabled} aria-pressed={!!activeSight} onClick={() => {
+          <div className="asset-view-bar">{completeProject && <label className="workspace-floor-switch">当前楼层<select aria-label="当前楼层" value={activeFloorId} disabled={editDisabled} onChange={event => changeFloor(event.target.value)}>{Object.values(completeProject.document.floors).map(floor => <option key={floor.id} value={floor.id}>{floor.name}</option>)}</select></label>}<div role="group" aria-label="预览受众" className="asset-audience"><button disabled={editDisabled} aria-pressed={audience === 'gm'} onClick={() => { if (guard()) { setPartitionView(undefined); setAudience('gm') } }}>主持人</button><button disabled={editDisabled} aria-pressed={audience === 'player'} onClick={() => { if (guardAssetEditorDeparture() && guard()) { setPartitionView(undefined); setAudience('player'); setGroundView(false); setSelected(null); setDetailMode('selection'); setCatalogDetailOpen(false) } }}>玩家</button></div><div className="asset-view-actions"><span>{visibleProject && visibleFloor ? `${formatDistanceMm(resolveFloorOutput(visibleProject.document, visibleFloorId).boundsMm.width, visibleProject.document.units.display)} × ${formatDistanceMm(resolveFloorOutput(visibleProject.document, visibleFloorId).boundsMm.height, visibleProject.document.units.display)} · 固定范围` : '二维俯视 · 毫米世界坐标'}</span>{project && audience === 'gm' && <button className="secondary" disabled={busy || !!pendingArtStyle || !!comparison} aria-pressed={atmosphereBypass} title="暂时关闭氛围调色、点光、薄雾和滤镜，保留材质与高差阴影；仅影响主持人预览。" onClick={() => setAtmosphereBypass(value => !value)}>对比原色（仅预览）</button>}{project && audience === 'gm' && <button className="secondary" disabled={editDisabled} aria-pressed={groundView} onClick={() => setGroundView(value => !value)}>地面查看</button>}{project && (audience === 'gm' || activeSight) && <button className="secondary" disabled={busy || !activeSight && editDisabled} aria-pressed={!!activeSight} onClick={() => {
               if (activeSight) { setSightView(null); return }
               if (completeProject && guard()) {
                 setSightView({ sceneId: completeProject.document.sceneId, floorId: activeFloorId, origin: null })
@@ -2386,7 +2530,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
               }
             }}>{activeSight ? '退出临时视野' : '临时视野'}</button>}
             {partitionOutline && <button type="button" className="secondary" onClick={() => setPartitionView(undefined)}>退出分区迷雾预览</button>}
-            {sightOverlay?.error && <span role="status">{sightOverlay.error}</span>}</div></div>
+            {obliqueBundle && visibleFloorId && <ObliquePreview bundle={obliqueBundle} floorId={visibleFloorId} audience={audience} hiddenLayerIds={renderHiddenLayers} disabled={editDisabled || !!pendingArtStyle || !!comparison}/>}{sightOverlay?.error && <span role="status">{sightOverlay.error}</span>}</div></div>
           {domainOperationState.local.phase === 'preparing' && <div className="asset-structure-preview" role="status" aria-label="局部重生成候选状态"><div><strong>正在准备局部重生成</strong><span>在地形的「局部重生成」中审阅实际修改与依赖，再保护并采用。</span></div><button className="secondary" disabled={busy} onClick={cancelLocalGeneration}>取消局部候选</button></div>}
           {domainOperationState.mixed.phase === 'preparing' && <div className="asset-structure-preview" role="status" aria-label="混合场景候选状态"><div><strong>{mixedBusy ? '正在准备混合场景' : '混合场景候选 · 当前工程尚未改变'}</strong><span>在生成面板审阅建筑支撑、真实外门和室外路线，再保存为新工程或取消。</span></div><button className="secondary" disabled={busy} onClick={() => cancelMixed(true, true)}>取消混合场景预览</button></div>}
           {domainOperationState.volcano.phase === 'preparing' && <div className="asset-structure-preview" role="status" aria-label="火山候选状态"><div><strong>{volcanoBusy ? '正在准备火山' : '火山候选 · 当前工程尚未改变'}</strong><span>在生成面板查看真实连接、路线及独立危险设置，再保存为新工程或取消。</span></div><button className="secondary" disabled={busy} onClick={() => cancelVolcano()}>取消火山预览</button></div>}
@@ -2407,10 +2551,24 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             <button className="secondary" disabled={busy || editingBlocked} onClick={cancelTemplatePlacement}>结束模板放置</button>
             <p role="status">{templateSketch?.issues.join('；') || '轮廓仅作定位，完整支撑、资源与冲突在候选中检查。'}</p>
           </section>}
+          {completeProject && visibleFloor && audience === 'gm' && completeProject.document.mapMode === 'scene' && !hasCandidate && !placement && !outdoorSketch && !terrainEditCanvas && !canopyBrush && sidebar === 'outdoor' &&
+            (reliefMode?.floorId === activeFloorId && reliefMode.sceneId === completeProject.document.sceneId ? <ReliefBrushTools key={panelKey} scene={completeProject.document} areaId={reliefMode.areaId} floorId={activeFloorId} layerId={currentLayerId}
+              disabled={editDisabled} onTool={setReliefBrush} onCancel={closeReliefBrush}
+              onPreview={(commands, label, id) => previewOutdoor(commands, label, id)}/>
+              : <div className="terrain-relief-tools"><button type="button" className="secondary" disabled={editDisabled} onClick={() => {
+                if (!guard()) return
+                const ids = selectionSession.getSnapshot(), area = ids.length === 1 ? completeProject.document.terrainAreas[ids[0]] : undefined
+                setReliefMode({ floorId: activeFloorId, sceneId: completeProject.document.sceneId, areaId: area?.floorId === activeFloorId ? area.id : undefined })
+                enterCanvas()
+              }}>起伏笔刷</button></div>)}
           <div className="asset-stage">{visibleProject && visibleFloor ? <AssetCanvas floorId={visibleFloorId} key={panelKey} groundView={groundView} toolControlsTarget={toolControlsTarget} viewControlsTarget={viewControlsTarget}
-            project={visibleProject} persistenceBusy={state.status === 'unsaved' || state.status === 'saving'} editorRenderer={editorRenderer} selectionOptions={selectionOptions} pointHitTest={pointHitTest} boundsSelector={boundsSelector}
+            project={visibleProject} persistenceBusy={state.status === 'unsaved' || state.status === 'saving'} editorRenderer={editorRenderer}
+            artStyleDraft={artStylePreview} onArtStylePaint={setPaintedArtStyle}
+            artStyleComparison={comparison ? { divider: artStyleDivider, onChange: setArtStyleDivider, style: artStyleA, onPaint: alternatives ? setPaintedArtStyleA : undefined,
+              labels: alternatives ? [artStyleSideLabel('a', alternatives.a), artStyleSideLabel('b', alternatives.b)] : undefined } : undefined}
+            selectionOptions={selectionOptions} pointHitTest={pointHitTest} boundsSelector={boundsSelector}
             selectionGeometry={selectionGeometry} selectionSummaryReader={selectionSummaryReader} worldTool={canvasWorldTool}
-            terrainBrush={audience === 'gm' ? canopyBrush ?? terrainEditCanvas?.brush : null} fillCopy={fillCopy} onFillCopyPreview={finishFillCopy} onFillCopyCancel={() => setFillCopy(null)}
+            terrainBrush={audience === 'gm' ? canopyBrush ?? terrainEditCanvas?.brush ?? (reliefMode && sidebar === 'outdoor' ? reliefBrush : null) : null} fillCopy={fillCopy} onFillCopyPreview={finishFillCopy} onFillCopyCancel={() => setFillCopy(null)}
             visualBoundary={terrainEditCanvas?.boundary ?? (audience === 'gm' && connectionBoundaryEditor && (detailMode === 'outdoor' || detailMode === 'selection' || formDrafts.outdoorForm || formDrafts.outdoorInspector) ? connectionBoundaryEditor.boundary : (detailMode === 'visual' || formDrafts.visualForm) && audience === 'gm' ? boundaryEditor?.boundary : null)}
             onVisualBoundaryFinish={terrainEditCanvas?.onBoundaryFinish} onVisualBoundaryChange={next => { if (terrainEditCanvas?.onBoundaryChange) terrainEditCanvas.onBoundaryChange(next); else if (connectionBoundaryEditor) { markFormDraft(connectionBoundaryEditor.owner); connectionBoundaryEditor.onChange(next) } else if (boundaryEditor) { markFormDraft('visualForm'); boundaryEditor.onChange(next) } }}
             onWallDragPreview={(wallId, offsetMm) => {
@@ -2422,7 +2580,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
               const targets = [...ids], checkpoint = compositionWorkspace.checkpoint()
               if (targets.length === 1 && project.document.paths[targets[0]]?.assembly?.bridge) {
                 try {
-                  const plan = prepareBridgeDrag(project.document, targets[0], scopedHiddenIds)
+                  const plan = prepareBridgeDrag(project.document, targets[0], scopedHiddenIds, project.appearance)
                   let current: ReturnType<typeof plan> | undefined
                   return {
                     preview(offsetMm, snapDistanceMm) {
@@ -2499,6 +2657,27 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
                   },
                 }
               }
+              const item = targets.length === 1 ? project.document.props[targets[0]] : undefined
+              if (item && Object.keys(project.document.attachmentSurfaces ?? {}).length) {
+                let top: ReturnType<typeof propTopSnap>
+                return {
+                  preview(offsetMm) {
+                    const point = { x: item.positionMm.x + offsetMm.x, y: item.positionMm.y + offsetMm.y }
+                    top = propTopSnap(project.document, item, point, scopedHiddenIds)
+                    return top ? {
+                      offsetMm: { x: top.positionMm.x - item.positionMm.x, y: top.positionMm.y - item.positionMm.y },
+                      allowDrop: true, message: '已对准承托面，放下将建立附着',
+                      links: [{ state: 'attach', from: item.positionMm, to: top.positionMm, band: top.polygon }],
+                    } : { offsetMm }
+                  },
+                  finish(offsetMm) {
+                    if (!top) { batchAction('move', { dx: offsetMm.x, dy: offsetMm.y }, targets, checkpoint); return }
+                    try { compositionWorkspace.assertCheckpoint(checkpoint) }
+                    catch (failure) { setMessage(failure instanceof Error ? failure.message : String(failure)); return }
+                    preview([bindPropTopSnap(top, item.id, newId())], '将物件放上承托面')
+                  },
+                }
+              }
               return { finish: offsetMm => batchAction('move', { dx: offsetMm.x, dy: offsetMm.y }, targets, checkpoint) }
             }}
             onDeleteSelection={() => {
@@ -2507,7 +2686,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             }}
             selected={null} selectionSession={selectionSession} onSelect={select} onSelectMany={selectMany} onContext={openMenu} memberMode={memberMode} onMemberMode={setMemberMode}
             focusPoint={floorFocus?.floorId === visibleFloorId && floorFocus.sceneId === visibleProject.document.sceneId ? floorFocus : undefined} onFocusPartition={focusPartition} sightOverlay={sightOverlay?.boundary ? sightOverlay : undefined} partitionOutline={partitionOutline} fitRequest={fitRequest} audience={audience} disabled={busy || terrainEditBusy || (!!terrainEditCanvas ? false : editingBlocked) || !!prefabPlacement || audience === 'player'}
-            placement={placement?.prop} onPlacementMove={positionMm => setPlacement(current => current ? { ...current, prop: { ...current.prop, positionMm } } : null)} onPlace={placeAt}
+            placement={placement?.prop} placementTop={placement && completeProject && audience === 'gm' ? propTopSnap(completeProject.document, placement.prop, placement.prop.positionMm, scopedHiddenIds)?.polygon : undefined} onPlacementMove={positionMm => setPlacement(current => current ? { ...current, prop: { ...current.prop, positionMm } } : null)} onPlace={placeAt}
             onPlacementReady={setPlacementReady} onPlacementError={error => { setPlacement(null); setMessage(error) }} onCancelPlacement={() => setPlacement(null)}/>
             : visibleProject ? <div className="asset-empty" role="status"><p>当前楼层将在此候选中移除；请核对楼层与依赖差异后采用，或取消返回原楼层。</p></div> : <div className="asset-empty"><div className="asset-empty-icon"><Layers3 size={36}/></div><span>从一张空白画布开始</span><p>手工绘制房间与地形，或先生成一张地图再继续编辑。</p><div className="workspace-start-actions"><button className="primary" disabled={busy} onClick={openNewScene}>新建场景</button><button className="secondary" disabled={busy} onClick={() => request({ type: 'generate' })}>生成地图</button><button className="secondary" disabled={busy} onClick={showSamples}>从样板开始</button></div></div>}</div>
         </main>
@@ -2567,7 +2746,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       <input hidden ref={file} type="file" accept=".sceneweave" aria-label="选择完整工程" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected && guard()) onImportFile(selected) }}/>
       {busy && !preparation && <div className="asset-busy" role="status"><LoaderCircle size={17} className="spin"/>{busyMessage}{controller.current && <button onClick={() => controller.current?.abort()}>取消准备</button>}</div>}
     </div>
-    {active && completeProject && audience === 'gm' && enhancementTarget && <SceneAssetEditor key={`${completeProject.document.sceneId}-${enhancementTarget.kind}-${enhancementTarget.id}`} project={completeProject} target={enhancementTarget} disabled={editDisabled} previewActive={!!structure} resumeRequest={assetEditorResume} onDraftChange={onAssetEditorDraft} propertiesDirty={propAppearanceDraftOwners.current.editor || enhancementTarget.kind !== 'prop' && formDrafts.appearanceForm} onPreview={previewImageEnhancement} onRefinementPreview={previewImageRefinement} onClose={() => { assetEditorDraft.current = false; onEditorAppearanceDraft(false); if (enhancementTarget.kind !== 'prop') finishFormDraft('appearanceForm', true); else setFormReset(current => ({ ...current, propAppearanceForm: current.propAppearanceForm + 1 })); setEnhancementTarget(null) }} properties={enhancementTarget.kind === 'prop' ? <SceneInspector project={completeProject} selected={enhancementTarget.id} busy={toolDisabled(['propAppearanceForm'])} appearanceResetKey={formReset.propAppearanceForm} onAppearanceDraftChange={onEditorAppearanceDraft} workspace={compositionWorkspace} onSelect={id => { select(id) }} onCommit={commit} onPreview={(commands, description) => preview(commands, description, undefined, Array.isArray(commands) && commands.some(command => (command.type === 'replacePropAppearance' || command.type === 'setPropWaterAppearance')) ? 'propAppearanceForm' : undefined)} onPropCommand={(commands, description, selectionAfterCommit) => editInspectorProp(enhancementTarget.id, commands, description, selectionAfterCommit)}/> : <div onChangeCapture={() => markFormDraft('appearanceForm')}><AppearancePanel project={completeProject} ids={[enhancementTarget.id]} layerId={completeProject.document.entityLayers[enhancementTarget.id]} scopeKind="targets" disabled={toolDisabled(['appearanceForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'appearanceForm')}/></div>}/>}
+    {active && completeProject && audience === 'gm' && enhancementTarget && <SceneAssetEditor key={`${completeProject.document.sceneId}-${enhancementTarget.kind}-${enhancementTarget.id}-${enhancementTarget.localPaint ? 'local' : 'overview'}`} project={completeProject} target={enhancementTarget} disabled={editDisabled} previewActive={!!structure} resumeRequest={assetEditorResume} openForLocalPaint={enhancementTarget.localPaint} onDraftChange={onAssetEditorDraft} propertiesDirty={propAppearanceDraftOwners.current.editor || enhancementTarget.kind !== 'prop' && formDrafts.appearanceForm} onPreview={previewImageEnhancement} onRefinementPreview={previewImageRefinement} onClose={() => { assetEditorDraft.current = false; onEditorAppearanceDraft(false); if (enhancementTarget.kind !== 'prop') finishFormDraft('appearanceForm', true); else setFormReset(current => ({ ...current, propAppearanceForm: current.propAppearanceForm + 1 })); setEnhancementTarget(null) }} properties={enhancementTarget.kind === 'floorArtwork' ? <p className="asset-muted">仅修改此楼层底图框内的像素。可在场景预览后采用。</p> : enhancementTarget.kind === 'prop' ? <SceneInspector project={completeProject} selected={enhancementTarget.id} busy={toolDisabled(['propAppearanceForm'])} appearanceResetKey={formReset.propAppearanceForm} onAppearanceDraftChange={onEditorAppearanceDraft} workspace={compositionWorkspace} onSelect={id => { select(id) }} onCommit={commit} onPreview={(commands, description) => preview(commands, description, undefined, Array.isArray(commands) && commands.some(command => (command.type === 'replacePropAppearance' || command.type === 'setPropWaterAppearance')) ? 'propAppearanceForm' : undefined)} onPropCommand={(commands, description, selectionAfterCommit) => editInspectorProp(enhancementTarget.id, commands, description, selectionAfterCommit)}/> : <div onChangeCapture={() => markFormDraft('appearanceForm')}><AppearancePanel project={completeProject} ids={[enhancementTarget.id]} layerId={completeProject.document.entityLayers[enhancementTarget.id]} scopeKind="targets" disabled={toolDisabled(['appearanceForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'appearanceForm')}/></div>}/>}
     {active && menu && project && <SceneContextMenu key={`${menu.checkpoint}-${menu.x}-${menu.y}-${menu.ids.join('|')}`} project={project} menu={menu} onMoveToLayer={() => { try { compositionWorkspace.assertCheckpoint(menu.checkpoint); selectionSession.set(menu.ids); setLayerMoveRequest(value => value + 1); openLayers() } catch (error) { setMessage(String(error)) } }} onClose={closeMenu} onAction={action => batchAction(action, undefined, menu.ids, menu.checkpoint)} onSelect={select} onFit={() => setFitRequest(value => value + 1)} onPlace={(id, point) => { try { compositionWorkspace.assertCheckpoint(menu.checkpoint); choosePlacement(id, point) } catch (error) { setMessage(String(error)) } }} onEdit={() => { inspect('selection'); requestAnimationFrame(() => requestAnimationFrame(() => { const input = shell.current?.querySelector<HTMLElement>('.asset-inspector input:not(:disabled)') ?? shell.current?.querySelector<HTMLElement>('.asset-inspector button:not(:disabled)'); input?.focus() })) }}/>}
     {active && (candidate || newScene || preparation) && <div className="modal-scrim workspace-modal-scrim"><div ref={dialog} className="modal workspace-modal" role="dialog" aria-modal="true" aria-label={preparation ? '准备打开工程' : newScene ? '新建空白场景' : '确认打开工程'}>
       <div className="modal-heading"><h2>{preparation ? '准备打开工程' : newScene ? '新建空白场景' : '确认打开工程'}</h2><button className="icon-button" disabled={preparation ? preparation.cancelling : busy && !(newScene && creatingStage === 'preparing')} aria-label={preparation ? '关闭准备窗口' : newScene ? '取消新建场景' : '取消打开工程'} onClick={() => { if (preparation) cancelPreparation(); else if (newScene) cancelNewScene(); else setCandidate(null) }}><X size={18}/></button></div>

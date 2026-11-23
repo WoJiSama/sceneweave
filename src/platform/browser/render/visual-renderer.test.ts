@@ -2,9 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Projection } from '../../../shared/projection/types.js'
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { applyVisualFilters, drawVisualAtmosphere, drawVisualBoundaries } from './visual-renderer'
-import { lightVisibilityPolygon, occluderSegments } from './visual-geometry'
+import { lightVisibilityPolygon, occluderSegments, windowVisibilityPolygon } from './visual-geometry'
+import { pointInPolygon } from '../../../shared/geometry/geometry.js'
 import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
 import type { VisualBoundary } from '../../../shared/visual/types.js'
+import { applyArtStyleGrades, captureLineArtEdges } from './art-style-grade.js'
+import { activeArtStyles, defaultSceneArtStyle } from '../../../shared/visual/art-style.js'
+import { neutralColorFilter } from '../../../shared/visual/color-filter.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 function projection(): Projection {
@@ -14,7 +18,8 @@ function projection(): Projection {
 }
 function pixelContext(pixel: number[], width = 4, height = 4) {
   const data = Uint8ClampedArray.from(Array.from({ length: width * height }, () => pixel).flat())
-  const ctx = { canvas: { width, height }, getImageData: vi.fn((x: number, y: number, w: number, h: number) => ({ data: Uint8ClampedArray.from(Array.from({ length: h }, (_, row) => [...data.slice(((y + row) * width + x) * 4, ((y + row) * width + x + w) * 4)]).flat()) })), putImageData: vi.fn((image: ImageData, x: number, y: number) => { data.set(image.data, (y * width + x) * 4) }) }
+  const ctx = { canvas: { width, height }, getImageData: vi.fn((x: number, y: number, w: number, h: number) => ({ width: w, height: h,
+    data: Uint8ClampedArray.from(Array.from({ length: h }, (_, row) => [...data.slice(((y + row) * width + x) * 4, ((y + row) * width + x + w) * 4)]).flat()) })), putImageData: vi.fn((image: ImageData, x: number, y: number) => { data.set(image.data, (y * width + x) * 4) }) }
   return { ctx: ctx as unknown as CanvasRenderingContext2D, data }
 }
 function addFilter(source: Projection) {
@@ -41,6 +46,35 @@ describe('visual renderer bounded deterministic effects', () => {
     const luma = Math.round((200 * .2126 + 100 * .7152 + 50 * .0722) * .5)
     expect([...data.slice(0, 4)]).toEqual([luma, luma, luma, 123])
   })
+  it('produces the same curve mapping for a scoped filter, original and every theme on the same pixels', () => {
+    const source = projection(), scoped = addFilter(source)
+    const filter = neutralColorFilter()
+    filter.curves.rgb.splice(1, 0, { input: 128, output: 170 })
+    filter.curves.blue.splice(1, 0, { input: 170, output: 99 })
+    scoped.colorFilter = filter
+    const matched = pixelContext([128, 128, 128, 123])
+    applyVisualFilters(matched.ctx, source)
+    expect([...matched.data.slice(0, 4)]).toEqual([170, 170, 99, 123])
+    for (const active of ['original', 'handDrawn', 'tea', 'lineArt'] as const) {
+      const style = { ...defaultSceneArtStyle(), active }
+      if (active === 'original') style.original = filter
+      else {
+        style.presets[active].filter = filter
+        style.presets[active].effects.enabled = false
+      }
+      const result = pixelContext([128, 128, 128, 123])
+      applyArtStyleGrades(result.ctx, source.bounds, activeArtStyles(style)!)
+      expect(result.data).toEqual(matched.data)
+    }
+  })
+  it('scales the atmosphere grade for a partial line art look and omits it at full line art strength', () => {
+    const source = projection(), { ctx, data } = pixelContext([120, 100, 80, 123]), filter = addFilter(source)
+    filter.exposure = .5
+    drawVisualAtmosphere(ctx, source, undefined, false, .5)
+    expect([...data.slice(0, 4)]).toEqual([90, 75, 60, 123])
+    drawVisualAtmosphere(ctx, source, undefined, false, 0)
+    expect([...data.slice(0, 4)]).toEqual([90, 75, 60, 123])
+  })
   it('uses world grain phase for the same crop at the same scale', () => {
     const full = projection(), filter = addFilter(full); filter.grain = .2
     const a = pixelContext([128, 128, 128, 255]); applyVisualFilters(a.ctx, full)
@@ -56,12 +90,34 @@ describe('visual renderer bounded deterministic effects', () => {
     expect(lightVisibilityPolygon({ x: 0, y: 0 }, 500, blockers).every(p => p.x <= 100.000001)).toBe(true)
     expect(source.props).toEqual([])
   })
+  it('casts parallel aperture shadows along the actual blocker, with clear rays beside it', () => {
+    const p = (x: number, y: number) => ({ x, y })
+    const beam = [p(100, 100), p(300, 100), p(360, 400), p(40, 400)]
+    const visibility = windowVisibilityPolygon(beam, [{ start: p(175, 210), end: p(230, 210) }])
+    expect(pointInPolygon(p(200, 170), visibility)).toBe(true)
+    expect(pointInPolygon(p(200, 280), visibility)).toBe(false)
+    expect(pointInPolygon(p(130, 280), visibility)).toBe(true)
+    expect(pointInPolygon(p(270, 280), visibility)).toBe(true)
+  })
   it('checks cancellation before a filter readback', () => {
     const source = projection(), filter = addFilter(source), controller = new AbortController(), { ctx } = pixelContext([128, 128, 128, 255])
     filter.contrast = .8; controller.abort()
     expect(() => applyVisualFilters(ctx, source, controller.signal)).toThrow()
     expect(ctx.getImageData).not.toHaveBeenCalled()
   })
+})
+
+it('excludes even partially masked pixels when finding neighboring line art contours', () => {
+  const light = pixelContext([140, 140, 140, 255], 4, 1)
+  const dark = pixelContext([140, 140, 140, 255], 4, 1)
+  light.data.set([255, 255, 255, 255], 4)
+  dark.data.set([0, 0, 0, 255], 4)
+  const mask = pixelContext([0, 0, 0, 0], 4, 1)
+  mask.data[7] = 1
+  const bounds = { x: 0, y: 0, width: 128, height: 32 }
+  expect(captureLineArtEdges(light.ctx, bounds)).not.toEqual(captureLineArtEdges(dark.ctx, bounds))
+  expect(captureLineArtEdges(light.ctx, bounds, undefined, { mask: mask.ctx }))
+    .toEqual(captureLineArtEdges(dark.ctx, bounds, undefined, { mask: mask.ctx }))
 })
 
 describe('materialized edges share the surface detail pass', () => {

@@ -13,6 +13,10 @@ import { emptyVisualSystem, type CubicSegment, type VisualBoundary, type VisualE
 import { inspectVisualPixelBudget } from './diagnostics.js'
 import { createEmptyGeneration, type MaterializedEdge } from '../terrain-generation/contracts.js'
 import { materializedBoundaryHash } from '../terrain-generation/integrity.js'
+import { projectEditorScene, projectScene } from '../projection/projection.js'
+import { effectivePropShadow } from '../appearance/presentation.js'
+import { DIRECTIONAL_LIGHT_PRESETS } from './light-geometry.js'
+import { wallShadowStyle } from './directional-light.js'
 
 const p = (x: number, y: number): PointMm => ({ x, y })
 const context = (): PreparationContext => { let id = 0; return { ids: { nextId: () => `curve-new-${id++}` }, clock: { now: () => '2026-10-25T00:00:00.000Z' } } }
@@ -45,6 +49,100 @@ function sharedFixture(): { document: SceneDocument; curve: VisualBoundary } {
 const apply = (document: SceneDocument, ...commands: SceneCommand[]) => applyCommands(document, commands, context())
 function edgeLook(id = 'shore-look'): VisualEdgeLook { return { ...common, id, boundaryId: 'coast-curve', kind: 'shore', side: 'right', widthMm: 400, color: '#E8E2B7', accentColor: '#FFFFFF', opacity: .8, intensity: 1, seed: 'test-coast', repeatMm: 1000, enabled: true } }
 function light(): VisualLight { return { ...common, id: 'warm-light', positionMm: p(3000, 5000), radiusMm: 2500, color: '#FFD080', intensity: .4, wallOcclusion: true, enabled: true } }
+
+describe('editable light sources', () => {
+  const bounds = { x: 0, y: 0, width: 24000, height: 18000 }
+  function windowRoom() {
+    let scene = apply(blank(),
+      { type: 'createLayer', floorId: 'floor', id: 'windows', name: 'Windows' })
+    scene = apply(scene, { type: 'createRoom', floorId: 'floor', id: 'receiver', boundaryMm: [p(1500, 2000), p(11000, 2000), p(11000, 9500), p(1500, 9500)], thicknessMm: 180 })
+    const wall = Object.values(scene.walls).find(wall => [wall.startVertexId, wall.endVertexId].every(id => scene.vertices[id].yMm === 2000))!
+    const opening = { type: 'addOpening', id: 'window-binding', wallId: wall.id, offsetReferenceVertexId: wall.startVertexId, offsetMm: 3000, widthMm: 900, kind: 'window', layerId: 'windows' } as const
+    const windowLight: VisualLight = { ...light(), shape: { kind: 'window', openingId: opening.id, roomId: 'receiver', angleOffsetDeg: 12, spreadDeg: 6, softness: .5 } }
+    scene = apply(scene, opening, { type: 'upsertVisualLight', light: windowLight })
+    return { scene, wall, opening, windowLight }
+  }
+
+  it('binds the same real aperture for GM and player, growing when the window widens and suppressing hidden apertures', () => {
+    const { scene, wall, opening } = windowRoom()
+    const shape = (doc: SceneDocument, audience: 'gm' | 'player') => projectScene(doc, audience).visual!.lights[0]?.shape
+    const narrow = shape(scene, 'player')
+    expect(narrow).toEqual(shape(scene, 'gm'))
+    expect(narrow?.kind).toBe('window')
+    if (!narrow || narrow.kind !== 'window') throw Error('Window beam absent')
+    expect(Math.abs(narrow.aperture[1].x - narrow.aperture[0].x)).toBe(900)
+    expect(narrow.beam[2].y).toBeGreaterThan(narrow.aperture[0].y)
+    expect(JSON.stringify(narrow)).not.toContain(opening.id)
+    expect(projectScene(scene, 'player').walls.some(row => row.id === wall.id)).toBe(false)
+    const wider = apply(scene, { type: 'updateOpening', id: opening.id, changes: { widthMm: 1500 } })
+    const wideBeam = shape(wider, 'player')
+    if (wideBeam?.kind !== 'window') throw Error('Edited window beam absent')
+    expect(Math.abs(wideBeam.aperture[1].x - wideBeam.aperture[0].x)).toBe(1500)
+    const secret = apply(wider, { type: 'updateOpening', id: opening.id, changes: { secret: true } })
+    expect(shape(secret, 'gm')).toEqual(shape(wider, 'gm'))
+    expect(projectScene(secret, 'player').visual!.lights).toEqual([])
+    expect(projectEditorScene(wider, { hiddenLayerIds: new Set(['windows']) }).visual!.lights).toEqual([])
+    const anotherFloor = apply(wider, { type: 'createFloor', id: 'above', name: 'Above', boundsMm: bounds, outputBoundsMm: bounds, newLayerId: 'above-layer', layerName: 'Above' })
+    expect(projectScene(anotherFloor, 'gm', undefined, { floorId: 'above' }).visual!.lights).toEqual([])
+  })
+
+  it('preserves a disabled record after a host is deleted, even when a new window reuses the ID', () => {
+    const { scene, opening, windowLight } = windowRoom()
+    const removed = apply(scene, { type: 'deleteOpening', id: opening.id })
+    expect(visualBase(removed)!.lights[windowLight.id]).toEqual({ ...windowLight, enabled: false })
+    const replaced = apply(removed, opening)
+    expect(projectScene(replaced, 'gm').visual!.lights).toEqual([])
+    expect(projectScene(apply(replaced, { type: 'upsertVisualLight', light: windowLight }), 'gm').visual!.lights).toHaveLength(1)
+    const locked = structuredClone(scene)
+    visualBase(locked)!.lights[windowLight.id].editLocked = true
+    expect(() => apply(locked, { type: 'deleteOpening', id: opening.id })).toThrow(/锁定/)
+    expect(locked.openings[opening.id]).toBeDefined()
+  })
+
+  it('keeps line endpoints continuous along edited route widths and excludes a masked area emitter', () => {
+    let scene = apply(blank(),
+      { type: 'createPath', id: 'route', floorId: 'floor', widthMm: 1000, centerlineMm: [p(3000, 3000), p(11000, 3000)], supportRefs: [{ kind: 'floor', id: 'floor' }] },
+      { type: 'createTerrainArea', id: 'lava', floorId: 'floor', boundaryMm: [p(14000, 7500), p(21000, 7500), p(21000, 12000), p(14000, 12000)] })
+    const line: VisualLight = { ...light(), id: 'rail-light', shape: { kind: 'line', source: { kind: 'path', pathId: 'route', side: 'left' }, softness: .5 } }
+    const area: VisualLight = { ...light(), id: 'lava-light', shape: { kind: 'area', source: { kind: 'terrainArea', id: 'lava' }, surfaceIntensity: 1.1, softness: .3 } }
+    scene = apply(scene, { type: 'upsertVisualLight', light: line }, { type: 'upsertVisualLight', light: area })
+    const moved = apply(scene,
+      { type: 'updatePath', id: 'route', changes: { centerlineMm: [p(4000, 4200), p(12000, 4200)], widthSections: [{ startPpm: 300000, endPpm: 600000, widthMm: 2000 }] } },
+      { type: 'moveTerrainPoint', areaId: 'lava', pointId: scene.terrainAreas.lava.boundaryMm[0].id, positionMm: p(13300, 7100) })
+    const projected = projectScene(moved, 'player').visual!.lights
+    const lineShape = projected.find(l => l.id === line.id)?.shape
+    if (lineShape?.kind !== 'line') throw Error('Line unavailable')
+    expect(lineShape.runs[0][0]).toEqual(p(4000, 3700))
+    expect(lineShape.runs[0].some(point => point.y === 3200)).toBe(true)
+    const areaShape = projected.find(l => l.id === area.id)?.shape
+    if (areaShape?.kind !== 'area') throw Error('Area unavailable')
+    expect(areaShape.regions[0].outerMm).toContainEqual(p(13300, 7100))
+    expect(areaShape.surfaceIntensity).toBe(1.1)
+    const covered = apply(moved, { type: 'upsertManualMask', id: 'dark-patch', floorId: 'floor', boundsMm: { x: 13000, y: 7000, width: 700, height: 1000 } })
+    expect(projectScene(covered, 'player').visual!.lights.map(l => l.id)).toEqual([line.id])
+    expect(projectScene(covered, 'gm').visual!.lights).toHaveLength(2)
+  })
+
+  it('rotates and mirrors fixture beams in world space while directional elevation adjusts shadow reach', () => {
+    const scene = blank(), id = 'lamp'
+    scene.props[id] = { id, floorId: 'floor', editLocked: false, visibility: 'public', supportRef: { kind: 'floor', id: 'floor' }, definitionRef: null, rotationDeg: 110,
+      positionMm: p(6500, 6200), visualBoundsMm: { x: -350, y: -350, width: 700, height: 700 }, footprintMm: { width: 400, height: 400 },
+      footprintOffsetMm: p(0, 0), shadowClass: 'furniture', shadowOverride: null, blocksMovement: false, blocksSight: true, renderLayer: 'object', renderOrder: 0,
+      appearance: { kind: 'symbol', symbol: 'crate', opacity: 1, tint: null, glow: { anchor: { u: .5, v: .7 }, radiusMm: 1900, intensity: .9, color: '#FFDD97',
+        beam: { directionDeg: 34, apertureDeg: 42, softness: .3 } } } }
+    scene.entityLayers[id] = 'layer'
+    expect(projectScene(scene, 'gm').visual!.fixtureGlows![0].beam?.directionDeg).toBe(144)
+    scene.props[id].appearance.mirrorY = true
+    const mirrored = projectScene(scene, 'gm').visual!.fixtureGlows![0]
+    expect(mirrored.beam?.directionDeg).toBe(76)
+    expect(mirrored.emitterOccluder).toHaveLength(4)
+    const environment = { ...emptyVisualSystem().environment, lightDirectionDeg: 50, directionalLight: { ...DIRECTIONAL_LIGHT_PRESETS.sun, elevationDeg: 18 } }
+    const high = { ...environment, directionalLight: { ...environment.directionalLight, elevationDeg: 65 } }
+    expect(wallShadowStyle(null, environment)!.directionDeg).toBe(50)
+    expect(wallShadowStyle(null, environment)!.offsetMm).toBeGreaterThan(wallShadowStyle(null, high)!.offsetMm * 3)
+    expect(effectivePropShadow(scene.props[id], undefined, null, environment)!.offsetMm).toBeGreaterThan(effectivePropShadow(scene.props[id], undefined, null, high)!.offsetMm * 3)
+  })
+})
 
 describe('strict visual-v2 model and deterministic curve geometry', () => {
   it('keeps v1 strict and requires visual on v2, including direct schema parsing', () => {

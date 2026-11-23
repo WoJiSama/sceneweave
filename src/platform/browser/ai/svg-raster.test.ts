@@ -6,7 +6,7 @@ import { decodeCanonicalPng, encodeCanonicalPng } from '../../../shared/project/
 import { REFINED_INTERIOR_ART } from '../../../shared/visual/interior-art.js'
 import { REFINED_COAST_ART } from '../../../shared/visual/coast-art.js'
 import { REFINED_ISLAND_ART } from '../../../shared/visual/island-art.js'
-import { copyCanonicalSvgModule, initializeCanonicalSvgRasterizer, rasterizeNormalizedSvg } from './svg-raster.js'
+import { copyCanonicalSvgModule, initializeCanonicalSvgRasterizer, rasterizeCanonicalSvgPixels, rasterizeNormalizedSvg } from './svg-raster.js'
 import { createBrowserSvgPort } from './svg-port.js'
 import { svgProjectFixture } from '../../../../tests/helpers/m24-svg-fixtures.js'
 import { bitmapVariant, resolveAppearance } from '../../../shared/appearance/graph.js'
@@ -73,6 +73,15 @@ describe('fixed software SVG processor 2', () => {
     const output = await rasterizeNormalizedSvg(source, { longEdgePx: 32 })
     expect([output.pixelWidth, output.pixelHeight]).toEqual([32, 16])
     expect([...decodeCanonicalPng(output.pngBytes).rgba.subarray(0, 4)]).toEqual([128, 64, 32, 128])
+  })
+
+  it('converts the disposable paint layer from premultiplied pixels without changing the fixed PNG path', async () => {
+    const source = normalizeStaticSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect x="0" y="0" width="8" height="8" fill="#90a0b0" opacity="0.5"/></svg>')
+    const dimensions = { width: 8, height: 8 }
+    const paint = await rasterizeCanonicalSvgPixels(source, dimensions, undefined, 'paint-layer')
+    const fixed = await rasterizeCanonicalSvgPixels(source, dimensions)
+    expect([...paint.rgba.subarray(0, 4)]).toEqual([143, 159, 175, 128])
+    expect(paint.rgba).toEqual(fixed.rgba)
   })
 
   it('validates one unchanged curved/transparent asset and its tinted derivative with different native readbacks', async () => {

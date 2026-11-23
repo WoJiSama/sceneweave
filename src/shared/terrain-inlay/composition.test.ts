@@ -62,6 +62,19 @@ afterEach(async () => {
 })
 
 describe('complete cross-terrace inlay transactions', () => {
+  it('removes the road treatment while keeping the actual excavation and its contact heights', () => {
+    const { result } = prepared()
+    const adopted = applyCompositionDraftCommands(result, [{ ...command(result.document), finish: { kind: 'steps', treadDepthMm: 350 } }], runtime)
+    const row = adopted.document.terrainConnections.road
+    const removed = applyCompositionDraftCommands(adopted, [{ type: 'removeTerrainInlayRoad', id: 'road', expectedConnectionHash: terrainInlayHash(row) }], runtime)
+    const ground = removed.document.terrainConnections.road
+    expect(ground.terrainInlay).toMatchObject({ groundOnly: true, appearance: 'source-ground', geometry: row.terrainInlay!.geometry })
+    expect(ground.terrainInlay?.finish).toBeUndefined()
+    expect(ground.staircase).toBeUndefined()
+    expect(removed.document.terrainAreas).toEqual(adopted.document.terrainAreas)
+    physical(removed.document)
+    expect(validateTerrainInlayProofs(removed.document, removed.historyIdentity)).toEqual([])
+  })
   it('changes only slope finish, rejecting stale hashes, locked dependencies and invalid tread spacing', () => {
     const { result } = prepared(), adopted = applyCompositionDraftCommands(result, [command(result.document)], runtime)
     const row = adopted.document.terrainConnections.road

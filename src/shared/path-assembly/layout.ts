@@ -115,14 +115,14 @@ export function bridgeDeckGeometry(path: Pick<Path, 'centerlineMm' | 'widthMm'>,
   }
 }
 
-export function straightRuns(points: readonly PointMm[]) {
+export function straightRuns(points: readonly PointMm[], mergeCollinear = true) {
   const vertices: PointMm[] = []
   for (const end of points) {
     const middle = vertices.at(-1), start = vertices.at(-2)
     if (middle) {
       const u = { x: end.x - middle.x, y: end.y - middle.y }
       if (!u.x && !u.y) return []
-      if (start) {
+      if (start && mergeCollinear) {
         const v = { x: middle.x - start.x, y: middle.y - start.y }
         if (u.x * v.y === u.y * v.x && u.x * v.x + u.y * v.y > 0) vertices.pop()
       }

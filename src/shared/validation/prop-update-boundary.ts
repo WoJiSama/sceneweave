@@ -17,6 +17,10 @@ function boundary(scene: SceneDocument): PropUpdateBoundary {
   for (const group of [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)]) {
     for (const member of Object.values(group.members)) if (member.propId !== null) excludedIds.add(member.propId)
   }
+  for (const boundary of Object.values(scene.visual.base.base.boundaries)) {
+    if (!boundary.fence?.platformBinding) continue
+    for (const member of Object.values(boundary.fence.members)) if (member.state === 'placed') excludedIds.add(member.propId)
+  }
   for (const cluster of Object.values(scene.decorationClusters)) {
     for (const member of Object.values(cluster.members)) if (member.entityId !== null) excludedIds.add(member.entityId)
   }

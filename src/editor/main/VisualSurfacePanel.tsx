@@ -3,6 +3,7 @@ import type { SceneDocument, SurfaceStyle } from '../../shared/model/scene'
 import type { AppearanceGraph } from '../../shared/model/appearance'
 import type { SceneCommand } from '../../shared/commands/commands'
 import { surfaceStyle } from '../../shared/appearance/graph'
+import { defaultMaterialPaint } from '../../shared/appearance/surface-paint'
 import { newId } from './runtime'
 import SurfaceDetailTools from './SurfaceDetailTools'
 
@@ -15,10 +16,10 @@ export default function VisualSurfacePanel({ floorId, scene, appearance, selecte
   const materials = Object.values(scene.materials)
   const kindOf = (id: string) => (Object.keys(collections) as Kind[]).find(key => Object.hasOwn(scene[collections[key]], id))
   const selectedSurfaceId = selectedIds.length === 1 && kindOf(selectedIds[0]) ? selectedIds[0] : null
-  const paint = (id = materials[0]?.id) => ({ materialRef: { id, version: scene.materials[id].version }, tileSizeMm: { ...scene.materials[id].defaultTileSizeMm }, rotationDeg: 0, alignment: 'world' as const, originMm: { x: 0, y: 0 }, tint: null, opacity: 1 })
+  const paint = (id = materials[0]?.id, kind?: Kind) => defaultMaterialPaint(scene.materials[id], kind === 'path' ? 'path' : undefined)
   const readStyle = (id: string): SurfaceStyle | null => {
     const source = appearance.sources[appearance.surfaceSources[id]], saved = source?.kind === 'surface' ? source.snapshot : surfaceStyle(scene, id)
-    return saved ? structuredClone(saved) : materials.length ? { base: paint(), overlays: [] } : null
+    return saved ? structuredClone(saved) : materials.length ? { base: paint(undefined, kindOf(id)), overlays: [] } : null
   }
   const [target, setTarget] = useState<{ kind: Kind; id: string } | null>(() => selectedSurfaceId ? { kind: kindOf(selectedSurfaceId)!, id: selectedSurfaceId } : null)
   const [style, setStyle] = useState<SurfaceStyle | null>(() => selectedSurfaceId ? readStyle(selectedSurfaceId) : null)
@@ -41,9 +42,9 @@ export default function VisualSurfacePanel({ floorId, scene, appearance, selecte
     {target && !targetExists && <p role="status" className="asset-form-error">此铺装对象已不在工程中；请明确选择另一个表面。</p>}
     {style && target && targetExists && <><label>底材<select aria-label="视觉铺装底材" value={style.base.materialRef.id} onChange={e => setStyle({ ...style, base: { ...style.base, materialRef: { id: e.target.value, version: scene.materials[e.target.value].version } } })}>{materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
       <div className="visual-pair">{numeric('纹理宽 mm', style.base.tileSizeMm.width, v => setStyle({ ...style, base: { ...style.base, tileSizeMm: { ...style.base.tileSizeMm, width: v } } }))}{numeric('纹理高 mm', style.base.tileSizeMm.height, v => setStyle({ ...style, base: { ...style.base, tileSizeMm: { ...style.base.tileSizeMm, height: v } } }))}</div>
-      {numeric('纹理方向 °', style.base.rotationDeg, v => setStyle({ ...style, base: { ...style.base, rotationDeg: v } }))}
-      <details className="workspace-advanced"><summary>对齐与相位 · 精细设置</summary><label>对齐<select value={style.base.alignment} onChange={e => setStyle({ ...style, base: { ...style.base, alignment: e.target.value as 'world' | 'surface' } })}><option value="world">世界坐标（邻面保持相位）</option><option value="surface">表面坐标</option></select></label>
-      <div className="visual-pair">{numeric('纹理原点X mm', style.base.originMm.x, v => setStyle({ ...style, base: { ...style.base, originMm: { ...style.base.originMm, x: v } } }))}{numeric('纹理原点Y mm', style.base.originMm.y, v => setStyle({ ...style, base: { ...style.base, originMm: { ...style.base.originMm, y: v } } }))}</div></details>
+      {numeric(style.base.alignment === 'route' ? '相对路线方向 °' : '纹理方向 °', style.base.rotationDeg, v => setStyle({ ...style, base: { ...style.base, rotationDeg: v } }))}
+      <details className="workspace-advanced"><summary>对齐与相位 · 精细设置</summary><label>对齐<select value={style.base.alignment} onChange={e => setStyle({ ...style, base: { ...style.base, alignment: e.target.value as SurfaceStyle['base']['alignment'] } })}><option value="world">世界坐标（邻面保持相位）</option><option value="surface">表面坐标</option>{target.kind === 'path' && <option value="route">沿路线铺设</option>}</select></label>
+      <div className="visual-pair">{numeric(style.base.alignment === 'route' ? '沿线偏移 mm' : '纹理原点X mm', style.base.originMm.x, v => setStyle({ ...style, base: { ...style.base, originMm: { ...style.base.originMm, x: v } } }))}{numeric(style.base.alignment === 'route' ? '横向偏移 mm' : '纹理原点Y mm', style.base.originMm.y, v => setStyle({ ...style, base: { ...style.base, originMm: { ...style.base.originMm, y: v } } }))}</div></details>
       <details className="workspace-advanced"><summary>局部材质覆盖 · {style.overlays.length}</summary>{style.overlays.map((overlay, index) => <div key={overlay.id} className="visual-segment"><strong>覆盖 {index + 1}</strong><label>材质<select value={overlay.paint.materialRef.id} onChange={e => setStyle({ ...style, overlays: style.overlays.map((v, i) => i === index ? { ...v, paint: { ...v.paint, materialRef: { id: e.target.value, version: scene.materials[e.target.value].version } } } : v) })}>{materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>{numeric(`覆盖${index+1}羽化 mm`, overlay.blendWidthMm, v => setStyle({ ...style, overlays: style.overlays.map((o,i) => i === index ? { ...o, blendWidthMm: v } : o) }))}{numeric(`覆盖${index+1}透明度`, overlay.paint.opacity, v => setStyle({ ...style, overlays: style.overlays.map((o,i) => i === index ? { ...o, paint: { ...o.paint, opacity: v } } : o) }), .05)}{overlay.boundaryMm.map((point, row) => <div key={row} className="visual-pair">{(['x','y'] as const).map(axis => numeric(`覆盖${index+1}点${row+1}${axis}`, point[axis], v => setStyle({ ...style, overlays: style.overlays.map((o,i) => i === index ? { ...o, boundaryMm: o.boundaryMm.map((p,j) => j === row ? { ...p, [axis]: v } : p) } : o) })))}</div>)}<button onClick={() => setStyle({ ...style, overlays: style.overlays.filter((_,i) => i !== index) })}>移除此覆盖</button></div>)}<button disabled={style.overlays.length >= 8} onClick={() => {
         const bounds = scene.floors[scene[collections[target.kind]][target.id].floorId].boundsMm
         const x = Math.round(bounds.x + bounds.width * .35), y = Math.round(bounds.y + bounds.height * .35), width = Math.round(bounds.width * .3), height = Math.round(bounds.height * .3)

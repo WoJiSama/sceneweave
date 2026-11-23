@@ -15,6 +15,7 @@ import { refineImageToVectorAsync } from './image-refinement-worker.js'
 import { getImageEditCapabilities, requestImageEdit, ImageEditClientError, type ImageEditRequestStateEvent } from './image-refinement-model.js'
 import { validation } from '../runtime.js'
 import { IMAGE_EDIT_LIMITS } from '../../../shared/asset-refinement/model-protocol.js'
+import { assertLocalModelPatch, cropModelPatch, mergeModelPatch, modelPatchContext, modelPatchSchema, type ModelPatch } from '../../../shared/asset-refinement/local-model-patch.js'
 
 export interface ImageRefinementCandidate {
   kind: 'vector' | 'model'
@@ -69,25 +70,34 @@ export async function generateStructuredVectorCandidate(issued: ImageEnhancement
 }
 
 export async function generateModelRefinementCandidate(issued: ImageEnhancementSource, connection: { baseUrl: string; token: string }, prompt: string,
-  signal?: AbortSignal, capabilities: CompleteValidationOptions = validation, onRequestState?: (event: ImageEditRequestStateEvent) => void): Promise<ImageRefinementCandidate> {
+  signal?: AbortSignal, capabilities: CompleteValidationOptions = validation, onRequestState?: (event: ImageEditRequestStateEvent) => void,
+  region?: ModelPatch): Promise<ImageRefinementCandidate> {
   signal?.throwIfAborted()
   const source = captureImageEnhancementSource(issued), pixels = pixelsOf(source)
   if (!prompt.trim() || prompt.trim().length > IMAGE_EDIT_LIMITS.promptChars || new TextEncoder().encode(prompt.trim()).length > IMAGE_EDIT_LIMITS.promptBytes) throw new Error('请填写1–2000字符、8 KiB内的补画要求。')
+  const patch = region && modelPatchSchema.parse(region), context = patch && modelPatchContext(pixels, patch)
+  const input = context ? cropModelPatch(pixels, context) : pixels
+  const instruction = patch && context
+    ? `${prompt.trim()}\n保持画面方向、边缘与坐标对齐。仅补画这张裁片内的像素矩形（左上 ${patch.x - context.x}, ${patch.y - context.y}，宽 ${patch.width}，高 ${patch.height}）。周围像素供颜色和纹理参考。`
+    : prompt.trim()
+  if (instruction.length > IMAGE_EDIT_LIMITS.promptChars || new TextEncoder().encode(instruction).length > IMAGE_EDIT_LIMITS.promptBytes) throw new Error('请缩短补画要求，为选区坐标留出空间。')
   const service = await getImageEditCapabilities(connection, signal)
   if (!service.available) throw new Error('图像编辑服务尚未配置，请在服务端配置专用图像编辑模型。')
-  const pngBytes = encodeCanonicalPng({ width: pixels.width, height: pixels.height, rgba: pixels.data }), inputHash = sha256Bytes(pngBytes)
-  const response = await requestImageEdit(connection, { clientRequestId: crypto.randomUUID(), sourceSha256: inputHash, pngBytes, prompt: prompt.trim() }, signal, onRequestState)
+  const pngBytes = encodeCanonicalPng({ width: input.width, height: input.height, rgba: input.data }), inputHash = sha256Bytes(pngBytes)
+  const response = await requestImageEdit(connection, { clientRequestId: crypto.randomUUID(), sourceSha256: inputHash, pngBytes, prompt: instruction }, signal, onRequestState)
   try {
     signal?.throwIfAborted()
     if (response.sourceSha256 !== inputHash) throw new Error('补画响应对应另一份原图，未产生可用候选。')
     const header = inspectImageBytes(response.pngBytes)
     if (header.mimeType !== 'image/png' || Math.max(header.width, header.height) > 4096 || header.width * header.height > 8_000_000) throw new Error('模型输出不是预算内PNG。')
-    if (Math.abs(header.width * pixels.height / (header.height * pixels.width) - 1) > .02) throw new Error('模型改变了原画比例，未自动裁剪或采用，请检查补画服务尺寸支持。')
+    if (Math.abs(header.width * input.height / (header.height * input.width) - 1) > .02) {
+      throw new Error(patch ? '模型改变了裁片比例，请检查补画服务尺寸支持。' : '模型改变了原画比例，未自动裁剪或采用，请检查补画服务尺寸支持。')
+    }
     const hash = sha256Bytes(response.pngBytes), record = { sha256: hash, mimeType: 'image/png' as const, sizeBytes: response.pngBytes.length, pixelWidth: header.width, pixelHeight: header.height }
     const raster = await capabilities.images.decode(response.pngBytes, record, { signal })
     signal?.throwIfAborted()
     if (raster.width !== header.width || raster.height !== header.height || raster.rgba.length !== header.width * header.height * 4) throw new Error('模型PNG实际像素与声明不符。')
-    if (raster.width === pixels.width && raster.height === pixels.height && raster.rgba.every((value, index) => value === pixels.data[index])) throw new Error('模型返回的实际像素与输入相同，没有产生新的补画候选。')
+    if (raster.width === input.width && raster.height === input.height && raster.rgba.every((value, index) => value === input.data[index])) throw new Error('模型返回的实际像素与输入相同，没有产生新的补画候选。')
     let sourceHasTransparency = false, outputHasTransparency = false, outputHasVisiblePixels = false
     for (let offset = 3; offset < pixels.data.length; offset += 4) if (pixels.data[offset] < 255) { sourceHasTransparency = true; break }
     for (let offset = 3; offset < raster.rgba.length; offset += 4) {
@@ -96,12 +106,20 @@ export async function generateModelRefinementCandidate(issued: ImageEnhancementS
       if (outputHasTransparency && outputHasVisiblePixels) break
     }
     if (!outputHasVisiblePixels) throw new Error('模型返回的图片没有可见像素，未生成可采用候选。')
-    if (sourceHasTransparency && !outputHasTransparency) throw new Error('模型返回了不透明背景，未生成可采用候选；请检查模型透明PNG支持。')
+    if (!patch && sourceHasTransparency && !outputHasTransparency) throw new Error('模型返回了不透明背景，未生成可采用候选；请检查模型透明PNG支持。')
+    let result = { width: raster.width, height: raster.height, data: raster.rgba }, output = response.pngBytes
+    if (patch && context) {
+      result = mergeModelPatch(pixels, result, patch, context, signal)
+      assertLocalModelPatch(pixels, result, patch, signal)
+      output = encodeCanonicalPng({ width: result.width, height: result.height, rgba: result.data })
+    }
+    const outputHash = patch ? sha256Bytes(output) : hash
     const metadata: AssetRefinementMetadata = { version: 1, kind: 'model', sourceAssetId: source.assetId, originalAssetId: source.originalAssetId,
-      sourceSha256: '', outputSha256: hash, sourcePixelMode: modeOf(source), inputSha256: inputHash, model: response.model, requestId: response.requestId, clientRequestId: response.clientRequestId, prompt: prompt.trim() }
-    const candidate: ImageRefinementCandidate = { kind: 'model', id: hash, label: '模型有限补画', model: response.model, requestId: response.requestId,
-      pixels: { width: raster.width, height: raster.height, data: raster.rgba.slice() } }
-    candidates.set(candidate, { source: issued, pngBytes: response.pngBytes.slice(), metadata })
+      sourceSha256: '', outputSha256: outputHash, sourcePixelMode: modeOf(source), inputSha256: inputHash, model: response.model,
+      requestId: response.requestId, clientRequestId: response.clientRequestId, prompt: instruction, ...(patch ? { patch } : {}) }
+    const candidate: ImageRefinementCandidate = { kind: 'model', id: outputHash, label: patch ? '局部补画候选' : '模型有限补画',
+      model: response.model, requestId: response.requestId, pixels: { ...result, data: result.data.slice() } }
+    candidates.set(candidate, { source: issued, pngBytes: output.slice(), metadata })
     return candidate
   } catch (error) {
     throw new ImageEditClientError('image_edit_output_rejected', 'finished', response.clientRequestId,
@@ -121,7 +139,8 @@ export async function prepareImageRefinementCandidate(input: EditableProject, so
   const metadata = { ...cloneJson(proof.metadata), sourceSha256: asset.sha256 }, header = inspectImageBytes(proof.pngBytes)
   return prepareImageAppearanceCandidate(input, source, { pngBytes: proof.pngBytes, width: header.width, height: header.height,
     metadata: { imageRefinement: metadata }, ...(proof.vector ? { vector: proof.vector } : {}),
-    label: metadata.kind === 'vector' ? metadata.algorithm === 'structure-plan-v1' ? '结构重绘候选' : '矢量重建候选' : '模型补画候选（含推断细节）' }, signal, capabilities)
+    label: metadata.kind === 'vector' ? metadata.algorithm === 'structure-plan-v1' ? '结构重绘候选' : '矢量重建候选'
+      : metadata.patch ? '局部补画候选（含推断细节）' : '模型补画候选（含推断细节）' }, signal, capabilities)
 }
 
 export function imageRefinementCandidateFingerprint(candidate: ImageRefinementCandidate) {

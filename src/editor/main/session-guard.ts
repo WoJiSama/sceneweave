@@ -16,6 +16,7 @@ export const workspaceFormDraftLabels = {
   outdoorInspector: { name: '室外属性', cancel: '取消室外属性草稿' },
   selectionForm: { name: '多选批量参数', cancel: '取消批量参数草稿' },
   visualForm: { name: '视觉效果与曲线', cancel: '取消视觉草稿' },
+  artStyleForm: { name: '全图画风', cancel: '取消画风草稿' },
   displayForm: { name: '单位与格线设置', cancel: '取消显示设置草稿' },
   boundsForm: { name: '世界与导出范围', cancel: '取消范围草稿' },
   pathCheckForm: { name: '指定通路', cancel: '取消通路声明草稿' },
@@ -62,6 +63,7 @@ export function workspaceTransitionReason(state: WorkspaceTransient, completing?
     if (state[key] && !allowed.has(key)) {
       const label = workspaceFormDraftLabels[key]
       if (key === 'titleForm') return '工程名称尚未保存。请保存名称，或取消改名草稿后再继续。'
+      if (key === 'artStyleForm') return '正在预览全图画风。采用或取消画风后可继续其他编辑。'
       return `${label.name}有尚未预览的输入。请完成当前草稿，或${label.cancel}后再继续。`
     }
   }

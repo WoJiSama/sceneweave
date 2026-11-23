@@ -50,3 +50,4 @@
 .uvtt-export-dialog label { display: flex; align-items: flex-start; gap: .6rem; margin: 1rem 0; }
 .uvtt-export-dialog label input { width: auto; margin-top: .25rem; }
 .uvtt-export-dialog .modal-actions { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: flex-end; }
+.asset-viewport-image > svg.asset-selection-overlay { position: absolute; inset: 0; }

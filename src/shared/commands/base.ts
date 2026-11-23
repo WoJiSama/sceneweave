@@ -7,6 +7,7 @@ import { polygonsOverlap, propFootprint, terrainPoints } from '../geometry/geome
 import { buildScatterRegeneration, sha256Text } from '../geometry/scatter.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { pipePortsSchema, sightOccluderSchema, type PipePorts, type SightOccluder } from '../validation/primitives.js'
+import { propVolumeSchema, type PropVolume } from '../model/prop-volume.js'
 import type { Editable, MaterialPaint, PointMm, PrefabInstance, PropOverrideField, Prop, SceneDocument, SizeMm, SurfaceRef, VersionRef, Wall } from '../model/scene.js'
 
 type SurfaceKind = 'room' | 'terrainArea'
@@ -35,6 +36,7 @@ export type BaseSceneCommand =
   | { type: 'setPropBlocking'; id: string; blocksMovement: boolean }
   | { type: 'setPropSightOccluder'; id: string; component: SightOccluder | null }
   | { type: 'setPropPipePorts'; id: string; ports: PipePorts }
+  | { type: 'setPropVolume'; id: string; volume: PropVolume | null }
   | { type: 'replacePropAppearance'; id: string; definitionRef: VersionRef }
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留 ID')
@@ -71,6 +73,7 @@ const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('setPropBlocking'), id, blocksMovement: z.boolean() }).strict(),
   z.object({ type: z.literal('setPropSightOccluder'), id, component: sightOccluderSchema.nullable() }).strict(),
   z.object({ type: z.literal('setPropPipePorts'), id, ports: pipePortsSchema }).strict(),
+  z.object({ type: z.literal('setPropVolume'), id, volume: propVolumeSchema.nullable() }).strict(),
   z.object({ type: z.literal('replacePropAppearance'), id, definitionRef: version }).strict(),
 ])).max(256, '单次事务最多 256 个操作')
 const own = <T>(record: Record<string, T>, key: string): T | undefined => Object.hasOwn(record, key) ? record[key] : undefined
@@ -563,6 +566,15 @@ export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSc
         if (Object.keys(command.ports).length) prop.pipePorts = cloneJson(command.ports)
         else delete prop.pipePorts
         addOverrides(memberRecord(next, prop.id), ['pipePorts'])
+        break
+      }
+      case 'setPropVolume': {
+        const prop = requireEntity(next.props, command.id, '物件')
+        if (equal(prop.volume ?? null, command.volume)) break
+        assertUnlocked(next, [prop], true)
+        if (command.volume) prop.volume = cloneJson(command.volume)
+        else delete prop.volume
+        addOverrides(memberRecord(next, prop.id), ['volume'])
         break
       }
       case 'updateProp': case 'replacePropAppearance': {

@@ -47,6 +47,19 @@ function light(scene: SceneDocument, id: string, changes: Partial<VisualLight> =
 const warnings = (scene: SceneDocument) => buildUvttPlan(scene).report.warnings.join('\n')
 
 describe('pure fixed-UBI UVTT layout and independent rendering plan', () => {
+  it('bakes nonradial light into the player image while preserving the original native point mapping', () => {
+    const scene = fixture()
+    light(scene, 'point')
+    light(scene, 'strip', { shape: { kind: 'line', source: { kind: 'segment', endMm: p(9000, 5000) }, softness: .6 } })
+    light(scene, 'private-spot', { visibility: 'gm', shape: { kind: 'spot', apertureDeg: 40, directionDeg: 90, softness: .4 } })
+    const plan = buildUvttPlan(scene)
+    expect(plan.report.blocked).toEqual([])
+    expect(plan.geometry?.lights).toHaveLength(1)
+    expect(plan.projection?.visual?.lights.map(value => value.id)).toEqual(['strip'])
+    expect(plan.report.warnings.join()).toContain('烘焙进底图')
+    expect(plan.projection?.visual?.lights[0].shape).toEqual({ kind: 'line', runs: [[p(6000, 5000), p(9000, 5000)]], softness: .6 })
+  })
+
   it('dispatches native mapping through delivery capabilities and keeps physical props in the player projection', () => {
     const scene = fixture(); wall(scene); opening(scene, 'door'); prop(scene)
     const projection = projectScene(scene, 'player')

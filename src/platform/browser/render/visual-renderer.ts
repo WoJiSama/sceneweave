@@ -1,9 +1,12 @@
-import type { BoundsMm, PointMm } from '../../../shared/model/scene.js'
+import type { BoundsMm, PointMm, ShadowStyle } from '../../../shared/model/scene.js'
 import type { ProjectedVisualBoundary, ProjectedVisualFilter, Projection } from '../../../shared/projection/types.js'
+import { VISUAL_FILTER_TINTS } from '../../../shared/visual/visual-filter-color.js'
+import { prepareColorFilter } from './color-filter.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import { bandRings, intersectsVisualBounds, lightVisibilityPolygon, occluderSegments, offsetPolyline, visualRandom } from './visual-geometry'
 import { visualSampleAtDistance } from '../../../shared/visual/geometry.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
+import { paintShapedLight, shapedLightBounds, withoutEmitterBlockers, type ShapedLightPaint } from './shaped-lights'
 import { cliffRelief } from './cliff-relief.js'
 import { cliffReliefV2 } from './cliff-relief-v2.js'
 import { cliffReliefV3 } from './cliff-relief-v3.js'
@@ -54,6 +57,33 @@ function localBuffer(ctx: CanvasRenderingContext2D, projection: Projection, requ
   return { surface, ctx: local, bounds, left, top, sx, sy }
 }
 function copyBuffer(ctx: CanvasRenderingContext2D, buffer: LocalBuffer, opacity = 1, composition: GlobalCompositeOperation = 'source-over'): void { ctx.save(); ctx.resetTransform(); ctx.globalAlpha = opacity; ctx.globalCompositeOperation = composition; ctx.drawImage(buffer.surface, buffer.left, buffer.top); ctx.restore() }
+
+/** Stretch the actual sprite alpha along the ground ray, rooted at its lit edge. */
+export function drawDirectionalSpriteShadow(ctx: CanvasRenderingContext2D, projection: Projection, points: PointMm[], shadow: ShadowStyle,
+  paintAlpha: (target: CanvasRenderingContext2D) => void, readFrequently: boolean): void {
+  const angle = shadow.directionDeg * Math.PI / 180, dx = Math.cos(angle), dy = Math.sin(angle)
+  const axis = points.map(p => p.x * dx + p.y * dy)
+  const near = Math.min(...axis), length = Math.max(...axis) - near
+  if (length < 1) return
+  const stretch = shadow.offsetMm / length
+  const far = points.map((p, i) => {
+    const displacement = (axis[i] - near) * stretch
+    return { x: p.x + dx * displacement, y: p.y + dy * displacement }
+  })
+  const buffer = localBuffer(ctx, projection, minMaxBounds(far, shadow.blurMm * 4), readFrequently)
+  if (!buffer) return
+  try {
+    const target = buffer.ctx
+    target.transform(1 + stretch * dx * dx, stretch * dx * dy, stretch * dx * dy, 1 + stretch * dy * dy, -near * stretch * dx, -near * stretch * dy)
+    paintAlpha(target)
+    target.resetTransform(); target.globalCompositeOperation = 'source-in'
+    target.fillStyle = shadow.color; target.fillRect(0, 0, buffer.surface.width, buffer.surface.height)
+    ctx.save()
+    ctx.filter = `blur(${shadow.blurMm * Math.max(buffer.sx, buffer.sy)}px)`
+    copyBuffer(ctx, buffer, shadow.opacity)
+    ctx.restore()
+  } finally { release(buffer.surface) }
+}
 function band(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, from: number, to: number, color: string, opacity: number, featherMm = 0): void {
   const rings = bandRings(boundary.points, from, to, boundary.closed)
   if (!rings.length || opacity <= 0) return
@@ -469,34 +499,66 @@ function applyExposure(ctx: CanvasRenderingContext2D, projection: Projection, ex
 }
 
 /** Atmosphere only sees the audience-filtered projection. Final opaque masks run afterwards. */
-export function drawVisualAtmosphere(ctx: CanvasRenderingContext2D, projection: Projection, signal?: AbortSignal, readFrequently = false): void {
+export function drawVisualAtmosphere(ctx: CanvasRenderingContext2D, projection: Projection, signal?: AbortSignal, readFrequently = false, amount = 1, includeFilters = true): void {
   const visual = projection.visual
-  if (!visual) return
-  const b = projection.bounds, env = visual.environment
-  if (env.ambientOpacity > 0) { ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = env.ambientOpacity; ctx.fillStyle = env.ambientColor; ctx.fillRect(b.x, b.y, b.width, b.height); ctx.restore() }
-  applyExposure(ctx, projection, env.exposure, readFrequently)
+  if (!visual || amount === 0) return
+  const b = projection.bounds, env = visual.environment, directional = env.directionalLight
+  if (env.ambientOpacity > 0) { ctx.save(); ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = env.ambientOpacity * amount; ctx.fillStyle = env.ambientColor; ctx.fillRect(b.x, b.y, b.width, b.height); ctx.restore() }
+  applyExposure(ctx, projection, amount === 1 ? env.exposure : 1 + (env.exposure - 1) * amount, readFrequently)
+  if (directional?.intensity) {
+    ctx.save()
+    ctx.globalCompositeOperation = 'source-atop'
+    if (directional.kind === 'moon') {
+      ctx.globalAlpha = amount * Math.min(.36, directional.intensity * .54)
+      ctx.fillStyle = '#182C49'
+      ctx.fillRect(b.x, b.y, b.width, b.height)
+    }
+    ctx.globalAlpha = amount * Math.min(.45, directional.intensity * .16)
+    ctx.fillStyle = directional.color
+    ctx.fillRect(b.x, b.y, b.width, b.height)
+    ctx.restore()
+  }
   const blockers = visual.lights.some(light => light.wallOcclusion) || visual.fixtureGlows?.some(light => light.wallOcclusion)
     ? occluderSegments(visual) : []
+  const drawShaped = (light: ShapedLightPaint, occlusion: typeof blockers) => {
+    const buffer = localBuffer(ctx, projection, shapedLightBounds(light), readFrequently)
+    if (!buffer) return
+    try {
+      paintShapedLight(buffer.ctx, light, buffer.bounds, occlusion)
+      copyBuffer(ctx, buffer, amount, 'screen')
+    } finally { release(buffer.surface) }
+  }
   for (const light of visual.lights) {
     checkCancelled(signal)
+    if (light.shape) {
+      if (light.intensity || light.shape.kind === 'area' && light.shape.surfaceIntensity) {
+        drawShaped({ ...light, shape: light.shape }, light.wallOcclusion ? blockers : [])
+      }
+      continue
+    }
     if (!light.intensity) continue
     const radius = light.radiusMm, p = light.positionMm
     if (!intersectsVisualBounds({ x: p.x - radius, y: p.y - radius, width: radius * 2, height: radius * 2 }, b)) continue
     ctx.save()
     if (light.wallOcclusion) ctx.clip(ringsPath([lightVisibilityPolygon(p, radius, blockers)]))
     const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius)
-    gradient.addColorStop(0, rgba(light.color, Math.min(1, light.intensity * .8))); gradient.addColorStop(.35, rgba(light.color, Math.min(1, light.intensity * .38))); gradient.addColorStop(1, rgba(light.color, 0))
+    gradient.addColorStop(0, rgba(light.color, Math.min(1, light.intensity * .8) * amount)); gradient.addColorStop(.35, rgba(light.color, Math.min(1, light.intensity * .38) * amount)); gradient.addColorStop(1, rgba(light.color, 0))
     ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = gradient; ctx.fillRect(p.x - radius, p.y - radius, radius * 2, radius * 2); ctx.restore()
   }
-  for (const { positionMm: p, radiusMm: radius, color, intensity, wallOcclusion } of visual.fixtureGlows ?? []) {
+  for (const { positionMm: p, radiusMm: radius, color, intensity, wallOcclusion, beam, emitterOccluder } of visual.fixtureGlows ?? []) {
     checkCancelled(signal)
+    if (beam) {
+      drawShaped({ positionMm: p, radiusMm: radius, color, intensity, shape: { ...beam, kind: 'spot' } },
+        !wallOcclusion ? [] : emitterOccluder ? withoutEmitterBlockers(blockers, emitterOccluder) : blockers)
+      continue
+    }
     const footprint = { x: p.x - radius, y: p.y - radius, width: radius * 2, height: radius * 2 }
     if (!intersectsVisualBounds(footprint, b)) continue
     const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius)
-    gradient.addColorStop(0, rgba(color, Math.min(1, intensity * .93)))
-    gradient.addColorStop(.13, rgba(color, Math.min(1, intensity * .66)))
-    gradient.addColorStop(.38, rgba(color, intensity * .24))
-    gradient.addColorStop(.72, rgba(color, intensity * .057))
+    gradient.addColorStop(0, rgba(color, Math.min(1, intensity * .93) * amount))
+    gradient.addColorStop(.13, rgba(color, Math.min(1, intensity * .66) * amount))
+    gradient.addColorStop(.38, rgba(color, intensity * .24 * amount))
+    gradient.addColorStop(.72, rgba(color, intensity * .057 * amount))
     gradient.addColorStop(1, rgba(color, 0))
     ctx.save()
     if (wallOcclusion) ctx.clip(ringsPath([lightVisibilityPolygon(p, radius, blockers)]))
@@ -512,7 +574,8 @@ export function drawVisualAtmosphere(ctx: CanvasRenderingContext2D, projection: 
     if (!buffer) continue
     const target = buffer.ctx
     try {
-    target.save(); target.clip(ringsPath([fog.boundaryMm])); target.fillStyle = fog.color; target.globalAlpha = fog.opacity * .38; target.fillRect(b.x, b.y, b.width, b.height)
+    const opacity = fog.opacity * amount
+    target.save(); target.clip(ringsPath([fog.boundaryMm])); target.fillStyle = fog.color; target.globalAlpha = opacity * .38; target.fillRect(b.x, b.y, b.width, b.height)
     const f = intersection(fogBounds, b)!, size = fog.scaleMm, angle = fog.directionDeg * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle)
     const startX = Math.floor(f.x / size) - 3, endX = Math.ceil((f.x + f.width) / size) + 3, startY = Math.floor(f.y / size) - 3, endY = Math.ceil((f.y + f.height) / size) + 3
     if ((endX - startX + 1) * (endY - startY + 1) > 16384) throw new Error('薄雾世界噪声超过16384个局部单元预算，请增大纹理尺度。')
@@ -521,7 +584,7 @@ export function drawVisualAtmosphere(ctx: CanvasRenderingContext2D, projection: 
       const cx = (x + .2 + visualRandom(fog.seed, index, 1) * .6) * size, cy = (y + .2 + visualRandom(fog.seed, index, 2) * .6) * size
       target.save(); target.translate(cx, cy); target.transform(cos * 1.8, sin * 1.8, -sin * .65, cos * .65, 0, 0)
       const gradient = target.createRadialGradient(0, 0, 0, 0, 0, size)
-      gradient.addColorStop(0, rgba(fog.color, fog.opacity * (.25 + random * .35))); gradient.addColorStop(1, rgba(fog.color, 0)); target.fillStyle = gradient; target.globalAlpha = 1; target.fillRect(-size, -size, size * 2, size * 2); target.restore()
+      gradient.addColorStop(0, rgba(fog.color, opacity * (.25 + random * .35))); gradient.addColorStop(1, rgba(fog.color, 0)); target.fillStyle = gradient; target.globalAlpha = 1; target.fillRect(-size, -size, size * 2, size * 2); target.restore()
     }
     target.restore()
     // A world-sized inward feather keeps the selected region closed while
@@ -531,19 +594,19 @@ export function drawVisualAtmosphere(ctx: CanvasRenderingContext2D, projection: 
     featherInward(target, [fog.boundaryMm], feather); copyBuffer(ctx, buffer)
     } finally { release(buffer.surface) }
   }
-  applyVisualFilters(ctx, projection, signal, readFrequently)
+  if (includeFilters) applyVisualFilters(ctx, projection, signal, readFrequently, undefined, amount)
 }
 
-const presetColors: Record<ProjectedVisualFilter['preset'], [number, number, number, number]> = { neutral: [255, 255, 255, 0], warm: [224, 157, 87, .09], cool: [105, 155, 207, .09], aged: [187, 157, 101, .15], moonlight: [71, 101, 155, .19] }
-
 /** Tile readback bounds CPU/RGBA working memory; filter seeds use world positions, not output pixel indices. */
-export function applyVisualFilters(ctx: CanvasRenderingContext2D, projection: Projection, signal?: AbortSignal, readFrequently = false, selectedFilters?: ProjectedVisualFilter[]): void {
+export function applyVisualFilters(ctx: CanvasRenderingContext2D, projection: Projection, signal?: AbortSignal, readFrequently = false, selectedFilters?: readonly ProjectedVisualFilter[], amount = 1): void {
   const visual = projection.visual
   if (!visual) return
   const sx = ctx.canvas.width / projection.bounds.width, sy = ctx.canvas.height / projection.bounds.height
   for (const filter of selectedFilters ?? visual.filters.filter(filter => !filter.sourceEntityIds)) {
     checkCancelled(signal)
-    if (filter.preset === 'neutral' && filter.exposure === 1 && filter.saturation === 1 && filter.contrast === 1 && !filter.vignette && !filter.grain) continue
+    const color = filter.colorFilter && prepareColorFilter(filter.colorFilter)
+    const changesColor = filter.colorFilter ? !!color : filter.preset !== 'neutral' || filter.exposure !== 1 || filter.saturation !== 1 || filter.contrast !== 1
+    if (!changesColor && !filter.vignette && !filter.grain) continue
     const crop = intersection(projection.bounds, filter.targetBoundsMm)
     if (!crop) continue
     const left = Math.max(0, Math.floor((crop.x - projection.bounds.x) * sx)), top = Math.max(0, Math.floor((crop.y - projection.bounds.y) * sy)), right = Math.min(ctx.canvas.width, Math.ceil((crop.x + crop.width - projection.bounds.x) * sx)), bottom = Math.min(ctx.canvas.height, Math.ceil((crop.y + crop.height - projection.bounds.y) * sy)), width = right - left
@@ -551,7 +614,7 @@ export function applyVisualFilters(ctx: CanvasRenderingContext2D, projection: Pr
     // One 128-row mask/readback tile at a time, even for a 4K scene filter.
     const mask = filter.targetRings ? makeCanvas(width, Math.min(128, bottom - top)) : null
     try {
-      const maskCtx = mask ? ctx2d(mask, true) : null, [pr, pg, pb, mix] = presetColors[filter.preset], target = filter.targetBoundsMm
+      const maskCtx = mask ? ctx2d(mask, true) : null, [pr, pg, pb, mix] = VISUAL_FILTER_TINTS[filter.preset], target = filter.targetBoundsMm
       for (let y = top; y < bottom; y += 128) {
         checkCancelled(signal)
         const height = Math.min(128, bottom - y), image = ctx.getImageData(left, y, width, height), data = image.data
@@ -563,8 +626,12 @@ export function applyVisualFilters(ctx: CanvasRenderingContext2D, projection: Pr
           maskPixels = maskCtx.getImageData(0, 0, width, height).data
         }
         for (let row = 0; row < height; row++) for (let column = 0; column < width; column++) {
-          const i = (row * width + column) * 4, alpha = maskPixels ? maskPixels[i + 3] / 255 : 1
+          const i = (row * width + column) * 4, alpha = amount * (maskPixels ? maskPixels[i + 3] / 255 : 1)
           if (!alpha || !data[i + 3]) continue
+          if (filter.colorFilter) {
+            color?.(data, i, alpha)
+            if (!filter.grain && !filter.vignette) continue
+          }
           const wx = projection.bounds.x + (left + column + .5) / sx, wy = projection.bounds.y + (y + row + .5) / sy
           const luma = data[i] * .2126 + data[i + 1] * .7152 + data[i + 2] * .0722
           const grainIndex = (Math.imul(Math.floor(wx / 18), 73856093) ^ Math.imul(Math.floor(wy / 18), 19349663)) | 0
@@ -573,7 +640,8 @@ export function applyVisualFilters(ctx: CanvasRenderingContext2D, projection: Pr
           for (let channel = 0; channel < 3; channel++) {
             const source = data[i + channel], tint = channel === 0 ? pr : channel === 1 ? pg : pb
             const saturation = luma + (source - luma) * filter.saturation, contrast = (saturation - 127.5) * filter.contrast + 127.5
-            const result = ((contrast * filter.exposure) * (1 - mix) + tint * mix + grain) * vignette
+            const pigment = filter.colorFilter ? source : (contrast * filter.exposure) * (1 - mix) + tint * mix
+            const result = (pigment + grain) * vignette
             data[i + channel] = Math.round(source * (1 - alpha) + Math.max(0, Math.min(255, result)) * alpha)
           }
         }

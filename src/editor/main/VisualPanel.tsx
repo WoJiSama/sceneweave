@@ -3,12 +3,15 @@ import { resolveFloorOutput } from '../../shared/floors/output'
 import { visualBase } from '../../shared/visual/base.js'
 import VisualSurfacePanel from './VisualSurfacePanel'
 import type { AppearanceGraph } from '../../shared/model/appearance'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Palette } from 'lucide-react'
 import type { SceneDocument, PointMm } from '../../shared/model/scene'
 import type { SceneCommand } from '../../shared/commands/commands'
-import { emptyVisualSystem, type VisualBoundary, type VisualEdgeLook, type VisualLight, type VisualFog, type VisualFilter, type VisualEnvironment } from '../../shared/visual/types'
+import { emptyVisualSystem, type VisualBoundary, type VisualEdgeLook, type VisualFog, type VisualFilter, type VisualEnvironment } from '../../shared/visual/types'
+import { DIRECTIONAL_LIGHT_PRESETS } from '../../shared/visual/light-geometry'
+import type { CanvasWorldTool } from '../native-canvas/building-session'
+import LightingPanel from './LightingPanel'
 import { newId } from './runtime'
 import { terrainBoundaryChain } from '../../shared/visual/geometry'
 import { boundaryDeformationCommand, type BoundaryDeformation } from '../../shared/visual/deformation'
@@ -18,21 +21,27 @@ import TerrainTransitionPanel from './TerrainTransitionPanel'
 import AtmospherePresets from './AtmospherePresets'
 import SceneBackgroundTools from './SceneBackgroundTools'
 import { TERRAIN_CLIFF_STYLES } from '../../shared/visual/terrain-cliff-style'
+import { neutralColorFilter } from '../../shared/visual/color-filter'
+import { visualFilterColor } from '../../shared/visual/visual-filter-color'
+import { ColorFilterControls } from './ColorFilterControls'
 
-export type VisualTab = 'surface' | 'edge' | 'background' | 'environment' | 'light' | 'fog' | 'filter'
+export type VisualTab = 'artStyle' | 'surface' | 'edge' | 'background' | 'environment' | 'light' | 'fog' | 'filter'
 export interface VisualBoundaryEditor { boundary: VisualBoundary; onChange: (value: VisualBoundary) => void }
 const line = (a: PointMm, b: PointMm) => ({ id: newId(), start: { ...a }, control1: { x: Math.round((2 * a.x + b.x) / 3), y: Math.round((2 * a.y + b.y) / 3) }, control2: { x: Math.round((a.x + 2 * b.x) / 3), y: Math.round((a.y + 2 * b.y) / 3) }, end: { ...b } })
 const names = { shore: '海岸 · 湿沙与泡沫', cliff: '连续崖面', grass: '草沿', path: '道路边带', fence: '围栏 · 装饰' }
-export default function VisualPanel({ scene, appearance, historyIdentity, layerId, selectedIds, disabled, onPreview, onBoundaryEditor, onDraftChange, surfaceRequest, detailsTarget, detailsActive = true, activeTab, onTabChange, onInspect }: {
+export default function VisualPanel({ scene, appearance, historyIdentity, layerId, selectedIds, disabled, onPreview, onBoundaryEditor, onDraftChange, onLightCanvasTool, onCanvasStart, surfaceRequest, detailsTarget, detailsActive = true, activeTab, onTabChange, onInspect, artStyleControls }: {
   scene: SceneDocument; appearance: AppearanceGraph; historyIdentity?: HistoryIdentity; layerId: string; selectedIds: readonly string[]; disabled: boolean
   onPreview: (commands: SceneCommand[], label: string) => void
   onBoundaryEditor: (value: VisualBoundaryEditor | null) => void
   onDraftChange?: () => void
+  onLightCanvasTool?: (tool: CanvasWorldTool | null) => void
+  onCanvasStart?: () => void
   surfaceRequest?: number; detailsTarget?: HTMLElement | null
   detailsActive?: boolean
   activeTab?: VisualTab
   onTabChange?: (tab: VisualTab) => void
   onInspect?: () => void
+  artStyleControls?: ReactNode
 }) {
   const visual = visualBase(scene) ?? emptyVisualSystem(), floorId = scene.userLayers[layerId]?.floorId ?? (Object.keys(scene.floors).length === 1 ? Object.keys(scene.floors)[0] : '')
   const entity = () => ({ id: newId(), floorId, layerId, visibility: 'public' as const, editLocked: false })
@@ -42,9 +51,9 @@ export default function VisualPanel({ scene, appearance, historyIdentity, layerI
   const [wholeRing, setWholeRing] = useState(true), [startPoint, setStartPoint] = useState(''), [endPoint, setEndPoint] = useState('')
   const [edge, setEdge] = useState<VisualEdgeLook | null>(null), [env, setEnv] = useState<VisualEnvironment>(() => ({ ...(scene.floors[floorId]?.environment ?? visual.environment) }))
   const b = resolveFloorOutput(scene, floorId).boundsMm, center = { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }
-  const [light, setLight] = useState<VisualLight>(() => ({ ...entity(), positionMm: center, radiusMm: 4000, color: '#FFCA80', intensity: .65, wallOcclusion: true, enabled: true }))
   const [fog, setFog] = useState<VisualFog>(() => ({ ...entity(), boundaryMm: [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }], color: '#CAD9DC', opacity: .15, directionDeg: 25, scaleMm: 2500, seed: newId(), enabled: true }))
-  const [filter, setFilter] = useState<VisualFilter>(() => ({ ...entity(), target: { kind: 'scene' }, preset: 'neutral', exposure: 1, saturation: 1, contrast: 1, grain: 0, vignette: 0, seed: newId(), enabled: true }))
+  const newFilter = (): VisualFilter => ({ ...entity(), target: { kind: 'scene' }, preset: 'neutral', exposure: 1, saturation: 1, contrast: 1, grain: 0, vignette: 0, seed: newId(), enabled: true, colorFilter: neutralColorFilter() })
+  const [filter, setFilter] = useState(newFilter)
   const [filterRegion, setFilterRegion] = useState<PointMm[]>([])
   const [error, setError] = useState('')
   const [naturalStrength, setNaturalStrength] = useState(.85)
@@ -110,9 +119,11 @@ export default function VisualPanel({ scene, appearance, historyIdentity, layerI
       setBoundary(value); setEdge({ ...entity(), boundaryId: value.id, kind: 'shore', side: 'right', widthMm: 1000, color: '#AE916A', accentColor: '#FFF7DA', opacity: .8, intensity: .7, seed: newId(), repeatMm: 700, enabled: true }); setError('')
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
   }
+  const directional = env.directionalLight
   const parameters = <section className="visual-panel workspace-tool-parameters" aria-label="外观与氛围参数" hidden={split && !detailsActive} inert={split && !detailsActive}>
-    <p className="workspace-panel-intro">{({ edge: '选择已有曲线或建立草稿，再调整边带效果。需要阻挡通行的围栏可在地形的绘制工具中创建。', surface: '选择房间、地形、墙面、道路、边缘或台阶坡道，调整材质与铺装比例。', background: '选择地图底色或透明背景，预览和导出共同使用。', environment: '调整当前楼层的色调、光照方向与接触阴影。', light: '设置局部灯光的位置、范围与颜色。', fog: '选择区域，再调整雾的颜色和浓淡。', filter: '选择作用范围，用预设和参数调整画面。' })[tab]}</p>
-    <p className="asset-muted">{tab === 'background' ? '作用范围：全图输出背景。' : tab === 'environment' ? '作用范围：当前楼层环境。' : tab === 'surface' ? '作用范围：下方明确指定的单个表面。' : tab === 'filter' ? '作用范围由下方范围选择确定。' : tab === 'light' ? `作用范围：局部灯光 · 图层 ${scene.userLayers[light.layerId]?.name ?? light.layerId}。` : tab === 'fog' ? `作用范围：明确雾区 · 图层 ${scene.userLayers[fog.layerId]?.name ?? fog.layerId}。` : `作用范围：当前曲线及其已列出的绑定对象 · 图层 ${scene.userLayers[boundary?.layerId ?? layerId]?.name ?? boundary?.layerId ?? layerId}。`}</p>
+    {tab === 'artStyle' ? <div data-art-style-controls>{artStyleControls}</div> : <>
+    <p className="workspace-panel-intro">{({ edge: '选择已有曲线或建立草稿，再调整边带效果。需要阻挡通行的围栏可在地形的绘制工具中创建。', surface: '选择房间、地形、墙面、道路、边缘或台阶坡道，调整材质与铺装比例。', background: '选择地图底色或透明背景，预览和导出共同使用。', environment: '调整当前楼层的色调、光照方向与接触阴影。', light: '在画布放置灯光，或让光线跟随窗户、路线和表面。', fog: '选择区域，再调整雾的颜色和浓淡。', filter: '选择作用范围，用预设和参数调整画面。' })[tab]}</p>
+    {tab !== 'light' && <p className="asset-muted">{tab === 'background' ? '作用范围：全图输出背景。' : tab === 'environment' ? '作用范围：当前楼层环境。' : tab === 'surface' ? '作用范围：下方明确指定的单个表面。' : tab === 'filter' ? '作用范围由下方范围选择确定。' : tab === 'fog' ? `作用范围：明确雾区 · 图层 ${scene.userLayers[fog.layerId]?.name ?? fog.layerId}。` : `作用范围：当前曲线及其已列出的绑定对象 · 图层 ${scene.userLayers[boundary?.layerId ?? layerId]?.name ?? boundary?.layerId ?? layerId}。`}</p>}
     <fieldset disabled={disabled}>
     {tab === 'background' && <SceneBackgroundTools scene={scene} disabled={disabled} onPreview={submit} onDraftChange={active => { if (active) onDraftChange?.() }}/>}
     {tab === 'environment' && <AtmospherePresets scene={scene} historyIdentity={historyIdentity} layerId={layerId} disabled={disabled} onPreview={submit}/>}
@@ -154,10 +165,33 @@ export default function VisualPanel({ scene, appearance, historyIdentity, layerI
     </>}
     {scene.mapMode === 'scene' && <details className="workspace-advanced" hidden={tab !== 'edge'}><summary>地形材质过渡</summary><p className="workspace-panel-intro">沿已保存的地形或道路边界添加过渡色带，让相邻材质衔接更自然。</p><TerrainTransitionPanel scene={scene} layerId={layerId} disabled={disabled} onPreview={onPreview}/></details>}
     <section className="workspace-control-section" aria-label="铺装设置" hidden={tab !== 'surface'}><VisualSurfacePanel floorId={floorId} key={surfaceRequest} scene={scene} appearance={appearance} selectedIds={selectedIds} onPreview={onPreview}/></section>
-    {tab === 'environment' && <><p>调整当前楼层的环境色和光照方向；接触阴影只表达物件落地感。</p><div className="visual-pair">{color('环境色', env.ambientColor, v => setEnv({ ...env, ambientColor: v }))}{number('环境强度', env.ambientOpacity, v => setEnv({ ...env, ambientOpacity: v }), 0, .85, .05)}</div>{number('环境曝光', env.exposure, v => setEnv({ ...env, exposure: v }), .25, 2, .05)}{number('光照方向 °', env.lightDirectionDeg, v => setEnv({ ...env, lightDirectionDeg: v }), 0, 359)}<details className="workspace-advanced"><summary>阴影精细设置</summary>{number('接触阴影 mm', env.contactShadowMm, v => setEnv({ ...env, contactShadowMm: v }), 0, 1000)}{number('接触阴影强度', env.contactShadowOpacity, v => setEnv({ ...env, contactShadowOpacity: v }), 0, .7, .05)}</details><button className="primary asset-wide" onClick={() => submit([Object.keys(scene.floors).length > 1 || scene.floors[floorId]?.environment ? { type: 'setFloorEnvironment', id: floorId, environment: env } : { type: 'setVisualEnvironment', environment: env }], '调整环境与阴影')}>预览环境</button></>}
-    {tab === 'light' && <><label>灯光<select value={visual.lights[light.id] ? light.id : ''} onChange={e => setLight(visual.lights[e.target.value] ? structuredClone(visual.lights[e.target.value]) : { ...light, ...entity() })}><option value="">新灯光</option>{Object.keys(visual.lights).filter(id => visual.lights[id].floorId === floorId).map(id => <option key={id}>{id}</option>)}</select></label><div className="visual-pair">{number('灯光 X mm', light.positionMm.x, v => setLight({ ...light, positionMm: { ...light.positionMm, x: v } }))}{number('灯光 Y mm', light.positionMm.y, v => setLight({ ...light, positionMm: { ...light.positionMm, y: v } }))}</div>{number('灯光半径 mm', light.radiusMm, v => setLight({ ...light, radiusMm: v }), 1, 50000)}{color('灯光颜色', light.color, v => setLight({ ...light, color: v }))}{number('灯光强度', light.intensity, v => setLight({ ...light, intensity: v }), 0, 2, .05)}{check('墙体与物件遮挡', light.wallOcclusion, v => setLight({ ...light, wallOcclusion: v }))}{check('启用灯光', light.enabled, v => setLight({ ...light, enabled: v }))}<button className="primary asset-wide" onClick={() => submit([{ type: 'upsertVisualLight', light }], '调整静态灯光')}>预览灯光</button>{visual.lights[light.id] && <button className="secondary asset-wide" onClick={() => submit([{ type: 'removeVisualEffect', kind: 'light', id: light.id }], '移除灯光')}>移除灯光</button>}</>}
+    {tab === 'environment' && <>
+      <label>平行光<select aria-label="平行光" value={env.directionalLight?.kind ?? ''} onChange={event => {
+        const kind = event.target.value
+        const { directionalLight: _previous, ...base } = env
+        setEnv(kind === 'sun' || kind === 'moon' ? { ...base, directionalLight: { ...DIRECTIONAL_LIGHT_PRESETS[kind] } } : base)
+      }}><option value="">关闭</option><option value="sun">日光</option><option value="moon">月光</option></select></label>
+      {directional && <>
+        <div className="visual-pair">{number('光源高度 °', directional.elevationDeg, elevationDeg => setEnv({ ...env, directionalLight: { ...directional, elevationDeg } }), 10, 90)}
+          {number('平行光强度', directional.intensity, intensity => setEnv({ ...env, directionalLight: { ...directional, intensity } }), 0, 2, .05)}</div>
+        <div className="visual-pair">{color('平行光颜色', directional.color, color => setEnv({ ...env, directionalLight: { ...directional, color } }))}
+          {number('阴影柔度', directional.softness, softness => setEnv({ ...env, directionalLight: { ...directional, softness } }), 0, 1, .05)}</div>
+      </>}
+      {number('光照方向 °', env.lightDirectionDeg, v => setEnv({ ...env, lightDirectionDeg: v }), 0, 359)}
+      {env.directionalLight && <p className="asset-muted">方向按影子延伸的朝向设置。光源越低，影子越长。</p>}
+      <div className="visual-pair">{color('环境色', env.ambientColor, v => setEnv({ ...env, ambientColor: v }))}{number('环境强度', env.ambientOpacity, v => setEnv({ ...env, ambientOpacity: v }), 0, .85, .05)}</div>
+      {number('环境曝光', env.exposure, v => setEnv({ ...env, exposure: v }), .25, 2, .05)}
+      <details className="workspace-advanced"><summary>接触阴影</summary>{number('接触阴影 mm', env.contactShadowMm, v => setEnv({ ...env, contactShadowMm: v }), 0, 1000)}{number('接触阴影强度', env.contactShadowOpacity, v => setEnv({ ...env, contactShadowOpacity: v }), 0, .7, .05)}</details>
+      <button className="primary asset-wide" onClick={() => submit([Object.keys(scene.floors).length > 1 || scene.floors[floorId]?.environment
+        ? { type: 'setFloorEnvironment', id: floorId, environment: env }
+        : { type: 'setVisualEnvironment', environment: env }], '调整环境与阴影')}>预览环境</button>
+    </>}
+    <section aria-label="局部灯光" hidden={tab !== 'light'} inert={tab !== 'light'}>
+      <LightingPanel key={layerId} active={tab === 'light'} scene={scene} floorId={floorId} layerId={layerId} selectedIds={selectedIds} disabled={disabled}
+        onPreview={submit} onDraftChange={onDraftChange} onCanvasTool={onLightCanvasTool} onCanvasStart={onCanvasStart} onCanvasEnd={onInspect}/>
+    </section>
     {tab === 'fog' && <><label>区域雾<select value={visual.fogs[fog.id] ? fog.id : ''} onChange={e => setFog(visual.fogs[e.target.value] ? structuredClone(visual.fogs[e.target.value]) : { ...fog, ...entity() })}><option value="">新区域雾</option>{Object.keys(visual.fogs).filter(id => visual.fogs[id].floorId === floorId).map(id => <option key={id}>{id}</option>)}</select></label><label>使用区域<select value="" onChange={e => { const a = scene.terrainAreas[e.target.value], r = scene.rooms[e.target.value]; if (a) setFog({ ...fog, boundaryMm: a.boundaryMm.map(v => v.positionMm) }); else if (r) setFog({ ...fog, boundaryMm: r.boundaryVertexIds.map(id => ({ x: scene.vertices[id].xMm, y: scene.vertices[id].yMm })) }) }}><option value="">选择地形或房间</option>{[...Object.values(scene.terrainAreas), ...Object.values(scene.rooms)].filter(row => row.floorId === floorId).map(row => row.id).map(id => <option key={id}>{id}</option>)}</select></label><details className="workspace-advanced"><summary>雾区轮廓坐标</summary>{fog.boundaryMm.map((p, i) => <div className="visual-pair" key={i}>{(['x', 'y'] as const).map(axis => number(`雾点${i + 1}${axis}`, p[axis], v => setFog({ ...fog, boundaryMm: fog.boundaryMm.map((p, j) => j === i ? { ...p, [axis]: v } : p) })))}</div>)}</details>{color('雾颜色', fog.color, v => setFog({ ...fog, color: v }))}{number('雾透明度', fog.opacity, v => setFog({ ...fog, opacity: v }), 0, 1, .025)}<details className="workspace-advanced"><summary>雾纹精细设置</summary>{number('雾纹尺度 mm', fog.scaleMm, v => setFog({ ...fog, scaleMm: v }), 50, 20000)}{number('雾方向 °', fog.directionDeg, v => setFog({ ...fog, directionDeg: v }), 0, 359)}</details>{check('启用雾', fog.enabled, v => setFog({ ...fog, enabled: v }))}<button className="primary asset-wide" onClick={() => submit([{ type: 'upsertVisualFog', fog }], '调整静态区域雾')}>预览区域雾</button>{visual.fogs[fog.id] && <button className="secondary asset-wide" onClick={() => submit([{ type: 'removeVisualEffect', kind: 'fog', id: fog.id }], '移除雾')}>移除区域雾</button>}</>}
-    {tab === 'filter' && <><label>滤镜<select value={visual.filters[filter.id] ? filter.id : ''} onChange={e => { const next = visual.filters[e.target.value] ? structuredClone(visual.filters[e.target.value]) : { ...filter, ...entity() }; setFilter(next); if (next.target.kind === 'region') setFilterRegion(structuredClone(next.target.boundaryMm)) }}><option value="">新滤镜</option>{Object.keys(visual.filters).filter(id => visual.filters[id].floorId === floorId).map(id => <option key={id}>{id}</option>)}</select></label><label>作用范围<select aria-label="视觉滤镜范围" value={filter.target.kind} onChange={e => { const kind = e.target.value; setFilter({ ...filter, target: kind === 'entities' ? { kind, ids: [...selectedIds] } : kind === 'layer' ? { kind, layerId } : kind === 'region' ? { kind, boundaryMm: structuredClone(filterRegion) } : { kind: 'scene' } }) }}><option value="scene">当前楼层全图</option><option value="entities">当前选中对象</option><option value="layer">当前图层</option><option value="region">明确区域</option></select></label>
+    {tab === 'filter' && <><label>滤镜<select value={visual.filters[filter.id] ? filter.id : ''} onChange={e => { const next = visual.filters[e.target.value] ? structuredClone(visual.filters[e.target.value]) : newFilter(); setFilter(next); setFilterRegion(next.target.kind === 'region' ? structuredClone(next.target.boundaryMm) : []) }}><option value="">新滤镜</option>{Object.keys(visual.filters).filter(id => visual.filters[id].floorId === floorId).map(id => <option key={id}>{id}</option>)}</select></label><label>作用范围<select aria-label="视觉滤镜范围" value={filter.target.kind} onChange={e => { const kind = e.target.value; setFilter({ ...filter, target: kind === 'entities' ? { kind, ids: [...selectedIds] } : kind === 'layer' ? { kind, layerId } : kind === 'region' ? { kind, boundaryMm: structuredClone(filterRegion) } : { kind: 'scene' } }) }}><option value="scene">当前楼层全图</option><option value="entities">当前选中对象</option><option value="layer">当前图层</option><option value="region">明确区域</option></select></label>
     <p className="workspace-panel-intro" role="status">{filter.target.kind === 'scene' ? '作用范围：当前楼层全图。' : filter.target.kind === 'layer' ? `作用范围：指定图层 · ${scene.userLayers[filter.target.layerId]?.name ?? filter.target.layerId}。` : filter.target.kind === 'entities' ? `作用范围：已固定 ${filter.target.ids.length} 个对象；后续画布选择不会改变此范围。` : `作用范围：独立明确区域 · ${filter.target.boundaryMm.length} 个边界点。`}</p>
     {filter.target.kind === 'entities' && <><button type="button" className="secondary asset-wide" disabled={!selectedIds.length} onClick={() => setFilter({ ...filter, target: { kind: 'entities', ids: [...selectedIds] } })}>将当前 {selectedIds.length} 个选中对象设为范围</button>{!filter.target.ids.length && <p className="asset-muted">请先选择对象，再明确设置范围。</p>}</>}
     {filter.target.kind === 'layer' && filter.target.layerId !== layerId && <button type="button" className="secondary asset-wide" onClick={() => setFilter({ ...filter, target: { kind: 'layer', layerId } })}>改为当前绘制图层 · {scene.userLayers[layerId]?.name ?? layerId}</button>}
@@ -166,14 +200,38 @@ export default function VisualPanel({ scene, appearance, historyIdentity, layerI
       const points = id === '$export' ? [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }] : area ? area.boundaryMm.map(point => ({ ...point.positionMm })) : room ? room.boundaryVertexIds.map(vertexId => ({ x: scene.vertices[vertexId].xMm, y: scene.vertices[vertexId].yMm })) : []
       if (points.length) { setFilterRegion(points); setFilter({ ...filter, target: { kind: 'region', boundaryMm: points } }) }
     }}><option value="">选择明确边界</option><option value="$export">使用当前出图范围</option>{Object.values(scene.terrainAreas).filter(area => area.floorId === floorId).map(area => <option key={area.id} value={area.id}>地形 · {area.id}</option>)}{Object.values(scene.rooms).filter(room => room.floorId === floorId).map(room => <option key={room.id} value={room.id}>房间 · {room.id}</option>)}</select></label><p className="asset-muted">选择后固定本次边界，可继续编辑坐标。</p>{!filter.target.boundaryMm.length && <p role="status">尚未设置滤镜区域。</p>}<details className="workspace-advanced"><summary>滤镜区域轮廓坐标</summary>{filter.target.boundaryMm.map((point, index) => <div key={index} className="visual-pair">{(['x', 'y'] as const).map(axis => number(`滤镜点${index + 1}${axis}`, point[axis], value => { if (filter.target.kind !== 'region') return; const points = filter.target.boundaryMm.map((current, row) => row === index ? { ...current, [axis]: value } : current); setFilterRegion(points); setFilter({ ...filter, target: { kind: 'region', boundaryMm: points } }) }))}</div>)}</details></>}
-    <label>预设<select aria-label="视觉滤镜预设" value={filter.preset} onChange={e => setFilter({ ...filter, preset: e.target.value as VisualFilter['preset'] })}>{Object.entries({ neutral: '中性', warm: '暖色', cool: '冷色', aged: '旧纸', moonlight: '月色' }).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>{number('滤镜曝光', filter.exposure, v => setFilter({ ...filter, exposure: v }), .25, 2, .05)}{number('饱和度', filter.saturation, v => setFilter({ ...filter, saturation: v }), 0, 2, .05)}{number('对比度', filter.contrast, v => setFilter({ ...filter, contrast: v }), .25, 2, .05)}<details className="workspace-advanced"><summary>滤镜精细设置</summary>{number('晕影', filter.vignette, v => setFilter({ ...filter, vignette: v }), 0, 1, .05)}{number('颗粒', filter.grain, v => setFilter({ ...filter, grain: v }), 0, .2, .01)}</details>{check('启用滤镜', filter.enabled, v => setFilter({ ...filter, enabled: v }))}<button className="primary asset-wide" disabled={filter.target.kind === 'entities' && !filter.target.ids.length || filter.target.kind === 'region' && filter.target.boundaryMm.length < 3} onClick={() => submit([{ type: 'upsertVisualFilter', filter }], '调整声明式滤镜')}>预览滤镜</button>{visual.filters[filter.id] && <button className="secondary asset-wide" onClick={() => submit([{ type: 'removeVisualEffect', kind: 'filter', id: filter.id }], '移除滤镜')}>移除滤镜</button>}</>}
+    <label>预设<select aria-label="视觉滤镜预设" value={filter.preset} onChange={event => {
+      const preset = event.currentTarget.value as VisualFilter['preset']
+      const next = { ...filter, preset }
+      if (filter.colorFilter) {
+        const { exposure, saturation, contrast, strength, enabled } = filter.colorFilter
+        const curves = visualFilterColor({ preset, exposure: 1, saturation: 1, contrast: 1 }).curves
+        next.colorFilter = { ...neutralColorFilter(), exposure, saturation, contrast, strength, enabled, curves }
+      }
+      setFilter(next)
+    }}>{Object.entries({ neutral: '中性', warm: '暖色', cool: '冷色', aged: '旧纸', moonlight: '月色' }).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+    {filter.colorFilter ? <ColorFilterControls key={filter.id} value={filter.colorFilter} onChange={colorFilter => setFilter({ ...filter, colorFilter })}/> : <>
+      {number('滤镜曝光', filter.exposure, v => setFilter({ ...filter, exposure: v }), .25, 2, .05)}
+      {number('饱和度', filter.saturation, v => setFilter({ ...filter, saturation: v }), 0, 2, .05)}
+      {number('对比度', filter.contrast, v => setFilter({ ...filter, contrast: v }), .25, 2, .05)}
+      <button type="button" className="secondary" onClick={() => setFilter({ ...filter, colorFilter: visualFilterColor(filter) })}>预览新版调色曲线</button>
+    </>}
+    <details className="workspace-advanced"><summary>颗粒与晕影</summary>
+      {number('晕影', filter.vignette, v => setFilter({ ...filter, vignette: v }), 0, 1, .05)}
+      {number('颗粒', filter.grain, v => setFilter({ ...filter, grain: v }), 0, .2, .01)}
+    </details>
+    {check('启用滤镜', filter.enabled, v => setFilter({ ...filter, enabled: v }))}
+    <button className="primary asset-wide" disabled={filter.target.kind === 'entities' && !filter.target.ids.length || filter.target.kind === 'region' && filter.target.boundaryMm.length < 3}
+      onClick={() => submit([{ type: 'upsertVisualFilter', filter }], '调整声明式滤镜')}>预览滤镜</button>
+    {visual.filters[filter.id] && <button className="secondary asset-wide" onClick={() => submit([{ type: 'removeVisualEffect', kind: 'filter', id: filter.id }], '移除滤镜')}>移除滤镜</button>}</>}
     </fieldset>{error && <p role="alert" className="asset-form-error">{error}</p>}
+    </>}
   </section>
   return <section className="visual-panel" aria-label="视觉场景创作">
     <header className="workspace-panel-heading"><h2><Palette size={16}/>外观与氛围</h2><p className="workspace-panel-intro">调整材质、边界和光影。先预览，确认采用后随工程保存。</p></header>
     <button type="button" className="secondary asset-wide" onClick={() => { setTab('environment'); onTabChange?.('environment'); onInspect?.() }}>氛围预设 · 中性 / 白昼 / 阴天 / 黄昏 / 月夜</button>
     <>
-    <nav className="visual-tabs" aria-label="视觉工具">{(['edge', 'surface', 'background', 'environment', 'light', 'fog', 'filter'] as const).map(key => <button key={key} type="button" aria-pressed={tab === key} onClick={() => { setTab(key); onTabChange?.(key); onInspect?.() }}>{({ edge: '边界', surface: '铺装', background: '背景', environment: '环境', light: '灯光', fog: '雾', filter: '滤镜' })[key]}</button>)}</nav>
+    <nav className="visual-tabs" aria-label="视觉工具">{(['artStyle', 'edge', 'surface', 'background', 'environment', 'light', 'fog', 'filter'] as const).map(key => (key !== 'artStyle' || artStyleControls) && <button key={key} type="button" aria-pressed={tab === key} onClick={() => { setTab(key); onTabChange?.(key); onInspect?.() }}>{({ artStyle: '画风', edge: '边界', surface: '铺装', background: '背景', environment: '环境', light: '灯光', fog: '雾', filter: '滤镜' })[key]}</button>)}</nav>
     {split ? detailsTarget && createPortal(parameters, detailsTarget) : parameters}
     </>
   </section>

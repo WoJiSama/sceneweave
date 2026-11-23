@@ -35,6 +35,24 @@ function sources(indices: number[]) {
 }
 
 describe('native terrain shorelines', () => {
+  it('supplies the physical line-art shore for water painted only by material and rejects private shores', () => {
+    const scene = fixture(true), water = scene.terrainAreas.inner
+    const material = scene.materials['refined-material-island-material-shallows']
+    delete water.waterSurface
+    water.surfaceStyle = { base: { materialRef: { id: material.id, version: material.version }, tileSizeMm: material.defaultTileSizeMm,
+      rotationDeg: 0, alignment: 'world', originMm: { x: 0, y: 0 }, tint: null, opacity: 1 }, overlays: [] }
+    const projected = projectScene(scene, 'player', undefined, { floorId })
+    expect(projected.lineArtShorelines).toHaveLength(4)
+    expect(projected.lineArtShorelines).toContainEqual([{ x: 12200, y: 5000 }, { x: 12200, y: 10500 }])
+    expect(planProjectedShorelines(projected)).toEqual([])
+    water.visibility = 'gm'
+    scene.regions.mask = { id: 'mask', floorId, editLocked: false, visibility: 'gm', kind: 'manualMask', blocksMovement: false,
+      movementCostMultiplier: 1, boundaryMm: rect(0, 0, 24000, 18000) }
+    scene.entityLayers.mask = groundLayer
+    expect(projectScene(scene, 'player', undefined, { floorId }).lineArtShorelines).toBeUndefined()
+    expect(projectScene(scene, 'gm', undefined, { floorId }).lineArtShorelines).toEqual(projected.lineArtShorelines)
+  })
+
   it('joins a complete cliff shore and reads moved source points without writing any painted geometry', () => {
     const before = fixture()
     const next = applyCommands(before, terrainShorelineCommands(before, sources([0, 1, 2, 3]), true, idFor), runtime)

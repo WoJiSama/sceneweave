@@ -25,7 +25,7 @@ export async function exportUvtt(input: ProjectBundle, signal?: AbortSignal): Pr
   const bundle = await validateProjectBundle(input, { images: createBrowserImagePort(), svg: createBrowserSvgPort(), signal })
   const scene = bundle.project.document, plan = buildUvttPlan(scene, bundle.project.appearance)
   if (plan.report.blocked.length || !plan.geometry || !plan.projection) throw new Error(plan.report.blocked.join(' ') || '无法生成安全的 VTT 导入包。')
-  const output = await renderRasterProjection({ assetRefs: scene.assets, assets: bundle.project.assets, resources: bundle.resources }, plan.projection,
+  const output = await renderRasterProjection({ assetRefs: scene.assets, assets: bundle.project.assets, resources: bundle.resources, vectorSources: bundle.project.authoringSources }, plan.projection,
     { audience: 'player', longEdgePx: Math.max(plan.widthPx, plan.heightPx), signal }, undefined, undefined, undefined, plan.sourceBoundsMm)
   if (output.width !== plan.widthPx || output.height !== plan.heightPx) {
     output.width = output.height = 1

@@ -101,12 +101,14 @@ function BridgeStructureFields({ unit, structure, onChange }: { unit: SceneDocum
         <label>下层投影强度<input aria-label="下层投影强度" type="number" min={0} max={.85} step={.05}
           value={structure.relief.shadowOpacity} onChange={event => onChange({ ...structure, relief: { ...structure.relief!, shadowOpacity: Number(event.target.value) } })}/></label>
       </div>}
-      <small>桥头可搭接同高平台。梁腹厚度影响出图，下层投影随楼层光照方向变化。</small>
+      <small>桥头可搭接同高平台。平台收边随可见钢梁的方向和厚度调整，下层投影随楼层光照方向变化。</small>
     </>}
   </details>
 }
 
-export function PathStyleFields({ scene, form, onChange, allowStructure = false }: { scene: SceneDocument; form: StyleForm; onChange: (value: StyleForm) => void; allowStructure?: boolean }) {
+export function PathStyleFields({ scene, form, onChange, allowStructure = false, forceFit = false }: {
+  scene: SceneDocument; form: StyleForm; onChange: (value: StyleForm) => void; allowStructure?: boolean; forceFit?: boolean
+}) {
   const { source, defaults } = form, { lengthMm, dimensions, lamps, fit } = defaults
   const section = readPathSection(scene, source, lengthMm)
   const structure = allowStructure && section.kind !== 'none' ? defaults.structure : undefined
@@ -126,7 +128,7 @@ export function PathStyleFields({ scene, form, onChange, allowStructure = false 
         <NumberInput label="实际占地宽度" value={dimensions?.footprintWidthMm ?? widths.footprintWidthMm} displayUnit={scene.units.display} onCommit={footprintWidthMm => dimension({ footprintWidthMm })}/>
       </div>
       {detail && <label>细节粗细 %<input aria-label="细节粗细" type="number" min={35} max={180} step={1} value={dimensions?.detailPercent ?? 100} onChange={event => dimension({ detailPercent: Number(event.target.value) })}/></label>}
-      {section.kind !== 'profile' && <label className="asset-check"><input type="checkbox" checked={!!fit || !!structure} disabled={!!structure} onChange={event => set({ fit: event.target.checked ? true : undefined })}/>接合铺设 · 按转角和端点调整各节长度</label>}
+      {section.kind !== 'profile' && <label className="asset-check"><input type="checkbox" checked={!!fit || !!structure || forceFit} disabled={!!structure || forceFit} onChange={event => set({ fit: event.target.checked ? true : undefined })}/>接合铺设 · 按转角和端点调整各节长度</label>}
       {dimensions && <button type="button" className="secondary asset-wide" onClick={() => set({ dimensions: undefined })}>恢复源节尺寸</button>}
       <small>占地宽度参与支撑和通行检查。源节沿绘制方向排布，双侧铺设会镜像。</small>
     </>}

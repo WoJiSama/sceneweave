@@ -1,8 +1,9 @@
-import { pathPolygon, polygonValid } from '../geometry/geometry.js'
+import { corridor, pathPolygon, polygonValid } from '../geometry/geometry.js'
 import { levelGroundPolygon } from '../geometry/support-sample.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import type { Issue, Path, PointMm, SceneDocument, SurfaceStyle } from '../model/scene.js'
 import { cloneJson } from '../validation/json.js'
+import { OperationRejected } from '../validation/operation-rejection.js'
 import { PATH_ENDS, type PathEnd } from './bridge-link-contracts.js'
 
 export const BRIDGE_FOLLOW_DISTANCE_MM = 1800
@@ -49,9 +50,20 @@ export function compatible(bridge: Path, road: Path | undefined): road is Path {
   return !!road && bridge.floorId === road.floorId && bridge.visibility === road.visibility && !road.assembly && !road.widthSections
 }
 
-export function hasLevelApproach(scene: SceneDocument, path: Path, elevationMm: number) {
+function hasLevelApproach(scene: SceneDocument, path: Path, elevationMm: number) {
   const band = pathPolygon(path)
   return polygonValid(band, true) && levelGroundPolygon(scene, path.floorId, band, path.supportRefs, elevationMm)
+}
+
+/** A supported road end alone cannot prove a supported bridge-to-road join. */
+export function hasContinuousBridgeApproach(scene: SceneDocument, bridge: Path, bridgeEnd: PathEnd, road: Path, roadEnd: PathEnd) {
+  return hasLevelApproach(scene, road, bridge.assembly!.bridge!.elevationMm)
+    && hasBridgeEntranceSupport(scene, bridge, bridgeEnd, road, roadEnd)
+}
+
+function hasBridgeEntranceSupport(scene: SceneDocument, bridge: Path, bridgeEnd: PathEnd, road: Path, roadEnd: PathEnd) {
+  const entrance = corridor(pathEndPosition(bridge, bridgeEnd), pathEndPosition(road, roadEnd), Math.min(bridge.widthMm, road.widthMm))
+  return levelGroundPolygon(scene, bridge.floorId, entrance, [...bridge.supportRefs, ...road.supportRefs], bridge.assembly!.bridge!.elevationMm)
 }
 
 export function translateBridgeSurfaceStyle(style: SurfaceStyle, offsetMm: PointMm): SurfaceStyle {
@@ -85,4 +97,23 @@ export function inspectBridgeRoadLinks(scene: SceneDocument): Issue[] {
     }
   }
   return issues
+}
+
+/** Apply the continuity rule when a candidate creates or breaks a joint.
+ * Previously saved gaps can still be opened and repaired in the editor. */
+export function assertBridgeRoadContinuity(before: SceneDocument, candidate: SceneDocument): void {
+  for (const path of Object.values(candidate.paths)) for (const end of PATH_ENDS) {
+    const link = path.assembly?.bridge?.roadLinks?.[end]
+    if (!link) continue
+    const road = candidate.paths[link.pathId]
+    if (hasBridgeEntranceSupport(candidate, path, end, road, link.end)) continue
+    const oldPath = before.paths[path.id], oldRoad = before.paths[link.pathId], old = oldPath?.assembly?.bridge?.roadLinks?.[end]
+    if (old?.pathId === link.pathId && old.end === link.end && oldRoad
+      && samePoint(pathEndPosition(path, end), pathEndPosition(oldPath, end))
+      && samePoint(pathEndPosition(road, link.end), pathEndPosition(oldRoad, old.end))
+      && Math.min(path.widthMm, road.widthMm) === Math.min(oldPath.widthMm, oldRoad.widthMm)
+      && path.assembly!.bridge!.elevationMm === oldPath.assembly!.bridge!.elevationMm
+      && !hasBridgeEntranceSupport(before, oldPath, end, oldRoad, old.end)) continue
+    throw new OperationRejected('invalid_geometry', `${path.id} 的${end === 'start' ? '起点' : '终点'}缺少连续的同高承托。请调整支撑面或解除桥路链接。`)
+  }
 }

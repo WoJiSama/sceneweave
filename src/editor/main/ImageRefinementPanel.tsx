@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { EditableProject } from '../../application/workspace/project'
 import type { ImagePixels } from '../../shared/image-import/pixels'
 import type { VectorRefinementOptions } from '../../shared/asset-refinement/vector'
 import { parseVectorStructurePlan, type VectorStructurePlan } from '../../shared/asset-refinement/structure-plan'
 import type { ImageEditCapabilities } from '../../shared/asset-refinement/model-protocol'
+import { modelPatchContext, modelPatchSchema, type ModelPatch } from '../../shared/asset-refinement/local-model-patch'
 import { inspectImageEnhancementTarget, readImageEnhancementSource, type ImageEnhancementSource, type ImageEnhancementTarget } from '../../platform/browser/content/image-enhancement'
 import { generateVectorRefinementCandidate, generateStructuredVectorCandidate, generateModelRefinementCandidate, type ImageRefinementCandidate } from '../../platform/browser/content/image-refinement'
 import { getImageEditCapabilities, ImageEditClientError, type ImageEditRequestStateEvent } from '../../platform/browser/content/image-refinement-model'
+import ModelPatchSelection from './ModelPatchSelection'
 import './image-refinement-panel.css'
 
 export interface ImageRefinementUnknownRequest { id: string; service: string; state: ImageEditRequestStateEvent['state'] }
@@ -18,20 +20,21 @@ export interface ImageRefinementPanelProps {
   onPendingChange?: (pending: boolean) => void
   onDirtyChange?: (dirty: boolean) => void
   previewContext?: 'scene' | 'asset'
+  initialModelPatch?: boolean
   unknownRequests?: readonly ImageRefinementUnknownRequest[]
   onUnknownRequest?: (request: ImageRefinementUnknownRequest) => void
 }
 
 type Route = 'structure' | 'vector' | 'model'
 type Basis = ImageEnhancementSource['basis']
-type Result = { source: ImageEnhancementSource; candidate: ImageRefinementCandidate; options?: VectorRefinementOptions; planText?: string; prompt?: string }
+type Result = { source: ImageEnhancementSource; candidate: ImageRefinementCandidate; options?: VectorRefinementOptions; planText?: string; prompt?: string; patch?: ModelPatch }
 type Operation = 'load' | 'structure' | 'vector' | 'capabilities' | 'model' | 'preview'
 const defaultOptions: VectorRefinementOptions = { colors: 24, curveTolerancePx: .45 }
 const sameOptions = (a: VectorRefinementOptions, b: VectorRefinementOptions) => a.colors === b.colors && a.curveTolerancePx === b.curveTolerancePx
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : '精修未完成，请检查输入。'
 
 /** Both images share the source coordinate frame, without stretching returned pixels. */
-function PixelCanvas({ pixels, source, zoom, label }: { pixels: ImagePixels; source: ImagePixels; zoom: string; label: string }) {
+function PixelCanvas({ pixels, source, zoom, label, children }: { pixels: ImagePixels; source: ImagePixels; zoom: string; label: string; children?: ReactNode }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const canvas = ref.current
@@ -41,12 +44,18 @@ function PixelCanvas({ pixels, source, zoom, label }: { pixels: ImagePixels; sou
     const image = context.createImageData(pixels.width, pixels.height)
     image.data.set(pixels.data); context.putImageData(image, 0, 0)
   }, [pixels])
-  return <div className="image-refinement-raster" style={{ width: zoom === 'fit' ? '100%' : source.width * Number(zoom) / 100, aspectRatio: `${source.width} / ${source.height}` }}><canvas ref={ref} aria-label={label}/></div>
+  return <div className="image-refinement-raster" style={{ width: zoom === 'fit' ? '100%' : source.width * Number(zoom) / 100, aspectRatio: `${source.width} / ${source.height}` }}><canvas ref={ref} aria-label={label}/>{children}</div>
 }
 
 /** Local review drafts only. The host owns protected adoption and final persistence. */
-export default function ImageRefinementPanel({ project, target, disabled, onPreview, onPendingChange, onDirtyChange, previewContext = 'scene', unknownRequests: retainedUnknownRequests, onUnknownRequest }: ImageRefinementPanelProps) {
-  const [route, setRoute] = useState<Route>('structure'), [vectorRoute, setVectorRoute] = useState<'structure' | 'vector'>('structure'), [basis, setBasis] = useState<Basis>('original')
+export default function ImageRefinementPanel({ project, target, disabled, onPreview, onPendingChange, onDirtyChange, previewContext = 'scene',
+  initialModelPatch = false, unknownRequests: retainedUnknownRequests, onUnknownRequest }: ImageRefinementPanelProps) {
+  const floorArtwork = target.kind === 'floorArtwork'
+  const startWithPatch = initialModelPatch || floorArtwork
+  const [route, setRoute] = useState<Route>(startWithPatch ? 'model' : 'structure'), [vectorRoute, setVectorRoute] = useState<'structure' | 'vector'>('structure')
+  const [basis, setBasis] = useState<Basis>(startWithPatch ? 'current' : 'original')
+  const [modelScope, setModelScope] = useState<'all' | 'patch'>(startWithPatch ? 'patch' : 'all')
+  const [patch, setPatch] = useState<ModelPatch | null>(null)
   const [planText, setPlanText] = useState('')
   const [source, setSource] = useState<ImageEnhancementSource | null>(null)
   const [options, setOptions] = useState<VectorRefinementOptions>(defaultOptions)
@@ -70,8 +79,10 @@ export default function ImageRefinementPanel({ project, target, disabled, onPrev
   const currentRefinement = info ? project.document.assets[info.assetId]?.imageRefinement : undefined
   const savedPlan = currentRefinement?.kind === 'vector' && currentRefinement.algorithm === 'structure-plan-v1' ? currentRefinement.plan : undefined
   const editing = disabled || pending !== null
-  const dirty = !!results.structure || !!results.vector || !!results.model || !!planText.trim() || !!prompt.trim() || !sameOptions(options, defaultOptions)
-  const parametersChanged = !!result && (route === 'structure' ? result.planText !== planText : route === 'vector' ? !result.options || !sameOptions(result.options, options) : result.prompt !== prompt.trim())
+  const dirty = !!results.structure || !!results.vector || !!results.model || !!planText.trim() || !!prompt.trim() || !!patch || !sameOptions(options, defaultOptions)
+  const activePatch = modelScope === 'patch' ? patch : undefined
+  const parametersChanged = !!result && (route === 'structure' ? result.planText !== planText : route === 'vector' ? !result.options || !sameOptions(result.options, options)
+    : result.prompt !== prompt.trim() || JSON.stringify(result.patch ?? null) !== JSON.stringify(activePatch ?? null))
   const parsedPlan = useMemo((): { plan?: VectorStructurePlan; error?: string } => {
     if (!planText.trim()) return {}
     try {
@@ -80,7 +91,13 @@ export default function ImageRefinementPanel({ project, target, disabled, onPrev
     } catch (reason) { return { error: errorMessage(reason) } }
   }, [planText])
   const connected = capability && capability.baseUrl === baseUrl && capability.token === token ? capability.value : null
-  const promptValid = prompt.trim().length > 0 && prompt.trim().length <= 2000 && new TextEncoder().encode(prompt.trim()).length <= 8192
+  const patchInfo = useMemo(() => {
+    if (!activePatch || !sourcePixels) return {}
+    try { return { context: modelPatchContext(sourcePixels, modelPatchSchema.parse(activePatch)) } }
+    catch (reason) { return { error: reason instanceof Error && reason.name !== 'ZodError' ? reason.message : '选区至少需要 16 × 16 像素。' } }
+  }, [activePatch, sourcePixels])
+  const promptValid = prompt.trim().length > 0 && prompt.trim().length <= (modelScope === 'patch' ? 1800 : 2000) && new TextEncoder().encode(prompt.trim()).length <= 8192
+  const modelReady = connected?.available && promptValid && consent && (modelScope === 'all' || !!patchInfo.context)
   const candidateStale = !!result && (!source || result.source !== source || stale)
 
   useEffect(() => { pendingCallback.current?.(pending !== null) }, [pending])
@@ -92,7 +109,7 @@ export default function ImageRefinementPanel({ project, target, disabled, onPrev
     setSvgUrl(url)
     return () => URL.revokeObjectURL(url)
   }, [result?.candidate.sourceSvg])
-  useEffect(() => { setConsent(false) }, [source, baseUrl, token, prompt, stale])
+  useEffect(() => { setConsent(false) }, [source, baseUrl, token, prompt, stale, modelScope, patch])
 
   const stop = () => {
     epoch.current++; operation.current?.abort(); operation.current = null; setPending(null); setConsent(false)
@@ -100,7 +117,7 @@ export default function ImageRefinementPanel({ project, target, disabled, onPrev
   const load = async (nextBasis: Basis) => {
     stop()
     const controller = new AbortController(), stamp = ++epoch.current, captured = latest.current
-    operation.current = controller; setPending('load'); setError(''); setNotice(''); setSource(null); setResults({}); setBasis(nextBasis); setReload(null)
+    operation.current = controller; setPending('load'); setError(''); setNotice(''); setSource(null); setResults({}); setPatch(null); setBasis(nextBasis); setReload(null)
     try {
       const value = await readImageEnhancementSource(captured.project, captured.target, nextBasis, controller.signal)
       if (!controller.signal.aborted && stamp === epoch.current) setSource(value)
@@ -108,7 +125,7 @@ export default function ImageRefinementPanel({ project, target, disabled, onPrev
     finally { if (stamp === epoch.current) { operation.current = null; setPending(null) } }
   }
   useEffect(() => {
-    void load('original')
+    void load(startWithPatch ? 'current' : 'original')
     return () => { epoch.current++; operation.current?.abort(); operation.current = null }
   }, [target.kind, target.id])
   // A target edit may happen while the request is in flight. Never publish its result into a newer baseline.
@@ -135,7 +152,7 @@ export default function ImageRefinementPanel({ project, target, disabled, onPrev
   }
   const generate = async () => {
     if (!source || stale || disabled || operation.current) return
-    if (route === 'model' && (!connected?.available || !consent || !promptValid)) return
+    if (route === 'model' && !modelReady) return
     const controller = new AbortController(), stamp = ++epoch.current, capturedSource = source, capturedRoute = route
     if (route === 'structure' && !parsedPlan.plan) return
     const capturedOptions = { ...options }, capturedPrompt = prompt.trim(), capturedPlanText = planText
@@ -153,11 +170,11 @@ export default function ImageRefinementPanel({ project, target, disabled, onPrev
         ? await generateStructuredVectorCandidate(capturedSource, parsedPlan.plan, controller.signal)
         : capturedRoute === 'vector'
         ? await generateVectorRefinementCandidate(capturedSource, capturedOptions, controller.signal)
-        : await generateModelRefinementCandidate(capturedSource, { baseUrl, token }, capturedPrompt, controller.signal, undefined, rememberRequest)
+        : await generateModelRefinementCandidate(capturedSource, { baseUrl, token }, capturedPrompt, controller.signal, undefined, rememberRequest, activePatch ?? undefined)
       if (controller.signal.aborted || stamp !== epoch.current) return
       if (latest.current.info?.baseline !== capturedSource.baseline) throw new Error('素材已经修改，本次结果不能采用。请重新读取精修基线。')
-      setResults(current => ({ ...current, [capturedRoute]: { source: capturedSource, candidate, ...(capturedRoute === 'structure' ? { planText: capturedPlanText } : capturedRoute === 'vector' ? { options: capturedOptions } : { prompt: capturedPrompt }) } }))
-      setNotice(capturedRoute === 'structure' ? '已按结构稿重绘。轮廓与透明区域可以变化；请核对造型、推断细节与黑白底边缘，尚未修改素材。' : capturedRoute === 'vector' ? '像素描摹候选已生成。它会保留原图的模糊与杂边，请勿将其当作精细重绘。' : '模型候选已返回。补画可能改变轮廓与细节，请逐项对照；尚未修改素材。')
+      setResults(current => ({ ...current, [capturedRoute]: { source: capturedSource, candidate, ...(capturedRoute === 'structure' ? { planText: capturedPlanText } : capturedRoute === 'vector' ? { options: capturedOptions } : { prompt: capturedPrompt, patch: activePatch ?? undefined }) } }))
+      setNotice(capturedRoute === 'structure' ? '已按结构稿重绘。轮廓与透明区域可以变化；请核对造型、推断细节与黑白底边缘，尚未修改素材。' : capturedRoute === 'vector' ? '像素描摹候选已生成。它会保留原图的模糊与杂边，请勿将其当作精细重绘。' : activePatch ? '已生成局部补画。请对照检查新增细节、选区位置和接缝。' : '模型候选已返回。补画可能改变轮廓与细节，请逐项对照；尚未修改素材。')
     } catch (reason) {
       if (capturedRoute === 'model' && reason instanceof ImageEditClientError && reason.requestState !== 'not_sent' && reason.clientRequestId) {
         rememberRequest({ clientRequestId: reason.clientRequestId, state: reason.requestState })
@@ -185,9 +202,9 @@ export default function ImageRefinementPanel({ project, target, disabled, onPrev
   }
 
   return <section className="image-refinement-panel" aria-label="素材图像精修">
-    <header><h3>进一步精修</h3><p>从保留原图重建或补画；原件、占地和场景通行规则继续保留。</p></header>
-    <div role="group" aria-label="素材精修路线" className="image-refinement-routes"><button type="button" aria-label="矢量重建" aria-pressed={route !== 'model'} onClick={() => { setRoute(vectorRoute); setError(''); setNotice('') }}>矢量重建{(results.structure || results.vector) && <small>有候选</small>}</button><button type="button" aria-label="模型补画" aria-pressed={route === 'model'} onClick={() => { setRoute('model'); setError(''); setNotice('') }}>模型补画{results.model && <small>有候选</small>}</button></div>
-    <div className="image-refinement-baseline"><label>精修依据<select aria-label="精修图像依据" disabled={editing} value={basis} onChange={event => requestLoad(event.target.value as Basis)}><option value="original">保留原图</option><option value="current">当前结果</option>{savedPlan && <option value="savedStructure">已保存结构稿来源</option>}</select></label><button type="button" disabled={editing} onClick={() => requestLoad(basis)}>重新读取精修基线</button></div>
+    <header><h3>{floorArtwork ? '楼层底图局部补画' : '进一步精修'}</h3><p>{floorArtwork ? '在当前底图上选一块区域，预览补画后再采用。' : '从保留原图重建或补画。'}</p></header>
+    {!floorArtwork && <div role="group" aria-label="素材精修路线" className="image-refinement-routes"><button type="button" aria-label="矢量重建" aria-pressed={route !== 'model'} onClick={() => { setRoute(vectorRoute); setError(''); setNotice('') }}>矢量重建{(results.structure || results.vector) && <small>有候选</small>}</button><button type="button" aria-label="模型补画" aria-pressed={route === 'model'} onClick={() => { setRoute('model'); setError(''); setNotice('') }}>模型补画{results.model && <small>有候选</small>}</button></div>}
+    <div className="image-refinement-baseline">{!floorArtwork && <label>精修依据<select aria-label="精修图像依据" disabled={editing} value={basis} onChange={event => requestLoad(event.target.value as Basis)}><option value="original">保留原图</option><option value="current">当前结果</option>{savedPlan && <option value="savedStructure">已保存结构稿来源</option>}</select></label>}<button type="button" disabled={editing} onClick={() => requestLoad(basis)}>重新读取精修基线</button></div>
     {stale && <p role="status" className="image-refinement-warning">此素材已修改，旧候选仅供对照。重新读取后才能生成或采用。</p>}
     {reload && <div role="alertdialog" aria-label="重新读取精修基线确认" className="image-refinement-warning"><p>重新读取将丢弃两条路线的现有候选，参数和补画要求保留。</p><button type="button" disabled={editing} onClick={() => void load(reload)}>丢弃候选并重新读取</button><button type="button" onClick={() => setReload(null)}>保留当前候选</button></div>}
     {pending && <div role="status" className="image-refinement-progress"><span>{pending === 'load' ? '正在读取精修原图…' : pending === 'capabilities' ? '正在检查补画服务…' : pending === 'structure' ? '正在按结构稿重绘…' : pending === 'vector' ? '正在描摹像素…' : pending === 'model' ? '已开始一次补画请求，正在等待服务…' : '正在准备精修候选…'}</span><button type="button" onClick={() => { const model = pending === 'model'; stop(); setNotice(model ? '已停止等待。服务可能仍在处理或计费；结果未确认，不会自动重发。' : '已取消本次精修处理。') }}>取消精修处理</button></div>}
@@ -218,20 +235,50 @@ export default function ImageRefinementPanel({ project, target, disabled, onPrev
       <fieldset disabled={editing} className="image-refinement-connection"><legend>补画应用服务</legend><label>应用服务地址<input aria-label="补画应用服务地址" type="url" value={baseUrl} autoComplete="off" spellCheck={false} placeholder="https://ai.example.com" onChange={event => { setBaseUrl(event.target.value); setCapability(null); setConsent(false) }}/></label><label>应用访问凭据<input aria-label="补画应用访问凭据" type="password" value={token} maxLength={4096} autoComplete="off" spellCheck={false} onChange={event => { setToken(event.target.value); setCapability(null); setConsent(false) }}/></label><p>填写此应用服务的访问凭据。供应商密钥由服务端管理；地址和访问凭据仅保存在当前编辑器内存中。</p><div className="image-refinement-connection-actions"><button type="button" disabled={editing || !baseUrl.trim() || !token.trim()} onClick={() => void checkConnection()}>检查补画服务</button><button type="button" disabled={editing || !baseUrl && !token} onClick={() => { setBaseUrl(''); setToken(''); setCapability(null); setConsent(false) }}>清除补画连接</button></div></fieldset>
       {connected && <p role="status" className="image-refinement-hint">{connected.available ? `补画服务可用 · ${connected.model ?? '模型由服务配置'}` : '此服务未配置可用的图片补画模型，请联系应用服务维护者完成配置。'}</p>}
       {!!unknownRequests.length && <div className="image-refinement-warning" aria-label="补画请求记录"><p>请求记录在本次编辑中保留。取消等待或拒绝候选不会撤销已发出的模型处理与费用；再次生成前请先核对。</p>{(['unknown', 'finished', 'not_sent'] as const).map(state => <div key={state} aria-label={state === 'unknown' ? '结果未确认的补画请求' : state === 'finished' ? '已完成的补画请求' : '未发送到模型的补画请求'}><ul>{unknownRequests.filter(request => request.state === state).map(request => <li key={`${request.service}:${request.id}`}>{state === 'unknown' ? '结果未确认' : state === 'finished' ? '服务已返回' : '服务拒绝，未发送到模型'} · {request.service} · <code>{request.id}</code></li>)}</ul></div>)}</div>}
-      <label className="image-refinement-prompt">补画要求<textarea aria-label="模型补画要求" rows={4} value={prompt} maxLength={2000} disabled={editing || stale} placeholder="说明要保留的轮廓、描边、材质与需要补足的部分。" onChange={event => { setPrompt(event.target.value); setConsent(false) }}/></label>
-      <p className="image-refinement-hint">最多 2000 字符、UTF-8 8 KiB。请检查返回图是否改变形状、孔洞、材质或阴影；补画内容需要人工审阅。</p>
-      <div className="image-refinement-consent"><p>点击生成将把当前精修依据的完整图片与补画要求上传至 <strong>{baseUrl || '尚未填写的应用服务'}</strong>，由该服务交给图片模型。每次只发送一次生成请求，可能产生费用；取消等待或网络中断后，服务仍可能处理和计费，程序不会自动重发。</p><label><input aria-label="同意本次图片上传与可能计费" type="checkbox" checked={consent} disabled={!source || editing || stale || !connected?.available || !promptValid} onChange={event => setConsent(event.target.checked)}/>我同意本次图片上传与可能计费</label></div>
-      <button type="button" className="primary" disabled={!source || editing || stale || !connected?.available || !promptValid || !consent} onClick={() => void generate()}>上传并生成一次补画候选</button>
+      {!floorArtwork && <label className="image-refinement-method">补画范围<select aria-label="模型补画范围" disabled={editing || stale} value={modelScope}
+        onChange={event => { setModelScope(event.target.value === 'patch' ? 'patch' : 'all'); setConsent(false) }}>
+        <option value="all">完整素材图片</option><option value="patch">框选局部</option>
+      </select></label>}
+      <label className="image-refinement-prompt">补画要求<textarea aria-label="模型补画要求" rows={4} value={prompt} maxLength={modelScope === 'patch' ? 1800 : 2000}
+        disabled={editing || stale} placeholder="例如，在选区内补几条棕色木纹，沿用附近的明暗和走向。"
+        onChange={event => { setPrompt(event.target.value); setConsent(false) }}/></label>
+      <div className="image-refinement-consent"><p>点击生成将上传{modelScope === 'patch'
+        ? patchInfo.context ? `含周边参考的 ${patchInfo.context.width} × ${patchInfo.context.height} 像素裁片` : '框选处和周边参考裁片'
+        : '当前精修依据的完整图片'}与补画要求至 <strong>{baseUrl || '尚未填写的应用服务'}</strong>。每次只发送一次请求，可能产生费用。取消等待或断网后，服务仍可能处理和计费。</p>
+        <label><input aria-label="同意本次图片上传与可能计费" type="checkbox" checked={consent}
+          disabled={!source || editing || stale || !connected?.available || !promptValid || modelScope === 'patch' && !patchInfo.context}
+          onChange={event => setConsent(event.target.checked)}/>我同意本次图片上传与可能计费</label></div>
+      <button type="button" className="primary" disabled={!source || editing || stale || !modelReady} onClick={() => void generate()}>上传并生成一次补画候选</button>
     </div>
+    {route === 'model' && modelScope === 'patch' && <p className="image-refinement-hint">
+      {patchInfo.error ?? (patch && patchInfo.context ? `已框选 ${patch.width} × ${patch.height} 像素。仅合并框内的颜色，保留原有透明轮廓。` : '在下方原图拖出补画范围。')}
+      {patch && <button type="button" disabled={editing || stale} onClick={() => { setPatch(null); setConsent(false) }}>清除框选</button>}
+    </p>}
     <div className="image-refinement-view-controls"><label>检查背景<select aria-label="精修检查背景" value={background} onChange={event => setBackground(event.target.value)}><option value="checker">透明棋盘</option><option value="white">白色</option><option value="black">黑色</option></select></label><label>同步缩放<select aria-label="精修对照缩放" value={zoom} onChange={event => setZoom(event.target.value)}><option value="fit">适应宽度</option><option value="100">100%</option><option value="200">200%</option><option value="400">400%</option></select></label></div>
-    {source && sourcePixels && <div className="image-refinement-comparison" data-background={background}><figure><figcaption>{source.basis === 'original' ? '保留原图' : source.basis === 'savedStructure' ? '已保存结构稿来源' : '当前结果'} · {sourcePixels.width} × {sourcePixels.height} px</figcaption><div className="image-refinement-pixel-view" ref={sourceViewport} onScroll={event => syncScroll(event.currentTarget, candidateViewport.current)}><PixelCanvas pixels={sourcePixels} source={sourcePixels} zoom={zoom} label="精修原图对照画布"/></div></figure><figure><figcaption>{result ? `${result.candidate.label} · ${result.candidate.pixels.width} × ${result.candidate.pixels.height} px` : '尚未生成此路线候选'}</figcaption><div className="image-refinement-pixel-view" ref={candidateViewport} onScroll={event => syncScroll(event.currentTarget, sourceViewport.current)}>{result ? <PixelCanvas pixels={result.candidate.pixels} source={sourcePixels} zoom={zoom} label="精修候选对照画布"/> : <p>生成后在相同原图坐标框中对照，返回图片按比例显示。</p>}</div></figure></div>}
+    {source && sourcePixels && <div className="image-refinement-comparison" data-background={background}>
+      <figure>
+        <figcaption>{source.basis === 'original' ? '保留原图' : source.basis === 'savedStructure' ? '已保存结构稿来源' : '当前结果'} · {sourcePixels.width} × {sourcePixels.height} px</figcaption>
+        <div className="image-refinement-pixel-view" ref={sourceViewport} onScroll={event => syncScroll(event.currentTarget, candidateViewport.current)}>
+          <PixelCanvas pixels={sourcePixels} source={sourcePixels} zoom={zoom} label="精修原图对照画布">
+            {route === 'model' && modelScope === 'patch' && <ModelPatchSelection image={sourcePixels} value={patch} disabled={editing || stale}
+              onChange={value => { setPatch(value); setConsent(false) }}/>}
+          </PixelCanvas>
+        </div>
+      </figure>
+      <figure>
+        <figcaption>{result ? `${result.candidate.label} · ${result.candidate.pixels.width} × ${result.candidate.pixels.height} px` : '尚未生成此路线候选'}</figcaption>
+        <div className="image-refinement-pixel-view" ref={candidateViewport} onScroll={event => syncScroll(event.currentTarget, sourceViewport.current)}>
+          {result ? <PixelCanvas pixels={result.candidate.pixels} source={sourcePixels} zoom={zoom} label="精修候选对照画布"/> : <p>生成后在相同原图坐标框中对照。</p>}
+        </div>
+      </figure>
+    </div>}
     {result?.candidate.vectorStats && <details className="image-refinement-diagnostics"><summary>算法与误差记录</summary><p>这些记录用于复查重建，不能衡量细节改善或画质。色阶偏差在源像素采样处计算，不是曲线渲染后的全图误差。</p><dl className="image-refinement-stats" aria-label="矢量重建统计">{([
       ['pathCount', '路径数'], ['sourcePathCommandCount', '源路径指令'], ['pathCommandCount', '输出路径指令'], ['quadraticCurveCount', '二次曲线'], ['protectedCornerCount', '保留拐角'], ['maxCurveDeviationPx', '最大曲线偏差（像素）'],
       ['tonalRegionCount', '初始连通区域'], ['mergedRegionCount', '合并区域'], ['gradientCount', '渐变填色'], ['maxGradientChannelError', '源色阶拟合最大通道偏差（0–255）'],
       ['observedElements', '依据原图的部件'], ['inferredElements', '含推断的部件'],
     ] as const).filter(([key]) => Number.isFinite(result.candidate.vectorStats![key])).map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{Number(result.candidate.vectorStats![key].toFixed(3))}</dd></div>)}</dl></details>}
     {result && <><p className="image-refinement-hint">两侧使用相同原图坐标框；候选原生分辨率见上方，宽高比略有差异时保留留白，不拉伸。{result.candidate.model && ` 模型：${result.candidate.model}。`}{result.candidate.requestId && ` 请求标识：${result.candidate.requestId}。`}</p>{parametersChanged && <p role="status" className="image-refinement-warning">参数或补画要求已修改，当前仍显示上一次候选。重新生成后再采用，或恢复原参数。</p>}{result.candidate.sourceSvg && <details className="image-refinement-svg"><summary>候选 SVG 源码</summary><textarea aria-label="精修候选SVG源码" readOnly rows={10} value={result.candidate.sourceSvg}/>{svgUrl && <a href={svgUrl} download="sceneweave-vector-candidate.svg">下载候选 SVG</a>}<p>此源码对应当前矢量候选；下载不会修改工程或保存个人素材。</p></details>}<div className="image-refinement-actions"><button type="button" className="primary" disabled={editing || candidateStale || parametersChanged} onClick={() => void preview()}>{previewContext === 'asset' ? '放入编辑草稿' : '在场景中预览'}</button><button type="button" disabled={editing} onClick={() => { setResults(current => { const next = { ...current }; delete next[route]; return next }); setNotice('本路线候选已丢弃，其他路线草稿保留。') }}>丢弃本路线候选</button></div></>}
-    {dirty && <button type="button" className="image-refinement-discard" disabled={editing} onClick={() => { setResults({}); setOptions(defaultOptions); setPlanText(''); setPrompt(''); setConsent(false); setReload(null); setError(''); setNotice('两条路线的候选、结构稿、参数和补画要求已清理。') }}>丢弃全部精修草稿</button>}
+    {dirty && <button type="button" className="image-refinement-discard" disabled={editing} onClick={() => { setResults({}); setOptions(defaultOptions); setPlanText(''); setPrompt(''); setPatch(null); setConsent(false); setReload(null); setError(''); setNotice('精修草稿已清理。') }}>丢弃全部精修草稿</button>}
     {notice && <p role="status" className="image-refinement-hint">{notice}</p>}
   </section>
 }

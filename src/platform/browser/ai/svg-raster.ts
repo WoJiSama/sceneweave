@@ -64,7 +64,8 @@ async function ensureRasterizer(): Promise<void> {
 }
 
 /** Fixed WASM SVG rasterization and software PNG readback; no native image APIs. */
-export async function rasterizeCanonicalSvgPixels(input: NormalizedStaticSvg, dimensions: { width: number; height: number }, signal?: CancellationSignal): Promise<RasterImage> {
+export async function rasterizeCanonicalSvgPixels(input: NormalizedStaticSvg, dimensions: { width: number; height: number }, signal?: CancellationSignal,
+  output: 'verified-png' | 'paint-layer' = 'verified-png'): Promise<RasterImage> {
   checkCancelled(signal)
   const normalized = verifyNormalizedStaticSvg(input), { width, height } = dimensions
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1
@@ -82,6 +83,20 @@ export async function rasterizeCanonicalSvgPixels(input: NormalizedStaticSvg, di
     const rendered = renderer.render()
     try {
       checkCancelled(signal)
+      if (output === 'paint-layer') {
+        // This disposable paint is never the bytes or pixel proof of a saved
+        // SVG. resvg exposes premultiplied pixels; normalize them for blending.
+        const pixels = rendered.pixels
+        if (rendered.width !== width || rendered.height !== height || pixels.length !== width * height * 4) throw new Error('画风矢量栅格尺寸不符。')
+        const rgba = new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength)
+        for (let i = 0; i < rgba.length; i += 4) {
+          const alpha = rgba[i + 3]
+          if (!alpha || alpha === 255) continue
+          for (let channel = 0; channel < 3; channel++) rgba[i + channel] *= 255 / alpha
+        }
+        checkCancelled(signal)
+        return { width, height, rgba }
+      }
       // Independently decode the actual PNG, including its RGBA8/noninterlaced
       // contract. The browser's image decoder never defines canonical pixels.
       const image = decodeCanonicalPng(rendered.asPng())

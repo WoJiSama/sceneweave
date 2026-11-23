@@ -14,6 +14,7 @@ export interface ProjectedSurface { id: string; points: PointMm[]; style: Surfac
   /** Generated solid support, with the default paint supplied by its bridge. */
   bridgeSupport?: true
   waterSurface?: import('../ocean/contracts.js').WaterSurface
+  relief?: import('../geometry/terrain-relief.js').TerrainRelief
   /** Actual audience-owned top after visible cuts; source footprint stays in points for selection. */
   regionsMm?: { outerMm: PointMm[]; holesMm: PointMm[][] }[]
 }
@@ -73,16 +74,21 @@ export interface ProjectedDoorThreshold {
 }
 export interface ProjectedPath {
   id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle; bridge?: ProjectedBridge
+  paving?: import('./route-paving.js').ProjectedPavingCourse[]
   stairs?: { centerlineMm: PointMm[]; widthMm: number; widthSections?: import('../geometry/route-width.js').RouteWidthSection[]; config: import('../stairs/contracts.js').StaircaseConfig }
   /** Paint-only continuation through an audience-visible attached doorway. */
   doorThresholds?: ProjectedDoorThreshold[]
 }
-/** Paint for a supported terminal. References are only to visible public geometry. */
+/** Paint for a supported terminal, referencing only this audience's geometry. */
 export interface ProjectedBridgeEntrance {
   bridgeId: string
   end: 'start' | 'end'
-  platform?: { id: string; contactMm: PointMm; shoulderCut: NonNullable<ProjectedSurface['regionsMm']>; edgeOpening: NonNullable<ProjectedSurface['regionsMm']>; laneReachMm?: number }
-  approach?: { pathId: string; end: 'start' | 'end'; cap: [PointMm, PointMm]; sides: [PointMm[], PointMm[]]; from: PointMm; to: PointMm }
+  platform?: {
+    id: string; contactMm: PointMm; shoulderCut: NonNullable<ProjectedSurface['regionsMm']>; edgeOpening: NonNullable<ProjectedSurface['regionsMm']>; laneReachMm?: number
+    /** Projection of the steel section at this entrance. Zero denotes a flush deck. */
+    girderOffsetMm?: PointMm
+  }
+  approach?: { pathId: string; end: 'start' | 'end'; cap: [PointMm, PointMm]; sides: [PointMm[], PointMm[]]; from: PointMm; to: PointMm; deckEdgeMm?: PointMm }
 }
 export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; start: PointMm; end: PointMm; widthMm: number; fromElevationMm: number; toElevationMm: number; blocksMovement: boolean; style: SurfaceStyle | null
   staircase?: import('../stairs/contracts.js').StaircaseConfig
@@ -120,9 +126,12 @@ export interface Projection {
   /** Shared preview/export background, independent of physical ground and masks. */
   outputBackground?: import('../model/scene.js').SceneOutputBackground
   floorArtwork?: import('../model/scene.js').FloorArtwork
+  artStyles?: import('../visual/art-style.js').ActiveArtStyles
   rooms: ProjectedSurface[]; terrain: ProjectedSurface[]; walls: ProjectedWall[]
   /** Canonical ground/object/canopy, renderOrder, id order; independent copies of source props. */
   props: Prop[]
+  /** Opt-in data for an independently prepared spatial view. */
+  propVolumes?: Record<string, import('./spatial-props.js').ProjectedPropVolume>
   /** Strict complete6+; compact sprites remain distinct from physical Props. */
   decorations?: ProjectedDecoration[]
   /** One audience-filtered order shared by visible physical and compact sprites. */
@@ -132,6 +141,8 @@ export interface Projection {
   /** GM editor session only; ignored by formal exports. */
   groundView?: boolean
   edges: ProjectedTerrainEdge[]; paths: ProjectedPath[]; connections: ProjectedConnection[]
+  /** Visible, level dry/wet boundaries without a declared shore stroke. */
+  lineArtShorelines?: [PointMm, PointMm][]
   rocks?: ProjectedRock[]
   inlays?: ProjectedTerrainInlay[]
   /** Same-floor/elevation public paths across visible editing layers, after audience and editor filtering.
@@ -213,9 +224,9 @@ export interface ProjectedVisualSystem {
   /** Audience-filtered strict visual3 terrain transitions. */
   transitions?: ProjectedVisualTransition[]
   edgeLooks: import('../visual/types.js').VisualEdgeLook[]
-  lights: import('../visual/types.js').VisualLight[]
+  lights: import('../visual/light-geometry.js').ProjectedLight[]
   /** Ground glow derived from actual visible fixtures after audience filtering. */
-  fixtureGlows?: (import('../path-assembly/contracts.js').FixtureGlow & { positionMm: PointMm; wallOcclusion?: true })[]
+  fixtureGlows?: (import('../path-assembly/contracts.js').FixtureGlow & { positionMm: PointMm; wallOcclusion?: true; beam?: import('../validation/primitives.js').LightBeam; emitterOccluder?: PointMm[] })[]
   fogs: import('../visual/types.js').VisualFog[]
   filters: ProjectedVisualFilter[]
   /** Full visible physical occluders and contact footprints, independent of editor LOD/crop. */

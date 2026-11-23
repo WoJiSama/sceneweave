@@ -68,6 +68,26 @@ describe('attachment composition and actual Workspace adoption', () => {
     assertContact(moved)
   })
 
+  it('updates top contact when terrain under the host changes height', () => {
+    const { document } = bundle().project
+    const supportRef = { kind: 'terrainArea' as const, id: 'hill' }
+    const boundary = [{ x: 2000, y: 2000 }, { x: 8000, y: 2000 }, { x: 8000, y: 8000 }, { x: 2000, y: 8000 }]
+    const relief = { version: 1 as const, columns: 2, rows: 2, offsetsMm: [0, 600, 0, 600] }
+    document.terrainAreas.hill = { id: 'hill', floorId: 'blank-floor', editLocked: false, visibility: 'public',
+      boundaryMm: boundary.map((positionMm, i) => ({ id: `hill-point-${i}`, segmentId: `hill-edge-${i}`, positionMm })),
+      groundElevationMm: 300, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1, relief }
+    document.entityLayers.hill = document.entityLayers.item
+    document.props.item.supportRef = document.props.other.supportRef = supportRef
+    const attached = applyCompositionDraftCommands(createCompositionContent(document, runtime), [surface, bind], runtime)
+    expect(resolvePropContact(attached.document, 'other').contactElevationMm).toBe(1500)
+    const raised = applyCompositionDraftCommands(attached, [{ type: 'updateTerrainArea', id: 'hill',
+      changes: { relief: { ...relief, offsetsMm: relief.offsetsMm.map(height => height + 300) } } }], runtime)
+    expect(raised.document.attachments!['on-table']).toMatchObject({ materialized: { contactElevationMm: 1800 },
+      anchor: attached.document.attachments!['on-table'].anchor, proofs: attached.document.attachments!['on-table'].proofs })
+    expect(raised.document.props.other.positionMm).toEqual(attached.document.props.other.positionMm)
+    expect(inspectAttachments(raised.document)).toEqual([])
+  })
+
   it('records explicit child placement as a local manual anchor, preserves proofs and refuses the independent-Prop shortcut', () => {
     const source = certifyCompositionContent(content(bundle().project))
     const independent = tryApplyPropUpdateCompositionTransaction(source, [{ type: 'updateProp', id: 'item', changes: { positionMm: { x: 7000, y: 6500 } } }])

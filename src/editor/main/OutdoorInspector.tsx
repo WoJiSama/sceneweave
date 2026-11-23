@@ -121,7 +121,7 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
     if (path) return [{ type: 'updatePath', id, changes: {
       ...(!path.assembly ? { centerlineMm: outdoorPoints(points, 2), widthMm: Number(width) } : {}),
       ...(editLocalWidth && (widthSections.length || path.widthSections) ? { widthSections: readPathWidthSections(widthSections) } : {}),
-      ...(!path.assembly?.bridge ? { supportRefs: pathSupports.map(parseSurface), surfaceStyle: styleFor(scene, material, surface), visibility } : {}),
+      ...(!path.assembly?.bridge ? { supportRefs: pathSupports.map(parseSurface), surfaceStyle: styleFor(scene, material, surface, 'path'), visibility } : {}),
       movementCostMultiplier: Number(cost),
     } }]
     if (connection) {

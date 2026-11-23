@@ -95,7 +95,7 @@ export async function openSceneSettings(page: Page): Promise<Locator> {
   return settings
 }
 
-export async function openVisualTask(page: Page, task: '边界' | '铺装' | '背景' | '环境' | '灯光' | '雾' | '滤镜' = '边界'): Promise<Locator> {
+export async function openVisualTask(page: Page, task: '画风' | '边界' | '铺装' | '背景' | '环境' | '灯光' | '雾' | '滤镜' = '边界'): Promise<Locator> {
   const panel = await openWorkspaceModule(page, '氛围')
   await panel.getByRole('navigation', { name: '视觉工具', exact: true }).getByRole('button', { name: task, exact: true }).click()
   const parameters = page.getByTestId('workspace-inspector').getByRole('region', { name: '外观与氛围参数', exact: true })

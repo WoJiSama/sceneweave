@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { fenceAssemblySchema } from '../path-assembly/contracts.js'
-import { angle, color, id, int, opacity, point, visibility } from '../validation/primitives.js'
+import { angle, color, id, int, lightBeamSchema, opacity, point, visibility } from '../validation/primitives.js'
 import { VISUAL_LIMITS } from './types.js'
+import { colorFilterSchema } from './color-filter.js'
 
 const finite = (min: number, max: number) => z.number().finite().min(min).max(max)
 const mm = (min: number, max = 1_000_000) => int.refine(value => value >= min && value <= max, `毫米值须为${min}–${max}`)
@@ -23,7 +24,16 @@ export const visualEdgeLookSchema = z.object({ ...entity, boundaryId: id, kind: 
   widthMm: mm(1, 5000), color, accentColor: color, opacity, intensity: finite(0, 2), seed, repeatMm: mm(20, 20_000), enabled: z.boolean(),
   renderProfile: z.enum(['rockRelief2', 'rockRelief3', 'rockRelief4', 'rockRelief5', 'rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9']).optional(),
 }).strict()
-export const visualLightSchema = z.object({ ...entity, positionMm: point, radiusMm: mm(1, 50_000), color, intensity: finite(0, 2), wallOcclusion: z.boolean(), enabled: z.boolean() }).strict()
+const lightShapeSchema = z.discriminatedUnion('kind', [
+  lightBeamSchema.extend({ kind: z.literal('spot') }),
+  z.object({ kind: z.literal('window'), openingId: id, roomId: id, angleOffsetDeg: finite(-60, 60), spreadDeg: finite(0, 40), softness: opacity }).strict(),
+  z.object({ kind: z.literal('line'), softness: opacity, source: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('segment'), endMm: point }).strict(),
+    z.object({ kind: z.literal('path'), pathId: id, side: z.enum(['center', 'left', 'right']) }).strict(),
+  ]) }).strict(),
+  z.object({ kind: z.literal('area'), source: z.object({ kind: z.enum(['terrainArea', 'room']), id }).strict(), surfaceIntensity: finite(0, 2), softness: opacity }).strict(),
+])
+export const visualLightSchema = z.object({ ...entity, positionMm: point, radiusMm: mm(1, 50_000), color, intensity: finite(0, 2), wallOcclusion: z.boolean(), enabled: z.boolean(), shape: lightShapeSchema.optional() }).strict()
 export const visualFogSchema = z.object({ ...entity, boundaryMm: region, color, opacity, directionDeg: angle, scaleMm: mm(50, 20_000), seed, enabled: z.boolean() }).strict()
 export const visualFilterTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('scene') }).strict(),
@@ -33,9 +43,11 @@ export const visualFilterTargetSchema = z.discriminatedUnion('kind', [
 ])
 export const visualFilterSchema = z.object({ ...entity, target: visualFilterTargetSchema, preset: z.enum(['neutral', 'warm', 'cool', 'aged', 'moonlight']),
   exposure: finite(.25, 2), saturation: finite(0, 2), contrast: finite(.25, 2), vignette: opacity, grain: finite(0, .2), seed, enabled: z.boolean(),
+  colorFilter: colorFilterSchema.optional(),
 }).strict()
 export const visualEnvironmentSchema = z.object({ ambientColor: color, ambientOpacity: finite(0, .85), exposure: finite(.25, 2), lightDirectionDeg: angle,
   contactShadowMm: mm(0, 1000), contactShadowOpacity: finite(0, .7),
+  directionalLight: z.object({ kind: z.enum(['sun', 'moon']), elevationDeg: finite(10, 90), color, intensity: finite(0, 2), softness: opacity }).strict().optional(),
 }).strict()
 export const visualSystemSchema = z.object({ version: z.literal(1),
   boundaries: limitedRecord(visualBoundarySchema, VISUAL_LIMITS.boundaries), edgeLooks: limitedRecord(visualEdgeLookSchema, VISUAL_LIMITS.edgeLooks),

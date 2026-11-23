@@ -73,9 +73,17 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
   }
   const areas = Object.values(scene.terrainAreas).filter(area => area.floorId === floorId), query = createSupportQuery(scene, floorId), boundaries = query.boundaries
   const usable = Object.values(scene.terrainConnections).filter(connection => connection.floorId === floorId && connection.widthMm >= widthMm && connectionOpen(scene, connection)).map(connection => ({ connection, polygon: connectionFootprint(connection) }))
-  if (!coveredEverywhere(band, boundaries, p => {
+  if (!coveredEverywhere(band, [...boundaries, ...usable.map(row => row.polygon)], p => {
     const sample = query.sample(p)
-    return !!sample?.walkable && (!sample.sourceConnectionId || usable.some(row => row.connection.id === sample.sourceConnectionId))
+    if (!sample) return false
+    if (sample.walkable) return !sample.sourceConnectionId || usable.some(row => row.connection.id === sample.sourceConnectionId)
+    const support = sample.rootSupportRef
+    const area = support.kind === 'terrainArea' ? scene.terrainAreas[support.id] : undefined
+    // A valid full-width authored stair carries its own usable treads across
+    // the steeper exposed bank. Raw relief without that stair still blocks.
+    return !!area?.relief && !area.blocksMovement && !sample.sourceConnectionId && usable.some(({ connection, polygon }) =>
+      !connection.carvedStrip && !connection.terrainInlay && (connection.kind === 'stairs' || !!connection.staircase)
+      && [connection.from, connection.to].some(end => sameRef(groundRef(scene, end.surfaceRef), support)) && pointInPolygon(p, polygon))
   })) issue('TERRAIN_NOT_WALKABLE', '整条净宽带必须留在世界内的实际可步行面；水面、岩体侧壳、切口外肩或不足宽/阻挡连接不能普通穿越。')
   for (const prop of Object.values(scene.props)) if (prop.floorId === floorId && prop.blocksMovement && polygonsOverlap(band, propFootprint(prop))) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被物件的真实旋转占地阻挡。', prop.id)
   for (const region of Object.values(scene.regions)) if (region.floorId === floorId && region.blocksMovement && polygonsOverlap(band, region.boundaryMm)) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被阻挡区域侵入。', region.id)

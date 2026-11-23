@@ -7,6 +7,8 @@ import type { Projection, ProjectedDecoration } from '../../../shared/projection
 import { pathDecorationPadding } from '../../../shared/projection/paths.js'
 import { shorelinePaintPadding } from '../../../shared/projection/shorelines.js'
 import { edgeLookPaintPadding, transitionStrokePaintPadding } from '../../../shared/visual/paint-envelopes.js'
+import { wallShadowStyle } from '../../../shared/visual/directional-light.js'
+import { distributedLightBlurMm } from './shaped-lights'
 
 export type EditorPropDetail = 'outline' | 'image' | 'full'
 export interface EditorPropPlan {
@@ -37,11 +39,12 @@ export const EDITOR_FULL_THRESHOLD_PX = 40
 const finiteBounds = (b: BoundsMm) => [b.x, b.y, b.width, b.height, b.x + b.width, b.y + b.height].every(Number.isFinite) && b.width > 0 && b.height > 0
 
 /** Bounded caller-side raster allocation still applies after this world padding. */
-export function editorPaintBounds(projection: Projection, plan: Pick<EditorRenderPlan, 'boundsMm' | 'props'>): BoundsMm {
-  let padding = 0
+export function editorPaintBounds(projection: Projection, plan: Pick<EditorRenderPlan, 'boundsMm' | 'props'>, minimumPaddingMm = 0): BoundsMm {
+  let padding = minimumPaddingMm
   const shadowPadding = (shadow: { opacity: number; offsetMm: number; blurMm: number } | undefined | null) => shadow?.opacity ? shadow.offsetMm + shadow.blurMm * 4 : 0
   const theme = projection.theme
-  padding = Math.max(padding, shadowPadding(theme?.shadowPresets.wall), theme?.outline.widthMm ?? 24)
+  const environment = projection.visual?.environment
+  padding = Math.max(padding, shadowPadding(wallShadowStyle(theme?.shadowPresets.wall, environment)), theme?.outline.widthMm ?? 24)
   if (projection.walls.some(wall => wall.edgeProfile)) padding += WALL_RELIEF_LIMIT_MM
   if (projection.rocks?.length) padding = Math.max(padding, 1100)
   for (const inlay of projection.inlays ?? []) {
@@ -56,7 +59,7 @@ export function editorPaintBounds(projection: Projection, plan: Pick<EditorRende
     for (const facet of rock.facets) for (const point of facet.pointsMm) padding = Math.max(padding, left - point.x, point.x - right, upper - point.y, point.y - lower)
   }
   if (theme?.terrainCliff.opacity) padding = Math.max(padding, theme.terrainCliff.maxOffsetMm + theme.terrainCliff.blurMm * 4)
-  for (const entry of plan.props) if (entry.detail === 'full') padding = Math.max(padding, shadowPadding(effectivePropShadow(entry.prop, projection.propPresentations?.[entry.prop.id], theme?.shadowPresets[entry.prop.shadowClass])))
+  for (const entry of plan.props) if (entry.detail === 'full') padding = Math.max(padding, shadowPadding(effectivePropShadow(entry.prop, projection.propPresentations?.[entry.prop.id], theme?.shadowPresets[entry.prop.shadowClass], environment)))
   const styles = [...projection.terrain.map(area => area.style), ...projection.rooms.map(room => room.style), ...projection.walls.map(wall => wall.style), ...projection.edges.map(edge => edge.surfaceStyle), ...projection.connections.map(connection => connection.style), ...projection.paths.map(path => path.style)]
   for (const style of styles) for (const overlay of style?.overlays ?? []) padding = Math.max(padding, overlay.blendWidthMm * 2)
   for (const area of projection.terrain) for (const patch of area.materialPatches ?? []) padding = Math.max(padding, patch.blendWidthMm * 2)
@@ -77,8 +80,10 @@ export function editorPaintBounds(projection: Projection, plan: Pick<EditorRende
     for (const look of projection.visual.edgeLooks) padding = Math.max(padding, edgeLookPaintPadding(look))
     for (const edge of projection.visual.materializedEdges ?? []) for (const stroke of edge.strokes) padding = Math.max(padding, stroke.widthMm / 2)
     for (const transition of projection.visual.transitions ?? []) for (const stroke of transition.strokes) padding = Math.max(padding, transitionStrokePaintPadding(stroke.widthMm))
-    // Light polygons use the full audience-owned occluder closure. Radial
-    // gradients/fog noise use fixed world coordinates and need no light buffer.
+    // Keep the distributed falloff's blur samples on both sides of the crop.
+    for (const light of projection.visual.lights) if (light.shape?.kind === 'line' || light.shape?.kind === 'area') {
+      padding = Math.max(padding, distributedLightBlurMm(light.radiusMm) * 4)
+    }
   }
   const full = projection.bounds, crop = plan.boundsMm
   const x = Math.max(full.x, crop.x - padding), y = Math.max(full.y, crop.y - padding)

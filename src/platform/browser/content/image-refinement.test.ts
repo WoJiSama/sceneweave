@@ -8,6 +8,7 @@ import { CANONICAL_SVG_PROCESSOR, normalizeStaticSvg } from '../../../shared/ai/
 import { refineImageToVector } from '../../../shared/asset-refinement/vector.js'
 import { CURRENT_VECTOR_ALGORITHM, replayVectorRefinement } from '../../../shared/asset-refinement/algorithms.js'
 import type { VectorStructurePlan } from '../../../shared/asset-refinement/structure-plan.js'
+import { assertLocalModelPatch, modelPatchContext, type ModelPatch } from '../../../shared/asset-refinement/local-model-patch.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
 import { exportProject, importProject } from '../../../shared/project/file.js'
 import { decodeCanonicalPng, encodeCanonicalPng } from '../../../shared/project/png-rgba.js'
@@ -261,6 +262,43 @@ describe('shared asset refinement adoption and immutable source closure', () => 
       return { pngBytes: encodeCanonicalPng(raster), sourceSha256: input.sourceSha256, model: 'fixture-image-model', clientRequestId: input.clientRequestId, requestId: 'opaque', inputHash: input.sourceSha256, outputHash: '0'.repeat(64) }
     })
     await expect(generateModelRefinementCandidate(source, { baseUrl: 'http://127.0.0.1:8787', token: 'fixture' }, '保留透明背景', undefined, capabilities)).rejects.toThrow('不透明背景')
+  })
+
+  it('sends a bounded crop, merges a localized model result and checks its original pixels on cold import', async () => {
+    const original = await originalProject(), source = await readImageEnhancementSource(original, target, 'current', undefined, capabilities)
+    const patch = { x: 0, y: 0, width: 18, height: 16 } satisfies ModelPatch
+    const bounds = modelPatchContext(source.pixels, patch)
+    let sent: string | undefined
+    vi.mocked(getImageEditCapabilities).mockResolvedValue({ available: true } as Awaited<ReturnType<typeof getImageEditCapabilities>>)
+    vi.mocked(requestImageEdit).mockImplementation(async (_connection, input) => {
+      sent = input.sourceSha256
+      const raster = decodeCanonicalPng(input.pngBytes)
+      expect([raster.width, raster.height]).toEqual([bounds.width, bounds.height])
+      expect(raster.width).toBeLessThan(source.pixels.width)
+      expect(input.prompt).toContain('宽 18，高 16')
+      for (let i = 0; i < raster.rgba.length; i += 4) raster.rgba.set([212, 112, 42, 255], i)
+      const pngBytes = encodeCanonicalPng(raster)
+      return { pngBytes, sourceSha256: input.sourceSha256, model: 'fixture-image-model', clientRequestId: input.clientRequestId,
+        requestId: 'local-patch', inputHash: input.sourceSha256, outputHash: sha256Bytes(pngBytes) }
+    })
+    const candidate = await generateModelRefinementCandidate(source, { baseUrl: 'http://127.0.0.1:8787', token: 'fixture' },
+      '补一小段旧木刻纹', undefined, capabilities, undefined, patch)
+    expect(() => assertLocalModelPatch(source.canonicalPixels!, candidate.pixels, patch)).not.toThrow()
+    const prepared = await prepareImageRefinementCandidate(original, source, candidate, undefined, capabilities)
+    const output = Object.values(prepared.catalog.document.assets).find(asset => asset.imageRefinement)!
+    expect(output.imageRefinement).toMatchObject({ kind: 'model', patch, inputSha256: sent, originalAssetId: 'image', requestId: 'local-patch' })
+    const cold = await importProject(await exportProject(toBundle(prepared.catalog), capabilities), capabilities)
+    expect(cold.project.document.assets[output.id]).toEqual(output)
+
+    const modified = { ...candidate.pixels, data: candidate.pixels.data.slice() }
+    const outsideSolid = (16 * modified.width + 20) * 4
+    modified.data[outsideSolid] ^= 1
+    expect(() => assertLocalModelPatch(source.canonicalPixels!, modified, patch)).toThrow('选区之外')
+    const tampered = cloneJson(toBundle(prepared.catalog).project)
+    const provenance = tampered.document.assets[output.id].imageRefinement!
+    if (provenance.kind !== 'model') throw new Error('Expected model provenance.')
+    provenance.inputSha256 = '0'.repeat(64)
+    await expect(fromBundle({ project: tampered, resources: prepared.catalog.resources }, capabilities)).rejects.toThrow('所保留的原件像素')
   })
 
   it('cold-reads model edits of canonical sources above the optional four-million-pixel copy budget', async () => {

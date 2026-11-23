@@ -27,3 +27,6 @@
 
 .terrain-editing-topology { display: grid; gap: 10px; min-width: 0; }
 .terrain-editing-topology textarea { resize: vertical; line-height: 1.6; }
+.terrain-relief-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; }
+.terrain-relief-tools label { display: inline-flex; align-items: center; gap: 5px; }
+.terrain-relief-tools input { width: 76px; }

@@ -6,7 +6,7 @@ import { validateCompositionIdentityContracts } from '../terrain-generation/comp
 import { z } from 'zod'
 import { cloneJson, freezeJson, inspectJsonInput } from './json.js'
 import { sceneSchema } from './scene.js'
-import { propGlowSchema } from './primitives.js'
+import { pathSurfaceStyle, propGlowSchema } from './primitives.js'
 import { reviseSceneSnapshot, tryApplyPropUpdatesSnapshot, validateSceneDerivationSnapshot, validateSceneSnapshot, validateFreshSceneSnapshot, getPropUpdateTransaction, releasePropUpdateTransaction, type PropUpdateTransaction, type PropUpdateStep } from './snapshots.js'
 import { enumerateLayerEntities } from '../commands/layers.js'
 import type { MaterialPaint, SceneDocument } from '../model/scene.js'
@@ -30,7 +30,7 @@ const adjustments = z.array(appearanceAdjustmentSchema).max(COMPOSITION_LIMITS.a
   if (new Set(enabled.map(item => item.kind)).size !== enabled.length) ctx.addIssue({ code: 'custom', message: '同一目标每个属性只能启用一条覆盖。' })
 })
 const propSnapshot = sceneSchema.shape.props.valueType.pick({ definitionRef: true, appearance: true, visualBoundsMm: true, shadowClass: true, shadowOverride: true }).strict()
-const surfaceSnapshot = sceneSchema.shape.rooms.valueType.shape.floorStyle.unwrap()
+const surfaceSnapshot = pathSurfaceStyle.unwrap()
 export const appearanceGraphSchema = z.object({
   version: z.literal(1),
   sources: z.record(id, z.discriminatedUnion('kind', [

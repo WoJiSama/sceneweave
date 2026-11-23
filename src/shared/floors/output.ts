@@ -53,7 +53,7 @@ export function validateFloorSettings(scene: SceneDocument): Issue[] {
     if (floor.artwork && (!validBounds(floor.artwork.boundsMm) || !contains(floor.boundsMm, floor.artwork.boundsMm))) {
       error('FLOOR_ARTWORK_BOUNDS', '底图须为正尺寸、安全整数端点，并完整位于所属楼层。', floor.id)
     }
-    if(floor.environment!==undefined && !visualEnvironmentSchema.safeParse(floor.environment).success) error('FLOOR_ENVIRONMENT','Floor环境覆盖须为完整且严格的六字段环境值。',floor.id)
+    if(floor.environment!==undefined && !visualEnvironmentSchema.safeParse(floor.environment).success) error('FLOOR_ENVIRONMENT','Floor环境覆盖须为完整且严格的环境值。',floor.id)
     if (floor.underlayFloorId !== undefined) {
       try { floorDisplayStack(scene, floor.id) }
       catch (failure) { error('FLOOR_DISPLAY_STACK', (failure as Error).message, floor.id) }

@@ -1,6 +1,7 @@
 import { commandSelectionLimit, type CommandBudgetProfile } from '../../shared/budget/command-budget.js'
 import { scenePresentation } from '../../shared/appearance/presentation.js'
 import { roundMm as roundMmV2 } from '../../shared/commands/base.js'
+import { terrainInlayHash } from '../../shared/terrain-inlay/scene.js'
 import { orderedPropsV2 } from './projection'
 import type { CompositionCommand } from '../../shared/model/appearance.js'
 import type { PointMm, SceneDocument as SceneDocumentV2 } from '../../shared/model/scene.js'
@@ -26,7 +27,9 @@ export function selectionActionReasonV2(scene: SceneDocumentV2, ids: readonly st
       if (prop && prop.editLocked !== (action === 'lock') && [...Object.values(scene.prefabInstances), ...Object.values(scene.scatterGroups)].some(parent => parent.editLocked && Object.values(parent.members).some(member => member.propId === id))) return '物件受组合或散布锁定，请选择其容器调整编辑锁。'
       continue
     }
-    if (!prop && !(decoration && (action === 'move' || action === 'rotate' || action === 'delete')) && !(prefab && (action === 'move' || action === 'rotate' || action === 'delete'))) return '此操作支持物件。组合可移动、旋转或删除，结构可在对应详情中编辑。'
+    const inlay = scene.terrainConnections[id]?.terrainInlay
+    const deletableRoad = action === 'delete' && (!!scene.paths[id] || !!inlay && !inlay.groundOnly)
+    if (!prop && !deletableRoad && !(decoration && (action === 'move' || action === 'rotate' || action === 'delete')) && !(prefab && (action === 'move' || action === 'rotate' || action === 'delete'))) return '结构可在对应详情中编辑。'
     if (effectiveEditLockedV2(scene, id)) return '选择含锁定对象或锁定成员，请先解除对应编辑锁。'
     if (prop && action === 'copy' && (Object.values(scene.prefabInstances).some(group => Object.values(group.members).some(member => member.propId === id)) || Object.values(scene.scatterGroups).some(group => Object.values(group.members).some(member => member.propId === id)) || Object.values(scene.decorationClusters ?? {}).some(group => Object.values(group.members).some(member => member.kind === 'prop' && member.entityId === id && member.state !== 'detached' && member.state !== 'deleted')))) return '复制只支持独立物件，请先拆开组合、退出散布或布景簇。'
   }
@@ -48,6 +51,8 @@ export function selectionCommandsV2(scene: SceneDocumentV2, ids: readonly string
     if (action === 'lock' || action === 'unlock') return { type: 'setEditLock', kind: decoration ? 'decoration' : cluster ? 'decorationCluster' : prop ? 'prop' : group ? 'prefabInstance' : scene.scatterGroups[id] ? 'scatterGroup' : scene.terrainAreas[id] ? 'terrainArea' : 'terrainConnection', id, locked: action === 'lock' }
     if (action === 'delete') {
       if (group) return { type: 'deletePrefab', id, memberIds: Object.values(group.members).flatMap(member => member.propId ?? []) }
+      if (scene.paths[id]) return { type: 'deleteOutdoorEntity', kind: 'path', id }
+      if (scene.terrainConnections[id]?.terrainInlay) return { type: 'removeTerrainInlayRoad', id, expectedConnectionHash: terrainInlayHash(scene.terrainConnections[id]) }
       return decoration ? { type: 'deleteDecoration', id } : { type: 'deleteProp', id }
     }
     if (action === 'copy') return { type: 'copyProp', id, newId: crypto.randomUUID(), offsetMm: { x: 300, y: 300 } }

@@ -8,6 +8,7 @@ import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson } from '../validation/json.js'
 import type { AggregateCoordinates } from './aggregate.js'
 import type { VisualEnvironment } from '../visual/types.js'
+import type { SceneArtStyle } from '../visual/art-style.js'
 import type { ImageEnhancementMetadata } from '../image-enhancement/metadata.js'
 import type { AssetRefinementMetadata } from '../asset-refinement/metadata.js'
 import type { Attachment, AttachmentSurface } from '../attachments/contracts.js'
@@ -59,7 +60,7 @@ export type SurfaceRef = { kind: 'floor' | 'terrainArea' | 'room'; id: Id }
 export type GroundSurfaceRef = { kind: 'floor' | 'terrainArea'; id: Id }
 export type PropSymbol = 'table' | 'chair' | 'shelf' | 'rug' | 'crate'
 export type { BridgeArt } from '../path-assembly/profiles.js'
-export interface PropGlow { color: string; radiusMm: number; intensity: number; anchor: { u: number; v: number } }
+export interface PropGlow { color: string; radiusMm: number; intensity: number; anchor: { u: number; v: number }; beam?: import('../validation/primitives.js').LightBeam }
 export type Appearance = ({ kind: 'image'; assetId: Id } | { kind: 'symbol'; symbol: PropSymbol; bridgeArt?: BridgeArt; detailPercent?: number }) & {
   tint: string | null; opacity: number; mirrorY?: true
   /** A local emitter follows the pictured fixture. Null explicitly disables it. */
@@ -77,10 +78,12 @@ export interface PropDefinition extends DefinitionIdentity {
 export interface MaterialRef extends DefinitionIdentity {
   name: string; tags: string[]; textureAssetId: Id; defaultTileSizeMm: SizeMm
   applicableSurfaces: ('room' | 'wall' | 'terrain' | 'path')[]
+  defaultPathPaint?: { alignment: 'route'; rotationDeg: number }
 }
 export interface MaterialPaint {
   materialRef: VersionRef; tileSizeMm: SizeMm; rotationDeg: number
-  alignment: 'world' | 'surface'; originMm: PointMm; tint: string | null; opacity: number
+  /** Route-aligned base paint uses along/across offsets from the path start. */
+  alignment: 'world' | 'surface' | 'route'; originMm: PointMm; tint: string | null; opacity: number
 }
 export interface SurfaceOverlay { id: Id; boundaryMm: PointMm[]; paint: MaterialPaint; blendWidthMm: number; renderOrder: number }
 export interface SurfaceStyle { base: MaterialPaint; overlays: SurfaceOverlay[] }
@@ -101,6 +104,7 @@ export interface Opening extends Editable {
   kind: 'door' | 'window'; state: 'open' | 'closed'; locked: boolean; secret: boolean; revealed: boolean
 }
 export interface Prop extends Editable {
+  volume?: import('./prop-volume.js').PropVolume
   waterAppearance?: WaterAppearance
   sightOccluder?: import('../validation/primitives.js').SightOccluder
   pipePorts?: import('../validation/primitives.js').PipePorts
@@ -120,6 +124,8 @@ export interface TerrainArea extends Editable {
   surfaceStyle: SurfaceStyle | null; blocksMovement: boolean; blocksSight: boolean; movementCostMultiplier: number
   /** Explicit finite solid. Ordinary terrain remains a flat support surface. */
   rockBody?: RockBody
+  /** Saved height offsets relative to the area datum, in the terrain outline's bounds. */
+  relief?: import('../geometry/terrain-relief.js').TerrainRelief
 }
 export interface EdgeStyle { strokeWidthMm: number; color: string; bandWidthMm: number }
 export interface TerrainEdge extends Editable {
@@ -149,9 +155,9 @@ export interface Path extends Editable {
   staircase?: import('../stairs/contracts.js').StaircaseConfig
   surfaceStyle: SurfaceStyle | null; movementCostMultiplier: number; renderOrder: number
 }
-export type PropTemplate = Pick<Prop, 'definitionRef' | 'appearance' | 'positionMm' | 'rotationDeg' | 'visualBoundsMm' | 'footprintMm' | 'footprintOffsetMm' | 'blocksMovement' | 'blocksSight' | 'renderLayer' | 'renderOrder' | 'shadowClass' | 'shadowOverride' | 'waterAppearance' | 'sightOccluder' | 'pipePorts'>
+export type PropTemplate = Pick<Prop, 'definitionRef' | 'appearance' | 'positionMm' | 'rotationDeg' | 'visualBoundsMm' | 'footprintMm' | 'footprintOffsetMm' | 'blocksMovement' | 'blocksSight' | 'renderLayer' | 'renderOrder' | 'shadowClass' | 'shadowOverride' | 'waterAppearance' | 'sightOccluder' | 'pipePorts' | 'volume'>
 export interface PrefabDefinition extends DefinitionIdentity { name: string; tags: string[]; pathStyle?: PathStyleDefaults; members: { key: string; propTemplate: PropTemplate }[] }
-export const PROP_OVERRIDE_FIELDS = ['definitionRef', 'supportRef', 'roomId', 'visibility', 'appearance', 'visualBoundsMm', 'positionMm', 'rotationDeg', 'footprintMm', 'footprintOffsetMm', 'blocksMovement', 'blocksSight', 'shadowClass', 'shadowOverride', 'renderLayer', 'renderOrder', 'waterAppearance', 'sightOccluder', 'pipePorts'] as const
+export const PROP_OVERRIDE_FIELDS = ['definitionRef', 'supportRef', 'roomId', 'visibility', 'appearance', 'visualBoundsMm', 'positionMm', 'rotationDeg', 'footprintMm', 'footprintOffsetMm', 'blocksMovement', 'blocksSight', 'shadowClass', 'shadowOverride', 'renderLayer', 'renderOrder', 'waterAppearance', 'sightOccluder', 'pipePorts', 'volume'] as const
 export type PropOverrideField = typeof PROP_OVERRIDE_FIELDS[number]
 export interface PrefabInstance extends Editable {
   visibility: Visibility; definitionRef: VersionRef; anchorMm: PointMm; rotationDeg: number
@@ -229,6 +235,8 @@ export interface SceneDocument {
   exportBoundsMm: BoundsMm
   /** Absent uses the renderer's normal background. Shared by preview and PNG. */
   outputBackground?: SceneOutputBackground
+  /** Saved presentation for the entire map, including each preset's settings. */
+  artStyle?: SceneArtStyle
   floors: Record<Id, Floor>; vertices: Record<Id, Vertex>; rooms: Record<Id, Room>
   walls: Record<Id, Wall>; openings: Record<Id, Opening>; props: Record<Id, Prop>
   regions: Record<Id, Region>; notes: Record<Id, Note>; assets: Record<Id, AssetRef>

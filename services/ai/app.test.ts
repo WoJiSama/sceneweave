@@ -155,7 +155,10 @@ describe('private AI task HTTP service', () => {
     const { create, store } = setup({ complete: async input => {
       inputs.push(input)
       expect(input.messages[0]).toMatchObject({ role: 'system', content: expect.stringContaining(DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS) })
-      expect(input.messages[0].content).toContain('sceneweave-project-creation@1')
+      expect(input.messages[0].content).toContain('sceneweave-project-creation@3')
+      expect(input.messages[0].content).toContain('谁从哪个入口来')
+      expect(input.messages[0].content).toContain('物件发光能力')
+      expect(input.messages[0].content).toContain('桥体和道路铺装分别设置')
       const { id, version } = workflowBinding('sceneweave-image-items')
       expect(input.messages[0].content).toContain(`${id}@${version}`)
       expect(input.tools.map(tool => tool.name)).toEqual(['sceneweave_connection_info', 'sceneweave_workflow'])

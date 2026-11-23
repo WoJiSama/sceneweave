@@ -18,6 +18,7 @@ import { expandImageEnhancementScopeMask } from '../image-enhancement/metadata.j
 import { tryDecodeDecontaminationSource } from '../image-enhancement/source-pixels.js'
 import { replayVectorRefinement } from '../asset-refinement/algorithms.js'
 import { compileVectorStructurePlan } from '../asset-refinement/structure-plan.js'
+import { assertLocalModelPatch, cropModelPatch, modelPatchContext } from '../asset-refinement/local-model-patch.js'
 
 const captured = new WeakMap<object, WeakMap<object, VerifiedProjectBundle>>()
 interface ValidationCapabilities {
@@ -292,7 +293,7 @@ async function verifyCapturedBundles(bundles: readonly ProjectBundle[], capabili
         const refinement = asset.imageRefinement
         if (!refinement) continue
         const sourceAsset = bundle.project.document.assets[refinement.sourceAssetId], source = bundle.project.assets[sourceAsset.sha256]
-        yield { weight: source.pixelWidth * source.pixelHeight * 8, async run({ signal }) {
+        yield { weight: source.pixelWidth * source.pixelHeight * (refinement.kind === 'model' && refinement.patch ? 16 : 8), async run({ signal }) {
           checkCancelled(signal)
           const sourceBytes = bytesByHash.get(source.sha256)!.slice()
           const exact = refinement.sourcePixelMode === 'rgba8' ? tryDecodeDecontaminationSource(sourceBytes, source.mimeType) : undefined
@@ -306,7 +307,15 @@ async function verifyCapturedBundles(bundles: readonly ProjectBundle[], capabili
             const normalized = normalizeStaticSvg(expected.sourceSvg), proof = bundle.project.authoringSources[asset.id]
             if (!proof || proof.sourceSha256 !== normalized.sourceSha256) throw new Error('矢量重建源不匹配原件和固定算法。')
           } else {
-            const inputHash = sha256Bytes(encodeCanonicalPng(original))
+            let modelInput = original
+            if (refinement.patch) {
+              const input = { width: original.width, height: original.height, data: original.rgba }
+              const crop = cropModelPatch(input, modelPatchContext(input, refinement.patch))
+              modelInput = { width: crop.width, height: crop.height, rgba: crop.data }
+              const output = decodeCanonicalPng(bytesByHash.get(asset.sha256)!.slice())
+              assertLocalModelPatch(input, { width: output.width, height: output.height, data: output.rgba }, refinement.patch, signal)
+            }
+            const inputHash = sha256Bytes(encodeCanonicalPng(modelInput))
             if (inputHash !== refinement.inputSha256) throw new Error('模型补画输入不匹配所保留的原件像素。')
           }
           checkCancelled(signal)

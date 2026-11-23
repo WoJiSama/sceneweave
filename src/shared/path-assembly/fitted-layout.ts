@@ -35,6 +35,13 @@ export function sectionWidths(parts: readonly SectionPart[]) {
   return { visualWidthMm: width('visual'), footprintWidthMm: width('footprint') }
 }
 
+/** Full local cross-section, including source parts whose anchors are off center. */
+export function sectionSideReachMm(parts: readonly SectionPart[]): number {
+  if (!parts.length) return 0
+  const visual = axisExtent(parts, 'visual', 'y'), footprint = axisExtent(parts, 'footprint', 'y')
+  return Math.ceil(Math.max(-visual.min, visual.max, -footprint.min, footprint.max) - 1e-7)
+}
+
 function scaleBox(template: PropTemplate, shape: Shape, axis: Axis, ratio: number, position: PointMm) {
   const box = templateBox(template, shape)
   const theta = template.rotationDeg * Math.PI / 180, cos = Math.cos(theta), sin = Math.sin(theta)
@@ -117,6 +124,7 @@ interface LayoutOptions {
   fit: boolean
   structure?: BridgeStructure
   landings?: readonly BridgeLanding[]
+  preserveLegs?: boolean
 }
 
 function nodeRadius(template: PropTemplate) {
@@ -125,9 +133,9 @@ function nodeRadius(template: PropTemplate) {
 }
 
 function planConnectedSections(points: readonly PointMm[], recipe: FenceAssemblyRecipe, section: readonly SectionPart[],
-  lamp: PropTemplate | undefined, { offsetMm, widthOffsetAt, closed, sides, fit, structure, landings = [] }: LayoutOptions): SectionPart[] {
+  lamp: PropTemplate | undefined, { offsetMm, widthOffsetAt, closed, sides, fit, structure, landings = [], preserveLegs = false }: LayoutOptions): SectionPart[] {
   assertSimpleVisualPolyline(points, closed)
-  const runs = straightRuns(closed ? [...points, points[0]] : points)
+  const runs = straightRuns(closed ? [...points, points[0]] : points, !preserveLegs)
   const length = runs.reduce((sum, run) => sum + run.length, 0)
   const pitch = recipe.section.kind === 'none' ? 2000 : recipe.section.lengthMm
   const referenceLength = fit ? fittingSectionLength(section) : pitch
@@ -255,6 +263,6 @@ export function planFittingPathSections(path: Pick<Path, 'centerlineMm' | 'width
     closed: false, sides: recipe.sides === 'both' ? ['left', 'right'] : [recipe.sides], fit: true, structure: recipe.structure, landings })
 }
 
-export function planFenceSections(points: readonly PointMm[], closed: boolean, recipe: FenceAssemblyRecipe, section: readonly SectionPart[], lamp: PropTemplate | undefined) {
-  return planConnectedSections(points, recipe, section, lamp, { offsetMm: 0, closed, sides: ['right'], fit: !!recipe.fit || recipe.section.kind === 'profile' })
+export function planFenceSections(points: readonly PointMm[], closed: boolean, recipe: FenceAssemblyRecipe, section: readonly SectionPart[], lamp: PropTemplate | undefined, preserveLegs = false) {
+  return planConnectedSections(points, recipe, section, lamp, { offsetMm: 0, closed, sides: ['right'], fit: !!recipe.fit || recipe.section.kind === 'profile', preserveLegs })
 }

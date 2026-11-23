@@ -6,6 +6,10 @@ export type LineProfile = typeof LINE_PROFILE_IDS[number]
 export const BRIDGE_ART_IDS = ['steelRail', 'timberRail', 'lamp', 'nodeLamp', 'rivetedSupport', 'alloySupport', 'rivetedCorner', 'alloyCorner', 'pipeManifold', 'pipeSocket', ...LINE_PROFILE_IDS] as const
 export type BridgeArt = typeof BRIDGE_ART_IDS[number]
 
+export function bridgeSideOffset(depthMm: number) {
+  return { x: depthMm * .35, y: depthMm * .58 }
+}
+
 export const LINE_PROFILES: Record<LineProfile, { name: string; pitchMm: number; widthMm: number }> = {
   boxGirder: { name: '箱形工业边梁', pitchMm: 2450, widthMm: 300 },
   industrialSteel: { name: '铆接工业钢梁', pitchMm: 2000, widthMm: 362 },

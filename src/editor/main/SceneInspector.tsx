@@ -16,6 +16,7 @@ import { assertDecorationMemberUnlocked } from '../../shared/decorations/command
 import { appearanceSwapInfo } from './appearance-swap-info'
 import EntityLockNotice from './EntityLockNotice'
 import AttachmentTools from './AttachmentTools'
+import PropVolumeTools from './PropVolumeTools'
 import SightOccluderTools from './SightOccluderTools'
 import PipePortTools from './PipePortTools'
 import type { PipePort } from '../../shared/path-assembly/pipe-geometry'
@@ -70,6 +71,7 @@ export default function SceneInspector(props: Props) {
     {scene.props[id] && <>
       {props.onDrawSight && <SightOccluderTools scene={scene} id={id} disabled={props.busy || effectiveEditLocked(scene, id)} onDraw={props.onDrawSight} onPreview={props.onPreview}/>}
       {props.onMarkPipePort && <PipePortTools prop={scene.props[id]} disabled={props.busy || effectiveEditLocked(scene, id)} onMark={props.onMarkPipePort} onPreview={props.onPreview}/>}
+      <PropVolumeTools key={`${id}-volume-${scene.revision}`} prop={scene.props[id]} scene={scene} disabled={props.busy} onPreview={props.onPreview}/>
       <AttachmentTools key={id} scene={scene} id={id} disabled={props.busy} onPreview={props.onPreview}/>
     </>}
   </>

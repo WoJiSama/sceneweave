@@ -20,10 +20,11 @@ export function disposeCanonicalSvgWorkers(): void {
 }
 if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeCanonicalSvgWorkers)
 
-export async function rasterizeCanonicalSvgInWorker(input: NormalizedStaticSvg, dimensions: { width: number; height: number }, signal?: CancellationSignal): Promise<RasterImage> {
+export async function rasterizeCanonicalSvgInWorker(input: NormalizedStaticSvg, dimensions: { width: number; height: number }, signal?: CancellationSignal,
+  output?: CanonicalSvgWorkerRequest['output']): Promise<RasterImage> {
   checkCancelled(signal)
   // Keep the nonbrowser/explicit legacy test environment on the same engine.
-  if (typeof Worker === 'undefined') return rasterizeCanonicalSvgPixels(input, dimensions, signal)
+  if (typeof Worker === 'undefined') return rasterizeCanonicalSvgPixels(input, dimensions, signal, output)
   const source = verifyNormalizedStaticSvg(input), { width, height } = dimensions
   if (![width, height].every(value => Number.isSafeInteger(value) && value > 0 && value <= STATIC_SVG_LIMITS.rasterSide)
     || width * height > STATIC_SVG_LIMITS.rasterPixels) throw new Error('SVG输出尺寸超出像素保护预算。')
@@ -72,7 +73,7 @@ export async function rasterizeCanonicalSvgInWorker(input: NormalizedStaticSvg, 
     const post = (moduleBytes?: Uint8Array<ArrayBuffer>) => {
       cancel()
       if (settled) return
-      const request: CanonicalSvgWorkerRequest = { source, dimensions: { width, height }, moduleBytes }
+      const request: CanonicalSvgWorkerRequest = { source, dimensions: { width, height }, moduleBytes, output }
       try { active.worker.postMessage(request, moduleBytes ? [moduleBytes.buffer] : []) } catch (error) { finish(error) }
     }
     if (moduleLoad) void copyCanonicalSvgModule(moduleLoad.signal).then(post, finish)

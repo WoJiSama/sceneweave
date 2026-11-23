@@ -6,6 +6,7 @@ import { validateOcean } from '../ocean/validation.js'
 import { attachmentSurfaceRecordSchema, attachmentRecordSchema } from '../attachments/contracts.js'
 import { terrainFacadeSchema } from '../appearance/terrain-facade.js'
 import { rockBodySchema, carvedStripSchema } from '../carved-rock/contracts.js'
+import { terrainReliefSchema } from '../geometry/terrain-relief.js'
 import { terrainInlaySchema } from '../terrain-inlay/persistence.js'
 import { staircaseSchema } from '../stairs/contracts.js'
 import { imageEnhancementMetadataSchema } from '../image-enhancement/metadata.js'
@@ -34,6 +35,7 @@ import { sceneOutputBackgroundSchema } from './scene-background.js'
 import { validateAggregateCoordinates } from '../aggregates/state.js'
 import { assertCoordinateRoundTrip } from '../aggregates/scene-coordinates.js'
 import { visualEnvironmentSchema, visualSystemSchema } from '../visual/schema.js'
+import { sceneArtStyleSchema } from '../visual/art-style.js'
 import { validateVisualSystem } from '../visual/diagnostics.js'
 import { inspectJsonInput } from './json.js'
 import { validateGeometry } from '../geometry/geometry.js'
@@ -44,7 +46,7 @@ import { USER_LAYER_LIMIT, type SceneDocument, type Issue } from '../model/scene
 import {
   id, int, positive, nonnegative, rank, angle, opacity, color, point, size, bounds, unique, ids, strings,
   versionRef, origin, identity, editable, visibility, layer, shadowClass, shadow, appearance, surfaceRef, groundRef,
-  style, edgeStyle, templateShape, overrideFields, anchor, movementCost, record, timestamp,
+  style, pathSurfaceStyle, edgeStyle, templateShape, overrideFields, anchor, movementCost, record, timestamp,
   floorArtwork,
 } from './primitives.js'
 
@@ -59,6 +61,7 @@ const sceneShape = {
   units: z.object({ world: z.literal('mm'), display: z.enum(['m', 'ft']), gridSizeMm: positive, snapMm: positive, gridVisible: z.boolean() }).strict(),
   exportBoundsMm: bounds,
   outputBackground: sceneOutputBackgroundSchema.optional(),
+  artStyle: sceneArtStyleSchema.optional(),
   floors: record(z.object({ id, name: z.string(), boundsMm: bounds, outputBoundsMm: bounds.optional(), artwork: floorArtwork.optional(), environment: visualEnvironmentSchema.optional(), links: floorLinksSchema.optional(), underlayFloorId: id.optional() }).strict()),
   vertices: record(z.object({ ...editable, xMm: int, yMm: int }).strict()),
   regions: record(z.object({ ...editable, boundaryMm: z.array(point).min(3), kind: z.enum(['terrain', 'hazard', 'manualMask', 'partition']), name: z.string().trim().min(1).max(80).optional(),
@@ -78,10 +81,12 @@ const sceneShape = {
   propDefinitions: record(z.object({ ...identity, name: z.string(), tags: strings, defaultAppearance: appearance, defaultVisualBoundsMm: bounds,
     defaultFootprintMm: size, defaultFootprintOffsetMm: point, defaultBlocksMovement: z.boolean(), defaultBlocksSight: z.boolean(), defaultRenderLayer: layer, defaultShadowClass: shadowClass }).strict()),
   materials: record(z.object({ ...identity, name: z.string(), tags: strings, textureAssetId: id, defaultTileSizeMm: size,
-    applicableSurfaces: z.array(z.enum(['room', 'wall', 'terrain', 'path'])).min(1).refine(unique, '适用表面不能重复') }).strict()),
+    applicableSurfaces: z.array(z.enum(['room', 'wall', 'terrain', 'path'])).min(1).refine(unique, '适用表面不能重复'),
+    defaultPathPaint: z.object({ alignment: z.literal('route'), rotationDeg: angle }).strict().optional(),
+  }).strict().refine(material => !material.defaultPathPaint || material.applicableSurfaces.includes('path'), '材质须适用于道路才可设定沿线铺装。')),
   terrainAreas: record(z.object({ ...editable, visibility, boundaryMm: z.array(z.object({ id, segmentId: id, positionMm: point }).strict()).min(3).max(2048),
     groundElevationMm: int, coveragePriority: rank, surfaceStyle: style, blocksMovement: z.boolean(), blocksSight: z.boolean(), movementCostMultiplier: movementCost,
-    rockBody: rockBodySchema.optional(), facade: terrainFacadeSchema.nullable().optional(), boundaryBlendMm: int.min(0).max(10000).optional(), waterSurface: waterSurfaceSchema.optional() }).strict()),
+    rockBody: rockBodySchema.optional(), relief: terrainReliefSchema.optional(), facade: terrainFacadeSchema.nullable().optional(), boundaryBlendMm: int.min(0).max(10000).optional(), waterSurface: waterSurfaceSchema.optional() }).strict()),
   terrainEdges: record(z.object({ ...editable, visibility, source: z.object({ areaId: id, segmentId: id }).strict(), neighborAreaId: id.nullable(),
     kind: z.enum(['shore', 'cliff', 'materialTransition']), shoreline: z.boolean(), blocksMovement: z.boolean(), blocksSight: z.boolean(), surfaceStyle: style, styleOverride: edgeStyle.nullable(), shoreStyle: edgeStyle.optional() }).strict()),
   terrainConnections: record(z.object({ ...editable, visibility, kind: z.enum(['stairs', 'ramp']), from: z.object({ surfaceRef, positionMm: point }).strict(), to: z.object({ surfaceRef, positionMm: point }).strict(),
@@ -91,7 +96,7 @@ const sceneShape = {
   attachmentSurfaces: attachmentSurfaceRecordSchema.optional(),
   attachments: attachmentRecordSchema.optional(),
   paths: record(z.object({ ...editable, visibility, centerlineMm: z.array(point).min(2).max(256), widthMm: positive, supportRefs: z.array(surfaceRef).min(1).refine(unique, '支撑引用不能重复'),
-    widthSections: routeWidthSectionsSchema.optional(), staircase: staircaseSchema.optional(), surfaceStyle: style, movementCostMultiplier: movementCost, renderOrder: rank, assembly: pathAssemblySchema.optional() }).strict()),
+    widthSections: routeWidthSectionsSchema.optional(), staircase: staircaseSchema.optional(), surfaceStyle: pathSurfaceStyle, movementCostMultiplier: movementCost, renderOrder: rank, assembly: pathAssemblySchema.optional() }).strict()),
   prefabDefinitions: record(z.object({ ...identity, name: z.string(), tags: strings, pathStyle: pathStyleDefaultsSchema.optional(), members: z.array(z.object({ key: id, propTemplate: z.object(templateShape).strict() }).strict()).min(1).max(128) }).strict()),
   prefabInstances: record(z.object({ ...editable, visibility, definitionRef: versionRef, anchorMm: point, rotationDeg: angle,
     members: record(z.object({ propId: id.nullable(), overrideFields }).strict()) }).strict()),
@@ -152,6 +157,9 @@ export function inspectSceneDocumentDomains(document: SceneDocument, geometry: R
   const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document), ...validatePathAttachmentGeometry(document), ...inspectAttachments(document), ...inspectSceneWallReliefBudget(geometryDocumentForValidation(document))]
   errors.push(...oceanErrors, ...inspectPathAssemblies(document), ...inspectBridgeRoadLinks(document), ...inspectPipeLinks(document))
   for (const area of Object.values(document.terrainAreas)) {
+    if (area.relief && (area.rockBody || area.facade || area.waterSurface || area.relief.offsetsMm.some(offset => !Number.isSafeInteger(area.groundElevationMm + offset)))) {
+      errors.push({ code: 'TERRAIN_RELIEF', entityId: area.id, message: '连续起伏需要有效高程，且仅用于非水面、非立面平台的开放地形。' })
+    }
     if (area.boundaryBlendMm && area.rockBody) errors.push({ code: 'TERRAIN_BLEND', entityId: area.id, message: '实体岩体使用真实侧壳，不能套用平面地形边缘羽化。' })
     if (area.facade && (area.waterSurface || area.rockBody || area.boundaryBlendMm)) errors.push({ code: 'TERRAIN_FACADE', entityId: area.id, message: '立面需要有清晰轮廓的实体平台或屋面。' })
   }

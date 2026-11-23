@@ -14,6 +14,59 @@
 .visual-controls circle { pointer-events: all; cursor: grab; touch-action: none; }
 .visual-controls circle:active { cursor: grabbing; }
 
+.art-style-presets, .art-style-parameters, .art-style-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.workspace-unified .visual-panel .art-style-toggle {
+  display: flex; align-items: center; justify-content: center; flex: 1; gap: 8px;
+  margin: 0; padding: 8px; min-height: 34px; border: 1px solid var(--workspace-border, #cbd6c3);
+  border-radius: 6px; background: var(--workspace-control, #fcfdf8); color: var(--workspace-ink, #344b3d);
+  cursor: pointer; box-sizing: border-box;
+}
+.workspace-unified .visual-panel .art-style-toggle input { width: 15px; height: 15px; margin: 0; accent-color: #41694f; }
+.art-style-toggle:has(input:disabled) { cursor: default; opacity: .55; }
+.workspace-unified .visual-panel .art-style-parameters button { flex: 1; }
+.workspace-unified .visual-panel .art-style-toggle:has(input:checked),
+.workspace-unified .visual-panel .art-style-parameters button[aria-pressed=true]:not(:disabled) {
+  border-color: #789783;
+  background: #e1eee2;
+  color: #294e3a;
+  font-weight: 600;
+}
+.art-style-slider { grid-template-columns: 1fr auto; align-items: center; }
+.art-style-slider output { color: #405c4b; font-variant-numeric: tabular-nums; }
+.art-style-slider input { grid-column: 1 / -1; accent-color: #41694f; margin: 0; }
+.art-style-advanced { display: grid; gap: 11px; padding-top: 8px; }
+.art-style-module {
+  display: grid; gap: 12px; padding: 10px; min-width: 0;
+  border: 1px solid var(--workspace-border, #cbd6c3); border-radius: 8px;
+}
+.tone-curve { display: grid; min-width: 0; gap: 8px; }
+.tone-curve-chart {
+  display: block; width: 100%; max-width: 300px; aspect-ratio: 1; justify-self: center;
+  border-radius: 8px; background: #26352e; color: #e6f2dc; touch-action: none; cursor: crosshair;
+}
+.tone-curve-chart[data-channel=red] { color: #ffaaa5; }
+.tone-curve-chart[data-channel=green] { color: #b8e39f; }
+.tone-curve-chart[data-channel=blue] { color: #a3d0fc; }
+.tone-curve-grid, .tone-curve-diagonal { fill: none; stroke: #a8bdad; stroke-width: 1; opacity: .24; }
+.tone-curve-diagonal { stroke-dasharray: 4 4; opacity: .5; }
+.tone-curve-line { fill: none; stroke: currentColor; stroke-width: 2; pointer-events: none; }
+.tone-curve-point { fill: #26352e; stroke: currentColor; stroke-width: 2; cursor: grab; }
+.tone-curve-point[aria-pressed=true], .tone-curve-point:focus-visible { fill: currentColor; }
+.tone-curve-point:focus-visible { stroke: #fff; stroke-width: 3; outline: none; }
+.tone-curve-values { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.asset-map-wrap .asset-viewport-image .art-style-before { pointer-events: none; box-shadow: none; }
+.art-style-divider { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; touch-action: none; }
+.art-style-divider-outline { stroke: #342b25; stroke-width: 4px; opacity: .72; }
+.art-style-divider-rule { stroke: #fffaec; stroke-width: 2px; }
+.art-style-divider-grab { pointer-events: stroke; stroke: transparent; stroke-width: 24px; cursor: grab; }
+.art-style-divider-handle { stroke: #fffaec; stroke-width: 2px; fill: #31564b; pointer-events: all; }
+.art-style-divider-handle:focus-visible { stroke: #f8c977; stroke-width: 4px; outline: none; }
+.art-style-divider-turn { cursor: crosshair; }
+.art-style-divider-grab:active, .art-style-divider-turn:active { cursor: grabbing; }
+.art-style-side rect { fill: #2d3c33; opacity: .94; }
+.art-style-side text { fill: #fff8e9; font-size: 12px; }
+.art-style-comparison-status { position: absolute; z-index: 3; top: 8px; left: 8px; padding: 5px 9px; border-radius: 4px; color: #fff8e9; background: #2d3c33; font-size: 12px; pointer-events: none; }
+
 .workspace-unified .visual-panel { padding: 16px; gap: 14px; }
 .workspace-unified .visual-panel h2 { margin: 0; font-size: 15px; }
 .workspace-unified .visual-panel p { margin: 0; font-size: 12px; line-height: 1.65; color: var(--workspace-muted, #657263); }

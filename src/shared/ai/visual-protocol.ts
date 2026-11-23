@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { visualBoundarySchema, visualEdgeLookSchema, visualEnvironmentSchema, visualFilterSchema, visualFogSchema, visualLightSchema } from '../visual/schema.js'
-import { paint, overlay } from '../validation/primitives.js'
+import { paint, pathPaint, overlay } from '../validation/primitives.js'
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__')
 const integer = z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER)
@@ -9,6 +9,9 @@ const ids = z.array(id).max(256).refine(values => new Set(values).size === value
 // Tint/brightness require adopted real bitmap variants. This metadata-only
 // recipe changes tiling/overlays; finite visual filters provide local grading.
 const visualPaint = paint.extend({ tint: z.null() })
+const visualBasePaint = pathPaint.extend({ opacity: z.literal(1), tint: z.null(),
+  alignment: pathPaint.shape.alignment.describe('On a path (including a bridge roadway), route follows each leg. rotationDeg and originMm are relative to the route start and tangent. Use world or surface on other targets.'),
+})
 export const VisualAuthoringKindSchema = z.enum(['visualBoundary', 'visualEdge', 'visualLight', 'visualFog', 'visualFilter', 'visualEnvironment', 'visualSurface', 'furnishAlong', 'visualRemove'])
 export const VisualAuthoringScopeSchema = z.object({ floorId: id, layerId: id,
   boundsMm: z.object({ x: integer, y: integer, width: integer.positive(), height: integer.positive() }).strict(),
@@ -34,11 +37,11 @@ export const VisualAuthoringOperationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('visualEnvironment'), environment: visualEnvironmentSchema }).strict(),
   z.object({ kind: z.literal('visualRemove'), id, effectKind: z.enum(['edgeLook', 'light', 'fog', 'filter', 'boundary']), detach: z.boolean().optional() }).strict(),
   z.object({ kind: z.literal('visualSurface'), id, surfaceKind: z.enum(['room', 'terrainArea', 'wall', 'path', 'terrainEdge', 'terrainConnection']),
-    style: z.object({ base: visualPaint.extend({ opacity: z.literal(1) }),
+    style: z.object({ base: visualBasePaint,
       overlays: z.array(overlay.extend({ boundaryMm: z.array(point).min(3).max(128), paint: visualPaint })).max(8)
         .refine(values => new Set(values.map(value => value.id)).size === values.length),
     }).strict().nullable(),
-  }).strict(),
+  }).strict().refine(operation => operation.style?.base.alignment !== 'route' || operation.surfaceKind === 'path', '沿路线铺装仅适用于道路和桥面。'),
   z.object({ kind: z.literal('furnishAlong'), source: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('boundary'), id }).strict(), z.object({ kind: z.literal('wall'), id }).strict(),
   ]), definitionId: id, supportRef: z.object({ kind: z.enum(['floor', 'room', 'terrainArea']), id }).strict(),

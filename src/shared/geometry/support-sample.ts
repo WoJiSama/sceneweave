@@ -4,6 +4,7 @@ import { createRockShellSampler } from '../rock-shell/index.js'
 import { createTerrainInlaySampler } from '../terrain-inlay/geometry.js'
 import { resolvePropContact, transformAttachmentPoint } from '../attachments/contact.js'
 import { coveredEverywhere, pointInPolygon, terrainPoints } from './geometry.js'
+import { reliefBounds, sampleTerrainRelief } from './terrain-relief.js'
 
 export interface SupportSample {
   rootSupportRef: SurfaceRef
@@ -23,6 +24,7 @@ export const rootSurfaceElevation = (scene: SceneDocument, ref: SurfaceRef): num
 export function createSupportQuery(scene: SceneDocument, floorId: string, excludedAreaIds?: ReadonlySet<string>) {
   const floor = scene.floors[floorId]
   const areas = Object.values(scene.terrainAreas).filter(row => row.floorId === floorId && !excludedAreaIds?.has(row.id)).sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id))
+  const reliefs = new Map(areas.flatMap(area => area.relief ? [[area.id, { grid: area.relief, bounds: reliefBounds(terrainPoints(area)) }] as const] : []))
   const invalidHosts = new Set<string>()
   const strips = Object.values(scene.terrainConnections).filter(row => row.floorId === floorId && row.carvedStrip).flatMap(connection => {
     try { return [{ connection, sampler: createCarvedStripSampler(connection.carvedStrip!) }] }
@@ -94,7 +96,11 @@ export function createSupportQuery(scene: SceneDocument, floorId: string, exclud
       return { rootSupportRef: root, actualSurfaceId: actual.kind === 'walk' ? row.connection.carvedStrip!.walkSurfaceId : actual.faceId, zMm: actual.zMm, normal: actual.normal,
         walkable: actual.kind === 'walk' && !row.connection.blocksMovement && !scene.terrainAreas[root.id].blocksMovement, sourceConnectionId: row.connection.id }
     }
-    return { rootSupportRef: root, actualSurfaceId: root.kind + ':' + root.id, zMm: rootSurfaceElevation(scene, root)!, normal: { ...up }, walkable: root.kind !== 'terrainArea' || !scene.terrainAreas[root.id].blocksMovement }
+    const relief = root.kind === 'terrainArea' ? reliefs.get(root.id) : undefined
+    const shape = relief && sampleTerrainRelief(relief.grid, relief.bounds, p)
+    return { rootSupportRef: root, actualSurfaceId: root.kind + ':' + root.id,
+      zMm: rootSurfaceElevation(scene, root)! + (shape?.offsetMm ?? 0), normal: shape?.normal ?? { ...up },
+      walkable: (root.kind !== 'terrainArea' || !scene.terrainAreas[root.id].blocksMovement) && (!shape || shape.normal.z >= Math.SQRT1_2) }
   }
   const flatOn = (p: PointMm, ref: SurfaceRef): boolean => {
     const actual = sample(p)

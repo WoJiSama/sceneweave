@@ -31,6 +31,7 @@ const lampGlows: Readonly<Record<string, PropGlow>> = {
 /** Keep artwork bytes and existing fixed IDs available in already saved projects. */
 export function industrialDefinitionRef(kind: 'prop' | 'material' | 'prefab', key: string): VersionRef {
   const hasNewVersion = kind === 'prop' && Object.hasOwn(lampGlows, key)
+    || kind === 'material' && key === 'deck'
     || kind === 'prefab' && ['ember-bridge', 'ion-bridge', 'cable-run', 'pump-bank'].includes(key)
   const version = hasNewVersion ? 2 : 1
   return { id: `industrial-cyberpunk-${kind}-${key}-v${version}`, version }
@@ -61,7 +62,9 @@ function createIndustrialCatalogDocument(): SceneDocument {
       logicalSizeMm: size, mimeType: 'image/png', origin: { ...origin }, licenseRef }
     const item = identity(art.kind, art.key, art.name, [...(art.tags ?? [])])
     if (art.kind === 'material') scene.materials[item.id] = { ...item, textureAssetId: image,
-      defaultTileSizeMm: size, applicableSurfaces: ['path', 'terrain', 'room', 'wall'] }
+      defaultTileSizeMm: size, applicableSurfaces: ['path', 'terrain', 'room', 'wall'],
+      ...(art.key === 'deck' && { defaultPathPaint: { alignment: 'route', rotationDeg: 90 } }),
+    }
     else scene.propDefinitions[item.id] = { ...item, defaultAppearance: { kind: 'image', assetId: image, tint: null, opacity: 1,
       ...(Object.hasOwn(lampGlows, art.key) && { glow: cloneJson(lampGlows[art.key]) }) },
       defaultVisualBoundsMm: { x: -Math.floor(size.width / 2), y: -Math.floor(size.height / 2), ...size },

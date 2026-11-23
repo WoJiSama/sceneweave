@@ -279,9 +279,14 @@ function syncOwnedAppearanceGraph(content: CompositionContent, previousDocument?
   if (previousDocument && commands.length) {
     const before = previousDocument.visual.base.base.boundaries
     for (const row of Object.values(document.visual.base.base.boundaries)) {
-      if (row.fence && (row.fence.pipeLinks || before[row.id]?.fence?.pipeLinks)
-        && before[row.id]?.fence?.routeFingerprint !== row.fence.routeFingerprint
-        && !commands.some(command => command.type === 'setFenceAssembly' && command.id === row.id)) syncAssembly(row.fence)
+      const fence = row.fence, previous = before[row.id]?.fence
+      if (!fence || !previous || commands.some(command => command.type === 'setFenceAssembly' && command.id === row.id)) continue
+      const routeChanged = previous.routeFingerprint !== fence.routeFingerprint
+      const pipeFollowed = (fence.pipeLinks || previous.pipeLinks) && routeChanged
+      const platformFollowed = fence.platformBinding && (routeChanged
+        || !equalCompositionValue(previous.recipe.gaps ?? [], fence.recipe.gaps ?? [])
+        || !equalCompositionValue(previous.members, fence.members))
+      if (pipeFollowed || platformFollowed) syncAssembly(fence)
     }
   }
   for (const id of Object.keys(graph.propSources)) if (!own(document.props, id)) delete graph.propSources[id]

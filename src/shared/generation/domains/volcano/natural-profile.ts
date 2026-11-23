@@ -9,6 +9,7 @@ import type { VisualBoundary } from '../../../visual/types.js'
 import { volcanicSurfaceDefinitionId } from '../../../visual/volcanic-surfaces.js'
 import type { VolcanoGenerationInput } from './contracts.js'
 import type { VolcanoReport } from './index.js'
+import { NATURAL_VOLCANO_OBSERVATION } from './relief.js'
 
 export interface NaturalVolcanoProfile {
   input: VolcanoGenerationInput
@@ -199,7 +200,7 @@ export function naturalVolcanoFinishCommands(document: SceneDocument, profile: N
   }
   commands.push({ type: 'createNote', id: 'natural-volcano-gm-observation-area', floorId, layerId,
     anchor: { type: 'point', positionMm: p.platform.anchorMm }, kind: 'note', title: '灰脊火口观测步道',
-    text: '西南清理区与山肩同高程1800mm，保留完整活动支撑和路线净宽；火口为-400mm。两条真实岩阶分别跨越地面至山肩、山肩至火口的高差，曲线路面不授予额外跨越能力。冷壳区域危险但可通行，移动代价2；熔岩池的同形区域危险、阻挡并保存移动代价4。岩层、热裂和暖光只改变外观，没有连续坡面、流体、热力或伤害模拟。',
+    text: NATURAL_VOLCANO_OBSERVATION,
     visibility: 'gm', discovered: false })
   return commands
 }

@@ -129,9 +129,9 @@ export function followPathAttachments(beforeInput: AttachmentScene, afterInput: 
   return { document: after, dependencyIds: [...dependencies].sort() }
 }
 
-/** Internal controlled undo/redo repair only. It is not a public command, import
- * repair mode or caller opt-out. The owner first advances real identities, then
- * signs this complete geometry against that pool and validates full content. */
+/** Internal to controlled history restoration or a fresh copy of a validated
+ * source. The owner advances or creates real identities before signing the
+ * complete geometry against that pool and validating the full result. */
 export function rebindPathAttachmentProofs(input: AttachmentScene, identity: HistoryIdentity): AttachmentScene {
   const scene = captureJson(input)
   assertErrors(validatePathAttachmentGeometry(scene))

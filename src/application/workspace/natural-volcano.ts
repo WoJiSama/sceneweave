@@ -1,6 +1,7 @@
 import { applyCompositionCommands } from '../../shared/appearance/commands.js'
 import { selectManualTransactionBudget } from '../../shared/budget/command-budget.js'
 import { createNaturalVolcanoProfile, naturalVolcanoFinishCommands } from '../../shared/generation/domains/volcano/natural-profile.js'
+import { naturalVolcanoReliefCommands } from '../../shared/generation/domains/volcano/relief.js'
 import { checkVolcanoResult } from '../../shared/generation/domains/volcano/index.js'
 import { checkTerrainRoute, assertTerrainConnectionClearances } from '../../shared/geometry/terrain-travel.js'
 import { polygonInside, terrainPoints } from '../../shared/geometry/geometry.js'
@@ -23,7 +24,9 @@ export async function prepareNaturalVolcanoProject(base: EditableProject, option
   const budget = selectManualTransactionBudget(source.document)
   const before: CompositionContent = { document: source.document, historyIdentity: source.historyIdentity, appearance: source.appearance }
   const edited = applyCompositionCommands(before, commands, options.runtime, { budget })
-  const revised = reviseCompositionContent(edited, source.document.revision + 1, options.runtime.clock.now())
+  const relief = naturalVolcanoReliefCommands(edited.document, { ...generated.report, flowAreaId: profile.lavaAreaId })
+  const shaped = applyCompositionCommands(edited, relief, options.runtime, { budget })
+  const revised = reviseCompositionContent(shaped, source.document.revision + 1, options.runtime.clock.now())
   const project = await materializeProject({ ...source, ...revised }, { runtime: options.runtime,
     validation: options.validation, baseline: source, budget, signal: options.signal })
   checkCancelled(options.signal)
@@ -39,5 +42,5 @@ export async function prepareNaturalVolcanoProject(base: EditableProject, option
     return { pathId, ...checkTerrainRoute(document, { floorId: path.floorId, pointsMm: path.centerlineMm, widthMm: path.widthMm }) }
   })
   if (routeChecks.some(row => !row.ok)) throw new Error('自然火山的真实路线净宽或支撑不成立。')
-  return { project, profile, generated, commands, routeChecks, fixtures }
+  return { project, profile, generated, commands: [...commands, ...relief], routeChecks, fixtures }
 }
