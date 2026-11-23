@@ -20,25 +20,30 @@ test('real Chromium tab zoom at 200 percent keeps review, errors and keyboard co
   // The browser owns this zoom. No CSS zoom, viewport emulation or app-state injection.
   await writeFile(join(extension, 'manifest.json'), JSON.stringify({
     manifest_version: 3, name: 'Sceneweave local browser zoom verification', version: '1.0',
-    permissions: ['tabs'], background: { service_worker: 'worker.js' },
+    permissions: ['tabs'],
   }))
-  await writeFile(join(extension, 'worker.js'), 'chrome.runtime.onInstalled.addListener(() => {});')
+  await writeFile(join(extension, 'zoom.html'), '<!doctype html><title>Sceneweave zoom verification</title>')
+  const channel = process.env.SCENEWEAVE_BROWSER_CHANNEL ?? 'chromium'
   const context = await chromium.launchPersistentContext(join(temporary, 'profile'), {
-    channel: 'chromium', headless: true, baseURL, viewport: { width: 1512, height: 982 },
-    args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+    channel, headless: true, baseURL, viewport: { width: 1512, height: 982 },
+    ignoreDefaultArgs: ['--disable-extensions'], args: ['--enable-unsafe-extension-debugging'],
   })
   let restore: (() => Promise<unknown>) | undefined
   try {
     const page = context.pages()[0] ?? await context.newPage()
+    const connection = await context.browser()!.newBrowserCDPSession()
+    const { id } = await connection.send('Extensions.loadUnpacked', { path: extension })
+    const zoomControl = await context.newPage()
+    await zoomControl.goto(`chrome-extension://${id}/zoom.html`)
+    await page.bringToFront()
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
     await page.goto(baseURL)
     await createKeyboardProject(page, '浏览器真实200%放大')
     const original = await keyboardProjectBackup(page, info.outputPath('zoom-before.sceneweave'))
     const initial = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio }))
-    const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker')
     const targetUrl = page.url()
-    const setZoom = (factor: number) => worker.evaluate(async ({ url, factor }: { url: string; factor: number }) => {
+    const setZoom = (factor: number) => zoomControl.evaluate(async ({ url, factor }: { url: string; factor: number }) => {
       const tabs = await chrome.tabs.query({});
       const target = tabs.find(tab => tab.url === url);
       if (!target?.id) throw new Error('The isolated test tab was not found.');
@@ -182,7 +187,7 @@ test('real Chromium tab zoom at 200 percent keeps review, errors and keyboard co
     expect(restored.factor).toBe(1)
     await expect.poll(() => page.evaluate(() => devicePixelRatio)).toBe(initial.dpr)
     await expect.poll(() => page.evaluate(() => innerWidth)).toBe(initial.width)
-    const facts = { method: 'Isolated bundled Chromium, native chrome.tabs.setZoom/getZoom', browserVersion: context.browser()?.version(), initial, browserZoom, zoomed, errorVisibility, canvasClicks, scroll, restored, errors, excluded: ['native VoiceOver speech', 'real operating-system IME', 'Safari application', 'OS display scaling'] }
+    const facts = { method: `Isolated ${channel}, native chrome.tabs.setZoom/getZoom`, browserVersion: context.browser()?.version(), initial, browserZoom, zoomed, errorVisibility, canvasClicks, scroll, restored, errors, excluded: ['native VoiceOver speech', 'real operating-system IME', 'Safari application', 'OS display scaling'] }
     const factsPath = info.outputPath('browser-zoom-facts.json')
     await writeFile(factsPath, JSON.stringify(facts, null, 2))
     await info.attach('browser-zoom-facts.json', { path: factsPath, contentType: 'application/json' })

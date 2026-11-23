@@ -1,15 +1,10 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
-const showcaseManifest = JSON.parse(await readFile(new URL('../src/platform/browser/content/home-showcase-manifest.json', import.meta.url), 'utf8')) as {
-  entries: Record<SampleId, { file: string; fullFile: string; title: string; name: string; audience: string; width: number; height: number;
-    fullWidth: number; fullHeight: number; pngSha256: string; fullPngSha256: string; rgbaSha256: string;
-    oblique: { file: string; fullFile: string; width: number; height: number; fullWidth: number; fullHeight: number; sha256: string; fullSha256: string }
-    archiveFile: string; archiveSha256: string; archiveBytes: number; projectHash: string;
-    boundsMm: { x: number; y: number; width: number; height: number }; rooms: number; terrainAreas: number; props: number; prefabInstances: number }>
-}
-const sampleIds = ['investigation', 'modern', 'fantasy', 'ruins', 'wilderness', 'coast', 'island', 'volcano', 'cyberpunk'] as const
-type SampleId = typeof sampleIds[number]
+import { unzipSync } from 'fflate'
+import { archiveUrl, featuredSampleIds, showcaseManifest, type MountedWorkspace } from './home-showcase-helpers'
+
+const manifestSampleIds = ['investigation', 'modern', 'fantasy', 'ruins', 'wilderness', 'coast', 'island', 'volcano', 'cyberpunk'] as const
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const home = (page: Page) => page.getByTestId('workspace-home')
 
@@ -36,7 +31,56 @@ async function settled(page: Page) {
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
 }
 
-test('home showcase serves all delivered archives and native images without writing on browse or cancel, then saves a real copy', async ({ page }) => {
+test('all delivered sample archives and native images match the manifest', async () => {
+  expect(Object.keys(showcaseManifest.entries).sort()).toEqual(manifestSampleIds.toSorted())
+
+  for (const id of manifestSampleIds) {
+    const entry = showcaseManifest.entries[id]
+    const file = await readFile(new URL('../public/assets/home-scenes/' + entry.file, import.meta.url))
+    expect(sha256(file)).toBe(entry.pngSha256)
+    expect(file.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+    expect([file.readUInt32BE(16), file.readUInt32BE(20)]).toEqual([entry.width, entry.height])
+    const full = await readFile(new URL('../public/assets/home-scenes/' + entry.fullFile, import.meta.url))
+    expect(sha256(full)).toBe(entry.fullPngSha256)
+    expect([full.readUInt32BE(16), full.readUInt32BE(20)]).toEqual([entry.fullWidth, entry.fullHeight])
+    expect(entry.audience).toBe('gm')
+    const archive = await readFile(archiveUrl(id))
+    expect(archive.byteLength).toBe(entry.archiveBytes)
+    expect(sha256(archive)).toBe(entry.archiveSha256)
+    expect(entry.projectHash).toMatch(/^[0-9a-f]{64}$/)
+    const angle = entry.oblique
+    const angleBytes = await readFile(new URL('../public/assets/home-scenes/' + angle.file, import.meta.url))
+    const angleFullBytes = await readFile(new URL('../public/assets/home-scenes/' + angle.fullFile, import.meta.url))
+    expect(sha256(angleBytes)).toBe(angle.sha256)
+    expect(sha256(angleFullBytes)).toBe(angle.fullSha256)
+    expect(angleBytes.toString('ascii', 8, 12)).toBe('WEBP')
+  }
+})
+
+test('unfeatured samples still prepare independent editable copies without saving to the workspace', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/#home')
+  const featured = new Set<string>(featuredSampleIds)
+  for (const id of manifestSampleIds.filter(id => !featured.has(id))) {
+    const source = unzipSync(await readFile(archiveUrl(id)), { filter: file => file.name === 'identity.json' })
+    const original = JSON.parse(new TextDecoder().decode(source['identity.json']))
+    const copy = await page.evaluate(async sample => {
+      const path = '/src/platform/browser/content/home-showcase.ts'
+      const { createHomeShowcaseProject } = await import(path) as typeof import('../src/platform/browser/content/home-showcase')
+      const { document, historyIdentity } = await createHomeShowcaseProject(sample)
+      return { id: document.sceneId, title: document.title, root: historyIdentity.rootSceneId,
+        lineage: historyIdentity.lineageId, doorLinkLineages: Object.values(document.pathAttachments ?? {}).map(link => link.proofs.lineageId) }
+    }, id)
+    expect(copy.title).toBe(showcaseManifest.entries[id].title)
+    expect(copy.root).toBe(copy.id)
+    expect(copy.root).not.toBe(original.rootSceneId)
+    expect(copy.lineage).not.toBe(original.lineageId)
+    if (id === 'cyberpunk') expect(copy.doorLinkLineages).toEqual([copy.lineage, copy.lineage])
+  }
+  expect(await storedProjects(page)).toEqual([])
+})
+
+test('home shows the four featured scenes, writes nothing on browse or cancel, and saves a real copy', async ({ page }) => {
   test.setTimeout(240_000)
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -48,23 +92,9 @@ test('home showcase serves all delivered archives and native images without writ
   await expect(home(page).getByRole('status').filter({ hasText: '共 0 个工程' })).toBeVisible()
   const initialProjects = await storedProjects(page)
   expect(initialProjects).toEqual([])
-  expect(Object.keys(showcaseManifest.entries).sort()).toEqual(sampleIds.toSorted())
-
-  for (const id of Object.keys(showcaseManifest.entries) as SampleId[]) {
+  await expect(home(page).locator('article[data-sample] h3')).toHaveText(featuredSampleIds.map(id => showcaseManifest.entries[id].name))
+  for (const id of featuredSampleIds) {
     const entry = showcaseManifest.entries[id]
-    const file = await readFile(new URL('../public/assets/home-scenes/' + entry.file, import.meta.url))
-    expect(sha256(file)).toBe(entry.pngSha256)
-    expect(file.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
-    expect([file.readUInt32BE(16), file.readUInt32BE(20)]).toEqual([entry.width, entry.height])
-    const full = await readFile(new URL('../public/assets/home-scenes/' + entry.fullFile, import.meta.url))
-    expect(sha256(full)).toBe(entry.fullPngSha256)
-    expect([full.readUInt32BE(16), full.readUInt32BE(20)]).toEqual([entry.fullWidth, entry.fullHeight])
-    expect(entry.audience).toBe('gm')
-    const archive = await readFile(new URL('../public/assets/home-scenes/projects/' + entry.archiveFile, import.meta.url))
-    expect(archive.byteLength).toBe(entry.archiveBytes)
-    expect(sha256(archive)).toBe(entry.archiveSha256)
-    expect(entry.projectHash).toMatch(/^[0-9a-f]{64}$/)
-
     const card = home(page).locator('article[data-sample="' + id + '"]')
     await card.scrollIntoViewIfNeeded()
     await expect(card).toBeVisible()
@@ -74,11 +104,6 @@ test('home showcase serves all delivered archives and native images without writ
     await expect(card).toContainText(entry.boundsMm.width / 1000 + ' × ' + entry.boundsMm.height / 1000 + ' m')
 
     const angle = entry.oblique
-    const angleBytes = await readFile(new URL('../public/assets/home-scenes/' + angle.file, import.meta.url))
-    const angleFullBytes = await readFile(new URL('../public/assets/home-scenes/' + angle.fullFile, import.meta.url))
-    expect(sha256(angleBytes)).toBe(angle.sha256)
-    expect(sha256(angleFullBytes)).toBe(angle.fullSha256)
-    expect(angleBytes.toString('ascii', 8, 12)).toBe('WEBP')
     await waitForImage(card.locator('.home-showcase-angle img'), angle.width, angle.height)
     const opener = card.locator('.home-showcase-image:not(.home-showcase-angle)')
     await opener.focus()
@@ -92,17 +117,11 @@ test('home showcase serves all delivered archives and native images without writ
     await waitForImage(fullImage, angle.fullWidth, angle.fullHeight)
     expect(new URL(await fullImage.getAttribute('src') ?? '', page.url()).pathname.endsWith('/assets/home-scenes/' + angle.fullFile)).toBe(true)
     await expect(details).toContainText(entry.props + ' 件物件')
-    if (id === 'investigation') {
-      await page.keyboard.press('Escape')
-    } else if (id === 'island') {
-      const back = details.getByRole('button', { name: '返回首页', exact: true })
-      await back.focus()
-      await back.press('Enter')
-    } else {
-      await details.getByRole('button', { name: '关闭场景详情', exact: true }).click()
-    }
+    if (id === 'fantasy') await page.keyboard.press('Escape')
+    else if (id === 'ruins') await details.getByRole('button', { name: '返回首页', exact: true }).press('Enter')
+    else await details.getByRole('button', { name: '关闭场景详情', exact: true }).click()
     await expect(details).toHaveCount(0)
-    if (id === 'investigation' || id === 'island') await expect(opener).toBeFocused()
+    await expect(opener).toBeFocused()
     expect(await storedProjects(page)).toEqual(initialProjects)
     await card.getByRole('button', { name: entry.name, exact: true }).click()
     const copy = page.getByRole('dialog', { name: '确认打开工程', exact: true })
@@ -130,15 +149,14 @@ test('home showcase serves all delivered archives and native images without writ
   await settled(page)
   await expect(page.getByTestId('workspace-home')).toBeHidden()
   const opened = await page.evaluate(async () => {
-    const workbenchPath = '/src/editor/main/Workbench.tsx', runtimePath = '/src/platform/browser/runtime.ts'
-    const { nativeWorkspace } = await import(workbenchPath) as typeof import('../src/editor/main/Workbench')
-    const { projectRepository } = await import(runtimePath) as typeof import('../src/platform/browser/runtime')
-    const project = nativeWorkspace.getState().project
-    return { project, saved: project ? await projectRepository.load(project.document.sceneId) : null }
+    const { workspace, repository } = Reflect.get(window, '__sceneweaveOutdoorDev') as MountedWorkspace
+    const project = workspace.getState().project!
+    const saved = await repository.load(project.document.sceneId)
+    return { format: project.format, document: project.document, saved: saved?.document }
   })
-  expect(opened.project?.format).toBe('sceneweave-complete-project')
-  expect(opened.project?.document.title).toContain(showcaseManifest.entries.volcano.title)
-  expect(opened.saved?.project.document).toEqual(opened.project?.document)
+  expect(opened.format).toBe('sceneweave-complete-project')
+  expect(opened.document.title).toContain(showcaseManifest.entries.volcano.title)
+  expect(opened.saved).toEqual(opened.document)
   expect(await storedProjects(page)).toHaveLength(1)
   expect(errors).toEqual([])
 })
@@ -147,7 +165,8 @@ test('home showcase and scene details fit a 390px viewport', async ({ page }) =>
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/#home')
   await expect(home(page)).toBeVisible()
-  for (const id of Object.keys(showcaseManifest.entries)) {
+  await expect(home(page).locator('article[data-sample]')).toHaveCount(featuredSampleIds.length)
+  for (const id of featuredSampleIds) {
     const card = home(page).locator('article[data-sample="' + id + '"]')
     await card.scrollIntoViewIfNeeded()
     await expect(card).toBeVisible()
@@ -161,8 +180,8 @@ test('home showcase and scene details fit a 390px viewport', async ({ page }) =>
   const overflow = () => page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth)
   expect(await overflow()).toBeLessThanOrEqual(1)
 
-  const entry = showcaseManifest.entries.cyberpunk
-  await home(page).locator('article[data-sample="cyberpunk"] .home-showcase-angle').click()
+  const entry = showcaseManifest.entries.volcano
+  await home(page).locator('article[data-sample="volcano"] .home-showcase-angle').click()
   const details = page.getByRole('dialog', { name: entry.name + ' · 场景详情', exact: true })
   await expect(details).toBeVisible()
   await waitForImage(details.getByRole('img'), entry.oblique.fullWidth, entry.oblique.fullHeight)

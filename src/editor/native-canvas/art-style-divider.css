@@ -1,0 +1,10 @@
+.art-style-divider { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; touch-action: none; }
+.art-style-divider-outline { stroke: #342b25; stroke-width: 4px; opacity: .72; }
+.art-style-divider-rule { stroke: #fffaec; stroke-width: 2px; }
+.art-style-divider-grab { pointer-events: stroke; stroke: transparent; stroke-width: 24px; cursor: grab; }
+.art-style-divider-handle { stroke: #fffaec; stroke-width: 2px; fill: #31564b; pointer-events: all; }
+.art-style-divider-handle:focus-visible { stroke: #f8c977; stroke-width: 4px; outline: none; }
+.art-style-divider-turn { cursor: crosshair; }
+.art-style-divider-grab:active, .art-style-divider-turn:active { cursor: grabbing; }
+.art-style-side rect { fill: #2d3c33; opacity: .94; }
+.art-style-side text { fill: #fff8e9; font-size: 12px; }

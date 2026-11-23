@@ -159,7 +159,7 @@ test('production polygon, terrain and path Enter use their original candidates a
   }
 
   await openWorkspaceModule(page, '地形')
-  await tool.getByRole('button', { name: /^台阶 \/ 坡道/ }).click()
+  await tool.getByRole('button', { name: /^高差连接 \/ 坡道/ }).click()
   await page.getByRole('button', { name: '在画布逐点绘制', exact: true }).click()
   await clickKeyboardWorldPoint(page, { x: 3000, y: 3000 }, bounds)
   await viewport.focus()

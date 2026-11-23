@@ -228,10 +228,10 @@ export default function VisualPanel({ scene, appearance, historyIdentity, layerI
     </>}
   </section>
   return <section className="visual-panel" aria-label="视觉场景创作">
-    <header className="workspace-panel-heading"><h2><Palette size={16}/>外观与氛围</h2><p className="workspace-panel-intro">调整材质、边界和光影。先预览，确认采用后随工程保存。</p></header>
+    {!split && <header className="workspace-panel-heading"><h2><Palette size={16}/>外观与氛围</h2></header>}
     <button type="button" className="secondary asset-wide" onClick={() => { setTab('environment'); onTabChange?.('environment'); onInspect?.() }}>氛围预设 · 中性 / 白昼 / 阴天 / 黄昏 / 月夜</button>
     <>
-    <nav className="visual-tabs" aria-label="视觉工具">{(['artStyle', 'edge', 'surface', 'background', 'environment', 'light', 'fog', 'filter'] as const).map(key => (key !== 'artStyle' || artStyleControls) && <button key={key} type="button" aria-pressed={tab === key} onClick={() => { setTab(key); onTabChange?.(key); onInspect?.() }}>{({ artStyle: '画风', edge: '边界', surface: '铺装', background: '背景', environment: '环境', light: '灯光', fog: '雾', filter: '滤镜' })[key]}</button>)}</nav>
+    <nav className="visual-tabs" aria-label="视觉工具">{(['artStyle', 'edge', 'surface', 'background', 'environment', 'light', 'fog', 'filter'] as const).map(key => (key !== 'artStyle' || artStyleControls) && <button key={key} type="button" aria-pressed={tab === key && (!split || detailsActive)} onClick={() => { setTab(key); onTabChange?.(key); onInspect?.() }}>{({ artStyle: '画风', edge: '边界', surface: '铺装', background: '背景', environment: '环境', light: '灯光', fog: '雾', filter: '滤镜' })[key]}</button>)}</nav>
     {split ? detailsTarget && createPortal(parameters, detailsTarget) : parameters}
     </>
   </section>

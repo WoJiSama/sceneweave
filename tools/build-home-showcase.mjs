@@ -6,8 +6,8 @@ import { chromium } from '@playwright/test'
 import { startHarnessTooling } from './harness/tooling.mjs'
 
 // The exact complete archives are the homepage's source of truth. This offline
-// tool validates their real resources and derives both card and detail images;
-// Home itself never reads archives or writes projects just to display a card.
+// tool validates their real resources and derives the card, detail and demo
+// images. Loading an image on Home requires no project archive.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const source = path.join(root, 'public/assets/home-scenes')
 const content = JSON.parse(await readFile(path.join(root, 'src/platform/browser/content/home-showcase-content.json'), 'utf8'))
@@ -38,11 +38,11 @@ try {
       const page = await context.newPage(), errors = []
       page.on('pageerror', error => errors.push(error.message))
       await page.goto(tooling.url)
-      const rendered = await page.evaluate(async ({ encoded, expected }) => {
+      const rendered = await page.evaluate(async ({ encoded, expected, compareStyles }) => {
         const { importProject } = await import('/src/shared/project/file.ts')
         const { projectContentHash } = await import('/src/shared/project/validate.ts')
         const { browserProjectValidation } = await import('/src/platform/browser/project-validation.ts')
-        const { renderProject } = await import('/src/platform/browser/render/renderer.ts')
+        const { renderEditorProject, renderProject } = await import('/src/platform/browser/render/renderer.ts')
         const { renderObliqueProject } = await import('/src/platform/browser/render/oblique-renderer.ts')
         const { defaultDisplayFloorId, resolveFloorOutput } = await import('/src/shared/floors/output.ts')
         const bundle = await importProject(Uint8Array.from(atob(encoded), c => c.charCodeAt(0)), browserProjectValidation)
@@ -70,9 +70,22 @@ try {
             spatial.push({ encoded: image.split(',')[1], width: view.width, height: view.height })
           } finally { view.width = view.height = 0 }
         }
-        return { images, spatial, title: document.title, boundsMm, rooms: Object.keys(document.rooms).length,
+        const artStyles = []
+        if (compareStyles) {
+          const { ART_STYLE_PRESETS, defaultSceneArtStyle } = await import('/src/shared/visual/art-style.ts')
+          for (const active of ['original', ...ART_STYLE_PRESETS]) {
+            const canvas = await renderEditorProject(bundle, { audience: 'gm', floorId: displayFloor, longEdgePx: 1024,
+              artStyleDraft: { ...defaultSceneArtStyle(), active } })
+            try {
+              const image = canvas.toDataURL('image/webp', .94)
+              if (!image.startsWith('data:image/webp;')) throw Error('Showcase renderer did not encode art style WebP')
+              artStyles.push({ active, encoded: image.split(',')[1], width: canvas.width, height: canvas.height })
+            } finally { canvas.width = canvas.height = 0 }
+          }
+        }
+        return { images, spatial, artStyles, title: document.title, boundsMm, rooms: Object.keys(document.rooms).length,
           terrainAreas: Object.keys(document.terrainAreas).length, props: Object.keys(document.props).length, prefabInstances: Object.keys(document.prefabInstances).length }
-      }, { encoded: archive.toString('base64'), expected: copy.projectHash })
+      }, { encoded: archive.toString('base64'), expected: copy.projectHash, compareStyles: id === 'fantasy' })
       if (errors.length) throw Error(errors.join('; '))
       const [thumb, full] = rendered.images, file = `${id}-stage1.png`, fullFile = `${id}-stage1-4k.png`
       const png = Buffer.from(thumb.png, 'base64'), fullPng = Buffer.from(full.png, 'base64')
@@ -81,13 +94,19 @@ try {
       const angleBytes = Buffer.from(angle.encoded, 'base64'), fullAngleBytes = Buffer.from(fullAngle.encoded, 'base64')
       await writeFile(path.join(output, angleFile), angleBytes)
       await writeFile(path.join(output, fullAngleFile), fullAngleBytes)
-      const { images: _, spatial: _spatial, ...facts } = rendered
+      const artStyles = {}
+      for (const { active, encoded, width, height } of rendered.artStyles) {
+        const file = `${id}-style-${active}.webp`, bytes = Buffer.from(encoded, 'base64')
+        await writeFile(path.join(output, file), bytes)
+        artStyles[active] = { file, width, height, sha256: sha(bytes) }
+      }
+      const { images: _, spatial: _spatial, artStyles: _artStyles, ...facts } = rendered
       entries[id] = { ...copy, ...facts, audience: 'gm', file, width: thumb.width, height: thumb.height,
         pngSha256: sha(png), rgbaSha256: thumb.rgbaSha256, fullFile, fullWidth: full.width, fullHeight: full.height,
         fullPngSha256: sha(fullPng), fullRgbaSha256: full.rgbaSha256,
         oblique: { file: angleFile, width: angle.width, height: angle.height, sha256: sha(angleBytes),
           fullFile: fullAngleFile, fullWidth: fullAngle.width, fullHeight: fullAngle.height, fullSha256: sha(fullAngleBytes) },
-        archiveFile, archiveBytes: archive.length, archiveSha256: sha(archive) }
+        ...(Object.keys(artStyles).length ? { artStyles } : {}), archiveFile, archiveBytes: archive.length, archiveSha256: sha(archive) }
       console.log(`${id}: validated complete archive and both views at card and detail sizes`)
     } finally { await context.close() }
   }

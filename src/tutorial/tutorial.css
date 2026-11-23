@@ -58,6 +58,17 @@
 .tutorial-open { min-height: 40px; padding-inline: 11px; border: 1px solid var(--tutorial-rule); border-radius: 6px; font-size: 13px; }
 .tutorial-open:hover { background: var(--tutorial-panel); }
 
+.tutorial-sample {
+  display: inline;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--tutorial-accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: .18em;
+}
+
 .tutorial-layout {
   display: grid;
   grid-template-columns: minmax(155px, 196px) minmax(0, 1fr) minmax(135px, 174px);

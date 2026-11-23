@@ -1,8 +1,8 @@
 import { SourcePreview } from './PathStyleFields'
 import type { BridgeArt } from '../../shared/path-assembly/profiles'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, Download, Heart, Layers3, Plus, RefreshCw, Search, Upload, X } from 'lucide-react'
+import { ArrowLeft, Check, Download, Heart, Plus, RefreshCw, Search, Upload, X } from 'lucide-react'
 import type { EditableProject } from '../../application/workspace/project'
 import { describeCatalogItems, prepareCatalogEntry, readCatalogEntry } from './catalog'
 import { CatalogRepositoryV1 } from './catalog'
@@ -68,7 +68,9 @@ export interface CatalogLibraryProps {
   onDetailChange?: (open: boolean) => void
   onManage?: () => void
   onBrowse?: () => void
+  browseRef?: Ref<(kind?: 'prop' | 'prefab') => void>
   detailReturnLabel?: string
+  shortcuts?: ReactNode
 }
 
 /** Library browsing never selects or changes a scene entity. Fixed content is adopted through the workspace preview. */
@@ -76,7 +78,7 @@ export default function CatalogLibrary({
   project, disabled, importDisabled = disabled, organizationDisabled = disabled, importResetKey = 0, organizationResetKey = 0, externalRefreshKey = 0,
   builtinProject, builtinLoading = false, builtinError, onBuiltinDemand,
   variantsProject, variantsLoading = false, variantsError, onVariantsDemand,
-  detailTarget, detailVisible = true, onDetailChange, onManage, onBrowse, detailReturnLabel = '返回对象',
+  detailTarget, detailVisible = true, onDetailChange, onManage, onBrowse, browseRef, detailReturnLabel = '返回对象', shortcuts,
   onPlace, onMaterial, onPrefab, onUse, onImport, onImportBatch, onAssetBatchDraftChange, onInvalidateAssetBatch, assetBatchPreviewActive = false, onAdopt, onPendingChange, onDraftChange,
 }: CatalogLibraryProps) {
   const repository = useRef<CatalogRepositoryV1 | null>(null), mounted = useRef(false), controller = useRef<AbortController | null>(null)
@@ -95,6 +97,15 @@ export default function CatalogLibrary({
   const [imageItemEdit, setImageItemEdit] = useState<{ key: string; project: EditableProject; selector: CatalogSelectorV1 } | null>(null)
   const managementId = useId()
   const [managementOpen, setManagementOpen] = useState(false)
+  const searchInput = useRef<HTMLInputElement>(null)
+  useImperativeHandle(browseRef, () => kind => {
+    setManagementOpen(false)
+    if (kind) {
+      setFilter({ ...EMPTY_CATALOG_FILTER_V1, kinds: [kind] })
+      setCategory('all')
+    }
+    requestAnimationFrame(() => { searchInput.current?.focus(); searchInput.current?.select() })
+  }, [])
   const [missingThumbnails, setMissingThumbnails] = useState<Set<string>>(() => new Set())
   const capsuleCache = useRef(new Map<string, Promise<EditableProject>>())
   const updateThumbnailState = useCallback((key: string, missing: boolean) => setMissingThumbnails(value => {
@@ -292,22 +303,75 @@ export default function CatalogLibrary({
       setSnapshot(next); setImageItemEdit(null); setScope('mine'); setDetailKey(key); setSelected([key]); setStatus('已保存素材编辑副本，可从我的素材重复采用。')
     }
   }
-  const detailContent = <section className="catalog-library" aria-label="素材详情面板" hidden={!detailVisible} inert={!detailVisible} onKeyDown={event => {
+  const detailContent = <section className="catalog-library workspace-catalog-detail" aria-label="素材详情面板" hidden={!detailVisible} inert={!detailVisible} onKeyDown={event => {
     if (event.key !== 'Escape' || event.defaultPrevented || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !detailVisible || !onDetailChange) return
     event.preventDefault(); event.stopPropagation(); onDetailChange(false)
   }}>
-    {detail && detailTarget !== undefined && <button type="button" className="secondary asset-wide" onClick={() => onDetailChange?.(false)}>{detailReturnLabel}</button>}
-    {detail && onBrowse && <button type="button" className="secondary asset-wide" onClick={() => { setManagementOpen(false); onDetailChange?.(false); onBrowse() }}>返回素材列表</button>}
-    {detail && <div className="composition-source catalog-source" aria-label="素材来源详情"><h3>{detail.name}</h3><p className="asset-muted">当前查看素材来源；画布所选对象保持。</p><div className="catalog-detail-preview"><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/></div><dl className="asset-facts"><dt>用途分类</dt><dd>{CATALOG_CATEGORIES.find(value => value.id === catalogCategory(detail, catalogReadonlyTags(detail)))!.label}</dd><dt>我的素材</dt><dd>{!ready ? '尚未完成个人素材库读取' : installed.has(detail.identity.key) ? '已保存，可离线使用' : '尚未保存到个人库'}</dd><dt>个人标签／颜色</dt><dd>{!ready ? '个人素材库读取完成后显示' : detailOrganization && [...detailOrganization.tags, ...detailOrganization.colors.map(color => `${color}色`)].join(' · ') || '无'}</dd><dt>固定来源</dt><dd>{detail.originLabel}</dd><dt>目录身份</dt><dd>{detail.identity.catalogId} · v{detail.identity.fixedVersion}</dd><dt>固定 ID</dt><dd>{detail.selector.definitionId}</dd><dt>完整摘要</dt><dd className="catalog-hash">{detail.identity.contentHash}</dd><dt>物理范围</dt><dd>{detail.widthMm} × {detail.heightMm} mm</dd><dt>发布者标签</dt><dd>{detail.publisherTags.join(' · ') || '无'}（只读）</dd><dt>目录补充标签／颜色</dt><dd>{detailCuration ? [...detailCuration.tags, ...detailCuration.colors.map(color => `${color}色`)].join(' · ') : '无'}（只读、人工描述）</dd>{refinedIdentity && <><dt>精修来源</dt><dd>{refinedSource?.name ?? refinedIdentity[3]} · v{refinedIdentity[4]}；保留旧版，可分别选择</dd></>}<dt>许可引用</dt><dd>{detail.licenseRefs.join(' · ')}</dd><dt>私密性</dt><dd>{detail.visibility === 'gm' ? '私密组合；采用保留固定私密规则' : '公开固定素材'}</dd></dl>{refinedIdentity && <div className="catalog-refinement-comparison" role="group" aria-label="精修素材与旧版对照"><figure><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>精修版：{detail.name} · v{detail.identity.fixedVersion}</figcaption></figure><figure>{refinedSource ? <><CatalogThumbnail item={refinedSource} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/><figcaption>保留旧版：{refinedSource.name} · v{refinedSource.identity.fixedVersion}</figcaption></> : <><span className="catalog-comparison-missing">旧版完整来源未在当前可用目录中找到；请读取内置目录或明确安装对应旧版。</span><figcaption>{refinedIdentity[3]} · v{refinedIdentity[4]}</figcaption></>}</figure></div>}<p className="asset-muted">缩略图显示固定源图片；目录补充标签／颜色来自应用只读索引，不改发布者信息，也不写入库备份。颜色为人工描述或个人整理，场景中的层与实例覆盖可能产生不同外观。</p>{detailProject && <details><summary>完整许可与署名</summary>{[...new Set(detailProject.licenseBindings.filter(binding => detail.licenseRefs.includes(binding.licenseRef)).map(binding => binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')))].map(hash => detailProject.licenses[hash]).filter(Boolean).map(license => <pre key={license.sha256}>{license.text}</pre>)}</details>}<button disabled={!ready || busy || !!draft} onClick={() => { setManagementOpen(true); onManage?.(); setSelected([detail.identity.key]); const existing = organizationOf(snapshot, detail.identity.key); setDraft({ keys: [detail.identity.key], revision: snapshot.revision, tags: existing.tags.join('\n'), colors: [...existing.colors], favorite: existing.favorite }) }}>编辑此项个人整理</button>
-      {detailProject && <button disabled={!ready || busy || !!draft || !!review || !!imageItemEdit || organizationDisabled} onClick={() => setImageItemEdit({ key: detail.identity.key, project: detailProject, selector: detail.selector })}>编辑素材副本</button>}
+    {detail && <div className="workspace-catalog-return">
+      {detailTarget !== undefined && <button type="button" onClick={() => onDetailChange?.(false)}><ArrowLeft size={14} aria-hidden="true"/>{detailReturnLabel}</button>}
+      {onBrowse && <button type="button" onClick={() => { setManagementOpen(false); onDetailChange?.(false); onBrowse() }}>返回素材列表</button>}
+    </div>}
+    {detail && <div key={detail.identity.key} className="composition-source catalog-source" aria-label="素材来源详情">
+      <h2>{detail.name}</h2>
+      <div className="catalog-detail-preview"><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/></div>
+      <dl className="asset-facts">
+        <dt>用途分类</dt><dd>{CATALOG_CATEGORIES.find(value => value.id === catalogCategory(detail, catalogReadonlyTags(detail)))!.label}</dd>
+        <dt>物理范围</dt><dd>{detail.widthMm} × {detail.heightMm} mm</dd>
+        <dt>私密性</dt><dd>{detail.visibility === 'gm' ? '私密组合；采用保留固定私密规则' : '公开固定素材'}</dd>
+        <dt>我的素材</dt><dd>{!ready ? '尚未完成个人素材库读取' : installed.has(detail.identity.key) ? '已保存，可离线使用' : '尚未保存到个人库'}</dd>
+      </dl>
+      <div className="catalog-actions">
+        {detailProject && <button disabled={!ready || busy || !!draft || !!review || !!imageItemEdit || organizationDisabled}
+          onClick={() => setImageItemEdit({ key: detail.identity.key, project: detailProject, selector: detail.selector })}>编辑素材副本</button>}
+        <button disabled={!ready || busy || !!draft} onClick={() => {
+          const key = detail.identity.key
+          const existing = organizationOf(snapshot, key)
+          setManagementOpen(true)
+          onManage?.()
+          setSelected([key])
+          setDraft({ keys: [key], revision: snapshot.revision, tags: existing.tags.join('\n'), colors: [...existing.colors], favorite: existing.favorite })
+        }}>编辑此项个人整理</button>
+      </div>
+      {refinedIdentity && <div className="catalog-refinement-comparison" role="group" aria-label="精修素材与旧版对照">
+        <figure>
+          <CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/>
+          <figcaption>精修版 · {detail.name} · v{detail.identity.fixedVersion}</figcaption>
+        </figure>
+        <figure>{refinedSource ? <>
+          <CatalogThumbnail item={refinedSource} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/>
+          <figcaption>旧版 · {refinedSource.name} · v{refinedSource.identity.fixedVersion}</figcaption>
+        </> : <>
+          <span className="catalog-comparison-missing">可从内置目录读取或安装对应旧版以查看原图。</span>
+          <figcaption>{refinedIdentity[3]} · v{refinedIdentity[4]}</figcaption>
+        </>}</figure>
+      </div>}
+      <details className="workspace-detail-disclosure">
+        <summary>来源、版本与标签</summary>
+        <dl className="asset-facts">
+          <dt>固定来源</dt><dd>{detail.originLabel}</dd>
+          <dt>目录身份</dt><dd>{detail.identity.catalogId} · v{detail.identity.fixedVersion}</dd>
+          <dt>固定 ID</dt><dd>{detail.selector.definitionId}</dd>
+          <dt>完整摘要</dt><dd className="catalog-hash">{detail.identity.contentHash}</dd>
+          <dt>发布者标签</dt><dd>{detail.publisherTags.join(' · ') || '无'}（只读）</dd>
+          <dt>目录补充标签／颜色</dt><dd>{detailCuration ? [...detailCuration.tags, ...detailCuration.colors.map(color => `${color}色`)].join(' · ') : '无'}（只读、人工描述）</dd>
+          <dt>个人标签／颜色</dt><dd>{!ready ? '个人素材库读取完成后显示' : detailOrganization && [...detailOrganization.tags, ...detailOrganization.colors.map(color => `${color}色`)].join(' · ') || '无'}</dd>
+          {refinedIdentity && <><dt>精修来源</dt><dd>{refinedSource?.name ?? refinedIdentity[3]} · v{refinedIdentity[4]}；保留旧版，可分别选择</dd></>}
+          <dt>许可引用</dt><dd>{detail.licenseRefs.join(' · ')}</dd>
+        </dl>
+        <p className="asset-muted">缩略图显示固定源图片。目录标签与颜色为只读描述，工程中的图层和实例可有不同外观。</p>
+      </details>
+      {detailProject && <details className="workspace-detail-disclosure"><summary>完整许可与署名</summary>
+        {[...new Set(detailProject.licenseBindings.filter(binding => detail.licenseRefs.includes(binding.licenseRef))
+          .map(binding => binding.licensePath.replace(/^licenses\//, '').replace(/\.txt$/, '')))]
+          .map(hash => detailProject.licenses[hash]).filter(Boolean).map(license => <pre key={license.sha256}>{license.text}</pre>)}
+      </details>}
     </div>}
 
   </section>
 
-  return <section className="composition-library catalog-library" aria-label="组件素材库" aria-busy={busy || reading}>
+  return <section className="composition-library catalog-library workspace-catalog-browser" aria-label="组件素材库" aria-busy={busy || reading}>
     {imageItemEdit && <ImageImportItemEditor key={imageItemEdit.key} project={imageItemEdit.project} definitionId={imageItemEdit.selector.definitionId} kind={imageItemEdit.selector.kind} disabled={organizationDisabled} onSave={saveImageItem} onCancel={() => setImageItemEdit(null)} onEditMember={selector => setImageItemEdit(value => value ? { ...value, key: `${selector.kind}-${selector.definitionId}`, selector } : null)} onPendingChange={active => { controller.current = active; setBusy(active !== null); pendingCallback.current?.(active !== null) }}/>}
-    <div className="asset-section-heading"><Layers3 size={16}/><h2>素材库</h2><span>{scope === 'mine' && !ready ? '待读取' : sourceItems.length}</span></div>
-    <div className="catalog-actions" role="group" aria-label="素材库操作"><button type="button" aria-pressed={!managementOpen} onClick={() => setManagementOpen(false)}>浏览素材</button><button type="button" aria-expanded={managementOpen} aria-controls={managementId} onClick={() => setManagementOpen(value => !value)}>导入/管理{selected.length ? ` · 已选 ${selected.length}` : ''}</button></div>
+    <div className="catalog-actions workspace-catalog-tabs" role="group" aria-label="素材库操作"><button type="button" aria-pressed={!managementOpen} onClick={() => setManagementOpen(false)}>浏览素材</button><button type="button" aria-expanded={managementOpen} aria-controls={managementId} onClick={() => setManagementOpen(value => !value)}>导入/管理{selected.length ? ` · 已选 ${selected.length}` : ''}</button></div>
     {reading ? <p className="asset-muted catalog-explanation" role="status">正在读取个人素材库；安装与整理操作将在读取完成后可用。</p> : readError && <div className="catalog-read-feedback" role="alert">
       <strong>个人素材库读取失败</strong>
       <p>{ready ? '以下保留上次读取的内容，尚未确认最新版本。' : '个人素材列表尚未完成读取，不能据此判断素材是否为空。'}已有素材与整理草稿保留，请重新读取后继续。</p>
@@ -315,16 +379,17 @@ export default function CatalogLibrary({
       <button className="secondary" disabled={busy || reading} onClick={refresh}><RefreshCw size={12}/>重新读取个人素材库</button>
     </div>}
     <div hidden={managementOpen} inert={managementOpen}>
-    <label className="composition-search"><Search size={14}/><input type="search" aria-label="搜索组件素材" placeholder="搜索树木、桌椅、石块…" value={filter.query} onChange={event => updateFilter('query', event.target.value)}/></label>
-    <div className="catalog-categories" role="group" aria-label="素材用途分类"><button type="button" aria-pressed={category === 'all'} onClick={() => setCategory('all')}>全部</button>{CATALOG_CATEGORIES.map(value => <button type="button" key={value.id} aria-pressed={category === value.id} onClick={() => setCategory(value.id)}>{value.label}</button>)}</div>
+    <label className="composition-search"><Search size={14}/><input ref={searchInput} type="search" aria-label="搜索组件素材" placeholder="搜索树木、桌椅、石块…" value={filter.query} onChange={event => updateFilter('query', event.target.value)}/></label>
+    {shortcuts}
     <label className="catalog-source-filter">素材来源<select aria-label="素材来源" value={scope} onChange={event => { const value = event.target.value as Scope; setScope(value); if (value === 'builtin') onBuiltinDemand?.(); if (value === 'variants') onVariantsDemand?.() }}><option value="project">本工程</option><option value="builtin">内置素材</option><option value="variants">地形素材包</option><option value="mine">我的素材</option></select></label>
-    <p className="asset-muted catalog-explanation">{scope === 'project' ? '放置到画布 · 材质应用于所选表面' : onUse ? '添加并预览，确认后继续放置或应用。' : '勾选素材，预览添加到本工程。'}</p>
+    <div className="catalog-categories" role="group" aria-label="素材用途分类"><button type="button" aria-pressed={category === 'all'} onClick={() => setCategory('all')}>全部</button>{CATALOG_CATEGORIES.map(value => <button type="button" key={value.id} aria-pressed={category === value.id} onClick={() => setCategory(value.id)}>{value.label}</button>)}</div>
+    {scope !== 'project' && <p className="asset-muted catalog-explanation">{onUse ? '确认添加后即可放置或应用。' : '勾选素材，预览添加到本工程。'}</p>}
     {scope === 'builtin' && builtinLoading && <p role="status">正在读取内置素材的实际资源…</p>}
     {scope === 'builtin' && builtinError && <div><p role="alert" className="asset-form-error">内置素材缺失或读取失败：{builtinError}</p><button className="secondary" disabled={builtinLoading} onClick={onBuiltinDemand}>重试内置素材</button></div>}
     {scope === 'variants' && variantsLoading && <p role="status">正在读取地形变体的实际资源…</p>}
     {scope === 'variants' && variantsError && <div><p role="alert" className="asset-form-error">地形变体缺失或读取失败：{variantsError}</p><button className="secondary" disabled={variantsLoading} onClick={onVariantsDemand}>重试地形变体</button></div>}
-    <details className="catalog-filters"><summary title="类型、标签、颜色与收藏筛选"><span>详细筛选</span><span className="catalog-count">{scope === 'mine' && !ready ? '待读取' : `${found.length} 项匹配`}</span></summary>
-      <div className="asset-library-tabs" role="group" aria-label="素材类型"><button aria-pressed={!filter.kinds.length} onClick={() => updateFilter('kinds', [])}>全部类型</button>{(['prop', 'material', 'prefab'] as const).map(kind => <button key={kind} aria-pressed={filter.kinds.includes(kind)} onClick={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}>{KIND_LABELS[kind]}</button>)}</div>
+    <div className="asset-library-tabs" role="group" aria-label="素材类型"><button aria-pressed={!filter.kinds.length} onClick={() => updateFilter('kinds', [])}>全部类型</button>{(['prop', 'prefab', 'material'] as const).map(kind => <button key={kind} aria-pressed={filter.kinds.includes(kind)} onClick={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}>{KIND_LABELS[kind]}</button>)}</div>
+    <details className="catalog-filters"><summary title="标签、颜色与收藏筛选"><span>详细筛选</span><span className="catalog-count">{scope === 'mine' && !ready ? '待读取' : `${found.length} 项匹配`}</span></summary>
       <fieldset><legend>只读标签（发布者＋目录补充，任一）</legend><div className="catalog-filter-options">{publisherTags.length ? publisherTags.map(tag => <label key={tag}><input type="checkbox" checked={filter.publisherTags.includes(tag)} onChange={() => updateFilter('publisherTags', toggleValue(filter.publisherTags, tag))}/>{tag}</label>) : <span className="asset-muted">此范围没有只读标签</span>}</div></fieldset>
       <fieldset><legend>个人标签</legend><label className="catalog-inline">匹配<select aria-label="个人标签匹配方式" value={filter.tagMatch} onChange={event => updateFilter('tagMatch', event.target.value as 'all' | 'any')}><option value="all">全部所选标签</option><option value="any">任一所选标签</option></select></label><div className="catalog-filter-options">{personalTags.length ? personalTags.map(tag => <label key={normalizeCatalogText(tag)}><input type="checkbox" checked={filter.tags.includes(tag)} onChange={() => updateFilter('tags', toggleValue(filter.tags, tag))}/>{tag}</label>) : <span className="asset-muted">{ready ? '尚未保存个人标签' : '个人素材库读取完成后显示标签'}</span>}</div></fieldset>
       <fieldset><legend>颜色（个人＋目录人工标记，任一）</legend><div className="catalog-colors">{CATALOG_COLORS_V1.map(color => <ColorButton key={color} color={color} selected={filter.colors.includes(color)} onClick={() => updateFilter('colors', toggleValue(filter.colors, color))}/>)}</div></fieldset>
@@ -343,9 +408,13 @@ export default function CatalogLibrary({
     {selected.length > 0 && <div className="catalog-selection-count"><span>已选{selected.length}项</span><button onClick={() => setSelected([])} disabled={busy}>清空选择</button></div>}
     <div className="catalog-entries">{found.slice(0, limit).map(item => {
       const key = item.identity.key, organization = organizationOf(snapshot, key), inProject = currentKeys.has(key)
-      return <article key={key} data-definition-id={item.selector.definitionId} className={detailKey === key ? 'selected' : ''}>
+      const showingDetail = detailKey === key && detailVisible
+      return <article key={key} data-definition-id={item.selector.definitionId} className={showingDetail ? 'selected' : ''}>
         <label className="catalog-select"><input type="checkbox" aria-label={`选择素材 ${item.name}`} checked={selected.includes(key)} disabled={busy} onChange={() => toggleSelection(key)}/></label>
-        <button className="catalog-item-main" aria-label={`查看素材 ${item.name}`} onClick={() => { const open = detailKey !== key || !detailVisible; setDetailKey(open ? key : null); onDetailChange?.(open) }}>
+        <button className="catalog-item-main" aria-label={`查看素材 ${item.name}`} aria-pressed={showingDetail} onClick={() => {
+          setDetailKey(showingDetail ? null : key)
+          onDetailChange?.(!showingDetail)
+        }}>
           <CatalogThumbnail item={item} loadProject={loadProject} onThumbnailState={updateThumbnailState}/><span className="catalog-item-copy"><strong>{item.name}{organization.favorite && <Heart size={12} aria-label="已收藏" fill="currentColor"/>}</strong><small>{KIND_LABELS[item.identity.kind]} · {catalogSizeLabel(item.widthMm, item.heightMm)}</small>{missingThumbnails.has(key) && <small className="catalog-item-warning">缩略图不可用 · 查看详情</small>}{item.visibility === 'gm' && <small>仅主持人可见</small>}</span>
         </button>
         {inProject && <button className="catalog-place" disabled={disabled || busy} aria-label={`${item.identity.kind === 'material' ? '应用材质' : '放置组件'} ${item.name}`} onClick={() => item.identity.kind === 'prop' ? onPlace(item.selector.definitionId) : item.identity.kind === 'material' ? onMaterial(item.selector.definitionId) : onPrefab(item.selector.definitionId)}><Plus size={14}/>{item.identity.kind === 'material' ? '应用' : '放置'}</button>}

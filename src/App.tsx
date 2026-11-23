@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import WorkspaceHome from './editor/main-shell/WorkspaceHome'
+import { isHomeSectionHash } from './editor/main-shell/location'
 import type { WorkspaceController, WorkspaceRequest, WorkspaceSessionSummary } from './editor/main-shell/session'
 import { fromVerifiedBundle } from './application/workspace/project'
 import { validateProjectSnapshot } from './shared/project/resources'
@@ -18,7 +19,10 @@ const currentPage = (): Page => {
   if (isTutorialHash(hash)) return 'tutorial'
   return hash === '#workspace' ? 'workspace' : 'home'
 }
-const pageHash = (page: Page) => page === 'tutorial' && isTutorialHash(window.location.hash) ? window.location.hash : `#${page}`
+const pageHash = (page: Page) => {
+  const hash = window.location.hash
+  return (page === 'tutorial' && isTutorialHash(hash) || page === 'home' && isHomeSectionHash(hash)) ? hash : `#${page}`
+}
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 export default function App() {
@@ -142,7 +146,7 @@ export default function App() {
     <div className="native-app-content" inert={busy}>
       {notice && <div className="workspace-notice" role="status"><span>{notice}</span><button className="secondary small" onClick={() => setNotice(null)}>关闭提示</button></div>}
       <div hidden={route !== 'home'}>{route === 'home' && <WorkspaceHome session={session} onContinue={() => setPage('workspace')} onRequest={request} disabled={busy} developmentTools={developmentTools}/>}</div>
-      {route === 'tutorial' && <Suspense fallback={<p role="status">正在打开使用教程…</p>}><TutorialPage/></Suspense>}
+      {route === 'tutorial' && <Suspense fallback={<p role="status">正在打开使用教程…</p>}><TutorialPage onOpenSample={sample => request({ type: 'showcase', sample })}/></Suspense>}
       {mounted && <div hidden={route !== 'workspace'}><Suspense fallback={<p role="status">正在打开统一工作区…</p>}><Workbench active={route === 'workspace'} onBack={() => void home()} onController={register} onSession={setSession} onImportFile={handleFile}/></Suspense></div>}
     </div>
     <input ref={projectFile} data-testid="native-project-file" type="file" hidden accept=".sceneweave" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) handleFile(file) }}/>

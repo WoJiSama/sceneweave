@@ -22,8 +22,6 @@
 .workspace-layout-actions[data-compact=true] .workspace-layout-storage { position: absolute; top: calc(100% + 4px); right: 12px; padding: 4px 8px; background: #fff9e9; border: 1px solid #d8c7a3; z-index: 32; }
 .workspace-unified .asset-notice:not(.workspace-save-recovery) { min-height: 32px; padding: 5px 12px; font-size: 12px; line-height: 1.5; gap: 8px; }
 .workspace-unified .asset-notice > button { flex: none; min-width: 28px; min-height: 28px; }
-.workspace-unified .workspace-panel-header { height: 32px; min-height: 32px; padding: 0 10px; }
-.workspace-unified .workspace-panel-header h2 { letter-spacing: 0; font-size: 12px; }
 .workspace-unified .workspace-canvas-tools { min-height: 36px; padding: 3px 7px; }
 .workspace-unified .workspace-canvas-tools > button, .workspace-unified .workspace-canvas-tools .asset-external-tool-controls button { min-height: 28px; padding: 4px 6px; }
 .workspace-unified .asset-view-bar { min-height: 34px; padding: 4px 10px; }
@@ -90,8 +88,6 @@
 .workspace-unified .workspace-panel-body .workspace-detail-disclosure > summary { cursor: pointer; color: #4c6545; font-weight: 500; line-height: 1.5; }
 .workspace-unified .workspace-panel-body .workspace-detail-disclosure[open] > summary { margin-bottom: 8px; }
 .workspace-unified .workspace-panel-body .workspace-detail-disclosure .asset-muted { margin: 6px 0; }
-.workspace-unified .workspace-panel-body .workspace-object-title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.workspace-unified .workspace-panel-body .workspace-object-title h3 { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .workspace-unified .workspace-panel-body .workspace-object-lock { display: inline-flex; align-items: center; flex: none; gap: 4px; min-height: 28px; padding: 4px 7px; }
 .workspace-unified .workspace-panel-body .asset-inspector .asset-number { margin: 8px 0; }
 .workspace-unified .workspace-panel-body .asset-inspector .asset-facts { margin: 12px 0; padding: 8px 0; gap: 6px 10px; }
@@ -206,7 +202,6 @@
   }
   .workspace-unified .workspace-panel-body .asset-number > div > input { min-height: 36px; padding: 8px; }
   .workspace-unified .workspace-module-group > button { min-height: 54px; }
-  .workspace-unified .workspace-panel-header { height: 38px; min-height: 38px; }
   .workspace-unified .workspace-panel-header > button { min-height: 32px; min-width: 32px; }
   .workspace-unified .workspace-panel-body .user-layer-primary > button:not(.layer-current) { min-width: 32px; min-height: 32px; height: 32px; }
   .workspace-unified .workspace-panel-body :is(.visual-panel .visual-tabs button, .catalog-categories button, .asset-library-tabs button) { min-height: 34px; }

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ArrowRight, BookOpen, Download, FileUp, FolderOpen, HardDrive, ImagePlus, Layers3, Map as MapIcon, PencilLine, Plus, RefreshCw, Search } from 'lucide-react'
-import { tutorialHash } from '../../tutorial/location'
+import { tutorialHash, tutorialHref } from '../../tutorial/location'
 import { projectRepository } from '../../platform/browser/runtime'
 import type { ProjectDirectoryEntry, ProjectDirectoryCursor } from '../../application/ports/project-directory'
 import type { WorkspaceRequest, WorkspaceSessionSummary } from './session'
 import showcaseManifest from '../../platform/browser/content/home-showcase-manifest.json'
-import SampleShowcase from './SampleShowcase'
+import SampleShowcase, { obliqueImage, sceneImage } from './SampleShowcase'
+import { HomeArtStyleDemo, HomeObliqueDemo } from './HomeDemos'
+import { homeSections, isHomeSectionHash } from './location'
 import '../workspace/home.css'
 import './home-ux.css'
 
@@ -23,6 +25,18 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
   const searchInput = useRef<HTMLInputElement>(null)
   const clearSearch = () => { setQuery(''); searchInput.current?.focus() }
   const [loading, setLoading] = useState(true), [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    const showSection = () => {
+      const hash = window.location.hash
+      if (!isHomeSectionHash(hash)) return
+      const heading = document.getElementById(hash.slice(1))
+      heading?.focus({ preventScroll: true })
+      heading?.scrollIntoView({ block: 'start' })
+    }
+    showSection()
+    window.addEventListener('hashchange', showSection)
+    return () => window.removeEventListener('hashchange', showSection)
+  }, [])
   useEffect(() => { const ticket = ++directoryRequest.current; setLoading(true); setNext(null)
     void projectRepository.projectDirectory({ query, limit: 50 }).then(value => {
       if (ticket === directoryRequest.current) { setEntries(value.entries); setNext(value.next); setTotal(value.total); setError(null) }
@@ -45,7 +59,7 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
   const titleCounts = new Map<string, number>()
   for (const entry of entries) if (entry.summary) titleCounts.set(entry.summary.title, (titleCounts.get(entry.summary.title) ?? 0) + 1)
   const sessionStatus: Record<string, string> = { saved: '已保存到此浏览器', saving: '正在保存到此浏览器', unsaved: '等待保存到此浏览器', error: '保存失败，请返回处理', conflict: '版本冲突，请返回处理' }
-  return <div className="workspace-home" data-testid="workspace-home">
+  return <div id="home" className="workspace-home" data-testid="workspace-home">
     <header className="home-header">
       <a href="#home" className="home-brand" aria-label="织境首页"><Layers3 size={28} aria-hidden="true"/><span>织境 <small>Sceneweave</small></span></a>
       <div className="home-header-actions">
@@ -56,8 +70,8 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
     <main className="home-content">
       <section className="home-entry" aria-labelledby="home-title">
         <div className="home-entry-copy">
-          <h1 id="home-title">为跑团准备可编辑地图</h1>
-          <p className="home-entry-lead">从一间房、一处营地或一段海岸开始。</p>
+          <h1 id="home-title">在浏览器里画跑团地图</h1>
+          <p className="home-entry-lead">在正俯视画布上画房间、铺道路、摆家具。切到 3D 斜俯视，转到喜欢的角度出图。</p>
           {session ? <section className="home-current" aria-label="当前编辑会话">
             <div>
               <p className="home-current-label">当前编辑会话</p>
@@ -65,34 +79,46 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
               <p className="home-current-status">r{session.revision} · {sessionStatus[session.status] ?? session.status}</p>
             </div>
             <button type="button" className="primary home-main-action" disabled={disabled} onClick={onContinue}>继续编辑<ArrowRight size={17} aria-hidden="true"/></button>
-          </section> : <button type="button" className="primary home-main-action" disabled={disabled} onClick={() => onRequest({ type: 'generate' })}>
-            生成地图<ArrowRight size={17} aria-hidden="true"/>
-          </button>}
+          </section> : <div className="home-start-actions">
+            <a className="home-sample-link" href={`#${homeSections.samples}`}><Layers3 size={17} aria-hidden="true"/>从样板开始<ArrowRight size={17} aria-hidden="true"/></a>
+            <button type="button" className="primary home-main-action" disabled={disabled} onClick={() => onRequest({ type: 'new' })}><PencilLine size={17} aria-hidden="true"/>新建场景</button>
+          </div>}
           <div className="home-other-actions" role="group" aria-label="其他起步方式">
-            {session && <button type="button" disabled={disabled} onClick={() => onRequest({ type: 'generate' })}><MapIcon size={16} aria-hidden="true"/>生成地图</button>}
-            <button type="button" disabled={disabled} onClick={() => onRequest({ type: 'new' })}><Plus size={16} aria-hidden="true"/>新建场景</button>
-            <button type="button" disabled={disabled} onClick={() => onRequest({ type: 'import' })}><FileUp size={16} aria-hidden="true"/>打开工程文件</button>
+            {session && <button type="button" disabled={disabled} onClick={() => onRequest({ type: 'new' })}><Plus size={16} aria-hidden="true"/>新建场景</button>}
+            {session && <a href={`#${homeSections.samples}`}><Layers3 size={16} aria-hidden="true"/>从样板开始</a>}
             <button type="button" disabled={disabled} onClick={() => onRequest({ type: 'image-import' })}><ImagePlus size={16} aria-hidden="true"/>从图片新建场景</button>
+            <button type="button" disabled={disabled} title="按尺寸和用途生成，可在本机完成" onClick={() => onRequest({ type: 'generate' })}><MapIcon size={16} aria-hidden="true"/>生成地图</button>
+            <button type="button" disabled={disabled} onClick={() => onRequest({ type: 'import' })}><FileUp size={16} aria-hidden="true"/>打开工程文件</button>
           </div>
+          <nav className="home-entry-links" aria-label="首页快捷入口">
+            <a href={`#${homeSections.artStyle}`}>试画风</a>
+            <a href={`#${homeSections.oblique}`}>试 3D 取景</a>
+            <a href={`#${homeSections.projects}`}>最近工程</a>
+          </nav>
         </div>
         <figure className="home-scene-preview">
-          <img src={`${import.meta.env.BASE_URL}assets/home-scenes/${scenePreview.file}`} width={scenePreview.width} height={scenePreview.height} alt="溪流旁带小屋、营地和步道的俯视地图"/>
-          <figcaption>{scenePreview.name} · 可编辑样板</figcaption>
+          <div className="home-featured-views">
+            <div><img src={sceneImage('wilderness')} width={scenePreview.width} height={scenePreview.height} alt="溪流旁的小屋、树木和木桥"/><span>正俯视</span></div>
+            <div><img src={obliqueImage(scenePreview.oblique)} width={scenePreview.oblique.width} height={scenePreview.oblique.height} alt="溪岸小屋、树冠和木桥的侧面"/><span>3D 斜俯视</span></div>
+          </div>
+          <figcaption>{scenePreview.name}</figcaption>
         </figure>
       </section>
+      <HomeArtStyleDemo disabled={disabled} onOpen={() => onRequest({ type: 'showcase', sample: 'fantasy' })}/>
+      <HomeObliqueDemo disabled={disabled} onOpen={() => onRequest({ type: 'showcase', sample: 'wilderness' })}/>
+      <SampleShowcase onRequest={onRequest} disabled={disabled}/>
       <ol className="home-steps" role="list" aria-label="备团步骤">
-        <li><MapIcon size={19} aria-hidden="true"/><div><h2>生成地图</h2><p>在「生成」中选择场景类型，预览后采用。</p></div></li>
-        <li><PencilLine size={19} aria-hidden="true"/><div><h2>局部修改</h2><p>在画布上选择要调整的对象，修改房间、地形或摆设。</p></div></li>
-        <li><Download size={19} aria-hidden="true"/><section aria-labelledby="home-delivery-title"><h2 id="home-delivery-title">保存与交付</h2><p>在顶栏「导出」下载玩家地图 PNG 和可编辑的 .sceneweave 工程。</p></section></li>
+        <li><PencilLine size={19} aria-hidden="true"/><div><h2><a href={tutorialHref('first-map', 'rooms')}>画出布局</a></h2><p>用「房间」点两个对角，或用「地形」画出地面和道路。</p></div></li>
+        <li><Layers3 size={19} aria-hidden="true"/><div><h2><a href={tutorialHref('first-map', 'furnish')}>布置场景</a></h2><p>选中房间接建隔壁一间、开门窗，或挑选家具摆到图上。</p></div></li>
+        <li><Download size={19} aria-hidden="true"/><section aria-labelledby="home-delivery-title"><h2 id="home-delivery-title"><a href={tutorialHref('delivery', 'png')}>保存与交付</a></h2><p>在顶栏「导出」下载玩家地图 PNG 和可编辑的 .sceneweave 工程。</p></section></li>
       </ol>
-      <section className="home-projects"><div className="home-section-heading"><h2>最近工程</h2><div className="home-list-tools"><label><Search size={16}/><input ref={searchInput} aria-label="搜索最近工程" placeholder="名称或 ID" value={query} onChange={event => setQuery(event.target.value)}/></label>{query && <button className="secondary" onClick={clearSearch}>清空搜索</button>}<button className="secondary" aria-label="刷新工程列表" disabled={loading || disabled} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={15}/>刷新</button></div></div><p className="home-project-note">当前完整工程仓库。打开工程时会检查完整内容；目录中的未读取内容尚未检查。</p>
+      <section className="home-projects"><div className="home-section-heading"><h2 id={homeSections.projects} tabIndex={-1}>最近工程</h2><div className="home-list-tools"><label><Search size={16}/><input ref={searchInput} aria-label="搜索最近工程" placeholder="名称或 ID" value={query} onChange={event => setQuery(event.target.value)}/></label>{query && <button className="secondary" onClick={clearSearch}>清空搜索</button>}<button className="secondary" aria-label="刷新工程列表" disabled={loading || disabled} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={15}/>刷新</button></div></div><p className="home-project-note">当前完整工程仓库。打开工程时会检查完整内容；目录中的未读取内容尚未检查。</p>
         {loading && <p role="status">正在读取本地工程列表…{entries.length > 0 && '下方暂时显示上次结果。'}</p>}{error && <p role="alert" className="home-diagnostic">工程列表读取失败：{error}。请点击刷新重试。{entries.length > 0 && '下方保留上次结果。'}</p>}
         {!loading && !error && <p className="home-project-note" role="status">{search ? `匹配或待检查 ${total} 个工程，已显示 ${entries.length} 个` : `共 ${total} 个工程，已显示 ${entries.length} 个，按最近保存排序`}</p>}
         {!loading && !error && !filtered.length && <div className="home-empty"><FolderOpen size={25}/><p>{search ? '没有匹配的工程' : '此浏览器还没有工程'}</p>{search && <button className="secondary" onClick={clearSearch}>清空工程搜索</button>}</div>}
         <div className="home-project-list">{filtered.map(value => { const entry = value.summary; return entry ? <article className="home-project-row" key={entry.sceneId} data-project-key={`native:${entry.sceneId}`}><span className="home-file-icon"><Layers3 size={21}/></span><div className="home-project-info"><h3>{entry.title}</h3><p>完整工程 · r{entry.revision} · {new Date(entry.savedAt).toLocaleString('zh-CN')}</p><span className="home-project-identity">{session?.sceneId === entry.sceneId ? '当前会话 · ' : ''}{(titleCounts.get(entry.title) ?? 0) > 1 ? '同名工程 · ' : ''}标识 {entry.sceneId.slice(0, 8)}</span><details className="home-project-id"><summary>完整工程 ID</summary><small>{entry.sceneId}</small></details></div><button className="secondary" title={`${session?.sceneId === entry.sceneId ? '继续编辑' : '打开'}：${entry.title} · ${entry.sceneId.slice(0, 8)}`} disabled={disabled} onClick={() => session?.sceneId === entry.sceneId ? onContinue() : onRequest({ type: 'open', sceneId: entry.sceneId })}>{session?.sceneId === entry.sceneId ? '继续编辑' : '打开'}<ArrowRight size={15}/></button></article> : <article className="home-project-row" key={value.sceneId} data-project-key={`native:${value.sceneId}`}><div className="home-project-info"><h3>工程目录不可读</h3><p role="alert">{value.issue}</p><small>工程 ID：{value.sceneId}</small><p>此记录仍保留，请从备份恢复或检查原数据。</p></div>{session?.sceneId === value.sceneId && <button className="secondary" disabled={disabled} onClick={onContinue}>继续当前编辑</button>}</article> })}</div>
         {next && <button className="secondary" disabled={loading || disabled} onClick={loadMore}>加载更多工程</button>}
       </section>
-      <SampleShowcase onRequest={onRequest} disabled={disabled}/>
       {developmentTools}
       <footer className="home-footer">
         <h2>本地保存与备份</h2>

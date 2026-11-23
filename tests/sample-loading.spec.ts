@@ -1,6 +1,7 @@
 import { acknowledgeAssetQuality } from './asset-quality-helpers'
 import { openSceneSettings, openWorkspaceModule } from './workspace-navigation-helpers'
 import { expect, test, type Page } from '@playwright/test'
+import type { MountedWorkspace } from './home-showcase-helpers'
 
 // Targeted loading/cancellation checks; timings here do not certify the deferred performance matrix.
 const home = (page: Page) => page.getByTestId('workspace-home')
@@ -14,15 +15,13 @@ test.afterEach(({ page }) => { expect(pageErrors.get(page)).toEqual([]) })
 
 async function current(page: Page) {
   return page.evaluate(async () => {
-    const workspacePath = '/src/editor/main/Workbench.tsx', runtimePath = '/src/platform/browser/runtime.ts'
-    const { nativeWorkspace } = await import(workspacePath) as typeof import('../src/editor/main/Workbench')
-    const { projectRepository } = await import(runtimePath) as typeof import('../src/platform/browser/runtime')
-    const state = nativeWorkspace.getState(), project = state.project
+    const { workspace, repository } = Reflect.get(window, '__sceneweaveOutdoorDev') as MountedWorkspace
+    const state = workspace.getState(), project = state.project
     if (!project) throw new Error('Expected the actual native workspace project.')
     return { document: structuredClone(project.document), identity: structuredClone(project.historyIdentity),
       appearance: structuredClone(project.appearance), assetCount: Object.keys(project.assets).length,
-      status: state.status, canUndo: state.canUndo, canRedo: state.canRedo, checkpoint: nativeWorkspace.checkpoint(),
-      sceneIds: (await projectRepository.list()).map(value => value.sceneId).sort() }
+      status: state.status, canUndo: state.canUndo, canRedo: state.canRedo, checkpoint: workspace.checkpoint(),
+      sceneIds: (await repository.list()).map(value => value.sceneId).sort() }
   })
 }
 
@@ -31,10 +30,9 @@ async function settled(page: Page) {
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30_000 })
   await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 30_000 })
   await expect(page.locator('.asset-map-wrap')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
-  await expect.poll(() => page.evaluate(async () => {
-    const workspacePath = '/src/editor/main/Workbench.tsx'
-    const { nativeWorkspace } = await import(workspacePath) as typeof import('../src/editor/main/Workbench')
-    return nativeWorkspace.getState().status
+  await expect.poll(() => page.evaluate(() => {
+    const { workspace } = Reflect.get(window, '__sceneweaveOutdoorDev') as MountedWorkspace
+    return workspace.getState().status
   }), { timeout: 30_000 }).toBe('saved')
 }
 
@@ -67,7 +65,7 @@ test('sample loading shows preparation before blocked archive bytes and cancels 
 
   let heldUrl = '', release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
-  const pattern = '**/assets/home-scenes/projects/investigation.sceneweave'
+  const pattern = (url: URL) => url.pathname.endsWith('/assets/home-scenes/projects/ruins.sceneweave')
   await page.route(pattern, async route => {
     if (heldUrl) { await route.continue(); return }
     heldUrl = route.request().url()
@@ -77,7 +75,7 @@ test('sample loading shows preparation before blocked archive bytes and cancels 
     await route.fulfill({ response }).catch(() => {})
   })
   try {
-    await home(page).getByRole('button', { name: '雨夜旧宅调查所', exact: true }).click()
+    await home(page).getByRole('button', { name: '旧墓库', exact: true }).click()
     const preparation = page.getByRole('dialog', { name: '准备打开工程', exact: true })
     await expect(preparation).toBeVisible()
     await expect(preparation.getByLabel('工程准备进度', { exact: true })).toBeVisible()
@@ -96,7 +94,7 @@ test('sample loading shows preparation before blocked archive bytes and cancels 
   }
 
   await page.getByRole('button', { name: '回到首页', exact: true }).click()
-  await home(page).getByRole('button', { name: '雨夜旧宅调查所', exact: true }).click()
+  await home(page).getByRole('button', { name: '旧墓库', exact: true }).click()
   const candidate = page.getByRole('dialog', { name: '确认打开工程', exact: true })
   await expect(candidate).toBeVisible({ timeout: 30_000 })
   expect(await current(page)).toEqual(before)

@@ -5,22 +5,16 @@ import { expect, test, type Page } from '@playwright/test'
 import { createServer } from 'vite'
 import type { ProjectData } from '../src/shared/model/project'
 import { keyboardProjectBackup, keyboardWorkspaceSaved, selectKeyboardProp } from './keyboard-ux-helpers'
+import { archiveUrl, featuredSampleIds, importSampleFile, showcaseManifest as manifest } from './home-showcase-helpers'
 
-const ids = ['investigation', 'modern', 'fantasy', 'ruins', 'wilderness', 'coast', 'island', 'volcano', 'cyberpunk'] as const
-type SampleId = typeof ids[number]
-const manifest = JSON.parse(await readFile(new URL('../src/platform/browser/content/home-showcase-manifest.json', import.meta.url), 'utf8')) as {
-  entries: Record<SampleId, { name: string; title: string; archiveFile: string; archiveSha256: string; archiveBytes: number; props: number; width: number; fullWidth: number;
-    oblique: { width: number; fullWidth: number } }>
-}
 const home = (page: Page) => page.getByTestId('workspace-home')
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
-const archiveUrl = (id: SampleId) => new URL('../public/assets/home-scenes/projects/' + manifest.entries[id].archiveFile, import.meta.url)
 function unpack(bytes: Uint8Array) {
   const files = unzipSync(bytes)
   const json = <T>(name: string) => JSON.parse(new TextDecoder().decode(files[name])) as T
   return { files, json, hashes: Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, hash(bytes)])) }
 }
-async function requestCopy(page: Page, id: SampleId, fromDetails = false) {
+async function requestCopy(page: Page, id: typeof featuredSampleIds[number], fromDetails = false) {
   const card = home(page).locator(`[data-sample="${id}"]`), { name, title, props } = manifest.entries[id]
   if (fromDetails) {
     await card.getByRole('button', { name: name + '场景详情', exact: true }).click()
@@ -46,14 +40,30 @@ function tokens(identity: ProjectData['historyIdentity']): string[] {
       typeof value === 'string' ? [value] : [value.token, ...(value.topologyToken ? [value.topologyToken] : [])]))
 }
 
-test('production home prepares all complete candidates without storing on browse or cancellation', async ({ page }, info) => {
+test('production home prepares featured complete candidates without storing on browse or cancellation', async ({ page }, info) => {
   test.setTimeout(240_000)
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   await page.goto('./#home'); await expect(home(page)).toBeVisible()
-  await expect(home(page).locator('article[data-sample]')).toHaveCount(ids.length)
+  const cards = home(page).locator('article[data-sample]')
+  await expect(cards.locator('h3')).toHaveText(featuredSampleIds.map(id => manifest.entries[id].name))
+  const gridPositions = () => cards.evaluateAll(elements => elements.map(element => {
+    const { left, top } = element.getBoundingClientRect()
+    return { left, top }
+  }))
+  const desktop = await gridPositions()
+  expect(new Set(desktop.map(card => card.left)).size).toBe(2)
+  expect(new Set(desktop.map(card => card.top)).size).toBe(2)
   await expect(home(page)).toContainText('共 0 个工程')
-  await page.screenshot({ path: info.outputPath('home-desktop.png'), fullPage: true })
-  for (const id of ids) {
+  const captureGallery = async (filename: string) => {
+    const images = cards.getByRole('img')
+    for (const image of await images.all()) {
+      await image.scrollIntoViewIfNeeded()
+      await image.evaluate((element: HTMLImageElement) => element.decode())
+    }
+    await page.screenshot({ path: info.outputPath(filename), fullPage: true })
+  }
+  await captureGallery('home-desktop.png')
+  for (const id of featuredSampleIds) {
     const entry = manifest.entries[id]
     const card = home(page).locator(`[data-sample="${id}"]`)
     await card.scrollIntoViewIfNeeded()
@@ -75,35 +85,54 @@ test('production home prepares all complete candidates without storing on browse
     await expect(home(page).locator('[data-project-key]')).toHaveCount(0)
   }
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.screenshot({ path: info.outputPath('home-390.png'), fullPage: true })
+  const narrow = await gridPositions()
+  expect(new Set(narrow.map(card => card.left)).size).toBe(1)
+  expect(new Set(narrow.map(card => card.top)).size).toBe(4)
+  await captureGallery('home-390.png')
   expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(1)
   expect(errors).toEqual([])
 })
 
-for (const id of ['investigation', 'fantasy', 'coast', 'volcano', 'cyberpunk'] as const) test(`production ${id} copy retains complete source and creates fresh identities through cold reopen`, async ({ page }, info) => {
+for (const id of [...featuredSampleIds, 'coast', 'cyberpunk'] as const) test(`production ${id} retains the complete scene through cold reopen`, async ({ page }, info) => {
   test.setTimeout(240_000)
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
   const sourceBytes = new Uint8Array(await readFile(archiveUrl(id))), source = unpack(sourceBytes), entry = manifest.entries[id]
   expect(hash(sourceBytes)).toBe(entry.archiveSha256); expect(sourceBytes.byteLength).toBe(entry.archiveBytes)
   const sourceDocument = source.json<ProjectData['document']>('scene.json'), sourceIdentity = source.json<ProjectData['historyIdentity']>('identity.json')
   await page.goto('./#home'); await expect(home(page)).toBeVisible()
-  const candidate = await requestCopy(page, id, id === 'cyberpunk')
-  await expect(home(page).locator('[data-project-key]')).toHaveCount(0)
-  await candidate.getByRole('button', { name: '保存并打开副本', exact: true }).click()
-  await expect(candidate).toHaveCount(0, { timeout: 30_000 })
+  const fromFile = id === 'cyberpunk'
+  if (fromFile) {
+    await importSampleFile(page, id)
+  } else {
+    if (id === 'coast') {
+      await page.goto('./#tutorial/atmosphere/line-art')
+      await page.getByRole('button', { name: entry.name, exact: true }).click()
+    } else {
+      await requestCopy(page, id, id === 'volcano')
+    }
+    const candidate = page.getByRole('dialog', { name: '确认打开工程', exact: true })
+    await expect(candidate).toContainText(entry.title, { timeout: 30_000 })
+    await expect(home(page).locator('[data-project-key]')).toHaveCount(0)
+    await candidate.getByRole('button', { name: '保存并打开副本', exact: true }).click()
+    await expect(candidate).toHaveCount(0, { timeout: 30_000 })
+  }
   await keyboardWorkspaceSaved(page)
   const beforePath = info.outputPath(`${id}-copy.sceneweave`)
   const before = await keyboardProjectBackup(page, beforePath), complete = unpack(new Uint8Array(await readFile(beforePath)))
   expect(before.document.sceneId).not.toBe(sourceDocument.sceneId)
   expect(before.document.revision).toBe(0)
   expect(geometryOnly(before.document)).toEqual(geometryOnly(sourceDocument))
-  expect(before.identity.lineageId).not.toBe(sourceIdentity.lineageId)
-  expect(before.identity.rootSceneId).toBe(before.document.sceneId)
-  expect(before.identity.rootSceneId).not.toBe(sourceIdentity.rootSceneId)
-  const sourceTokens = new Set(tokens(sourceIdentity)), copyTokens = tokens(before.identity)
-  expect(copyTokens.length).toBeGreaterThan(0)
-  expect(new Set(copyTokens).size).toBe(copyTokens.length)
-  expect(copyTokens.filter(token => sourceTokens.has(token))).toEqual([])
+  if (fromFile) {
+    expect(before.identity).toEqual(sourceIdentity)
+  } else {
+    expect(before.identity.lineageId).not.toBe(sourceIdentity.lineageId)
+    expect(before.identity.rootSceneId).toBe(before.document.sceneId)
+    expect(before.identity.rootSceneId).not.toBe(sourceIdentity.rootSceneId)
+    const sourceTokens = new Set(tokens(sourceIdentity)), copyTokens = tokens(before.identity)
+    expect(copyTokens.length).toBeGreaterThan(0)
+    expect(new Set(copyTokens).size).toBe(copyTokens.length)
+    expect(copyTokens.filter(token => sourceTokens.has(token))).toEqual([])
+  }
   expect(Object.keys(before.identity.propTokens).sort()).toEqual(Object.keys(before.document.props).sort())
   expect(Object.keys(before.identity.prefabTokens).sort()).toEqual(Object.keys(before.document.prefabInstances).sort())
   if (id === 'fantasy') {
@@ -129,13 +158,13 @@ for (const id of ['investigation', 'fantasy', 'coast', 'volcano', 'cyberpunk'] a
   expect(copyMetadata.licenseBindings).toEqual(originalMetadata.licenseBindings)
   await page.screenshot({ path: info.outputPath(`${id}-copy-open.png`) })
 
-  if (id === 'investigation') {
+  if (id === 'volcano') {
     await page.getByRole('button', { name: '回到首页', exact: true }).click()
-    const brokenEntry = manifest.entries.volcano
+    const brokenEntry = manifest.entries.fantasy
     const brokenRoute = (url: URL) => url.pathname.endsWith('/assets/home-scenes/projects/' + brokenEntry.archiveFile)
     let requested = false
     await page.route(brokenRoute, route => { requested = true; return route.fulfill({ status: 200, contentType: 'application/octet-stream', body: Buffer.from('invalid-complete-project') }) })
-    await home(page).locator('[data-sample="volcano"]').getByRole('button', { name: brokenEntry.name, exact: true }).click()
+    await home(page).locator('[data-sample="fantasy"]').getByRole('button', { name: brokenEntry.name, exact: true }).click()
     await expect.poll(() => requested).toBe(true)
     await expect(page.getByRole('dialog', { name: '准备打开工程', exact: true })).toHaveCount(0, { timeout: 30_000 })
     await expect(page.getByRole('dialog', { name: '确认打开工程', exact: true })).toHaveCount(0)
@@ -234,6 +263,6 @@ for (const id of ['investigation', 'fantasy', 'coast', 'volcano', 'cyberpunk'] a
   }
   expect(errors).toEqual([])
   await writeFile(info.outputPath('result.json'), JSON.stringify({ id, ordinaryProductionUI: true, formalAcceptance: false,
-    geometryAndFullResourcesPreserved: true, freshLineageAndTokens: true, coldEntryHashesEqual: true,
-    invalidTemplatePreservedCurrent: id === 'investigation', errors }, null, 2))
+    geometryAndFullResourcesPreserved: true, freshLineageAndTokens: !fromFile, coldEntryHashesEqual: true,
+    invalidTemplatePreservedCurrent: id === 'volcano', errors }, null, 2))
 })

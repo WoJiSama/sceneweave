@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { MousePointer2, PencilRuler, Plus, Ruler, X } from 'lucide-react'
+import { Boxes, DoorOpen, MousePointer2, PencilRuler, Plus, Ruler, Scissors, X } from 'lucide-react'
 import { newId } from './runtime'
 import type { SceneCommand } from '../../shared/commands/commands'
 import type { SceneDocument } from '../../shared/model/scene'
@@ -12,13 +12,14 @@ import SceneBoundsPanel from './SceneBoundsPanel'
 import './building.css'
 
 export type BuildingTask = 'room' | 'note' | 'mask' | 'aggregate' | 'structure' | 'ruler'
+export type FinishRoom = (intent?: 'finish') => void
 const taskLabels: Record<BuildingTask, string> = { room: '房间参数', note: '文字与线索', mask: '固定玩家遮罩', aggregate: '建筑组', structure: '组合结构', ruler: '量尺' }
 type Props = {
   scene: SceneDocument; layerId: string; disabled: boolean; sketch: BuildingSketch | null
   onSketch: (sketch: BuildingSketch | null) => void
-  onPreview: (commands: SceneCommand[], description: string) => void
+  onPreview: (commands: SceneCommand[], description: string, intent?: 'finish') => void
   onSelect: (id: string) => void; onSelectMany?: (ids: string[]) => void
-  onFinishReady?: (finish: (() => void) | null) => void
+  onFinishReady?: (finish: FinishRoom | null) => void
   detailsTarget?: HTMLElement | null; detailsActive?: boolean
   activeTask?: BuildingTask; onTaskChange?: (task: BuildingTask) => void
   onBrowseScene?: () => void; onOpenSettings?: () => void; onOpenings?: () => void
@@ -38,8 +39,9 @@ export default function BuildingPanel({ scene, layerId, disabled, sketch, onSket
   const layerLocked = !scene.userLayers[layerId] || scene.userLayers[layerId].editLocked
   const orphanWalls = split ? [] : Object.values(scene.walls).filter(wall => !Object.values(scene.rooms).some(room => room.boundaryVertexIds.some((id, index, ids) => id === wall.startVertexId && ids[(index + 1) % ids.length] === wall.endVertexId || id === wall.endVertexId && ids[(index + 1) % ids.length] === wall.startVertexId)))
   const run = (commands: SceneCommand[], description: string) => { setError(null); onPreview(commands, description) }
-  const previewRoom = () => {
-    if (disabled || layerLocked) return
+  const drawingIncomplete = sketch && sketch.kind !== 'ruler' && sketch.points.length < (sketch.kind === 'rectangle' ? 2 : 3)
+  const previewRoom: FinishRoom = intent => {
+    if (disabled || layerLocked || drawingIncomplete) return
     try {
       const drawing = sketch && sketch.kind !== 'ruler' ? sketch : null
       const currentShape = drawing?.kind ?? shape
@@ -47,13 +49,14 @@ export default function BuildingPanel({ scene, layerId, disabled, sketch, onSket
       const currentBoundary = drawing && drawing.kind !== 'rectangle' && drawing.points.length ? drawing.points.map(point => `${point.x},${point.y}`).join('\n') : boundary
       const boundaryMm = currentShape === 'rectangle' ? rectanglePoints(currentRectangle) : currentShape === 'orthogonal' ? finishOrthogonalBoundary(parseBoundary(currentBoundary)) : parseBoundary(currentBoundary)
       const [kind, id] = support.split(':')
-      run([{ type: 'createRoom', id: newId(), floorId, boundaryMm, thicknessMm: thickness, layerId, purpose, supportRef: { kind: kind as 'floor' | 'terrainArea', id }, ...(material ? { materialRef: { id: material, version: scene.materials[material].version } } : {}) }], `新建${purpose || '房间'}`)
+      setError(null)
+      onPreview([{ type: 'createRoom', id: newId(), floorId, boundaryMm, thicknessMm: thickness, layerId, purpose, supportRef: { kind: kind as 'floor' | 'terrainArea', id }, ...(material ? { materialRef: { id: material, version: scene.materials[material].version } } : {}) }], `新建${purpose || '房间'}`, intent)
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
   }
   const finishReady = (!split || task === 'room') && !disabled && !layerLocked && !!sketch && sketch.kind !== 'ruler' && (sketch.kind === 'rectangle' ? sketch.points.length === 2 : sketch.points.length >= 3)
-  const finishRef = useRef<(() => void) | null>(null), finishListener = useRef(onFinishReady)
+  const finishRef = useRef<FinishRoom | null>(null), finishListener = useRef(onFinishReady)
   useLayoutEffect(() => { finishRef.current = finishReady ? previewRoom : null; finishListener.current = onFinishReady })
-  const finish = useCallback(() => finishRef.current?.(), [])
+  const finish = useCallback<FinishRoom>(intent => finishRef.current?.(intent), [])
   useLayoutEffect(() => {
     finishListener.current?.(finishReady ? finish : null)
     return () => { finishListener.current?.(null) }
@@ -84,7 +87,7 @@ export default function BuildingPanel({ scene, layerId, disabled, sketch, onSket
       </fieldset>
       <div className="building-tools"><button type="button" className="secondary" aria-pressed={sketch?.kind !== 'ruler' && !!sketch} disabled={disabled || layerLocked} onClick={() => onSketch({ kind: shape, points: [], cursor: null })}><MousePointer2 size={14}/>在图上画房间</button>{!split && <button type="button" className="secondary" aria-pressed={sketch?.kind === 'ruler'} disabled={disabled} onClick={() => onSketch({ kind: 'ruler', points: [], cursor: null })}><Ruler size={14}/>量尺</button>}</div>
       {sketch && <div className="building-sketch-status" role="status"><span>{sketch.kind === 'ruler' ? '依次点击起点与终点' : sketch.kind === 'rectangle' ? `点击矩形对角 · ${sketch.points.length}/2` : `${sketch.kind === 'orthogonal' ? '水平/垂直锁向 · ' : ''}依次点击顶点 · ${sketch.points.length} 点`}</span><button type="button" aria-label="取消绘图或量尺" onClick={() => onSketch(null)}><X size={14}/></button>{measure && <output aria-label="量尺结果">{formatDistanceMm(measure.distanceMm, scene.units.display)}<small>ΔX {measure.dxMm} · ΔY {measure.dyMm} mm</small></output>}</div>}
-      <button className="primary asset-wide" type="submit" disabled={disabled || layerLocked}><Plus size={14}/>预览新房间</button>
+      <button className="primary asset-wide" type="submit" disabled={disabled || layerLocked || !!drawingIncomplete}><Plus size={14}/>预览新房间</button>
       <details className="building-details workspace-advanced"><summary>{shape === 'rectangle' ? '精确位置' : '精确输入顶点坐标'}</summary><fieldset disabled={disabled || layerLocked}>{shape === 'rectangle' ? <div className="workspace-form-pair">{(['x', 'y'] as const).map((key, index) => <NumberInput displayUnit={scene.units.display} key={key} label={['房间起点 X', '房间起点 Y'][index]} value={rect[key]} onCommit={value => { onSketch(null); setRect(current => ({ ...current, [key]: value })) }}/>)}</div> : <label className="building-field">每行 x,y（mm）<textarea aria-label="房间多边形顶点" rows={5} value={boundary} onChange={event => { onSketch(null); setBoundary(event.target.value) }}/></label>}</fieldset></details>
     </form>
     <div hidden={split && task !== 'aggregate'} inert={split && task !== 'aggregate'}><AggregateBuildingPanel scene={scene} disabled={disabled} onPreview={run} onSelect={onSelect} onSelectMany={onSelectMany}/></div>
@@ -107,13 +110,26 @@ export default function BuildingPanel({ scene, layerId, disabled, sketch, onSket
   </section>
   if (!split) return parameters
   return <section className="building-panel workspace-tool-picker" aria-label="建筑工具">
-    <p className="workspace-panel-intro">选择要创建或调整的内容，参数显示在右侧。浏览工具不会改变画布上的对象。</p>
-    <div className="workspace-task-picker" role="group" aria-label="建筑任务">
-      {(['room', 'aggregate', 'structure'] as const).map(value => <button key={value} type="button" aria-pressed={detailsActive && task === value} disabled={disabled} onClick={() => chooseTask(value)}><strong>{{ room: '绘制房间', aggregate: '建筑组', structure: '拆分与组合结构' }[value]}</strong><small>{{ room: '矩形、正交或多边形房间', aggregate: '整栋创建、移动与旋转', structure: '保留真实成员与外部依赖' }[value]}</small></button>)}
-      {onOpenings && <button type="button" disabled={disabled} onClick={onOpenings}><strong>放置门窗</strong><small>点击真实墙面附着</small></button>}
+    <div className="workspace-task-picker workspace-building-tasks" role="group" aria-label="建筑任务">
+      <h3>绘制与开口</h3>
+      <button type="button" aria-pressed={detailsActive && task === 'room'} disabled={disabled} onClick={() => chooseTask('room')}>
+        <PencilRuler size={17} aria-hidden="true"/><span><strong>绘制房间</strong><small>矩形、正交或多边形</small></span>
+      </button>
+      {onOpenings && <button type="button" disabled={disabled} onClick={onOpenings}>
+        <DoorOpen size={17} aria-hidden="true"/><span><strong>放置门窗</strong><small>点选墙面放置</small></span>
+      </button>}
+      <h3>编辑结构</h3>
+      <button type="button" aria-pressed={detailsActive && task === 'aggregate'} disabled={disabled} onClick={() => chooseTask('aggregate')}>
+        <Boxes size={17} aria-hidden="true"/><span><strong>建筑组</strong><small>整栋创建、移动与旋转</small></span>
+      </button>
+      <button type="button" aria-pressed={detailsActive && task === 'structure'} disabled={disabled} onClick={() => chooseTask('structure')}>
+        <Scissors size={17} aria-hidden="true"/><span><strong>拆分与组合结构</strong><small>保留原有成员与依赖</small></span>
+      </button>
     </div>
-    {onBrowseScene && <button type="button" className="secondary asset-wide" onClick={onBrowseScene}>查看已有建筑与注记</button>}
-    {onOpenSettings && <button type="button" className="secondary asset-wide" onClick={onOpenSettings}>场景设置 · 世界与导出范围</button>}
+    <div className="workspace-task-related">
+      {onBrowseScene && <button type="button" className="secondary asset-wide" onClick={onBrowseScene}>查看已有建筑与注记</button>}
+      {onOpenSettings && <button type="button" className="secondary asset-wide" onClick={onOpenSettings}>场景设置 · 世界与导出范围</button>}
+    </div>
     {detailsTarget && createPortal(parameters, detailsTarget)}
   </section>
 }

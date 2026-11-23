@@ -80,9 +80,9 @@ export default function BuildingInspector({ scene, appearance, selected, layerId
   }
   const portalFields = <><label className="building-field">类型<select aria-label="开口类型" value={openingKind} onChange={e => setOpeningKind(e.target.value as typeof openingKind)}><option value="door">门</option><option value="window">窗</option></select></label><label className="building-field">从墙哪端量起<select aria-label="开口基准端点" value={reference} onChange={e => setReference(e.target.value)}>{[scene.walls[opening?.wallId ?? selected]?.startVertexId, scene.walls[opening?.wallId ?? selected]?.endVertexId].filter(Boolean).map((id, index) => <option value={id} key={id}>{index === 0 ? '起点' : '终点'} · {formatDistanceMm(scene.vertices[id].xMm, scene.units.display)}, {formatDistanceMm(scene.vertices[id].yMm, scene.units.display)}</option>)}</select></label><NumberInput displayUnit={scene.units.display} label="距该端的距离" ariaLabel="开口近端偏移" value={offset} onCommit={setOffset}/><NumberInput displayUnit={scene.units.display} label="门窗净宽" ariaLabel="开口净宽" value={width} onCommit={setWidth}/><label className="building-field">门窗状态<select aria-label="门窗状态" value={state} onChange={e => setState(e.target.value as typeof state)}><option value="closed">关闭</option><option value="open">开启</option></select></label><label className="building-check"><input type="checkbox" aria-label="门通行锁" checked={doorLocked} onChange={e => setDoorLocked(e.target.checked)}/>通行锁</label><label className="building-check"><input type="checkbox" aria-label="秘密开口" checked={secret} onChange={e => setSecret(e.target.checked)}/>秘密开口</label><label className="building-check"><input type="checkbox" aria-label="揭示秘密开口" checked={revealed} onChange={e => setRevealed(e.target.checked)}/>已向玩家揭示</label></>
   return <div className="building-inspector" aria-label="建筑属性" onChangeCapture={() => { setCoverageFailure(null); setCoverageRepairError(null) }}>
-    <div className="asset-section-heading"><PencilRuler size={16}/><h2>{room ? '房间' : wall ? '墙体' : vertex ? '建筑顶点' : opening ? opening.kind === 'door' ? '门' : '窗' : note ? '文字注记' : '固定遮罩'}</h2></div>
-    <details className="building-details"><summary>对象编号</summary><code className="building-stable-id">{selected}</code></details><p className="asset-muted">图层 · {scene.userLayers[scene.entityLayers[selected]]?.name}。尺寸使用{scene.units.display === 'ft' ? '英尺' : '米'}，墙厚使用厘米，按最近 1 mm 保存。</p>
-    <button className="secondary asset-wide" disabled={disabled || ownLayerLocked} onClick={() => onLock(kind, selected, !entity.editLocked)}><LockKeyhole size={14}/>{entity.editLocked ? '解除建筑对象编辑锁' : '锁定建筑对象'}</button>
+    <div className="asset-section-heading workspace-object-fields-heading"><PencilRuler size={16} aria-hidden="true"/><h2>{room ? '房间属性' : wall ? '墙体属性' : vertex ? '建筑顶点' : opening ? opening.kind === 'door' ? '门' : '窗' : note ? '文字注记' : '固定遮罩'}</h2>
+      <button type="button" className="secondary workspace-object-lock" aria-label={entity.editLocked ? '解除建筑对象编辑锁' : '锁定建筑对象'} disabled={disabled || ownLayerLocked} onClick={() => onLock(kind, selected, !entity.editLocked)}><LockKeyhole size={14} aria-hidden="true"/>{entity.editLocked ? '解锁' : '锁定'}</button>
+    </div>
     <EntityLockNotice scene={scene} id={selected} onSelect={onSelect} onOpenLayers={onOpenLayers}/>
     {coverageFailure && <PrivacyCoverageNotice scene={scene} issues={coverageFailure.issues} disabled={disabled || locked} onRepair={() => {
       try {
@@ -104,8 +104,8 @@ export default function BuildingInspector({ scene, appearance, selected, layerId
         <label className="building-field">结构连通要求<select aria-label="房间连通要求" value={access} onChange={e => setAccess(e.target.value as typeof access)}><option value="unspecified">草稿 · 未指定</option><option value="required">须连接入口</option><option value="intentionalIsolation">明确孤立</option></select></label>
         {visibility === 'gm' ? <RoomPrivacyControls scene={scene} appearance={appearance} roomId={selected} purpose={purpose} accessExpectation={access} layerId={layerId} onPreview={onPreview}/>
           : <button className="primary asset-wide" onClick={() => onPreview([{ type: 'updateRoom', id: selected, changes: { purpose, visibility, accessExpectation: access } }], '修改房间属性')}>预览房间属性</button>}
-        <h3>边界顶点</h3>{room.boundaryVertexIds.map((id, index) => <button className="asset-group-link" key={id} onClick={() => onSelect(id)}>顶点 {index + 1} · {formatDistanceMm(scene.vertices[id].xMm, scene.units.display)}, {formatDistanceMm(scene.vertices[id].yMm, scene.units.display)}</button>)}
-        <details className="building-details"><summary>移动这一间房</summary>
+        <details className="workspace-detail-disclosure"><summary>边界顶点 · {room.boundaryVertexIds.length} 个</summary><div className="workspace-room-vertices">{room.boundaryVertexIds.map((id, index) => <button type="button" className="asset-group-link" key={id} onClick={() => onSelect(id)}>顶点 {index + 1} · {formatDistanceMm(scene.vertices[id].xMm, scene.units.display)}, {formatDistanceMm(scene.vertices[id].yMm, scene.units.display)}</button>)}</div></details>
+        <details className="workspace-detail-disclosure"><summary>移动这一间房</summary>
           <NumberInput displayUnit={scene.units.display} label="房间平移 X" value={roomOffset.x} onCommit={x => setRoomOffset(current => ({ ...current, x }))}/>
           <NumberInput displayUnit={scene.units.display} label="房间平移 Y" value={roomOffset.y} onCommit={y => setRoomOffset(current => ({ ...current, y }))}/>
           {!!moveParts?.sharedWalls.length && <p>移动会分开 {moveParts.sharedWalls.length} 面共墙。</p>}
@@ -155,6 +155,7 @@ export default function BuildingInspector({ scene, appearance, selected, layerId
       <BuildingEditTools scene={scene} selected={selected} onPreview={onPreview}/>
       {wall && <AttachmentTools key={selected} scene={scene} id={selected} disabled={disabled} onPreview={onPreview}/>}
     </fieldset>
+    <details className="workspace-detail-disclosure"><summary>对象编号与单位</summary><code className="building-stable-id">{selected}</code><p className="asset-muted">尺寸使用{scene.units.display === 'ft' ? '英尺' : '米'}，墙厚使用厘米，按最近 1 mm 保存。</p></details>
     <button className="asset-clear" onClick={() => onSelect(null)}>返回工程信息</button>
   </div>
 }

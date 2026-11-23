@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import { artStyleDividerGeometry, moveArtStyleDivider, type ArtStyleDivider, type CompareRect } from './art-style-divider'
 import { PreviewScheduler } from '../../platform/browser/render/preview-scheduler.js'
 import type { SceneArtStyle } from '../../shared/visual/art-style'
+import './art-style-divider.css'
 
 type Handle = 'move' | 'start' | 'end'
 type ComparisonRender = (signal: AbortSignal) => Promise<HTMLCanvasElement>
@@ -57,6 +58,15 @@ export function ArtStyleComparison({ divider, area, labels, onChange }: {
 }) {
   const svg = useRef<SVGSVGElement>(null)
   const drag = useRef<{ pointer: number; handle: Handle; initial: ArtStyleDivider; clientX: number; clientY: number } | null>(null)
+  useEffect(() => {
+    const element = svg.current!
+    // A quick handle drag can start a native fling that consumes the next tap.
+    const preventFling = (event: TouchEvent) => {
+      if (drag.current && event.cancelable) event.preventDefault()
+    }
+    element.addEventListener('touchstart', preventFling, { passive: false })
+    return () => element.removeEventListener('touchstart', preventFling)
+  }, [])
   const { pivot, normal, distance, ends: [start, end], handles } = artStyleDividerGeometry(divider, area)
   const setAngle = (angle: number) => onChange({ ...divider, angle: ((angle % 360) + 360) % 360 })
   const down = (handle: Handle, event: PointerEvent<SVGElement>) => {

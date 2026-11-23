@@ -120,7 +120,7 @@ function normalizedBoundary(input: PointMm[]): PointMm[] {
   return area < 0n ? points.reverse() : points
 }
 
-function roomOwnsWall(room: Room, wall: Wall): boolean {
+export function roomOwnsWall(room: Room, wall: Wall): boolean {
   const ids = room.boundaryVertexIds
   return ids.some((id, i) => edgeKey(id, ids[(i + 1) % ids.length]) === edgeKey(wall.startVertexId, wall.endVertexId))
 }

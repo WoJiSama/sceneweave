@@ -352,7 +352,7 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
   </section>
   if (!split) return parameters
   return <section className="outdoor-panel workspace-tool-picker" aria-label="室外制作工具">
-    <p className="workspace-panel-intro">选择室外工具，参数显示在右侧；已有对象统一在场景中管理。</p>
+    <h3>绘制工具</h3>
     <div className="workspace-task-picker" role="group" aria-label="室外任务">
       {(['terrain', 'region', 'path', 'bridge', 'fence', 'styles', 'stairs', 'connection', 'scatter'] as const).filter(value => value !== 'styles' || onStylePreview).map(value => <button key={value} type="button" aria-pressed={detailsActive && tool === value} disabled={disabled} onClick={() => chooseTask(value)}><strong>{taskLabels[value]}</strong><small>{taskHints[value]}</small></button>)}
     </div>

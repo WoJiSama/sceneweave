@@ -1,4 +1,5 @@
-import { Check, Figure, LessonLink, type TutorialChapter } from './lesson'
+import { Check, Figure, LessonLink, LessonSample, type TutorialChapter } from './lesson'
+import { homeSections } from '../editor/main-shell/location'
 
 export const atmosphere: TutorialChapter = {
   id: 'atmosphere', label: '材质与氛围', title: '铺装、画风与光影',
@@ -22,6 +23,7 @@ export const atmosphere: TutorialChapter = {
       </ol>
     </> },
     { id: 'art-style-compare', title: '用 RGB 曲线和双侧对比', body: <>
+      <p>在<a href={`#${homeSections.artStyle}`}>首页画风对照</a>为 A、B 两侧各选一种画风。拖动线身或中点可平移分隔线，拖动任一端的圆点可绕中点旋转 360°。用键盘时，按 Tab 选中端点，再用方向键旋转。工作台还能调整两侧各自的曲线和画法。</p>
       <ol>
         <li>点「两侧画风对比」。选 A 侧并只勾「手绘」，再选 B 侧并只勾「茶绘」。两侧可以各自选画风和改参数。想比较已保存的画面与当前调整时，可用「前后对比」。</li>
         <li>在 B 侧展开「曲线与更多调色」。「RGB」同时调整三个通道，也可单选红、绿、蓝。试选「蓝」，在曲线中间添加控制点并向下拖一点，观察中间调变暖。可用「曲线输入」和「曲线输出」精确调整，或用「重置此曲线」恢复当前通道。</li>
@@ -34,7 +36,7 @@ export const atmosphere: TutorialChapter = {
     </> },
     { id: 'line-art', title: '做线稿并核对道路接合', body: <>
       <ol>
-        <li>从首页「从样板开始」打开「潮湾渔获补给站」，点「用此样板创建副本」。在「氛围 → 画风」勾选「线稿」，打开「前后对比」，把分界线拖到岸边道路与码头的接头。</li>
+        <li>打开练习工程 <LessonSample sample="coast"/>，点「保存并打开副本」。在「氛围 → 画风」勾选「线稿」，打开「前后对比」，把分界线拖到岸边道路与码头的接头。</li>
         <li>用织境制作的工程会按道路、桥头、台阶和高差的实际轮廓绘制。可以减淡砂砾或浪纹，画面里原本接通的路仍应接到码头。放大核对两侧路缘，再缩回全图看路线走向。</li>
         <li>手头只有图片时，从「场景 → 楼层底图」导入并采用，再开启线稿。系统在本机从现有像素提线，优先保留连续的浅边缘。原图里太淡或因压缩丢失的线条仍可能断开。若面板显示「预览保留浅轮廓」，点开看结果再采用。想继续单独编辑道路或码头时，打开原始 <code>.sceneweave</code> 工程。</li>
       </ol>

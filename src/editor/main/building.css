@@ -26,5 +26,15 @@
 .building-entity-list summary button { display: inline; }
 .building-entity-list button:hover { color: #3f6233; text-decoration: underline; }
 .building-world-tool { cursor: crosshair; }
+.room-context-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.room-context-actions button { justify-content: flex-start; min-height: 36px; }
+.workspace-canvas > .room-context-actions { flex: none; margin: 0; padding: 6px 8px; border-bottom: 1px solid #d9e1d1; background: #f8faf4; }
+.room-context-actions > button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.workspace-inspector .asset-member-list { max-height: 12rem; overflow-y: auto; }
 .building-scope { color: #7b8d6d; font-size: 11px; line-height: 1.7; padding: 8px 0; }
 .building-scope textarea { box-sizing: border-box; width: 100%; font: 10px/1.6 ui-monospace, monospace; border: 1px solid #cfdbbf; color: #5d7d4c; background: #f8fbf2; border-radius: 4px; padding: 7px; }

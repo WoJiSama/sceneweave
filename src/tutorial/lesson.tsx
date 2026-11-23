@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
+import type { HomeShowcaseKind } from '../platform/browser/content/home-showcase'
+import manifest from '../platform/browser/content/home-showcase-manifest.json'
 import { tutorialHref } from './location'
 
 export type TutorialChapter = {
@@ -12,6 +14,13 @@ export type TutorialChapter = {
 
 export function LessonLink({ chapter, section, children }: { chapter: string; section?: string; children: ReactNode }) {
   return <a href={tutorialHref(chapter, section)}>{children}</a>
+}
+
+export const OpenTutorialSample = createContext<((id: HomeShowcaseKind) => void) | null>(null)
+
+export function LessonSample({ sample }: { sample: HomeShowcaseKind }) {
+  const open = useContext(OpenTutorialSample)
+  return <button type="button" className="tutorial-sample" disabled={!open} onClick={() => open?.(sample)}>{manifest.entries[sample].name}</button>
 }
 
 export function tutorialImage(file: string) {

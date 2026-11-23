@@ -136,6 +136,32 @@
         "fullHeight": 2000,
         "fullSha256": "d5e316a188c9dad5f6fdc8cc2bddb4300e23eb958aeecc34fe88d6781d840bef"
       },
+      "artStyles": {
+        "original": {
+          "file": "fantasy-style-original.webp",
+          "width": 1024,
+          "height": 878,
+          "sha256": "131d84b86ebfaf6003f8d4944241c2cf4e0c7dab251b12b0cff62d9ca560cfdb"
+        },
+        "handDrawn": {
+          "file": "fantasy-style-handDrawn.webp",
+          "width": 1024,
+          "height": 878,
+          "sha256": "27baa1ff7ba88c757f853fd33e6f7ada4d53681cbe2a561fd32ed8d26f53f352"
+        },
+        "tea": {
+          "file": "fantasy-style-tea.webp",
+          "width": 1024,
+          "height": 878,
+          "sha256": "23c863625b30b56eae4d1e74456214caac07e44be09a5ff58fe871b8cc3ae9cc"
+        },
+        "lineArt": {
+          "file": "fantasy-style-lineArt.webp",
+          "width": 1024,
+          "height": 878,
+          "sha256": "08cbf5a8511a096acda3c8fb57893d885149f9340214a43c11996dda5341f6aa"
+        }
+      },
       "archiveFile": "fantasy.sceneweave",
       "archiveBytes": 1050672,
       "archiveSha256": "60b077e6bda92f8ef648df0e7795b6ff2dd9760ce4d77f2223d757979f4ba347"

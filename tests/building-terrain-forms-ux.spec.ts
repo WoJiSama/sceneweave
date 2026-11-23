@@ -11,7 +11,7 @@ async function chooseBuilding(page: Page, task: '绘制房间' | '建筑组') {
   await content.getByRole('group', { name: '建筑任务', exact: true }).getByRole('button', { name: new RegExp(`^${task}`) }).click()
   await expect(page.getByTestId('workspace-inspector')).toHaveAttribute('data-open', 'true')
 }
-async function chooseOutdoor(page: Page, task: '地形与高程' | '道路' | '台阶 / 坡道' | '可控散布') {
+async function chooseOutdoor(page: Page, task: '地形与高程' | '道路' | '高差连接 / 坡道' | '可控散布') {
   const content = await openWorkspaceModule(page, '地形')
   await content.getByRole('group', { name: '室外任务', exact: true }).getByRole('button', { name: new RegExp(`^${task}`) }).click()
   await expect(page.getByTestId('workspace-inspector')).toHaveAttribute('data-open', 'true')
@@ -107,7 +107,7 @@ for (const width of [1512, 390]) test(`building and outdoor form hierarchy prese
   await priority.locator('summary').click(); await expect(outdoor.getByLabel('地形覆盖优先级', { exact: true })).toHaveValue('3')
   await chooseOutdoor(page, '道路'); await shot(page, info, 'path')
   await commit(page, '室外通路净宽', '1.5')
-  await chooseOutdoor(page, '台阶 / 坡道'); await shot(page, info, 'connection')
+  await chooseOutdoor(page, '高差连接 / 坡道'); await shot(page, info, 'connection')
   await expect(outdoor.getByLabel('室外通路净宽', { exact: true })).toHaveValue('1.5')
   await chooseOutdoor(page, '可控散布'); await shot(page, info, 'scatter')
   await outdoor.getByText('随机方案与候选格距', { exact: true }).click()

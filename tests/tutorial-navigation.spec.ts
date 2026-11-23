@@ -24,11 +24,16 @@ test('the home tutorial supports chapter and section links, browser history and 
   expect(chapterLinks).toHaveLength(10)
   const available = new Set(chapterLinks)
   const linked = new Set<string>()
+  const exercises: Record<string, string[]> = {
+    '#tutorial/terrain': ['双台岬岛', '潮湾渔获补给站'],
+    '#tutorial/atmosphere': ['潮湾渔获补给站'],
+  }
   for (const hash of chapterLinks) {
     await page.goto(`./${hash}`)
     await expect(chapters.locator('[aria-current="page"]')).toHaveAttribute('href', hash)
     const main = page.getByRole('main')
     await expect(main.locator('a[href$=".sceneweave"]')).toHaveCount(0)
+    for (const name of exercises[hash] ?? []) await expect(main.getByRole('button', { name, exact: true })).toBeVisible()
     for (const id of await main.locator('section > h2[id]').evaluateAll(headings => headings.map(heading => heading.id))) available.add(`#${id}`)
     for (const target of await main.locator('a[href^="#tutorial"]').evaluateAll(links => links.map(link => link.getAttribute('href')!))) linked.add(target)
     for (const image of await main.locator('img').all()) {

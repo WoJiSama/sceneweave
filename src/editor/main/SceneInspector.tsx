@@ -2,7 +2,7 @@ import { manualTransactionBudget, selectManualTransactionBudget } from '../../sh
 import type { SceneDocument } from '../../shared/model/scene'
 import { propPresentation } from '../../shared/appearance/presentation'
 import { Layers3, LockKeyhole, Move, PencilRuler, Sprout } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { SceneCommand } from '../../shared/commands/commands'
 import { partitionAt } from '../../shared/geometry/partitions'
 import { createPublicVisibility } from '../../shared/geometry/visibility'
@@ -37,6 +37,8 @@ type Props = {
   /** Report local appearance edits so workspace transitions preserve the draft. */
   onAppearanceDraftChange?: (dirty: boolean) => void
   appearanceResetKey?: number
+  appearanceAction?: ReactNode
+  showObjectName?: boolean
   onFillCopy?: (sourceId: string, count: number, allowOverlap: boolean) => void
   onFillCopyNumeric?: (sourceId: string, count: number, allowOverlap: boolean, stepMm: { x: number; y: number }) => void
   fillCopyBusy?: boolean
@@ -77,7 +79,7 @@ export default function SceneInspector(props: Props) {
   </>
 }
 
-function SceneInspectorContent({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey, onFillCopy, onFillCopyNumeric, fillCopyBusy = false }: Props) {
+function SceneInspectorContent({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey, appearanceAction, showObjectName = true, onFillCopy, onFillCopyNumeric, fillCopyBusy = false }: Props) {
   const [appearanceChoice, setAppearanceChoice] = useState<{ propId: string; definitionId: string } | null>(null)
   const [waterDirty, setWaterDirty] = useState(false)
   const appearanceDraftCallback = useRef(onAppearanceDraftChange)
@@ -118,17 +120,23 @@ function SceneInspectorContent({ project, selected, busy, workspace, onSelect, o
     const chosen = chosenId ? scene.propDefinitions[chosenId] : null
     const swap = chosen ? appearanceSwapInfo(prop, chosen) : null
     const lockLabel = scatterOwner ? prop.editLocked ? '解除物件固定' : '固定此物件' : prop.editLocked ? '解除物件编辑锁' : '锁定物件编辑'
-    return <><div className="asset-section-heading"><Move size={16}/><h2>物件属性</h2></div><div className="workspace-object-title"><h3>{propName(project, selected)}</h3>
-      <button className="secondary workspace-object-lock" aria-label={lockLabel} disabled={busy || !!lockChangeReason} title={lockChangeReason ?? lockLabel} onClick={() => onCommit(() => workspace.execute([{ type: 'setEditLock', kind: 'prop', id: selected, locked: !prop.editLocked }]))}><LockKeyhole size={14}/><span>{prop.editLocked ? '解锁' : scatterOwner ? '固定' : '锁定'}</span></button></div>
+    return <>
+      <section className="workspace-inspector-section">
+      <div className="asset-section-heading workspace-object-fields-heading"><Move size={16} aria-hidden="true"/><h2>物件属性</h2>
+      <button className="secondary workspace-object-lock" aria-label={lockLabel} disabled={busy || !!lockChangeReason} title={lockChangeReason ?? lockLabel} onClick={() => onCommit(() => workspace.execute([{ type: 'setEditLock', kind: 'prop', id: selected, locked: !prop.editLocked }]))}><LockKeyhole size={14} aria-hidden="true"/><span>{prop.editLocked ? '解锁' : scatterOwner ? '固定' : '锁定'}</span></button></div>
+      {showObjectName && <h3>{propName(project, selected)}</h3>}
       {owner && <button className="asset-group-link" onClick={() => onSelect(owner.id)}><Layers3 size={14}/>选择整个{groupName(project, owner.id)}</button>}
       {partition && <button className="asset-group-link" onClick={() => onSelect(partition.id)}>所在分区 · {partition.name}</button>}
       {scatterOwner && <button className="asset-group-link" disabled={busy} onClick={() => onSelect(scatterOwner.id)}><Sprout size={14}/>管理{scatterName(scene, scatterOwner)}</button>}
       <fieldset disabled={busy || effectivelyLocked}>
-        <button className="secondary asset-wide" onClick={() => onPreview([{ type: 'setPropBlocking', id: selected, blocksMovement: !prop.blocksMovement }], prop.blocksMovement ? '物件改为不阻挡移动' : '物件改为阻挡移动')}>{prop.blocksMovement ? '预览改为不阻挡移动' : '预览改为阻挡移动'}</button>
-        <p className="asset-muted">仅修改当前物件的通行标记，保留实际占地和图像。</p>
         <div className="workspace-field-pair" role="group" aria-label="物件位置"><NumberInput displayUnit={scene.units.display} label="物件 X" value={prop.positionMm.x} onCommit={x => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, x } } }], scatterOwner ? '移动散布成员' : '移动物件')}/>
         <NumberInput displayUnit={scene.units.display} label="物件 Y" value={prop.positionMm.y} onCommit={y => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, y } } }], scatterOwner ? '移动散布成员' : '移动物件')}/></div>
         {propPresentation(project.appearance, prop.id)?.mode === 'nearSide' ? <p className="asset-muted">近侧视素材保持直立，位置为树根；选择固定变体改变树形。</p> : <NumberInput label="物件旋转" value={prop.rotationDeg} unit="°" onCommit={rotationDeg => editProp([{ type: 'updateProp', id: selected, changes: { rotationDeg } }], scatterOwner ? '旋转散布成员' : '旋转物件')}/>}
+      </fieldset>
+      </section>
+      {(variants.length > 1 || appearanceAction) && <section className="workspace-inspector-section">
+        <h3>外观</h3>
+        <fieldset disabled={busy || effectivelyLocked}>
         {variants.length > 1 && <><label className="asset-select">外观变体<select aria-label="物件外观变体" value={chosenId ?? ''} onChange={event => {
           const definitionId = event.target.value
           if (onAppearanceDraftChange) setAppearanceChoice({ propId: selected, definitionId })
@@ -138,21 +146,33 @@ function SceneInspectorContent({ project, selected, busy, workspace, onSelect, o
           }
         }}>{variants.map(variant => <option key={variant.id} value={variant.id}>{variant.name}</option>)}</select><small>{onAppearanceDraftChange ? '选择后先检查图像差异，再预览采用' : '选择后准备可取消的外观候选，保留当前图像映射与物理占地'}</small></label>
           {swap && chosenId !== prop.definitionRef?.id && <p className="asset-muted" role="status">{swap.message}{swap.visualDiffers && ` 按当前 ${prop.rotationDeg}° 旋转，新源外包范围为 ${swap.sourceRotatedSizeMm.width} × ${swap.sourceRotatedSizeMm.height} mm，保留的映射范围为 ${swap.currentRotatedSizeMm.width} × ${swap.currentRotatedSizeMm.height} mm。`}{swap.footprintDiffers && ' 新素材默认占地与当前实例不同，本次仍保留当前实例占地。'}</p>}
-          {onAppearanceDraftChange && <button className="secondary asset-wide" disabled={!chosen || chosen.id === prop.definitionRef?.id} onClick={() => { if (chosen) onPreview([{ type: 'replacePropAppearance', id: selected, definitionRef: { id: chosen.id, version: chosen.version } }], scatterOwner ? '预览替换散布成员外观，保留占地' : '预览替换物件外观，保留占地') }}>预览外观替换</button>}</>}
-      </fieldset>
-      <details className="workspace-detail-disclosure workspace-coordinate-help"><summary>坐标与选择说明</summary><p className="asset-muted">虚线分别显示图像范围与物理占地。坐标使用{scene.units.display === 'ft' ? '英尺' : '米'}，按最近 1 mm 保存。一次修改可以完整撤销。</p></details>
-      {onFillCopy && !owner && !scatterOwner && !clusteredProp && <FillCopyControls key={`prop-fill-${selected}`} scene={scene} sourceId={selected} busy={busy || fillCopyBusy || effectivelyLocked} onFill={onFillCopy} onNumeric={onFillCopyNumeric}/>}
-      {!scatterOwner && <button className="secondary asset-wide" disabled={busy || effectivelyLocked} onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除物件', null)}>删除物件</button>}
-      {scatterOwner && <><fieldset disabled={busy || effectivelyLocked}><button className="secondary asset-wide" onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除散布成员并保留排除区', scatterOwner.id)}>删除并保留排除区</button><button className="secondary asset-wide" onClick={() => editProp([{ type: 'detachScatterMember', groupId: scatterOwner.id, propId: selected }], '退出散布并保留物件', null)}>退出散布，保留物件</button></fieldset><p className="asset-muted">手工修改后会保留实际位置。删除与退出记录可撤销，重新散布不会生成副本。</p></>}
+        </>}
+        </fieldset>
+        {(appearanceAction || variants.length > 1 && onAppearanceDraftChange) && <div className="workspace-object-appearance-actions">
+          {variants.length > 1 && onAppearanceDraftChange && <button className="primary asset-wide" disabled={busy || effectivelyLocked || !chosen || chosen.id === prop.definitionRef?.id} onClick={() => { if (chosen) onPreview([{ type: 'replacePropAppearance', id: selected, definitionRef: { id: chosen.id, version: chosen.version } }], scatterOwner ? '预览替换散布成员外观，保留占地' : '预览替换物件外观，保留占地') }}>预览外观替换</button>}
+          {appearanceAction}
+        </div>}
+      </section>}
       <WaterPropTools key={`water-${selected}-${appearanceResetKey}`} scene={scene} id={selected} disabled={busy} onDraftChange={setWaterDirty} onPreview={onPreview}/>
-      <dl className="asset-facts"><dt>物理占地</dt><dd>{prop.footprintMm.width} × {prop.footprintMm.height} mm</dd><dt>图像范围</dt><dd>{prop.visualBoundsMm.width} × {prop.visualBoundsMm.height} mm</dd><dt>阻挡移动</dt><dd>{prop.blocksMovement ? '是' : '否'}</dd><dt>可见范围</dt><dd>{createPublicVisibility(scene).prop(prop) ? '公开' : '仅主持人'}</dd></dl>{clear}</>
+      <section className="workspace-inspector-section">
+        <h3>占地与通行</h3>
+        <dl className="asset-facts"><dt>物理占地</dt><dd>{prop.footprintMm.width} × {prop.footprintMm.height} mm</dd><dt>图像范围</dt><dd>{prop.visualBoundsMm.width} × {prop.visualBoundsMm.height} mm</dd><dt>阻挡移动</dt><dd>{prop.blocksMovement ? '是' : '否'}</dd><dt>可见范围</dt><dd>{createPublicVisibility(scene).prop(prop) ? '公开' : '仅主持人'}</dd></dl>
+        <button className="secondary asset-wide" disabled={busy || effectivelyLocked} onClick={() => onPreview([{ type: 'setPropBlocking', id: selected, blocksMovement: !prop.blocksMovement }], prop.blocksMovement ? '物件改为不阻挡移动' : '物件改为阻挡移动')}>{prop.blocksMovement ? '预览改为不阻挡移动' : '预览改为阻挡移动'}</button>
+        <details className="workspace-detail-disclosure workspace-coordinate-help"><summary>坐标与选择说明</summary><p className="asset-muted">虚线显示图像范围和物理占地。坐标使用{scene.units.display === 'ft' ? '英尺' : '米'}，按最近 1 mm 保存。改变通行标记会保留图像和占地。</p></details>
+      </section>
+      {onFillCopy && !owner && !scatterOwner && !clusteredProp && <FillCopyControls key={`prop-fill-${selected}`} scene={scene} sourceId={selected} busy={busy || fillCopyBusy || effectivelyLocked} onFill={onFillCopy} onNumeric={onFillCopyNumeric}/>}
+      {!scatterOwner && <button className="history-danger asset-wide" disabled={busy || effectivelyLocked} onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除物件', null)}>删除物件</button>}
+      {scatterOwner && <><fieldset disabled={busy || effectivelyLocked}><button className="secondary asset-wide" onClick={() => editProp([{ type: 'deleteProp', id: selected }], '删除散布成员并保留排除区', scatterOwner.id)}>删除并保留排除区</button><button className="secondary asset-wide" onClick={() => editProp([{ type: 'detachScatterMember', groupId: scatterOwner.id, propId: selected }], '退出散布并保留物件', null)}>退出散布，保留物件</button></fieldset><p className="asset-muted">手工修改后会保留实际位置。删除与退出记录可撤销，重新散布不会生成副本。</p></>}
+      {clear}</>
   }
-  if (group) return <><div className="asset-section-heading"><Layers3 size={16}/><h2>组合属性</h2></div><h3>{groupName(project, selected)}</h3><p className="asset-muted">成员以实际位置保存。整体变换遵守每一件成员的编辑锁。</p><button className="secondary asset-wide" disabled={busy || effectiveLayerLocked(scene, selected)} onClick={() => onCommit(() => workspace.execute([{ type: 'setEditLock', kind: 'prefabInstance', id: selected, locked: !group.editLocked }]))}><LockKeyhole size={14}/>{group.editLocked ? '解除组合编辑锁' : '锁定组合编辑'}</button>{onFillCopy && <FillCopyControls key={`prefab-fill-${selected}`} scene={scene} sourceId={selected} busy={busy || fillCopyBusy || effectiveEditLocked(scene, selected)} onFill={onFillCopy} onNumeric={onFillCopyNumeric}/>}<fieldset disabled={busy || effectiveEditLocked(scene, selected)}>
+  if (group) return <><div className="asset-section-heading"><Layers3 size={16}/><h2>组合属性</h2></div><h3>{groupName(project, selected)}</h3><h3>编辑组合中的单件</h3>
+    <div className="asset-member-list" role="group" aria-label="选择组合中的单件">{Object.entries(group.members).map(([key, { propId }]) => propId && <button key={key} onClick={() => onSelect(propId)}>{propName(project, propId)}<small>{key}</small></button>)}</div>
+    <h3>调整整组</h3><button className="secondary asset-wide" disabled={busy || effectiveLayerLocked(scene, selected)} onClick={() => onCommit(() => workspace.execute([{ type: 'setEditLock', kind: 'prefabInstance', id: selected, locked: !group.editLocked }]))}><LockKeyhole size={14}/>{group.editLocked ? '解除组合编辑锁' : '锁定组合编辑'}</button>{onFillCopy && <FillCopyControls key={`prefab-fill-${selected}`} scene={scene} sourceId={selected} busy={busy || fillCopyBusy || effectiveEditLocked(scene, selected)} onFill={onFillCopy} onNumeric={onFillCopyNumeric}/>}<fieldset disabled={busy || effectiveEditLocked(scene, selected)}>
     <div className="workspace-field-pair" role="group" aria-label="组合位置"><NumberInput label="组合 X" value={group.anchorMm.x} onCommit={x => onCommit(() => workspace.execute([{ type: 'transformPrefab', id: selected, anchorMm: { ...group.anchorMm, x } }]))}/>
     <NumberInput label="组合 Y" value={group.anchorMm.y} onCommit={y => onCommit(() => workspace.execute([{ type: 'transformPrefab', id: selected, anchorMm: { ...group.anchorMm, y } }]))}/></div>
     <NumberInput label="组合旋转" value={group.rotationDeg} unit="°" onCommit={rotationDeg => onCommit(() => workspace.execute([{ type: 'transformPrefab', id: selected, rotationDeg }]))}/>
     <button className="secondary asset-wide" onClick={() => onCommit(async () => { await workspace.execute([{ type: 'unpackPrefab', id: selected }]); onSelect(null) })}>拆开组合</button>
-  </fieldset><h3>组合成员</h3><div className="asset-member-list">{Object.entries(group.members).filter(([, member]) => member.propId).map(([key, member]) => <button key={key} onClick={() => onSelect(member.propId!)}>{propName(project, member.propId!)}<small>{key}</small></button>)}</div><p className="asset-muted">拆开后保留每件物品的身份、位置、占地与可见性，可撤销恢复组合。</p>{clear}</>
+  </fieldset><p className="asset-muted">拆开后保留每件物品的身份、位置、占地与可见性，可撤销恢复组合。</p>{clear}</>
   if (vertex) return <><div className="asset-section-heading"><PencilRuler size={16}/><h2>建筑顶点</h2></div><h3>{selected === 'study-v1' ? '书房斜角 · 北端' : selected === 'study-v2' ? '书房斜角 · 东端' : '房间边界顶点'}</h3><p className="asset-muted">移动顶点会同时更新相邻墙、附着开口和地板裁剪。先预览，再采用。</p><fieldset disabled={busy || effectiveEditLocked(scene, selected)}>
     <div className="workspace-field-pair" role="group" aria-label="建筑顶点位置"><NumberInput label="顶点 X" value={vertex.xMm} onCommit={x => onPreview([{ type: 'moveVertex', id: selected, positionMm: { x, y: vertex.yMm } }], '调整建筑边界')}/>
     <NumberInput label="顶点 Y" value={vertex.yMm} onCommit={y => onPreview([{ type: 'moveVertex', id: selected, positionMm: { x: vertex.xMm, y } }], '调整建筑边界')}/></div>

@@ -1,19 +1,14 @@
 import { reloadSaved } from './workspace-ux-helpers'
+import { archiveUrl, featuredSampleIds, showcaseManifest, type MountedWorkspace as Dev } from './home-showcase-helpers'
 import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
-import type { Workspace } from '../src/application/workspace/workspace'
-import type { WorkspaceRepository } from '../src/editor/main/repository'
 import type { CompositionCommand } from '../src/shared/model/appearance'
 
-type Dev = { workspace: Workspace; repository: WorkspaceRepository }
-const showcaseManifest = JSON.parse(await readFile(new URL('../src/platform/browser/content/home-showcase-manifest.json', import.meta.url), 'utf8')) as {
-  entries: Record<string, { name: string; archiveFile: string }>
-}
-const homeSamples = await Promise.all(['investigation', 'island', 'coast'].map(async id => {
+const homeSamples = await Promise.all(featuredSampleIds.map(async id => {
   const entry = showcaseManifest.entries[id]
-  const files = unzipSync(await readFile(new URL('../public/assets/home-scenes/projects/' + entry.archiveFile, import.meta.url)))
+  const files = unzipSync(await readFile(archiveUrl(id)))
   const source = JSON.parse(new TextDecoder().decode(files['scene.json'])) as { presetSnapshot: Record<string, unknown> }
   return { name: entry.name, preset: source.presetSnapshot }
 }))

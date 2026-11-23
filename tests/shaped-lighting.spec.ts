@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { projectScene } from '../src/shared/projection/projection'
 import { visualBase } from '../src/shared/visual/base'
 import type { BoundsMm, PointMm } from '../src/shared/model/scene'
+import type { HomeShowcaseKind } from '../src/platform/browser/content/home-showcase'
+import { importSampleFile } from './home-showcase-helpers'
 import { clickKeyboardWorldPoint, createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, selectKeyboardProp } from './keyboard-ux-helpers'
 import { openSceneObjects, openVisualTask } from './workspace-navigation-helpers'
 import { mapExportButton, openDetailsBySummary, reloadSaved } from './workspace-ux-helpers'
@@ -20,10 +22,9 @@ async function adopt(page: Page, kind: '视觉' | '结构' | '组件' = '视觉'
   await keyboardWorkspaceSaved(page)
 }
 
-async function sample(page: Page, id: string, name: string) {
+async function sample(page: Page, id: HomeShowcaseKind) {
   await page.goto('./#home')
-  await page.locator(`[data-sample="${id}"]`).getByRole('button', { name, exact: true }).click()
-  await page.getByRole('dialog', { name: '确认打开工程', exact: true }).getByRole('button', { name: '保存并打开副本', exact: true }).click()
+  await importSampleFile(page, id)
   await keyboardWorkspaceSaved(page)
 }
 
@@ -106,7 +107,7 @@ test('canvas aiming, editable independent line, privacy, undo and saved PNG outp
 
 test('tavern window stays linked when the actual opening is widened in the building inspector', async ({ page }, info) => {
   test.setTimeout(150_000)
-  await sample(page, 'fantasy', '余烬酒馆与旅舍')
+  await sample(page, 'fantasy')
   const initial = await save(page, info, 'window-initial')
   const id = 'ember-exterior-window-0'
   const form = await openVisualTask(page, '灯光')
@@ -133,7 +134,7 @@ test('tavern window stays linked when the actual opening is widened in the build
 
 test('fixture spotlight uses the physical lamp transform and can be adjusted in the normal inspector', async ({ page }, info) => {
   test.setTimeout(150_000)
-  await sample(page, 'investigation', '雨夜旧宅调查所')
+  await sample(page, 'investigation')
   const id = 'authored-desk-8-brass-lamp'
   const first = await save(page, info, 'initial-fixture')
   await selectKeyboardProp(page, id)
@@ -152,11 +153,11 @@ test('fixture spotlight uses the physical lamp transform and can be adjusted in 
 
 test('route and area hosts remain editable, and the same floor switches from sun to moon', async ({ page }, info) => {
   test.setTimeout(240_000)
-  for (const [id, name, lampId, kind, field] of [
-    ['coast', '潮湾渔获补给站', 'tidehaven-pier-light-right', 'line', '视觉溢光范围 mm'],
-    ['volcano', '灰脊火口观测步道', 'natural-volcano-lava-glow', 'area', '视觉表面亮度'],
+  for (const [id, lampId, kind, field] of [
+    ['coast', 'tidehaven-pier-light-right', 'line', '视觉溢光范围 mm'],
+    ['volcano', 'natural-volcano-lava-glow', 'area', '视觉表面亮度'],
   ] as const) {
-    await sample(page, id, name)
+    await sample(page, id)
     const form = await openVisualTask(page, '灯光')
     await form.getByLabel('灯光', { exact: true }).selectOption(lampId)
     await expect(form.getByLabel('灯光类型', { exact: true })).toHaveValue(kind)
@@ -173,7 +174,7 @@ test('route and area hosts remain editable, and the same floor switches from sun
       expect(projected.shape.runs).toHaveLength(2)
     }
   }
-  await sample(page, 'island', '双台岬岛')
+  await sample(page, 'island')
   const sunPng = info.outputPath('island-sun-gm.png'), moonPng = info.outputPath('island-moon-gm.png')
   await png(page, 'gm', sunPng)
   const form = await openVisualTask(page, '环境')

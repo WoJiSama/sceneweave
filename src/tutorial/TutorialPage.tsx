@@ -10,7 +10,8 @@ import { images } from './images'
 import { atmosphere } from './atmosphere'
 import { delivery } from './delivery'
 import { aiTools } from './ai'
-import { tutorialImage } from './lesson'
+import { OpenTutorialSample, tutorialImage } from './lesson'
+import type { HomeShowcaseKind } from '../platform/browser/content/home-showcase'
 import { tutorialHref } from './location'
 import './tutorial.css'
 
@@ -22,7 +23,7 @@ function subscribeToHash(onChange: () => void) {
   return () => window.removeEventListener('hashchange', onChange)
 }
 
-export default function TutorialPage() {
+export default function TutorialPage({ onOpenSample }: { onOpenSample: (id: HomeShowcaseKind) => void }) {
   const hash = useSyncExternalStore(subscribeToHash, getHash)
   const [, chapterId, sectionId] = hash.split('/')
   const chapter = chapters.find(item => item.id === chapterId) ?? firstMap
@@ -49,7 +50,7 @@ export default function TutorialPage() {
     else window.scrollTo(0, 0)
   }, [chapter, section])
 
-  return <div className="tutorial-page">
+  return <OpenTutorialSample.Provider value={onOpenSample}><div className="tutorial-page">
     <header className="tutorial-header">
       <div className="tutorial-header-inner">
         <a href="#home" className="tutorial-brand" aria-label="织境首页"><Layers3 size={24} aria-hidden="true"/><span>织境 <small>Sceneweave</small></span></a>
@@ -100,5 +101,5 @@ export default function TutorialPage() {
         <nav className="tutorial-outline" aria-label="本章内容">{outline}</nav>
       </aside>
     </div>
-  </div>
+  </div></OpenTutorialSample.Provider>
 }

@@ -68,7 +68,7 @@ import type { DomainPreviewMap } from '../../application/workspace/workspace'
 import { domainOperationView, type DomainOperationLease } from './domain-operation-session'
 import { GENERATION_DOMAINS, useDomainOperations, type GenerationDomain, type GenerationOperation, type GenerationOperationPreviewMap } from './use-domain-operations'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { Archive, ArrowLeft, BookOpen, Sparkles, Palette, Shapes, Shield, WandSparkles, Layers3, PencilRuler, LoaderCircle, Move, Mountain, DoorOpen, Plus, Ruler, StickyNote, Redo2, Undo2, Upload, X } from 'lucide-react'
+import { Archive, ArrowDown, ArrowLeft, BookOpen, Sparkles, Palette, Shapes, Shield, WandSparkles, Layers3, PencilRuler, LoaderCircle, LocateFixed, LockKeyhole, Move, Mountain, DoorOpen, Plus, Ruler, Search, StickyNote, Redo2, Undo2, Upload, X } from 'lucide-react'
 import { WorkspaceRepository } from './repository'
 import { Workspace, type CompositionPreview, type RestorePreview, type StructureRestorePreview, type RegionalPreview } from '../../application/workspace/workspace'
 import RegionalPanel from './RegionalPanel'
@@ -113,7 +113,7 @@ import ReliefBrushTools from './ReliefBrushTools'
 import { createTerrainSculptToolState, type TerrainSculptToolState } from './terrain-sculpt-tools'
 import { prepareRoadDoorStart, type RoadDoorStartRequest, type RoadDoorStart } from './road-door-start'
 import { createTerrainElevationToolState, sampleTerrainElevation, stepTerrainElevation, type TerrainElevationToolState } from './terrain-elevation-tools'
-import { pathPolygon, terrainPoints } from '../../shared/geometry/geometry'
+import { pathPolygon, roomPoints, terrainPoints } from '../../shared/geometry/geometry'
 import { prepareBridgeDrag } from '../../shared/path-assembly/bridge-links'
 import { preparePipeDeviceDrag } from '../../shared/path-assembly/commands'
 import { linkedPipes, pipePortLabels, type PipePort } from '../../shared/path-assembly/pipe-geometry'
@@ -181,7 +181,9 @@ import CompositionChangesPanel from './CompositionChangesPanel'
 import TerrainInlayReviewPanel from './TerrainInlayReviewPanel'
 import { inspectTerrainInlayChanges, type TerrainInlayReview } from '../../application/workspace/terrain-inlay-review'
 import type { AssetImportFields } from './AssetImportForm'
-import BuildingPanel, { type BuildingTask } from './BuildingPanel'
+import BuildingPanel, { type BuildingTask, type FinishRoom } from './BuildingPanel'
+import RoomExtensionPanel from './RoomExtensionPanel'
+import { startRoomExtension, extensionBoundary, extensionDepth, extensionWallAt, type RoomExtensionDraft } from '../native-canvas/room-extension'
 import SceneBoundsPanel from './SceneBoundsPanel'
 import { assertMaterialTargets, surfaceMaterialCommands } from './surface-material'
 import { WorkspacePresentationContext } from '../workspace/WorkspacePresentation'
@@ -225,6 +227,7 @@ import './workspace-ux.css'
 import './workspace-controls.css'
 import './workspace-information-architecture.css'
 import './workspace-density.css'
+import './workspace-sidebars.css'
 
 const repository = new WorkspaceRepository()
 export const nativeWorkspace = new Workspace(projectRepository, { validation, runtime, validateCandidate: document => { validateStudyEdits(document); validateIslandEdits(document); validateOutpostEdits(document) } })
@@ -264,13 +267,25 @@ type ArtStyleComparisonSession =
   | { base: EditableProject; mode: 'baseline' }
   | { base: EditableProject; mode: 'alternatives'; sides: ArtStyleAlternatives; selectedSide: ArtStyleSide }
 type CatalogUse = { selector: CatalogSelectorV1; layerId: string; ids: string[] }
-type StructurePreview = { libraryPublication?: { revision: number; entry: PreparedCatalogEntryV1 }; prefabRevisionNotes?: string[]; privacyIteration?: number; privacyAdjusting?: boolean; resumeForm?: WorkspaceFormDraft; privacyReview?: BuildingPrivacyReview; privacyReady?: boolean; publicPrivacyConfirmed?: boolean; furnishing?: FurnishingReview; inlayReview?: TerrainInlayReview[]; assetQuality?: readonly AssetQualityAssessment[]; qualityAcknowledgments?: readonly string[]; afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display' | 'path-check' | 'image-enhancement'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
+type StructurePreview = { resumeExtension?: RoomExtensionDraft; libraryPublication?: { revision: number; entry: PreparedCatalogEntryV1 }; prefabRevisionNotes?: string[]; privacyIteration?: number; privacyAdjusting?: boolean; resumeForm?: WorkspaceFormDraft; privacyReview?: BuildingPrivacyReview; privacyReady?: boolean; publicPrivacyConfirmed?: boolean; furnishing?: FurnishingReview; inlayReview?: TerrainInlayReview[]; assetQuality?: readonly AssetQualityAssessment[]; qualityAcknowledgments?: readonly string[]; afterUse?: CatalogUse; assetBatch?: { count: number; addedDefinitions: number; operationCost: number }; fillCopy?: { report: FillCopyReport; cost: { total: number; limit: number } }; prepared: CompositionPreview; checkpoint: number; commands: CompositionCommand[]; document: SceneDocument; description: string; kind?: 'batch' | 'fill-copy' | 'layer' | 'building' | 'outdoor' | 'visual' | 'display' | 'path-check' | 'image-enhancement'; scopeIds?: string[]; layerIds?: string[]; confirmed?: boolean; selectionAfterAdopt?: string | null }
 function AffectedObjectNames({ before, after, ids }: { before: SceneDocument; after: SceneDocument; ids: readonly string[] }) {
   const labels = useMemo(() => {
     const previousName = createEntityLabeler(before), nextName = createEntityLabeler(after)
     return ids.filter(id => !before.vertices[id] && !after.vertices[id]).map(id => ({ id, name: nextName(id) === id ? previousName(id) : nextName(id) }))
   }, [before, after, ids])
   return <div className="workspace-scope-names" aria-label="关联对象">{labels.slice(0, 8).map(item => <span key={item.id}>{item.name}</span>)}{labels.length > 8 && <span>另 {labels.length - 8} 项</span>}</div>
+}
+
+function InspectorSelectionSummary({ scene, ids }: { scene: SceneDocument; ids: readonly string[] }) {
+  const name = useMemo(() => createEntityLabeler(scene), [scene])
+  const id = ids.length === 1 ? ids[0] : undefined
+  const title = id ? name(id) : `已选 ${ids.length} 个对象`
+  const layer = id ? scene.userLayers[scene.entityLayers[id]] : undefined
+  return <div className="workspace-inspector-summary" aria-label="当前选中对象" role="group">
+    <span className="workspace-inspector-summary-icon"><LocateFixed size={17} aria-hidden="true"/></span>
+    <div><strong title={title}>{title}</strong>{layer && <small title={layer.name}>{layer.name}</small>}</div>
+    {id && effectiveEditLocked(scene, id) && <span className="workspace-inspector-lock"><LockKeyhole size={13} aria-hidden="true"/>已锁定</span>}
+  </div>
 }
 const initialFormDrafts = () => Object.fromEntries(Object.keys(workspaceFormDraftLabels).map(key => [key, false])) as Record<WorkspaceFormDraft, boolean>
 const initialFormResets = () => Object.fromEntries(Object.keys(workspaceFormDraftLabels).map(key => [key, 0])) as Record<WorkspaceFormDraft, number>
@@ -294,6 +309,9 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const [chosenFloorId, setChosenFloorId] = useState('')
   const activeFloorId = completeProject ? (Object.hasOwn(completeProject.document.floors, chosenFloorId)
     ? chosenFloorId : defaultDisplayFloorId(completeProject.document) ?? '') : ''
+  const emptyDrawingFloor = useMemo(() => !!completeProject && completeProject.document.mapMode === 'scene'
+    && !Object.values(completeProject.document.entityLayers).some(layer => completeProject.document.userLayers[layer]?.floorId === activeFloorId)
+    && !completeProject.document.floors[activeFloorId]?.artwork, [completeProject, activeFloorId])
   const [storedLayerId, setCurrentLayerId] = useState(''), [hiddenLayerIds, setHiddenLayerIds] = useState<ReadonlySet<string>>(new Set()), [soloLayerId, setSoloLayerId] = useState<string | null>(null), [currentOnly, setCurrentOnly] = useState(false)
   const currentLayerId = completeProject?.document.userLayers[storedLayerId]?.floorId === activeFloorId ? storedLayerId : Object.values(completeProject?.document.userLayers ?? {}).find(layer => layer.floorId === activeFloorId)?.id ?? ''
   const renderHiddenLayers = useMemo(() => soloLayerId === null ? hiddenLayerIds
@@ -321,6 +339,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const [artStyleComparison, setArtStyleComparison] = useState<ArtStyleComparisonSession | null>(null)
   const [artStyleDivider, setArtStyleDivider] = useState(INITIAL_ART_STYLE_DIVIDER)
   const [catalogDetailOpen, setCatalogDetailOpen] = useState(false)
+  const [catalogDetailVersion, setCatalogDetailVersion] = useState(0)
   const [buildingTarget, setBuildingTarget] = useState<HTMLDivElement | null>(null)
   const [outdoorTarget, setOutdoorTarget] = useState<HTMLDivElement | null>(null)
   const [visualTarget, setVisualTarget] = useState<HTMLDivElement | null>(null)
@@ -343,9 +362,13 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const [formDrafts, setFormDrafts] = useState(initialFormDrafts)
   const [formReset, setFormReset] = useState(initialFormResets)
   const [catalogBusy, setCatalogBusy] = useState(false)
+  const catalogBrowse = useRef<(kind?: 'prop' | 'prefab') => void>(null)
+  const libraryCollections = useRef<HTMLHeadingElement>(null)
+  const libraryDressing = useRef<HTMLHeadingElement>(null)
+  const placementRoom = useRef<{ sceneId: string; selection: readonly string[]; kind: 'prop' | 'prefab' } | null>(null)
   const [pendingCatalogUse, setPendingCatalogUse] = useState<{ request: CatalogUse; project: EditableProject; checkpoint: number } | null>(null)
-  const [finishBuilding, setFinishBuilding] = useState<(() => void) | null>(null)
-  const onBuildingFinishReady = useCallback((finish: (() => void) | null) => setFinishBuilding(() => finish), [])
+  const [finishBuilding, setFinishBuilding] = useState<FinishRoom | null>(null)
+  const onBuildingFinishReady = useCallback((finish: FinishRoom | null) => setFinishBuilding(() => finish), [])
   const [finishOutdoor, setFinishOutdoor] = useState<(() => void) | null>(null)
   const onOutdoorFinishReady = useCallback((finish: (() => void) | null) => setFinishOutdoor(() => finish), [])
   const [finishSculpt, setFinishSculpt] = useState<(() => void) | null>(null)
@@ -548,7 +571,8 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const [structure, setStructure] = useState<StructurePreview | null>(null), [audience, setAudience] = useState<'gm' | 'player'>('gm'), [groundView, setGroundView] = useState(false)
   const structureRef = useRef<StructurePreview | null>(null)
   structureRef.current = structure
-  const [sketch, setSketch] = useState<BuildingSketch | null>(null)
+  const [sketch, setSketch] = useState<BuildingSketch | RoomExtensionDraft | null>(null)
+  const extension = sketch?.kind === 'extension' ? sketch : null
   const [openingTool, setOpeningTool] = useState<OpeningTool | null>(null)
   const [lightCanvasTool, setLightCanvasTool] = useState<CanvasWorldTool | null>(null)
   const [outdoorSketch, setOutdoorSketch] = useState<OutdoorSketch | null>(null)
@@ -570,7 +594,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const editConnectionForm = useCallback((editor: VisualBoundaryEditor | null) => setConnectionBoundaryEditor(editor ? { ...editor, owner: 'outdoorForm' } : null), [])
   const editConnectionInspector = useCallback((editor: VisualBoundaryEditor | null) => setConnectionBoundaryEditor(editor ? { ...editor, owner: 'outdoorInspector' } : null), [])
   const [newScene, setNewScene] = useState(false), [visualNewScene, setVisualNewScene] = useState(false)
-  const [prefabPlacement, setPrefabPlacement] = useState<string | null>(null)
+  const [prefabPlacement, setPrefabPlacement] = useState<{ definitionId: string; room?: { id: string; anchorMm: PointMm } } | null>(null)
   const [templatePlacement, setTemplatePlacement] = useState<{ entry: SceneTemplateEntry; sketch: SceneTemplateSketch; placement: SceneTemplatePlacement; repeat: boolean; follow: boolean; checkpoint: number } | null>(null)
   const [creatingStage, setCreatingStage] = useState<'preparing' | 'saving' | null>(null)
   const creatingStageRef = useRef<'preparing' | 'saving' | null>(null)
@@ -1228,15 +1252,33 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (completeProject && activeFloorId && chosenFloorId !== activeFloorId) setChosenFloorId(activeFloorId)
     if (completeProject && completeProject.document.userLayers[currentLayerId]?.floorId !== activeFloorId) setCurrentLayerId(Object.values(completeProject.document.userLayers).find(layer => layer.floorId === activeFloorId)?.id ?? '')
   }, [completeProject?.document, currentLayerId, activeFloorId, chosenFloorId])
+  const takePlacementRoom = (kind: 'prop' | 'prefab') => {
+    const target = placementRoom.current
+    placementRoom.current = null
+    if (!completeProject || target?.kind !== kind || target.sceneId !== completeProject.document.sceneId || target.selection !== selectionSession.getSnapshot()) return
+    const scene = completeProject.document, room = scene.rooms[target.selection[0]]
+    if (!room || room.floorId !== scene.userLayers[currentLayerId]?.floorId || scopedHiddenIds.has(room.id)) return
+    const b = pointsBounds(roomPoints(scene, room))
+    return { id: room.id, anchorMm: { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) } }
+  }
   const choosePlacement = (definitionId: string, position?: PointMm) => {
     if (!project || !completeProject || audience !== 'gm' || !guard()) return
     try {
       const layer = completeProject.document.userLayers[currentLayerId]
       if (!layer || layer.editLocked || effectiveHiddenLayers.has(layer.id)) throw new Error('请先选择可见且未锁定的当前图层。')
-      const b = resolveFloorOutput(completeProject.document, layer.floorId).boundsMm
-      const prop = createPlacedProp(completeProject.document, definitionId, position ?? { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }, runtime, { layerId: currentLayerId })
+      const scene = completeProject.document, room = takePlacementRoom('prop'), support = position ? undefined : room
+      const b = resolveFloorOutput(scene, layer.floorId).boundsMm
+      const prop = createPlacedProp(scene, definitionId, position ?? support?.anchorMm ?? { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }, runtime,
+        { layerId: currentLayerId, ...(support ? { supportRef: { kind: 'room', id: support.id } } : {}) })
       setPlacementReady(false); setPlacement({ prop, checkpoint: compositionWorkspace.checkpoint() }); inspect('selection'); enterCanvas(); setMessage(null)
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) }
+  }
+  const choosePrefab = (definitionId: string) => {
+    if (!completeProject || audience !== 'gm' || !guard()) return
+    const layer = completeProject.document.userLayers[currentLayerId]
+    if (!layer || layer.editLocked || effectiveHiddenLayers.has(layer.id)) { setMessage('请先选择可见且未锁定的当前图层。'); return }
+    setPrefabPlacement({ definitionId, room: takePlacementRoom('prefab') })
+    inspect('selection')
   }
   const placeAt = (positionMm: PointMm) => {
     if (!placement || busy || editingBlocked || audience !== 'gm' || !placementReady) return
@@ -1259,7 +1301,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const commit = (run: () => void | Promise<void>) => { if (!guard()) return; void action(async () => { await run() }, '编辑未采用') }
   const preview = (input: CompositionCommand[] | (() => CompositionCommand[]), description: string, scopeIds?: string[], form?: WorkspaceFormDraft) => {
     if (!project || !completeProject) return
-    const completingPrefab = Array.isArray(input) && input.every(command => command.type === 'instantiatePrefab' && command.definitionRef.id === prefabPlacement)
+    const completingPrefab = Array.isArray(input) && input.length === 1 && input[0].type === 'instantiatePrefab' && input[0].definitionRef.id === prefabPlacement?.definitionId ? input[0] : undefined
     const completingSight = sightSketch && Array.isArray(input) && input.length === 1 && input[0].type === 'setPropSightOccluder' && input[0].id === sightSketch.id
     const completingPort = pipePortTool && Array.isArray(input) && input.length === 1 && input[0].type === 'setPropPipePorts' && input[0].id === pipePortTool.id
     if (!guard([...(completingPrefab ? ['prefabPlacement' as const] : []), ...(completingSight || completingPort ? ['outdoorSketch' as const] : []), ...(form ? [form] : [])])) return
@@ -1305,8 +1347,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
         }
         impact = { ...base, affectedIds: [...affected].sort(), layerIds: [...layers].sort() }
       }
-      setStructure({ prepared, checkpoint, commands, document: prepared.document, description, inlayReview, ...(impact ? { kind: 'visual' as const, scopeIds: impact.affectedIds, layerIds: impact.layerIds, confirmed: false } : commands.every(command => command.type === 'upsertPathCheck' || command.type === 'deletePathCheck') ? { kind: 'path-check' as const } : commands.every(command => command.type === 'setSceneDisplay' || command.type === 'setSceneBackground') ? { kind: 'display' as const } : scopeIds ? { kind: 'layer' as const, scopeIds } : {}) })
-      if (completingPrefab) setPrefabPlacement(null)
+      setStructure({ prepared, checkpoint, commands, document: prepared.document, description, inlayReview, selectionAfterAdopt: completingPrefab?.id, ...(impact ? { kind: 'visual' as const, scopeIds: impact.affectedIds, layerIds: impact.layerIds, confirmed: false } : commands.every(command => command.type === 'upsertPathCheck' || command.type === 'deletePathCheck') ? { kind: 'path-check' as const } : commands.every(command => command.type === 'setSceneDisplay' || command.type === 'setSceneBackground') ? { kind: 'display' as const } : scopeIds ? { kind: 'layer' as const, scopeIds } : {}) })
       if (completingSight) setSightSketch(null)
       if (completingPort) setPipePortTool(null)
       if (form) finishFormDraft(form, form === 'propAppearanceForm' || form === 'pathCheckForm')
@@ -1654,7 +1695,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       if (!layer || layer.editLocked || effectiveHiddenLayers.has(layer.id)) throw new Error('请先选择可见且未锁定的当前图层。')
       const { selector, ids } = pending.request
       if (selector.kind === 'prop') { choosePlacement(selector.definitionId); revealPanel('inspector') }
-      else if (selector.kind === 'prefab') { if (guard()) { setPrefabPlacement(selector.definitionId); setPrefabToolsOpen(true); inspect('selection') } }
+      else if (selector.kind === 'prefab') choosePrefab(selector.definitionId)
       else {
         if (JSON.stringify(ids) !== JSON.stringify(selectionSession.getSnapshot())) throw new Error('所选表面已变化，请重新选择后应用材质。')
         const material = completeProject.document.materials[selector.definitionId]
@@ -1691,7 +1732,8 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     else if (kind === 'outdoor') previewOutdoor(commands as OutdoorCommand[], description)
     else previewBuilding(commands as SceneCommand[], description)
   }
-  const previewBuilding = (commands: SceneCommand[], description: string, form: 'buildingForm' | 'buildingInspector' | 'openingTool' | 'outdoorForm' | 'displayForm' | 'boundsForm' = 'buildingForm', privacyReview?: BuildingPrivacyRequest, onFailure?: (error: unknown) => void) => {
+  const previewBuilding = (commands: SceneCommand[], description: string, source: 'buildingForm' | 'buildingInspector' | 'openingTool' | 'outdoorForm' | 'displayForm' | 'boundsForm' | 'finishRoom' | RoomExtensionDraft = 'buildingForm', privacyReview?: BuildingPrivacyRequest, onFailure?: (error: unknown) => void) => {
+    const form = typeof source === 'object' || source === 'finishRoom' ? 'buildingForm' : source
     if (!completeProject || audience !== 'gm' || !guard(form === 'openingTool' ? ['outdoorSketch'] : [form, ...(form === 'buildingForm' ? ['sketch' as const] : [])])) return
     void action(async () => {
       const checkpoint = compositionWorkspace.checkpoint()
@@ -1708,8 +1750,19 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       for (const key of ['floors', 'pathAttachments'] as const) for (const id of new Set([...Object.keys(before[key] ?? {}), ...Object.keys(document[key] ?? {})])) if (JSON.stringify(before[key]?.[id]) !== JSON.stringify(document[key]?.[id])) affected.add(id)
       for (const id of inspectAttachmentChanges(before, document).affectedIds) affected.add(id)
       const impact = inspectBuildingChanges(before, document, [...affected])
+      const newRoom = commands.length === 1 && commands[0].type === 'createRoom' ? document.rooms[commands[0].id] : undefined
+      if (source === 'finishRoom' && newRoom && newRoom.visibility === 'public' && newRoom.supportRef.kind === 'floor' && !effectivePrivacyReview
+        && !impact.changedIds.length && !impact.removedIds.length && impact.affectedIds.length === impact.createdIds.length
+        && impact.createdIds.every(id => id === newRoom.id || document.vertices[id] || document.walls[id])) {
+        await compositionWorkspace.adoptPreview(prepared)
+        setSketch(null); finishFormDraft('buildingForm'); setSelected(newRoom.id); inspect('selection')
+        setMessage(`已建好「${newRoom.purpose || '房间'}」，可从顶栏撤销。`)
+        return
+      }
       if (!impact.affectedIds.length && JSON.stringify(before.aggregateCoordinates) === JSON.stringify(document.aggregateCoordinates) && JSON.stringify(before.constraints) === JSON.stringify(document.constraints) && JSON.stringify(before.exportBoundsMm) === JSON.stringify(document.exportBoundsMm) && JSON.stringify(before.floors) === JSON.stringify(document.floors) && JSON.stringify(before.pathAttachments) === JSON.stringify(document.pathAttachments) && JSON.stringify(completeProject.historyIdentity) === JSON.stringify(prepared.project.historyIdentity)) throw new Error('参数与当前工程一致，无需采用。')
       setStructure({ prepared, checkpoint, commands, document, description, kind: 'building', scopeIds: impact.affectedIds, layerIds: impact.layerIds, confirmed: false,
+        ...(newRoom && sketch ? { selectionAfterAdopt: newRoom.id } : {}),
+        ...(typeof source === 'object' ? { resumeExtension: source } : {}),
         ...((effectivePrivacyReview || form === 'boundsForm') && form !== 'openingTool' ? { resumeForm: form } : {}),
         ...(effectivePrivacyReview ? { privacyReview: effectivePrivacyReview, privacyReady: false, publicPrivacyConfirmed: false } : {}) })
       if (form === 'buildingForm') setSketch(null)
@@ -1754,6 +1807,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     selectionSession.set(normalizeSelection(scene, operation === 'replace' ? [id] : operation === 'add' ? [...current, id] : current.filter(value => value !== id), true))
   }
   const selectMany = (ids: readonly string[]) => {
+    if (ids.length === 1 && detailMode === 'building' && buildingTask === 'room') { select(ids[0]); return }
     if (!guard(detailMode === 'visual' && visualTab === 'artStyle' ? 'artStyleForm' : undefined)) return
     setMenu(null); setMessage(null); selectionSession.set(ids.filter(id => !scopedHiddenIds.has(id)))
   }
@@ -1832,6 +1886,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (candidate.kind === 'image-enhancement' && enhancementTarget) setAssetEditorResume(value => value + 1)
     if (templatePlacement) markFormDraft('templatePlacementForm')
     if (candidate.resumeForm) markFormDraft(candidate.resumeForm)
+    if (candidate.resumeExtension) { setSketch(candidate.resumeExtension); inspect('selection') }
     setMessage(`已取消「${candidate.description}」预览，工程未修改。`)
   }
   const preparePrefabRevision = (groupId: string, changes?: PrefabRevisionChange[]) => {
@@ -1909,7 +1964,12 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
           else cancelTemplatePlacement()
         }
         if (candidate.afterUse) setPendingCatalogUse({ request: candidate.afterUse, project: compositionWorkspace.getState().project!, checkpoint: compositionWorkspace.checkpoint() })
-        if (candidate.selectionAfterAdopt !== undefined) setSelected(candidate.selectionAfterAdopt)
+        if (candidate.selectionAfterAdopt !== undefined) {
+          setSelected(candidate.selectionAfterAdopt)
+          if (candidate.commands.some(command => (command.type === 'createRoom' || command.type === 'instantiatePrefab') && command.id === candidate.selectionAfterAdopt)) {
+            setPrefabPlacement(null); inspect('selection')
+          }
+        }
         setMessage(changed ? `已采用「${candidate.description}」，作为一次编辑；可用顶部“撤销”整笔撤回。` : '候选与当前工程一致，未新增编辑或撤销记录。')
       } catch (error) { compositionWorkspace.cancelPreview(candidate.prepared); setStructure(null); throw error }
     }, candidate.fillCopy ? '采用填充复制' : '采用候选')
@@ -2041,7 +2101,40 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   }
   const canFinishCanvas = (completing: readonly WorkspaceDraft[]) => active && audience === 'gm' && !catalogBusy
     && !document.querySelector('[role="dialog"],[role="menu"],.workspace-help[open],.workspace-export-menu[open]') && guard(completing)
-  const buildingWorldTool = sketch && audience === 'gm' ? { ...sketch, snapMm: project?.document.units.snapMm ?? 100, onCancel: () => setSketch(null),
+  const updateExtension = (changes: Partial<Pick<RoomExtensionDraft, 'wall' | 'depthMm' | 'purpose'>>) =>
+    setSketch(current => current?.kind === 'extension' ? { ...current, ...changes } : current)
+  const previewExtension = (depthMm: number) => {
+    if (!completeProject || !extension?.wall || !canFinishCanvas(['sketch'])) return
+    if (extension.document !== compositionWorkspace.getState().project?.document || currentLayerId !== extension.layerId) {
+      setSketch(null); setMessage('工程或绘制图层已改变，请重新选择扩建外墙。'); return
+    }
+    if (!Number.isSafeInteger(depthMm) || depthMm <= 0) { setMessage('请向房间外侧取点，或输入大于零的进深。'); return }
+    const room = completeProject.document.rooms[extension.roomId], wall = extension.wall
+    updateExtension({ depthMm })
+    previewBuilding([{ type: 'createRoom', id: newId(), floorId: room.floorId, layerId: currentLayerId, boundaryMm: extensionBoundary(wall, depthMm),
+      purpose: extension.purpose, thicknessMm: wall.thicknessMm, supportRef: room.supportRef, visibility: room.visibility,
+      ...(room.floorStyle ? { materialRef: room.floorStyle.base.materialRef } : {}) }], `沿${room.purpose || '房间'}外墙新建${extension.purpose || '房间'}`, { ...extension, depthMm })
+  }
+  const extensionTool: CanvasWorldTool | null = extension && completeProject && audience === 'gm' ? {
+    kind: 'polygon', snapMm: 1, cursor: null, points: extension.wall && extension.depthMm > 0 ? extensionBoundary(extension.wall, extension.depthMm) : [],
+    label: '沿外墙扩建 · Esc 退出',
+    roomExtension: { walls: extension.walls, selectedId: extension.wall?.id, depthMm: extension.depthMm, chooseWall: (point, toleranceMm) => {
+      const wall = extensionWallAt(extension.walls, point, toleranceMm)
+      if (wall && wall.id !== extension.wall?.id) updateExtension({ wall, depthMm: extension.depthMm || 3000 })
+      return !!wall
+    } },
+    onMove: point => {
+      if (!extension.wall) return
+      const depthMm = extensionDepth(extension.wall, point, completeProject.document.units.snapMm)
+      if (depthMm !== extension.depthMm) updateExtension({ depthMm })
+    },
+    onPoint: point => {
+      if (extension.wall) previewExtension(extensionDepth(extension.wall, point, completeProject.document.units.snapMm))
+      else setMessage('请先点击高亮的外墙，再向外取点。')
+    },
+    onFinish: () => previewExtension(extension.depthMm), onCancel: () => setSketch(null),
+  } : null
+  const buildingWorldTool = sketch && sketch.kind !== 'extension' && audience === 'gm' ? { ...sketch, snapMm: project?.document.units.snapMm ?? 100, onCancel: () => setSketch(null),
     label: sketch.kind === 'ruler' ? '量尺 · 点击两点 · Escape 退出' : '点击绘图 · Enter 预览 · Escape 退出',
     onFinish: sketch.kind === 'ruler' ? undefined : () => {
       if (!canFinishCanvas(['sketch', 'buildingForm'])) return
@@ -2051,10 +2144,10 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
       else setMessage('建筑设置或当前图层尚不可预览，请在建筑面板检查参数与编辑锁。')
     },
     onPoint: (point: PointMm) => setSketch(current => {
-      if (!current) return null
+      if (!current || current.kind === 'extension') return current
       const points = current.kind !== 'polygon' && current.kind !== 'orthogonal' && current.points.length >= 2 ? [point] : [...current.points, point]
       return { ...current, points, cursor: null }
-    }), onMove: (point: PointMm) => setSketch(current => current && !(!['polygon', 'orthogonal'].includes(current.kind) && current.points.length >= 2) ? { ...current, cursor: point } : current),
+    }), onMove: (point: PointMm) => setSketch(current => current && current.kind !== 'extension' && !(!['polygon', 'orthogonal'].includes(current.kind) && current.points.length >= 2) ? { ...current, cursor: point } : current),
   } : null
   const openingWorldTool = openingTool && audience === 'gm' ? { kind: 'polyline' as const, points: [], cursor: null, snapMm: 1, label: '点击墙面放置门窗 · Escape 退出', onMove: () => {}, onCancel: () => setOpeningTool(null), onPoint: (point: PointMm) => {
     if (!completeProject) return
@@ -2165,7 +2258,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     onCancel: () => setScatterClearing(null), onFinish: finishScatterClearing,
   } : null
   const lightPlacementTool = audience === 'gm' && sidebar === 'visual' && visualTab === 'light' && !catalogDetailOpen ? lightCanvasTool : null
-  const canvasWorldTool = templateWorldTool ?? sculptWorldTool ?? elevationWorldTool ?? openingWorldTool ?? lightPlacementTool ?? terrainEditCanvas?.scopeTool ?? sightWorldTool ?? pipePortWorldTool ?? clearingTool ?? sightViewTool ?? (outdoorSketch && audience === 'gm' ? {
+  const canvasWorldTool = extensionTool ?? templateWorldTool ?? sculptWorldTool ?? elevationWorldTool ?? openingWorldTool ?? lightPlacementTool ?? terrainEditCanvas?.scopeTool ?? sightWorldTool ?? pipePortWorldTool ?? clearingTool ?? sightViewTool ?? (outdoorSketch && audience === 'gm' ? {
     kind: outdoorSketch.kind, points: outdoorSketch.points, cursor: outdoorSketch.cursor,
     road: outdoorSketch.purpose === 'path' ? roadSettings ?? undefined : undefined,
     roadStroke: outdoorSketch.roadStroke && roadStrokeSettings ? { settings: roadStrokeSettings, onEnd: (points: PointMm[], drawnSupports: SurfaceRef[]) => {
@@ -2232,6 +2325,30 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     })
   }
   const openResources = (module: typeof sidebar) => { setSidebar(module); revealPanel('resources') }
+  const jumpToLibrarySection = (heading: HTMLHeadingElement | null) => {
+    heading?.focus({ preventScroll: true })
+    heading?.scrollIntoView({ block: 'start' })
+  }
+  const startExtension = (selected: string) => {
+    if (!completeProject || audience !== 'gm' || !guard()) return
+    try {
+      const scene = completeProject.document, layer = scene.userLayers[currentLayerId]
+      if (!layer || layer.editLocked || effectiveHiddenLayers.has(layer.id)) throw new Error('请选择可见、可编辑的绘制图层。')
+      const draft = startRoomExtension(scene, selected, scopedHiddenIds, currentLayerId)
+      if (scene.rooms[draft.roomId].floorId !== layer.floorId) throw new Error('请切换到房间所在楼层。')
+      setSketch(draft); setMessage(null); inspect('selection'); enterCanvas()
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) }
+  }
+  const startOpeningTool = () => {
+    if (!guard()) return
+    setOpeningTool({ kind: 'door', widthMm: 900 }); inspect('selection'); enterCanvas()
+  }
+  const browseProps = (kind?: 'prop' | 'prefab') => {
+    if (!guard()) return
+    placementRoom.current = kind && completeProject ? { sceneId: completeProject.document.sceneId, selection: selectionSession.getSnapshot(), kind } : null
+    openResources('library')
+    catalogBrowse.current?.(kind)
+  }
   const openHistory = () => { setSidebar('history'); revealPanel('resources') }
   const startBuildingTool = (kind: BuildingSketch['kind']) => { if (!completeProject || !guard()) return; setBuildingTask(kind === 'ruler' ? 'ruler' : 'room'); if (kind !== 'ruler') markFormDraft('buildingForm'); setDetailMode('building'); setCatalogDetailOpen(false); setSketch({ kind, points: [], cursor: null }); setSidebar('building'); enterCanvas() }
   const startDoorRoad = (request: RoadDoorStartRequest) => {
@@ -2268,7 +2385,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (generationDraft && generationDraft !== 'local') { setGenerationTab(generationDraft); openResources('generate'); return }
     if (templatePlacement) { enterCanvas(); return }
     if (formDrafts.catalogForm || formDrafts.assetImportForm || formDrafts.roomFurnishingForm || formDrafts.sceneTemplateForm || formDrafts.dressingTemplateForm) { openResources('library'); return }
-    inspect(openingTool || placement || prefabPlacement ? 'selection' : formDrafts.visualForm ? 'visual' : formDrafts.displayForm || formDrafts.boundsForm || formDrafts.pathCheckForm || formDrafts.titleForm ? 'settings' : formDrafts.appearanceForm && detailMode === 'layer' ? 'layer' : outdoorSketch || formDrafts.outdoorForm ? detailMode === 'dress' ? 'dress' : detailMode === 'outdoorAggregate' ? 'outdoorAggregate' : 'outdoor' : formDrafts.buildingForm || sketch ? 'building' : 'selection')
+    inspect(extension || openingTool || placement || prefabPlacement ? 'selection' : formDrafts.visualForm ? 'visual' : formDrafts.displayForm || formDrafts.boundsForm || formDrafts.pathCheckForm || formDrafts.titleForm ? 'settings' : formDrafts.appearanceForm && detailMode === 'layer' ? 'layer' : outdoorSketch || formDrafts.outdoorForm ? detailMode === 'dress' ? 'dress' : detailMode === 'outdoorAggregate' ? 'outdoorAggregate' : 'outdoor' : formDrafts.buildingForm || sketch ? 'building' : 'selection')
   }
   const hasCandidate = hasReview || generationSummary.hasCandidate || !!terrainPreview || !!regionalPreview || !!terrainEditPreview || aiShown
   const resumeCandidate = () => {
@@ -2283,7 +2400,7 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   }
   const draftControls = <>{(editingBlocked || hasDraft) && <p className="asset-muted" role="status">{openingTool ? '门窗放置尚未结束。请点击墙面继续，或取消门窗工具。' : workspaceTransitionReason({ ...transient(), busy: false, preparing: false })}侧栏浏览保留当前选择、输入和候选。</p>}
           {(placement || prefabPlacement || sketch || outdoorSketch || openingTool) && !editingBlocked && <div className="building-sketch-status" role="group" aria-label="当前工具">
-            <span>{placement ? '物件放置' : prefabPlacement ? '组合放置' : sketch ? '建筑绘图或量尺' : openingTool ? '门窗放置' : '室外画布取点'}</span>
+            <span>{placement ? '物件放置' : prefabPlacement ? '组合放置' : extension ? '沿墙扩建' : sketch ? '建筑绘图或量尺' : openingTool ? '门窗放置' : '室外画布取点'}</span>
             <button className="secondary" disabled={busy} onClick={() => {
               if (placement) setPlacement(null)
               else if (prefabPlacement) { setPrefabPlacement(null); finishFormDraft('prefabForm', true) }
@@ -2350,9 +2467,11 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
               selectedIds: baseMapPreview ? ids.filter(id => Object.hasOwn(authoringProject.document.props, id)) : ids, layerId: authoringLayerId, canPrepare: canPrepareAuthoring,
               onPreview: next => { setAiPreview(next); if (!next) setShowAiDraft(false) }, onRegionalPreview: receiveAiRegionalPreview,
               onAdopted: () => { setAiPreview(null); setShowAiDraft(false); if (baseMapPreview) { terrainPreviewRef.current = null; setTerrainPreview(null); setSelected(null); setSessionGeneration(value => value + 1) }; setHistoryRefresh(value => value + 1) }, onCritical: setAiCritical } : undefined}/></>}</SelectionSubscriber></div>
-          <div hidden={sidebar !== 'outdoor' || audience !== 'gm'}><div className="workspace-task-heading"><h2>地形与布景</h2><p>绘制地面和道路，或选择已有地形进行修改。</p></div><TaskPicker label="地形任务" value={outdoorTab} onChange={value => { setOutdoorTab(value); if (value !== 'draw') inspect(value === 'edit' ? 'outdoorEdit' : value === 'dress' ? 'dress' : 'regenerate') }} choices={[{id:'draw',label:'绘制地形',description:'地面、道路、桥梁、围栏与高差连接'},{id:'edit',label:'修改地形',description:'岸线、笔刷与局部联动'},{id:'dress',label:'布置植被',description:'树木、草簇与岩石'},{id:'regenerate',label:'局部重生成',description:'保留人工编辑'}]}/><div className="workspace-task-section" hidden={outdoorTab !== 'draw'} onChangeCapture={event => { if (!(event.target as HTMLElement).closest('[data-aggregate-session-control]')) markFormDraft('outdoorForm') }} onPointerDownCapture={event => { if ((event.target as HTMLElement).closest('.staircase-cover-board') && !(event.target as HTMLElement).closest('fieldset[disabled]')) markFormDraft('outdoorForm') }} onClickCapture={event => { if ((event.target as HTMLElement).closest('.connection-route-fields button, .water-preset, .staircase-covers button')) markFormDraft('outdoorForm') }}>{completeProject && <OutdoorToolsPanel detailsTarget={outdoorTarget} detailsActive={detailMode === 'outdoor' && !catalogDetailOpen} activeTask={outdoorTask} onTaskChange={task => { if (task !== outdoorTask && !guard(['outdoorForm', 'outdoorSketch'])) return; setOutdoorTask(task); inspect('outdoor') }} onBrowseScene={openLayers} key={`${panelKey}-${formReset.outdoorForm}`} scene={completeProject.document} layerId={currentLayerId}
+          <div className="workspace-terrain-module" hidden={sidebar !== 'outdoor' || audience !== 'gm'}><TaskPicker label="地形任务" value={outdoorTab} onChange={value => { setOutdoorTab(value); if (value !== 'draw') inspect(value === 'edit' ? 'outdoorEdit' : value === 'dress' ? 'dress' : 'regenerate') }} choices={[{ id: 'draw', label: '绘制地形' }, { id: 'edit', label: '修改地形' }, { id: 'dress', label: '布置植被' }, { id: 'regenerate', label: '局部重生成' }]}/><div className="workspace-task-section" hidden={outdoorTab !== 'draw'} onChangeCapture={event => { if (!(event.target as HTMLElement).closest('[data-aggregate-session-control]')) markFormDraft('outdoorForm') }} onPointerDownCapture={event => { if ((event.target as HTMLElement).closest('.staircase-cover-board') && !(event.target as HTMLElement).closest('fieldset[disabled]')) markFormDraft('outdoorForm') }} onClickCapture={event => { if ((event.target as HTMLElement).closest('.connection-route-fields button, .water-preset, .staircase-covers button')) markFormDraft('outdoorForm') }}>{completeProject && <OutdoorToolsPanel detailsTarget={outdoorTarget} detailsActive={detailMode === 'outdoor' && !catalogDetailOpen} activeTask={outdoorTask} onTaskChange={task => { if (task !== outdoorTask && !guard(['outdoorForm', 'outdoorSketch'])) return; setOutdoorTask(task); inspect('outdoor') }} onBrowseScene={openLayers} key={`${panelKey}-${formReset.outdoorForm}`} scene={completeProject.document} layerId={currentLayerId}
             disabled={toolDisabled(['outdoorSketch', 'outdoorForm']) || effectiveHiddenLayers.has(currentLayerId)} sketch={outdoorSketch} onOceanPreview={(commands, label) => preview(commands, label, undefined, 'outdoorForm')} onStylePreview={(commands, label) => preview(commands, label, undefined, 'outdoorForm')}
           onSketch={next => { if (!next) setOutdoorSketch(null); else if (guard('outdoorForm')) { setOutdoorSketch(next); markFormDraft('outdoorForm'); setDetailMode('outdoor'); setCatalogDetailOpen(false); enterCanvas() } }} onPreview={previewOutdoor} onSelect={select} onBoundaryEditor={editConnectionForm} onRoadSettings={setRoadSettings} onRoadStrokeSettings={setRoadStrokeSettings} roadStart={roadStart} onRoadStartConsumed={id => setRoadStart(current => current?.id === id ? null : current)} onFinishReady={onOutdoorFinishReady}/>}
+            <section className="workspace-terrain-more">
+            <h3>高程与自然组</h3>
             <button type="button" className="secondary asset-wide" disabled={!completeProject || (!elevationSession && editDisabled)} onClick={() => {
               if (!completeProject) return
               if (elevationSession) { inspect('elevation'); return }
@@ -2372,27 +2491,43 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
               markFormDraft('sculptForm'); inspect('sculpt')
             }}>{sculptSession ? '继续局部台地 / 洼地' : '开始局部台地 / 洼地'}</button>
             <button className="secondary asset-wide" disabled={!completeProject} onClick={() => inspect('outdoorAggregate')}>自然组 · 创建与整体调整</button>
+            </section>
           </div></div>
           <div hidden={sidebar !== 'library' || audience !== 'gm'} onChangeCapture={event => { if ((event.target as HTMLElement).closest('.composition-import') && !(event.target as HTMLElement).closest('.asset-batch-import')) { singleAssetDraft.current=true; syncAssetDraft() } }}>{completeProject && (() => {
             const libraryProps = { project: completeProject, disabled: editDisabled, importDisabled: toolDisabled(['assetImportForm']), importResetKey: formReset.assetImportForm,
-              onImportBatch: importAssetBatch, onAssetBatchDraftChange: onAssetBatchDraft, onInvalidateAssetBatch: invalidateAssetBatch, assetBatchPreviewActive: !!structure?.assetBatch, onPlace: choosePlacement, onPrefab: (id: string) => { if (guard()) { setPrefabPlacement(id); inspect('selection') } }, onImport: importAsset,
+              onImportBatch: importAssetBatch, onAssetBatchDraftChange: onAssetBatchDraft, onInvalidateAssetBatch: invalidateAssetBatch, assetBatchPreviewActive: !!structure?.assetBatch, onPlace: choosePlacement, onPrefab: choosePrefab, onImport: importAsset,
               onMaterial: (id: string) => {
                 if (!guard()) return
                 const ids = selectionSession.getSnapshot()
                 preview(() => surfaceMaterialCommands(completeProject, ids, id), '将固定材质应用到所选表面')
               } }
-            return <><ThemePacksPanel key={`${panelKey}-theme-packs`} disabled={editDisabled} onAdopt={adoptCatalog} onPendingChange={onThemePending}/><ProjectAssetReviewPanel project={completeProject} disabled={editDisabled} onPendingChange={onProjectReviewPending}/><CatalogLibrary organizationDisabled={toolDisabled(['catalogForm'])} externalRefreshKey={imageLibraryRefresh} detailTarget={catalogTarget} detailVisible={catalogDetailOpen} detailReturnLabel={detailMode === 'review' ? '返回候选审阅' : detailMode === 'selection' ? '返回对象' : '返回当前任务'} onDetailChange={open => { setCatalogDetailOpen(open); if (open) revealPanel('inspector') }} key={panelKey} {...libraryProps} builtinProject={builtinProject} builtinLoading={builtinLoading} builtinError={builtinError}
+            return <><CatalogLibrary browseRef={catalogBrowse} organizationDisabled={toolDisabled(['catalogForm'])} externalRefreshKey={imageLibraryRefresh} detailTarget={catalogTarget} detailVisible={catalogDetailOpen} detailReturnLabel={detailMode === 'review' ? '返回候选审阅' : detailMode === 'selection' ? '返回对象' : '返回当前任务'}
+              onDetailChange={open => { setCatalogDetailOpen(open); if (open) { setCatalogDetailVersion(version => version + 1); revealPanel('inspector') } }}
+              key={panelKey} {...libraryProps} builtinProject={builtinProject} builtinLoading={builtinLoading} builtinError={builtinError}
               onBrowse={() => openResources('library')} onManage={() => { setCatalogDetailOpen(false); openResources('library') }} onBuiltinDemand={requestBuiltin} variantsProject={variantsProject} variantsLoading={variantsLoading} variantsError={variantsError} onVariantsDemand={requestVariants}
-              onAdopt={adoptCatalog} onUse={useCatalogItem} onPendingChange={onCatalogPending} onDraftChange={onCatalogDraft} organizationResetKey={formReset.catalogForm}/></>
+              onAdopt={adoptCatalog} onUse={useCatalogItem} onPendingChange={onCatalogPending} onDraftChange={onCatalogDraft} organizationResetKey={formReset.catalogForm}
+              shortcuts={<div className="workspace-library-shortcuts" role="group" aria-label="素材区快捷入口">
+                <button type="button" onClick={() => jumpToLibrarySection(libraryCollections.current)}>素材专题<ArrowDown size={13} aria-hidden="true"/></button>
+                <button type="button" onClick={() => jumpToLibrarySection(libraryDressing.current)}>布景与模板<ArrowDown size={13} aria-hidden="true"/></button>
+              </div>}/>
+              <section className="workspace-library-section" aria-labelledby="workspace-library-collections">
+                <div className="workspace-library-section-heading"><h2 id="workspace-library-collections" ref={libraryCollections} tabIndex={-1}>素材专题</h2><button type="button" onClick={() => catalogBrowse.current?.()}><Search size={14} aria-hidden="true"/>返回搜索</button></div>
+                <ThemePacksPanel key={`${panelKey}-theme-packs`} disabled={editDisabled} onAdopt={adoptCatalog} onPendingChange={onThemePending}/>
+                <ProjectAssetReviewPanel project={completeProject} disabled={editDisabled} onPendingChange={onProjectReviewPending}/>
+              </section>
+            </>
           })()}{completeProject && <SelectionSubscriber session={selectionSession}>{ids => <>
+            <section className="workspace-library-section" aria-labelledby="workspace-library-dressing">
+            <div className="workspace-library-section-heading"><h2 id="workspace-library-dressing" ref={libraryDressing} tabIndex={-1}>布景与模板</h2><button type="button" onClick={() => catalogBrowse.current?.()}><Search size={14} aria-hidden="true"/>返回搜索</button></div>
             <DressingTemplateCapture key={`${panelKey}-dressing-${formReset.dressingTemplateForm}`} project={completeProject} ids={ids} disabled={toolDisabled(['dressingTemplateForm'])} onDraftChange={onDressingTemplateDraft} onPendingChange={onDressingTemplatePending} onSaved={() => setImageLibraryRefresh(value => value + 1)}/>
             <RoomFurnishingPanel key={`${panelKey}-furnishing-${formReset.roomFurnishingForm}`} project={completeProject} ids={ids} floorId={activeFloorId} layerId={currentLayerId} disabled={toolDisabled(['roomFurnishingForm'])} onDraftChange={onRoomFurnishingDraft} onPreview={previewRoomFurnishing}/>
             <SceneTemplateLibrary key={`${panelKey}-scene-template-${formReset.sceneTemplateForm}`} project={completeProject} ids={ids} floorId={activeFloorId} layerId={currentLayerId} disabled={toolDisabled(['sceneTemplateForm'])} onDraftChange={onSceneTemplateDraft} onPendingChange={onSceneTemplatePending} onPreview={previewSceneTemplate} onCanvasPlacement={startTemplatePlacement}
               onBridgeSync={(bridgeId, original, entry, signal) => previewSceneTemplate(entry, { bridgeId, original }, signal)}/>
+            </section>
           </>}</SelectionSubscriber>}</div>
-          <div hidden={sidebar !== 'building' || audience !== 'gm'} onChangeCapture={event => { if (!(event.target as HTMLElement).closest('[data-aggregate-session-control]')) markFormDraft('buildingForm') }}>{completeProject && <BuildingPanel detailsTarget={buildingTarget} detailsActive={detailMode === 'building' && !catalogDetailOpen} activeTask={buildingTask} onTaskChange={task => { if (task !== buildingTask && !guard(['buildingForm', 'sketch'])) return; setBuildingTask(task); inspect('building') }} onBrowseScene={openLayers} onOpenSettings={showSettings} onOpenings={() => { if (guard()) { setOpeningTool({ kind: 'door', widthMm: 900 }); inspect('selection') } }} key={`${panelKey}-${formReset.buildingForm}`} scene={completeProject.document} layerId={currentLayerId}
-            disabled={toolDisabled(['sketch', 'buildingForm']) || effectiveHiddenLayers.has(currentLayerId)} sketch={sketch}
-            onSketch={next => { if (!next) setSketch(null); else if (guard('buildingForm')) { setSketch(next); if (next.kind !== 'ruler') markFormDraft('buildingForm'); setDetailMode('building'); setCatalogDetailOpen(false); enterCanvas() } }} onPreview={previewBuilding} onSelect={select} onSelectMany={selectMany} onFinishReady={onBuildingFinishReady}/>}</div>
+          <div hidden={sidebar !== 'building' || audience !== 'gm'} onChangeCapture={event => { if (!(event.target as HTMLElement).closest('[data-aggregate-session-control]')) markFormDraft('buildingForm') }}>{completeProject && <BuildingPanel detailsTarget={buildingTarget} detailsActive={detailMode === 'building' && !catalogDetailOpen} activeTask={buildingTask} onTaskChange={task => { if (task !== buildingTask && !guard(['buildingForm', 'sketch'])) return; setBuildingTask(task); inspect('building') }} onBrowseScene={openLayers} onOpenSettings={showSettings} onOpenings={startOpeningTool} key={`${panelKey}-${formReset.buildingForm}`} scene={completeProject.document} layerId={currentLayerId}
+            disabled={!!extension || toolDisabled(['sketch', 'buildingForm']) || effectiveHiddenLayers.has(currentLayerId)} sketch={sketch?.kind === 'extension' ? null : sketch}
+            onSketch={next => { if (!next) setSketch(null); else if (guard('buildingForm')) { setSketch(next); if (next.kind !== 'ruler') markFormDraft('buildingForm'); setDetailMode('building'); setCatalogDetailOpen(false); enterCanvas() } }} onPreview={(commands, label, intent) => previewBuilding(commands, label, intent === 'finish' ? 'finishRoom' : 'buildingForm')} onSelect={select} onSelectMany={selectMany} onFinishReady={onBuildingFinishReady}/>}</div>
           <div hidden={sidebar !== 'visual' || audience !== 'gm'} onChangeCapture={event => {
             if (!(event.target as HTMLElement).closest('[data-art-style-controls]')) markFormDraft('visualForm')
           }}>{completeProject && <SelectionSubscriber session={selectionSession}>{ids => {
@@ -2439,13 +2574,42 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
     if (!commands.every(isOutdoorCommand)) { setMessage('散布成员修改包含不支持的室外操作。'); return }
     previewOutdoor(commands as OutdoorCommand[], description, selectionAfterCommit)
   }
+  const emptyFloorActions = emptyDrawingFloor && audience === 'gm' && !editDisabled && !effectiveHiddenLayers.has(currentLayerId)
+    && !completeProject?.document.userLayers[currentLayerId]?.editLocked && <div className="room-context-actions" role="group" aria-label="空白楼层起步">
+      <button className="primary" onClick={() => startBuildingTool('rectangle')}><PencilRuler size={15}/>画第一间房</button>
+      <button className="secondary" onClick={startTerrainTool}><Mountain size={15}/>画地形</button>
+    </div>
   const inspectorPanel = <SelectionSubscriber session={selectionSession}>{ids => {
     const selectedIds = ids, selected = ids.length === 1 ? ids[0] : null
+    if (extension && completeProject && audience === 'gm') return <aside className="asset-inspector">
+      <RoomExtensionPanel draft={extension} unit={completeProject.document.units.display} disabled={toolDisabled(['sketch'])}
+        onChange={updateExtension} onPreview={() => previewExtension(extension.depthMm)} onCancel={() => setSketch(null)}/>
+    </aside>
+    const prefabTools = completeProject && audience === 'gm' && <div onChangeCapture={() => markFormDraft('prefabForm')}>
+      <PrefabPanel key={`${panelKey}-${prefabPlacement?.definitionId ?? ''}-${formReset.prefabForm}`} project={completeProject} ids={ids} layerId={currentLayerId}
+        placementDefinitionId={prefabPlacement?.definitionId} placementRoom={prefabPlacement?.room}
+        onCancelPlacement={prefabPlacement ? () => { setPrefabPlacement(null); finishFormDraft('prefabForm', true) } : undefined}
+        onSelect={select} onPublishRevision={preparePrefabRevision} onSyncRevision={preparePrefabRevision} disabled={toolDisabled(['prefabPlacement', 'prefabForm'])}
+        onPreview={(commands, description) => preview(commands, description, undefined, 'prefabForm')}/>
+    </div>
+    if (prefabPlacement && prefabTools) return <aside className="asset-inspector">{prefabTools}</aside>
     const enhancement = completeProject && selected ? (['prop', 'room', 'terrainArea', 'wall'] as const)
       .map(kind => ({ kind, id: selected })).find(target => target.kind === 'prop' ? !!completeProject.document.props[target.id] : target.kind === 'room' ? !!completeProject.document.rooms[target.id] : target.kind === 'wall' ? !!completeProject.document.walls[target.id] : !!completeProject.document.terrainAreas[target.id]) : undefined
+    const editAsset = enhancement && audience === 'gm' && <button type="button" className="secondary asset-wide" disabled={editDisabled} onClick={() => { if (guardAssetEditorDeparture() && guard()) setEnhancementTarget(enhancement) }}>编辑素材</button>
     return <aside className="asset-inspector">
-      {enhancement && audience === 'gm' && <button type="button" className="secondary asset-wide" disabled={editDisabled} onClick={() => { if (guardAssetEditorDeparture() && guard()) setEnhancementTarget(enhancement) }}>编辑素材</button>}
-      {completeProject && selected && audience === 'gm' && !openingTool && !placement && <AssociatedNotes scene={completeProject.document} selectedId={selected} onSelect={select}/>}
+      {completeProject && selected && audience === 'gm' && !sketch && !openingTool && !placement && (completeProject.document.rooms[selected] || completeProject.document.walls[selected]) &&
+        <section className="workspace-inspector-section workspace-room-actions">
+        <h3>{completeProject.document.rooms[selected] ? '房间操作' : '墙体操作'}</h3>
+        <div className="room-context-actions" role="group" aria-label={completeProject.document.rooms[selected] ? '房间操作' : '墙体操作'}>
+          <button type="button" className="secondary" disabled={editDisabled} onClick={() => startExtension(selected)}><PencilRuler size={15}/>沿墙扩建</button>
+          <button type="button" className="secondary" disabled={editDisabled} onClick={startOpeningTool}><DoorOpen size={15}/>放置门窗</button>
+          {completeProject.document.rooms[selected] && <>
+            <button type="button" className="secondary" disabled={editDisabled} onClick={() => browseProps('prop')}><Plus size={15}/>摆放单件</button>
+            <button type="button" className="secondary" disabled={editDisabled} onClick={() => browseProps('prefab')}><Layers3 size={15}/>摆放组合</button>
+            <button type="button" className="secondary" disabled={toolDisabled(['roomFurnishingForm'])} onClick={openFurnishing}><Shapes size={15}/>按用途布置房间</button>
+          </>}
+        </div>
+        </section>}
       {openingTool ? <OpeningPlacementPanel value={openingTool} unit={completeProject?.document.units.display ?? 'm'} disabled={busy} onChange={setOpeningTool} onCancel={() => setOpeningTool(null)}/> : project && placement && audience === 'gm' ? <PlacementInspector scene={project.document} prop={placement.prop} busy={busy} ready={placementReady} onChange={changes => setPlacement(current => current ? { ...current, prop: { ...current.prop, ...changes } } : null)} onPlace={() => placeAt(placement.prop.positionMm)} onCancel={() => setPlacement(null)}/>
             : visibleProject && selectedIds.length > 1 && audience === 'gm' ? <div onChangeCapture={() => markFormDraft('selectionForm')}><SelectionInspector key={`${panelKey}-${formReset.selectionForm}`} scene={project!.document} ids={selectedIds} summaryReader={selectionSummaryReader} busy={toolDisabled(['selectionForm'])} onAction={batchAction} onClear={() => select(null)}/></div>
               : completeProject && selected && audience === 'gm' && (completeProject.document.decorations?.[selected] || completeProject.document.decorationClusters?.[selected]) ? <div onChangeCapture={() => markFormDraft('outdoorInspector')}><DecorationInspector onOpenLayers={openLayers} key={`${selected}-${completeProject.document.revision}-${formReset.outdoorInspector}`} scene={completeProject.document} id={selected} disabled={toolDisabled(['outdoorInspector'])} onPreview={(commands, label) => previewDecorations(commands, label, 'outdoorInspector')} onSelect={select}/></div>
@@ -2454,22 +2618,24 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
                   onDrawScatterExclusion={(id, reason) => { if (guard('outdoorInspector')) { setScatterClearing({ id, reason, points: [], cursor: null }); enterCanvas() } }}/></div>
                   : completeProject && selected && audience === 'gm' && (completeProject.document.rooms[selected] || completeProject.document.walls[selected] || completeProject.document.vertices[selected] || completeProject.document.openings[selected] || completeProject.document.notes[selected] || completeProject.document.regions[selected]?.kind === 'manualMask') ? <div onChangeCapture={event => { if (!(event.target as HTMLElement).closest('[data-road-door-start]')) markFormDraft('buildingInspector') }}><BuildingInspector onRoadDoorStart={startDoorRoad} onOpenLayers={openLayers} key={`${selected}-${completeProject.document.revision}-${formReset.buildingInspector}`} scene={completeProject.document} appearance={completeProject.appearance} selected={selected} layerId={currentLayerId} disabled={toolDisabled(['buildingInspector'])} onPreview={(commands, label, privacy, onFailure) => previewBuilding(commands, label, 'buildingInspector', privacy, onFailure)} onSelect={select} onLock={(kind, id, locked) => commit(() => compositionWorkspace.execute([{ type: 'setEditLock', kind, id, locked }]))}/>{completeProject.document.openings[selected]?.kind === 'door' && <PathAttachmentTools project={completeProject} openingId={selected} disabled={toolDisabled(['buildingInspector'])} onDraftChange={() => markFormDraft('buildingInspector')} onPreview={(commands, label) => previewBuilding(commands, label, 'buildingInspector')}/>}</div>
                     : completeProject && visibleProject && selected && audience === 'gm' ? <div>
-                        <SceneInspector onOpenLayers={openLayers} onDrawSight={beginSightSketch} onMarkPipePort={(id, port) => {
+                        <SceneInspector appearanceAction={enhancement?.kind === 'prop' ? editAsset : undefined} showObjectName={false} onOpenLayers={openLayers} onDrawSight={beginSightSketch} onMarkPipePort={(id, port) => {
                           if (guard()) { setPipePortTool({ id, port }); enterCanvas() }
                         }} key={`${selected}-${completeProject.document.revision}-${formReset.propAppearanceForm}`} project={completeProject} selected={selected} busy={toolDisabled(['propAppearanceForm'])} appearanceResetKey={formReset.propAppearanceForm} onAppearanceDraftChange={onPropAppearanceDraft} onFillCopy={beginFillCopy} onFillCopyNumeric={previewNumericFillCopy} fillCopyBusy={!!fillCopy} workspace={compositionWorkspace} onSelect={select} onCommit={commit} onPreview={(commands, description) => preview(commands, description, undefined, Array.isArray(commands) && commands.some(command => (command.type === 'replacePropAppearance' || command.type === 'setPropWaterAppearance')) ? 'propAppearanceForm' : undefined)} onPropCommand={(commands, description, selectionAfterCommit) => editInspectorProp(selected, commands, description, selectionAfterCommit)}/>
                       </div> : <>
-          <div className="asset-section-heading"><Move size={16}/><h2>{audience === 'player' ? '玩家输出预览' : '当前选择'}</h2></div>
-          <p className="asset-muted">{audience === 'player' ? '画布和对象列表仅展示公开投影。' : '点击画布或左侧场景对象查看详情；选择工具后在这里调整参数。'}</p>
+          {!ids.length && emptyFloorActions ? <section className="workspace-inspector-section workspace-empty-start">
+            <h2>开始绘制</h2><p className="asset-muted">从一间房或一块地面开始。</p>{emptyFloorActions}
+          </section> : <p className="workspace-empty-hint">{audience === 'player' ? '画布和对象列表显示玩家可见内容。' : '选中画布或场景列表里的对象，即可查看属性。'}</p>}
         </>}
-      {completeProject && audience === 'gm' && selected && completeProject.document.rooms[selected] && <button className="secondary asset-wide" onClick={() => { if (guard('roomFurnishingForm')) openFurnishing() }}>按用途布置房间</button>}
-      {completeProject && audience === 'gm' && selected && ['rooms', 'terrainAreas', 'walls', 'paths', 'terrainEdges', 'terrainConnections'].some(kind => Object.hasOwn(completeProject.document[kind as 'rooms'], selected)) && <div className="workspace-surface-actions"><button className="secondary asset-wide" onClick={() => { if (guard()) { setVisualTab('surface'); setSurfaceRequest(value => value + 1); inspect('visual') } }}>材质与铺装</button><button className="secondary asset-wide" onClick={() => openResources('library')}>从素材选择材质</button></div>}
+      {completeProject && selected && audience === 'gm' && !openingTool && !placement && <AssociatedNotes scene={completeProject.document} selectedId={selected} onSelect={select}/>}
+      {completeProject && audience === 'gm' && selected && ['rooms', 'terrainAreas', 'walls', 'paths', 'terrainEdges', 'terrainConnections'].some(kind => Object.hasOwn(completeProject.document[kind as 'rooms'], selected)) && <section className="workspace-inspector-section workspace-surface-actions"><h3>表面外观</h3><button className="secondary asset-wide" onClick={() => { if (guard()) { setVisualTab('surface'); setSurfaceRequest(value => value + 1); inspect('visual') } }}>材质与铺装</button><button className="secondary asset-wide" onClick={() => openResources('library')}>从素材选择材质</button>{editAsset}</section>}
+      {enhancement?.kind === 'prop' && (openingTool || placement) && editAsset}
       {!restore && !structureRestore && project && selectedIds.length > 0 && audience === 'gm' && !placement && <button className="secondary asset-wide" disabled={busy || editingBlocked} onClick={event => {
         const b = event.currentTarget.getBoundingClientRect(), bounds = project.document.exportBoundsMm
         openMenu(project.document.props[selectedIds[0]]?.positionMm ?? { x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) }, [...selectedIds], { x: b.left, y: b.bottom }, event.currentTarget)
       }}>更多操作</button>}
-      {completeProject && audience === 'gm' && !restore && !structureRestore && (ids.length > 0 || !!prefabPlacement) && <>
+      {completeProject && audience === 'gm' && !restore && !structureRestore && ids.length > 0 && <>
         <details className="workspace-advanced" open={appearanceOpen} onToggle={event => setAppearanceOpen(event.currentTarget.open)}><summary>外观与图层调整</summary><div onChangeCapture={() => markFormDraft('appearanceForm')}><AppearancePanel key={`${panelKey}-${formReset.appearanceForm}`} project={completeProject} ids={ids} layerId={inspectedLayerId || currentLayerId} scopeKind="targets" disabled={toolDisabled(['appearanceForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'appearanceForm')}/></div></details>
-        <details className="workspace-advanced" open={prefabToolsOpen || !!prefabPlacement} onToggle={event => setPrefabToolsOpen(event.currentTarget.open)}><summary>组合与重复布置</summary><div onChangeCapture={() => markFormDraft('prefabForm')}><PrefabPanel key={`${panelKey}-${prefabPlacement ?? ''}-${formReset.prefabForm}`} project={completeProject} ids={ids} layerId={currentLayerId} placementDefinitionId={prefabPlacement} onSelect={select} onPublishRevision={preparePrefabRevision} onSyncRevision={preparePrefabRevision} disabled={toolDisabled(['prefabPlacement', 'prefabForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'prefabForm')}/></div></details>
+        <details className="workspace-advanced" open={prefabToolsOpen} onToggle={event => setPrefabToolsOpen(event.currentTarget.open)}><summary>组合与重复布置</summary>{prefabTools}</details>
       </>}
     </aside> }}</SelectionSubscriber>
   const reviewPanel = <>{structureRestore && <StructureRestoreChangesPanel preview={structureRestore} current={completeProject!}/>} {restore && <RestoreChangesPanel preview={restore} current={completeProject!}/>}          {(terrainLocalPreview || terrainLocalBusy) && <div className="asset-structure-preview" role="status" aria-label="局部地形联动候选"><div><strong>{terrainLocalBusy ? '正在计算局部地形联动' : '局部地形联动候选 · 主工程尚未改变'}</strong><span>{terrainLocalBusy ? '正在读取过渡、素材和依赖闭包。' : `影响 ${terrainLocalPreview?.result.changedIds.length ?? 0} 项；范围外内容已保留。`}</span></div>{terrainLocalPreview && <><button className="primary" disabled={busy} onClick={() => void adoptTerrainLocal()}>保护并采用</button><button className="secondary" disabled={busy} onClick={cancelTerrainLocal}>取消局部地形预览</button></>}</div>}
@@ -2509,7 +2675,11 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
   const canvasPanel = <main className="asset-center">
           {completeProject && audience === 'gm' && <LayerSelectionNotice scene={completeProject.document} currentLayerId={currentLayerId} hiddenLayerIds={hiddenLayerIds} soloLayerId={soloLayerId} currentOnly={currentOnly} disabled={editDisabled}
             onOpenLayers={openLayers} onShow={id => changeSelectionView(() => setHiddenLayerIds(current => { const next = new Set(current); next.delete(id); return next }))} onExitSolo={() => changeSelectionView(() => setSoloLayerId(null))} onAllLayers={() => changeSelectionView(() => setCurrentOnly(false))}/>}
-          {sketch && <div className="workspace-canvas-hint" role="status" aria-label={sketch.kind === 'ruler' ? '量尺操作提示' : '房间绘制提示'}><span>{sketch.kind === 'ruler' ? `${sketch.points.length} / 2 点 · 点击起点和终点测量距离；Esc 退出。` : finishBuilding ? '轮廓已就绪，可先检查名称、尺寸和支撑表面；Enter 预览，Esc 退出。' : sketch.kind === 'rectangle' ? `${sketch.points.length} / 2 点 · 点击矩形的两个对角；Esc 退出。` : `${sketch.points.length} 个点 · 继续点击顶点，至少三点后预览；Esc 退出。`}</span>{finishBuilding && <button className="primary" disabled={busy || editingBlocked} onClick={finishBuilding}>预览房间</button>}<button className="secondary" disabled={busy || editingBlocked} onClick={() => setSketch(null)}>退出{sketch.kind === 'ruler' ? '量尺' : '房间绘制'}</button></div>}
+          {extension && <div className="workspace-canvas-hint" role="status" aria-label="扩建房间提示">
+            <span>{extension.wall ? '向外拖动后松开，或点击新房间的外沿预览。' : '从高亮外墙向外拖出房间，也可以依次点击外墙和新房间的外沿。'}</span>
+            <button className="secondary" onClick={() => inspect('selection')}>填写尺寸</button><button className="secondary" onClick={() => setSketch(null)}>退出扩建</button>
+          </div>}
+          {sketch && sketch.kind !== 'extension' && <div className="workspace-canvas-hint" role="status" aria-label={sketch.kind === 'ruler' ? '量尺操作提示' : '房间绘制提示'}><span>{sketch.kind === 'ruler' ? `${sketch.points.length} / 2 点 · 点击起点和终点测量距离；Esc 退出。` : finishBuilding ? '检查轮廓后完成房间。涉及已有对象时会先预览。Enter 可查看完整预览。' : sketch.kind === 'rectangle' ? `${sketch.points.length} / 2 点 · 点击矩形的两个对角；Esc 退出。` : `${sketch.points.length} 个点 · 继续点击顶点，至少三点后预览；Esc 退出。`}</span>{finishBuilding && <><button className="primary" disabled={busy || editingBlocked} onClick={() => finishBuilding('finish')}>完成房间</button><button className="secondary" disabled={busy || editingBlocked} onClick={() => finishBuilding()}>预览房间</button></>}<button className="secondary" disabled={busy || editingBlocked} onClick={() => setSketch(null)}>退出{sketch.kind === 'ruler' ? '量尺' : '房间绘制'}</button></div>}
           {outdoorSketch && <div className="workspace-canvas-hint" role="status" aria-label="地形绘制提示"><span>{outdoorSketch.points.length} 个点 · {finishOutdoor ? '草图已就绪，预览后确认材质、宽度与实际影响。' : '继续在画布取点；道路与连接至少两点，地形与区域至少三点；Esc 退出。'}</span>{finishOutdoor && <> <button className="primary" disabled={busy || editingBlocked} onClick={finishOutdoor}>预览绘制结果</button></>}<button className="secondary" disabled={busy || editingBlocked} onClick={() => setOutdoorSketch(null)}>退出地形绘制</button></div>}
           {sightSketch && <div className="workspace-canvas-hint" role="status" aria-label="遮挡线绘制提示">
             <span>在物件背面取点 · {sightSketch.points.length} 个点</span>
@@ -2690,8 +2860,16 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             onPlacementReady={setPlacementReady} onPlacementError={error => { setPlacement(null); setMessage(error) }} onCancelPlacement={() => setPlacement(null)}/>
             : visibleProject ? <div className="asset-empty" role="status"><p>当前楼层将在此候选中移除；请核对楼层与依赖差异后采用，或取消返回原楼层。</p></div> : <div className="asset-empty"><div className="asset-empty-icon"><Layers3 size={36}/></div><span>从一张空白画布开始</span><p>手工绘制房间与地形，或先生成一张地图再继续编辑。</p><div className="workspace-start-actions"><button className="primary" disabled={busy} onClick={openNewScene}>新建场景</button><button className="secondary" disabled={busy} onClick={() => request({ type: 'generate' })}>生成地图</button><button className="secondary" disabled={busy} onClick={showSamples}>从样板开始</button></div></div>}</div>
         </main>
-  const workspaceTools = <><div ref={setToolControlsTarget}/><button title="画矩形房间" aria-label="工具：画房间" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={!!sketch && sketch.kind !== 'ruler'} onClick={() => startBuildingTool('rectangle')}><PencilRuler size={18}/><small>房间</small></button><button title="点击墙面放置门窗" aria-label="工具：门窗" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={!!openingTool} onClick={() => { if (guard()) { setOpeningTool({ kind: 'door', widthMm: 900 }); inspect('selection') } }}><DoorOpen size={18}/><small>门窗</small></button><button title="绘制地形" aria-label="工具：画地形" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={!!outdoorSketch} onClick={startTerrainTool}><Mountain size={18}/><small>地形</small></button><button title="选择待放置素材" aria-label="工具：放置素材" disabled={editDisabled || !completeProject || audience === 'player'} onClick={() => { if (guard()) openResources('library') }}><Plus size={18}/><small>放置</small></button><button title="文字与线索" aria-label="工具：注记" disabled={editDisabled || !completeProject || audience === 'player'} onClick={showNotes}><StickyNote size={18}/><small>注记</small></button><button title="玩家遮罩" aria-label="工具：遮罩" disabled={editDisabled || !completeProject || audience === 'player'} onClick={() => { if (guard()) { setBuildingTask('mask'); setSidebar('building'); inspect('building') } }}><Shield size={18}/><small>遮罩</small></button><button title="量尺" aria-label="工具：量尺" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={sketch?.kind === 'ruler'} onClick={() => startBuildingTool('ruler')}><Ruler size={18}/><small>量尺</small></button></>
-  const workspaceFooter = <><div ref={setViewControlsTarget}/>{project && <button className="workspace-display-summary" disabled={audience === 'player'} onClick={showSettings} title="打开单位与格线设置">{project.document.units.display === 'm' ? '米' : '英尺'} · 格线{project.document.units.gridVisible ? '显示' : '隐藏'} · 吸附 {project.document.units.snapMm} mm</button>}<SelectionSubscriber session={selectionSession}>{ids => <span>已选 {ids.length} 项</span>}</SelectionSubscriber><span>{placement ? '放置物件' : prefabPlacement ? '放置组合' : sketch?.kind === 'ruler' ? '量尺' : sketch ? '绘制房间' : openingTool ? '放置门窗' : outdoorSketch ? '绘制室外' : '选择 / 平移'}</span><span>{audience === 'gm' ? '主持人视图' : '玩家视图'}</span></>
+  const workspaceTools = <><div ref={setToolControlsTarget}/><button title="画矩形房间" aria-label="工具：画房间" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={!!sketch && sketch.kind !== 'ruler'} onClick={() => startBuildingTool('rectangle')}><PencilRuler size={18}/><small>房间</small></button><button title="点击墙面放置门窗" aria-label="工具：门窗" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={!!openingTool} onClick={startOpeningTool}><DoorOpen size={18}/><small>门窗</small></button><button title="绘制地形" aria-label="工具：画地形" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={!!outdoorSketch} onClick={startTerrainTool}><Mountain size={18}/><small>地形</small></button><button title="选择待放置素材" aria-label="工具：放置素材" disabled={editDisabled || !completeProject || audience === 'player'} onClick={() => browseProps()}><Plus size={18}/><small>放置</small></button><button title="文字与线索" aria-label="工具：注记" disabled={editDisabled || !completeProject || audience === 'player'} onClick={showNotes}><StickyNote size={18}/><small>注记</small></button><button title="玩家遮罩" aria-label="工具：遮罩" disabled={editDisabled || !completeProject || audience === 'player'} onClick={() => { if (guard()) { setBuildingTask('mask'); setSidebar('building'); inspect('building') } }}><Shield size={18}/><small>遮罩</small></button><button title="量尺" aria-label="工具：量尺" disabled={editDisabled || !completeProject || audience === 'player'} aria-pressed={sketch?.kind === 'ruler'} onClick={() => startBuildingTool('ruler')}><Ruler size={18}/><small>量尺</small></button></>
+  const workspaceFooter = <><div ref={setViewControlsTarget}/>{project && <button className="workspace-display-summary" disabled={audience === 'player'} onClick={showSettings} title="打开单位与格线设置">{project.document.units.display === 'm' ? '米' : '英尺'} · 格线{project.document.units.gridVisible ? '显示' : '隐藏'} · 吸附 {project.document.units.snapMm} mm</button>}<SelectionSubscriber session={selectionSession}>{ids => <span>已选 {ids.length} 项</span>}</SelectionSubscriber><span>{placement ? '放置物件' : prefabPlacement ? '放置组合' : sketch?.kind === 'ruler' ? '量尺' : extension ? '沿墙扩建' : sketch ? '绘制房间' : openingTool ? '放置门窗' : outdoorSketch ? '绘制室外' : '选择 / 平移'}</span><span>{audience === 'gm' ? '主持人视图' : '玩家视图'}</span></>
+  const selectionTool = extension ? '沿墙扩建' : openingTool ? '放置门窗' : placement ? '放置物件' : prefabPlacement ? '放置组合' : null
+  const inspectorTitle = audience === 'player' ? '玩家输出预览' : catalogDetailOpen ? '素材详情' : ({
+    selection: selectionTool ?? '当前对象', settings: '场景设置', layer: '图层详情', building: '建筑参数',
+    outdoor: '地形参数', elevation: '整面高程', sculpt: '台地与洼地', outdoorEdit: '地形修改',
+    outdoorAggregate: '自然组', dress: '植被布置', regenerate: '局部重生成', visual: '氛围参数',
+    history: '历史详情', review: '候选审阅', samples: '场景模板',
+  })[detailMode]
+  const inspectorTask = detailMode === 'building' ? buildingTask : detailMode === 'outdoor' ? outdoorTask : detailMode === 'visual' ? visualTab : ''
   return <WorkspacePresentationContext.Provider value={{ ...presentation, aiReviewActive: !!aiPreview }}>
     <div className="asset-shell history-shell composition-shell outdoor-shell workspace-unified" ref={shell} data-testid="outdoor-workbench" data-native-format={`sceneweave-complete-project@${completeProject?.schemaVersion ?? 1}`} data-revision={project?.document.revision}
       data-transaction-revision={state.lastTransaction?.revision} data-transaction-committed-at={state.lastTransaction?.committedAtMs}>
@@ -2708,16 +2886,20 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
         onBackup={() => backup()}/>
       {message && <WorkspaceNotice message={message} transient={message === transientMessage} onDismiss={dismissMessage}/>}
       <div className="workspace-session-feedback">{hasCandidate && audience === 'gm' && <button className="secondary" onClick={resumeCandidate}>返回候选审阅</button>}{(hasDraft || sketch || outdoorSketch || openingTool) && <button className="secondary" onClick={resumeDraft}>返回当前工具与草稿</button>}{draftControls}</div>
-      <WorkspaceLayout active={active} sessionKey={panelKey} panelRequest={panelRequest} layoutControlsTarget={layoutControlsTarget} modules={[
+      <SelectionSubscriber session={selectionSession}>{ids => {
+      const showSelection = audience === 'gm' && detailMode === 'selection' && !selectionTool && !catalogDetailOpen && ids.length > 0
+      return <WorkspaceLayout active={active} sessionKey={panelKey} panelRequest={panelRequest} layoutControlsTarget={layoutControlsTarget} modules={[
         { id: 'scene', label: '场景', icon: <Layers3 size={18}/> }, { id: 'generate', label: '生成', icon: <WandSparkles size={18}/>, disabled: audience === 'player' },
         { id: 'outdoor', label: '地形', icon: <Mountain size={18}/>, disabled: !completeProject || audience === 'player' }, { id: 'building', label: '建筑', icon: <PencilRuler size={18}/>, disabled: !completeProject || audience === 'player' },
         { id: 'library', label: '素材与布景', icon: <Shapes size={18}/>, disabled: !completeProject || audience === 'player' }, { id: 'visual', label: '氛围', icon: <Palette size={18}/>, disabled: !completeProject || audience === 'player' },
         { id: 'ai', label: 'AI', icon: <Sparkles size={18}/>, disabled: audience === 'player', group: 'utility' }, { id: 'history', label: '历史', icon: <BookOpen size={18}/>, disabled: !completeProject || audience === 'player', group: 'utility' },
-      ]} activeModule={audience === 'player' ? 'scene' : sidebar} onModuleChange={id => setSidebar(id as typeof sidebar)} resourceTitle={audience === 'player' ? '场景' : ({ scene: '场景', library: '素材与布景', building: '建筑', outdoor: '地形', visual: '氛围', generate: '生成', ai: 'AI', history: '历史' })[sidebar]} inspectorTitle={audience === 'player' ? '玩家输出预览' : catalogDetailOpen ? '素材详情' : detailMode === 'review' ? '候选审阅' : detailMode === 'layer' ? '图层详情' : detailMode === 'settings' ? '场景设置' : '当前详情'}
+      ]} activeModule={audience === 'player' ? 'scene' : sidebar} onModuleChange={id => setSidebar(id as typeof sidebar)} inspectorTitle={inspectorTitle}
+        inspectorViewKey={`${inspectorTitle}:${inspectorTask}:${catalogDetailOpen ? catalogDetailVersion : showSelection ? ids.length === 1 ? ids[0] : 'multi' : ''}`}
+        inspectorSummary={showSelection && completeProject && <InspectorSelectionSummary scene={completeProject.document} ids={ids}/>}
         resources={resourcePanels} inspector={<>
           <div ref={setCatalogTarget} hidden={!catalogDetailOpen || audience !== 'gm'} data-catalog-detail-open={catalogDetailOpen} onKeyDown={event => { if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); event.stopPropagation(); setCatalogDetailOpen(false) } }}/>
           <div hidden={catalogDetailOpen && audience === 'gm'} className="workspace-context-content">
-            {audience === 'gm' && detailMode !== 'selection' && detailMode !== 'review' && <button className="secondary asset-wide" onClick={() => { if (guard()) inspect('selection') }}>返回所选对象</button>}
+            {audience === 'gm' && detailMode !== 'selection' && detailMode !== 'review' && <button className="workspace-inspector-back" onClick={() => { if (guard()) inspect('selection') }}><ArrowLeft size={14} aria-hidden="true"/>返回所选对象</button>}
             <div hidden={detailMode !== 'selection' && audience === 'gm'}>{inspectorPanel}</div>
             <div hidden={detailMode !== 'settings' || audience !== 'gm'}>{projectTools}</div>
             <div hidden={detailMode !== 'samples' || audience !== 'gm'}>{sampleTools}</div>
@@ -2741,7 +2923,8 @@ export default function Workbench({ onBack, onImportFile, active = true, onContr
             <div hidden={detailMode !== 'layer' || audience !== 'gm'}>{completeProject && inspectedLayerId && <SelectionSubscriber session={selectionSession}>{() => <><h2>{completeProject.document.userLayers[inspectedLayerId]?.name}</h2><p className="asset-muted">图层持续规则 · 影响本层现有及后续对象。</p><div onChangeCapture={() => markFormDraft('appearanceForm')}><AppearancePanel key={`${panelKey}-${formReset.appearanceForm}-layer`} project={completeProject} ids={[]} layerId={inspectedLayerId} scopeKind="layer" disabled={toolDisabled(['appearanceForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'appearanceForm')}/></div></>}</SelectionSubscriber>}</div>
             <div className="workspace-review-context" hidden={detailMode !== 'review' || audience !== 'gm'}>{reviewPanel}<div ref={setReviewTarget}/></div>
           </div>
-        </>} tools={workspaceTools} footer={workspaceFooter}>{canvasPanel}</WorkspaceLayout>
+        </>} tools={workspaceTools} emptyFloorActions={emptyFloorActions} footer={workspaceFooter}>{canvasPanel}</WorkspaceLayout>
+      }}</SelectionSubscriber>
       {uvtt && <UvttExportDialog {...uvtt} onClose={() => setUvtt(null)}/>}
       <input hidden ref={file} type="file" accept=".sceneweave" aria-label="选择完整工程" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected && guard()) onImportFile(selected) }}/>
       {busy && !preparation && <div className="asset-busy" role="status"><LoaderCircle size={17} className="spin"/>{busyMessage}{controller.current && <button onClick={() => controller.current?.abort()}>取消准备</button>}</div>}

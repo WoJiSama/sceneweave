@@ -13,11 +13,8 @@ import { boundedResponseBytes, type ContentLoadProgress } from './load-resources
 
 export type HomeShowcaseKind = keyof typeof manifest.entries
 
-/** Read only the chosen fixed archive. A card preview is never an import or a
- * validation certificate. Both the original and its independent copy undergo
- * complete byte/pixel validation before the ordinary save-and-open workflow. */
-export async function createHomeShowcaseProject(sample: HomeShowcaseKind, signal?: AbortSignal,
-  onProgress?: (progress: ContentLoadProgress) => void): Promise<EditableProject> {
+/** Read and validate the published sample without opening it in a workspace. */
+export async function readHomeShowcaseArchive(sample: HomeShowcaseKind, signal?: AbortSignal, onProgress?: (progress: ContentLoadProgress) => void) {
   signal?.throwIfAborted()
   if (!Object.hasOwn(manifest.entries, sample)) throw new Error('未知首页样板。')
   const entry = manifest.entries[sample]
@@ -35,6 +32,14 @@ export async function createHomeShowcaseProject(sample: HomeShowcaseKind, signal
   const bundle = await importProject(bytes, { ...validation, signal })
   signal?.throwIfAborted()
   if (projectContentHash(bundle.project) !== entry.projectHash) throw new Error('首页样板内容与固定清单不同。')
+  return bundle
+}
+
+/** Instantiate the fixed sample with independent project and relation identities. */
+export async function createHomeShowcaseProject(sample: HomeShowcaseKind, signal?: AbortSignal,
+  onProgress?: (progress: ContentLoadProgress) => void): Promise<EditableProject> {
+  const bundle = await readHomeShowcaseArchive(sample, signal, onProgress)
+  signal?.throwIfAborted()
   const project = captureJson(bundle.project), now = runtime.clock.now()
   Object.assign(project.document, { sceneId: runtime.ids.nextId(), revision: 0, createdAt: now, updatedAt: now })
   const { attachmentSurfaces, attachments, pathAttachments, ...root } = project.document

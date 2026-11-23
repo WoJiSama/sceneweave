@@ -22,7 +22,8 @@ export const firstMap: TutorialChapter = {
     },
     {
       id: 'rooms', title: '画大厅和储藏室', body: <>
-        <p>左侧打开「建筑 → 绘制房间」。右侧「房间参数」选矩形，填写名称、墙厚、宽度和高度。画布从左上起算，X 向右增加，Y 向下增加。展开「精确位置」填写起点。每次改完数字按 <kbd>Tab</kbd> 或 <kbd>Enter</kbd> 确认当前字段。</p>
+        <p>在空白楼层点「画第一间房」，依次点大厅的两个对角，点「完成房间」。选中大厅点「沿墙扩建」，点右侧外墙，再点「填写尺寸」。给新房间命名为「储藏室」，进深填 4 米，预览并核对共墙后采用。也可以直接从外墙向右拖出想要的进深。</p>
+        <p>要按下表复现图中的坐标和两种地板，可以从「建筑 → 绘制房间」分别建房。右侧选矩形，填写名称、墙厚、宽度和高度，展开「精确位置」填写起点。X 向右增加，Y 向下增加。改完数字按 <kbd>Tab</kbd> 或 <kbd>Enter</kbd> 确认当前字段。</p>
         <div className="tutorial-table"><table>
           <caption>房间参数</caption>
           <thead><tr><th scope="col">房间名称</th><th scope="col">起点 X / Y</th><th scope="col">宽 / 高</th><th scope="col">墙厚</th><th scope="col">地板</th></tr></thead>

@@ -151,6 +151,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   const roadTarget = useRef<string | null>(null), rawToolPoint = useRef<PointMm | null>(null)
   const [roadFeedback, setRoadFeedback] = useState<RoadSnapResult | null>(null), [roadReleased, setRoadReleased] = useState(false)
   const roadStroke = useRef<{ pointer: number; owner: HTMLElement; draft: ReturnType<typeof beginRoadStroke> } | null>(null)
+  const extensionDrag = useRef<{ pointer: number; x: number; y: number } | null>(null)
   const [roadStrokePreview, setRoadStrokePreview] = useState<RoadStrokePreview | null>(null)
   const roadFit = useMemo(() => {
     const settings = worldTool?.road, stroke = worldTool?.roadStroke, points = worldTool?.points
@@ -606,10 +607,16 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
       }}
       onPointerDown={event => {
         if (!ready || event.button > 1) return
-        if (brushDrag.current || wallDrag.current || selectionDrag.current || roadStroke.current) { event.preventDefault(); return }
+        if (brushDrag.current || wallDrag.current || selectionDrag.current || roadStroke.current || extensionDrag.current) { event.preventDefault(); return }
         suppressClick.current = false
         event.currentTarget.focus({ preventScroll: true })
-        if (worldTool?.road && worldTool.roadStroke && !disabled && audience === 'gm' && event.button === 0 && mode === 'select' && !space.current) {
+        if (worldTool?.roomExtension && !disabled && audience === 'gm' && event.button === 0 && mode === 'select' && !space.current) {
+          const point = pointerWorld(event.clientX, event.clientY)
+          if (point && worldTool.roomExtension.chooseWall(point, 8 * bounds.width / rect.width)) {
+            extensionDrag.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY }
+            event.currentTarget.setPointerCapture(event.pointerId)
+          }
+        } else if (worldTool?.road && worldTool.roadStroke && !disabled && audience === 'gm' && event.button === 0 && mode === 'select' && !space.current) {
           const point = pointerWorld(event.clientX, event.clientY)
           if (!point) return
           event.preventDefault()
@@ -625,7 +632,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
           event.preventDefault(); suppressClick.current = true; cancelMarquee(); cancelRefinement()
           brushDrag.current = { pointer: event.pointerId, points: [point] }; setBrushPoints([point]); setBrushCursor(point)
           event.currentTarget.setPointerCapture(event.pointerId)
-        } else if (event.button === 1 || mode === 'pan' || space.current || event.pointerType === 'touch') {
+        } else if (event.button === 1 || mode === 'pan' || space.current || (event.pointerType === 'touch' && !worldTool && !placement)) {
           event.preventDefault(); suppressClick.current = true; cancelRefinement()
           drag.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, lastX: event.clientX, lastY: event.clientY, start: { ...viewRef.current }, original: { ...viewRef.current } }
           cancelMarquee(); event.currentTarget.setPointerCapture(event.pointerId); setDragging(true)
@@ -647,6 +654,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
         }
       }}
       onPointerMove={event => {
+        if (extensionDrag.current && extensionDrag.current.pointer !== event.pointerId) return
         const stroke = roadStroke.current
         if (stroke?.pointer === event.pointerId) {
           event.preventDefault()
@@ -678,6 +686,17 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
         else if (ready && placement && !disabled && audience === 'gm' && mode === 'select') { const point = pointerWorld(event.clientX, event.clientY); if (point) onPlacementMove?.(snapPoint(point)) }
       }}
       onPointerUp={event => {
+        const extension = extensionDrag.current
+        if (extension?.pointer === event.pointerId) {
+          extensionDrag.current = null
+          suppressClick.current = true
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+          if (worldTool?.roomExtension && !disabled && Math.hypot(event.clientX - extension.x, event.clientY - extension.y) >= 4) {
+            const point = pointerWorld(event.clientX, event.clientY)
+            if (point) worldTool.onPoint(toolPoint(point, event.shiftKey))
+          }
+          return
+        }
         const stroke = roadStroke.current
         if (stroke?.pointer === event.pointerId) {
           event.preventDefault()
@@ -717,7 +736,10 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
           }
           const points = [...brush.points]; cancelBrushStroke(); suppressClick.current = true; terrainBrush.onStroke(points); return
         }
-        if (drag.current?.pointer === event.pointerId) endDrag(false)
+        if (drag.current?.pointer === event.pointerId) {
+          if (event.pointerType === 'touch' && mode === 'select' && !space.current && Math.hypot(event.clientX - drag.current.x, event.clientY - drag.current.y) < 4) suppressClick.current = false
+          endDrag(false)
+        }
         const active = marqueeRef.current
         if (active?.pointer === event.pointerId) {
           if (Math.hypot(event.clientX - active.x, event.clientY - active.y) >= 4) {
@@ -729,7 +751,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
           cancelMarquee(Math.hypot(event.clientX - active.x, event.clientY - active.y) >= 4)
         }
       }}
-      onPointerCancel={() => { cancelRoadStroke(); cancelSelectionDrag(); cancelWallDrag(); cancelBrushStroke(); endDrag(true); cancelMarquee(); suppressClick.current = true }} onLostPointerCapture={() => { if (roadStroke.current) cancelRoadStroke(); if (selectionDrag.current) cancelSelectionDrag(); if (wallDrag.current) cancelWallDrag(); if (brushDrag.current) cancelBrushStroke(); if (drag.current) endDrag(true); if (marqueeRef.current) { cancelMarquee(); suppressClick.current = true } }}
+      onPointerCancel={() => { extensionDrag.current = null; cancelRoadStroke(); cancelSelectionDrag(); cancelWallDrag(); cancelBrushStroke(); endDrag(true); cancelMarquee(); suppressClick.current = true }} onLostPointerCapture={event => { if (extensionDrag.current?.pointer === event.pointerId) { extensionDrag.current = null; suppressClick.current = true }; if (roadStroke.current) cancelRoadStroke(); if (selectionDrag.current) cancelSelectionDrag(); if (wallDrag.current) cancelWallDrag(); if (brushDrag.current) cancelBrushStroke(); if (drag.current) endDrag(true); if (marqueeRef.current) { cancelMarquee(); suppressClick.current = true } }}
       onCopy={event => {
         if (selectionDrag.current) { event.preventDefault(); return }
         if (event.target !== event.currentTarget || document.activeElement !== event.currentTarget || !ready || disabled || audience !== 'gm' || mode !== 'select' || placement || fillCopy || worldTool || terrainBrush || visualBoundary || drag.current || wallDrag.current || visualDrag.current || marqueeRef.current || !onCopySelection) return
@@ -796,7 +818,11 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
       onClick={event => {
         if (!ready || disabled || audience !== 'gm' || mode === 'pan' || fillCopy || suppressClick.current || !canvas.current) return
         if (terrainBrush) return
-        if (worldTool) { const point = pointerWorld(event.clientX, event.clientY); if (point && !worldTool.roadStroke) worldTool.onPoint(toolPoint(point, event.shiftKey)); return }
+        if (worldTool) {
+          const point = pointerWorld(event.clientX, event.clientY)
+          if (point && !worldTool.roadStroke && !worldTool.roomExtension?.chooseWall(point, 8 * bounds.width / rect.width)) worldTool.onPoint(toolPoint(point, event.shiftKey))
+          return
+        }
         if (placement) { const point = pointerWorld(event.clientX, event.clientY); if (point) onPlace?.(snapPoint(point)); return }
         const image = canvas.current.getBoundingClientRect()
         if (event.clientX < image.left || event.clientX > image.right || event.clientY < image.top || event.clientY > image.bottom) { publish(mergeSelection(ids, [], event.altKey ? 'subtract' : event.shiftKey ? 'add' : operation)); return }
@@ -973,6 +999,15 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
             }
             const path = worldTool.kind === 'rectangle' && points.length >= 2 ? rectanglePoints(rectangleFromPoints(points[0], points[1])) : points
             const unit = bounds.width / rect.width
+            if (worldTool.roomExtension) {
+              const { walls, selectedId, depthMm } = worldTool.roomExtension
+              return <g data-testid="room-extension-outline">
+                {path.length === 4 && <polygon points={path.map(p => `${p.x},${p.y}`).join(' ')} fill="#35857030" stroke="#267364" strokeWidth={2 * unit} strokeDasharray={`${6 * unit} ${3 * unit}`}/>}
+                {walls.map(wall => <line key={wall.id} x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y}
+                  stroke={wall.id === selectedId ? '#ac5d1a' : '#237468'} strokeWidth={(wall.id === selectedId ? 5 : 3) * unit}/>)}
+                {path.length === 4 && <text x={(path[0].x + path[2].x) / 2} y={(path[0].y + path[2].y) / 2} textAnchor="middle" fontSize={14 * unit} fill="#234e40" stroke="#fffdf1" strokeWidth={3 * unit} paintOrder="stroke">进深 {formatDistanceMm(depthMm, project.document.units.display)}</text>}
+              </g>
+            }
             if (worldTool.template) return <g data-testid="scene-template-placement-outline" data-conflict={worldTool.template.issues.length > 0}>{worldTool.template.polygons.map((polygon, i) => <polygon key={i} points={polygon.map(p => `${p.x},${p.y}`).join(' ')} fill={worldTool.template!.issues.length ? '#a7473726' : '#5c865722'} stroke={worldTool.template!.issues.length ? '#a74737' : '#3c7650'} strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/>)}</g>
             const distinct = path.filter((point, index) => !index || point.x !== path[index - 1].x || point.y !== path[index - 1].y)
             const band = roadStrokePreview?.band ?? roadFit?.band ?? (worldTool.road && distinct.length > 1
@@ -980,7 +1015,9 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
               : [])
             const rejection = roadStrokePreview?.rejected?.point, lastAccepted = roadStrokePreview?.centerlineMm.at(-1)
             const roadRejection = rejection && <g stroke="#B64134" strokeWidth={2 * unit} data-testid="road-outside-support">{lastAccepted && <line x1={lastAccepted.x} y1={lastAccepted.y} x2={rejection.x} y2={rejection.y} strokeDasharray={`${5 * unit} ${4 * unit}`}/>}<circle cx={rejection.x} cy={rejection.y} r={5 * unit} fill="none"/></g>
-            return <>{roadRejection}{band.length > 0 && <polygon data-testid="road-width-preview" points={band.map(p => `${p.x},${p.y}`).join(' ')} fill="#b9874850" stroke="#8e643d" strokeWidth={unit}/>} {roadFeedback?.target && worldTool.road && <circle data-testid="road-snap-target" cx={roadFeedback.point.x} cy={roadFeedback.point.y} r={8 * unit} fill="none" stroke="#13758b" strokeWidth={2 * unit}/>} {orthogonalClosed ? <polygon data-orthogonal-valid="true" points={path.map(p => `${p.x},${p.y}`).join(' ')} fill="#5c865722" stroke="#3c7650" strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/> : <polyline data-orthogonal-valid={worldTool.kind === 'orthogonal' ? 'false' : undefined} points={path.map(p => `${p.x},${p.y}`).join(' ')} fill={worldTool.kind === 'ruler' || worldTool.kind === 'polyline' || worldTool.kind === 'orthogonal' ? 'none' : '#5c865722'} stroke={worldTool.kind === 'orthogonal' ? '#aa6e2e' : '#3c7650'} strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/> }{worldTool.kind === 'rectangle' && path.length === 4 && <line x1={path[3].x} y1={path[3].y} x2={path[0].x} y2={path[0].y} stroke="#3c7650" strokeWidth={2 * unit}/>}{(roadStrokePreview?.controls ?? worldTool.points).map((p, index) => <circle key={index} cx={p.x} cy={p.y} r={4 * unit} fill="#f9f7e8" stroke="#3c7650" strokeWidth={2 * unit}/>)}{worldTool.kind === 'ruler' && points.length >= 2 && <text x={(points[0].x + points[1].x) / 2} y={(points[0].y + points[1].y) / 2 - 10 * unit} textAnchor="middle" fontSize={14 * unit} fill="#355e34" stroke="#fffcee" strokeWidth={3 * unit} paintOrder="stroke">{formatDistanceMm(rulerDistance(points[0], points[1]).distanceMm, project.document.units.display)}</text>}</>
+            const roomSize = worldTool.kind === 'rectangle' && points.length >= 2 ? rectangleFromPoints(points[0], points[1]) : undefined
+            return <>{roomSize && <text x={roomSize.x + roomSize.width / 2} y={roomSize.y + roomSize.height / 2} textAnchor="middle" fontSize={14 * unit}
+              fill="#234e40" stroke="#fffdf1" strokeWidth={3 * unit} paintOrder="stroke">{formatDistanceMm(roomSize.width, project.document.units.display)} × {formatDistanceMm(roomSize.height, project.document.units.display)}</text>}{roadRejection}{band.length > 0 && <polygon data-testid="road-width-preview" points={band.map(p => `${p.x},${p.y}`).join(' ')} fill="#b9874850" stroke="#8e643d" strokeWidth={unit}/>} {roadFeedback?.target && worldTool.road && <circle data-testid="road-snap-target" cx={roadFeedback.point.x} cy={roadFeedback.point.y} r={8 * unit} fill="none" stroke="#13758b" strokeWidth={2 * unit}/>} {orthogonalClosed ? <polygon data-orthogonal-valid="true" points={path.map(p => `${p.x},${p.y}`).join(' ')} fill="#5c865722" stroke="#3c7650" strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/> : <polyline data-orthogonal-valid={worldTool.kind === 'orthogonal' ? 'false' : undefined} points={path.map(p => `${p.x},${p.y}`).join(' ')} fill={worldTool.kind === 'ruler' || worldTool.kind === 'polyline' || worldTool.kind === 'orthogonal' ? 'none' : '#5c865722'} stroke={worldTool.kind === 'orthogonal' ? '#aa6e2e' : '#3c7650'} strokeWidth={2 * unit} strokeDasharray={`${7 * unit} ${4 * unit}`}/> }{worldTool.kind === 'rectangle' && path.length === 4 && <line x1={path[3].x} y1={path[3].y} x2={path[0].x} y2={path[0].y} stroke="#3c7650" strokeWidth={2 * unit}/>}{(roadStrokePreview?.controls ?? worldTool.points).map((p, index) => <circle key={index} cx={p.x} cy={p.y} r={4 * unit} fill="#f9f7e8" stroke="#3c7650" strokeWidth={2 * unit}/>)}{worldTool.kind === 'ruler' && points.length >= 2 && <text x={(points[0].x + points[1].x) / 2} y={(points[0].y + points[1].y) / 2 - 10 * unit} textAnchor="middle" fontSize={14 * unit} fill="#355e34" stroke="#fffcee" strokeWidth={3 * unit} paintOrder="stroke">{formatDistanceMm(rulerDistance(points[0], points[1]).distanceMm, project.document.units.display)}</text>}</>
           })()}
         </svg>}
       </div>

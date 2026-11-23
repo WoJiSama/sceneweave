@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Download, Move, RotateCcw, X } from 'lucide-react'
 import type { ProjectBundle } from '../../shared/model/project'
 import type { Audience } from '../../shared/projection/types'
-import { DEFAULT_OBLIQUE_CAMERA, zoomOblique, type ObliqueCamera } from '../../platform/browser/render/oblique-camera'
-import type { prepareObliquePreview } from '../../platform/browser/render/oblique-renderer'
+import { DEFAULT_OBLIQUE_CAMERA } from '../../platform/browser/render/oblique-camera'
+import { useObliqueView } from '../native-canvas/useObliqueView'
 import './oblique-preview.css'
 
 interface Props {
@@ -14,50 +14,18 @@ interface Props {
 }
 
 function ObliqueDialog({ bundle, audience, floorId, hiddenLayerIds, onClose }: Props & { onClose: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null), canvas = useRef<HTMLCanvasElement>(null)
-  const view = useRef<Awaited<ReturnType<typeof prepareObliquePreview>>>(null)
-  const pointer = useRef<{ id: number; x: number; y: number } | null>(null)
-  const lifetime = useRef<AbortController>(null)
-  const [camera, setCamera] = useState(DEFAULT_OBLIQUE_CAMERA)
-  const [ready, setReady] = useState(false), [error, setError] = useState('')
+  const dialog = useRef<HTMLDialogElement>(null)
+  const prepare = useCallback(async (canvas: HTMLCanvasElement, signal: AbortSignal) => {
+    const { prepareObliquePreview } = await import('../../platform/browser/render/oblique-renderer')
+    return prepareObliquePreview(canvas, bundle, { floorId, audience, hiddenLayerIds, signal })
+  }, [bundle, floorId, audience, hiddenLayerIds])
+  const { canvas, camera, setCamera, setZoom, lifetime, ready, error, handlers } = useObliqueView(prepare)
   const [exporting, setExporting] = useState(false), [exportIssue, setExportIssue] = useState('')
   useEffect(() => {
     const element = dialog.current!
     element.showModal()
     return () => { if (element.open) element.close() }
   }, [])
-  useEffect(() => {
-    const controller = new AbortController()
-    lifetime.current = controller
-    const canvasElement = canvas.current!
-    const contextLost = (event: Event) => { event.preventDefault(); setError('3D 设备已断开。关闭预览后可以重新打开。') }
-    canvasElement.addEventListener('webglcontextlost', contextLost)
-    void import('../../platform/browser/render/oblique-renderer').then(({ prepareObliquePreview }) =>
-      prepareObliquePreview(canvasElement, bundle, { floorId, audience, hiddenLayerIds, signal: controller.signal })).then(result => {
-      if (controller.signal.aborted) { result.dispose(); return }
-      view.current = result
-      result.draw(DEFAULT_OBLIQUE_CAMERA)
-      setReady(true)
-    }).catch(failure => {
-      if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure))
-    })
-    return () => {
-      controller.abort()
-      canvasElement.removeEventListener('webglcontextlost', contextLost)
-      view.current?.dispose()
-      view.current = null
-    }
-  }, [bundle, floorId, audience, hiddenLayerIds])
-  useEffect(() => {
-    if (!ready || error) return
-    const frame = requestAnimationFrame(() => {
-      try { view.current?.draw(camera) }
-      catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [ready, camera, error])
-  const zoom = (current: ObliqueCamera, amount: number, toward?: { x: number; y: number }) =>
-    view.current ? zoomOblique(current, view.current.bounds, amount, toward) : current
   const exportFrame = async () => {
     setExporting(true)
     setExportIssue('')
@@ -81,47 +49,16 @@ function ObliqueDialog({ bundle, audience, floorId, hiddenLayerIds, onClose }: P
       <button type="button" className="secondary" onClick={onClose}><X size={16}/>返回俯视</button>
     </header>
     <div className="oblique-stage">
-      <canvas ref={canvas} width={1280} height={1000} aria-label="可旋转地图预览" tabIndex={ready && !error ? 0 : -1} data-ready={ready && !error}
-        onPointerDown={event => {
-          if (!ready || error || event.button !== 0) return
-          pointer.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
-          event.currentTarget.setPointerCapture(event.pointerId)
-        }}
-        onPointerMove={event => {
-          const start = pointer.current
-          if (!start || event.pointerId !== start.id) return
-          const dx = event.clientX - start.x, dy = event.clientY - start.y
-          pointer.current = { id: start.id, x: event.clientX, y: event.clientY }
-          setCamera(current => ({ ...current, azimuthDeg: (current.azimuthDeg + dx * .36) % 360, elevationDeg: Math.max(30, Math.min(90, current.elevationDeg + dy * .21)) }))
-        }}
-        onLostPointerCapture={() => { pointer.current = null }}
-        onWheel={event => {
-          if (!ready || error) return
-          const { left, top, width, height } = event.currentTarget.getBoundingClientRect()
-          const x = (event.clientX - left) / width - .5, y = (event.clientY - top) / height - .5
-          setCamera(current => {
-            const yaw = current.azimuthDeg * Math.PI / 180, up = event.deltaY < 0
-            return zoom(current, current.zoom * (up ? 1.17 : 1 / 1.17), up ? { x: x * Math.cos(yaw) - y * Math.sin(yaw), y: x * Math.sin(yaw) + y * Math.cos(yaw) } : undefined)
-          })
-        }}
-        onKeyDown={event => {
-          if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', '+', '-', '='].includes(event.key)) return
-          event.preventDefault()
-          setCamera(current => {
-            if (event.key === '+' || event.key === '=' || event.key === '-') return zoom(current, current.zoom * (event.key === '-' ? .9 : 1.12))
-            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') return { ...current, azimuthDeg: (current.azimuthDeg + (event.key === 'ArrowLeft' ? -12 : 12)) % 360 }
-            return { ...current, elevationDeg: Math.max(30, Math.min(90, current.elevationDeg + (event.key === 'ArrowUp' ? 5 : -5))) }
-          })
-        }}/>
+      <canvas ref={canvas} width={1280} height={1000} aria-label="可旋转地图预览" tabIndex={ready ? 0 : -1} data-ready={ready} {...handlers}/>
       {error ? <p className="oblique-status" role="alert">{error}</p> : !ready && <p className="oblique-status" role="status">正在准备 3D 地形和素材…</p>}
     </div>
     <footer className="oblique-controls">
       <span className="oblique-hint"><Move size={15}/>拖动或用方向键转动 · 滚轮缩放</span>
-      <label>俯角 <input type="range" aria-label="俯角" min={30} max={90} step={1} value={Math.round(camera.elevationDeg)} disabled={!ready || !!error} onChange={event => setCamera(current => ({ ...current, elevationDeg: Number(event.target.value) }))}/></label>
-      <label>缩放 <input type="range" aria-label="3D 缩放" min={.65} max={4} step={.05} value={camera.zoom} disabled={!ready || !!error} onChange={event => setCamera(current => zoom(current, Number(event.target.value)))}/></label>
+      <label>俯角 <input type="range" aria-label="俯角" min={30} max={90} step={1} value={Math.round(camera.elevationDeg)} disabled={!ready} onChange={event => setCamera(current => ({ ...current, elevationDeg: Number(event.target.value) }))}/></label>
+      <label>缩放 <input type="range" aria-label="3D 缩放" min={.65} max={4} step={.05} value={camera.zoom} disabled={!ready} onChange={event => setZoom(Number(event.target.value))}/></label>
       <label><input type="checkbox" checked={!!camera.fadeCanopy} onChange={event => setCamera(current => ({ ...current, fadeCanopy: event.target.checked }))}/>近处树冠淡出</label>
-      <button type="button" className="secondary" onClick={() => setCamera(DEFAULT_OBLIQUE_CAMERA)} disabled={!ready || !!error}><RotateCcw size={15}/>重置视角</button>
-      <button type="button" className="primary" disabled={!ready || !!error || exporting} onClick={() => void exportFrame()}><Download size={15}/>{exporting ? '正在出图…' : '导出当前画面'}</button>
+      <button type="button" className="secondary" onClick={() => setCamera(DEFAULT_OBLIQUE_CAMERA)} disabled={!ready}><RotateCcw size={15}/>重置视角</button>
+      <button type="button" className="primary" disabled={!ready || exporting} onClick={() => void exportFrame()}><Download size={15}/>{exporting ? '正在出图…' : '导出当前画面'}</button>
       {exportIssue && <span role="alert">{exportIssue}</span>}
     </footer>
   </dialog>

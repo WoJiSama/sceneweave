@@ -6,14 +6,15 @@ import manifest from '../../platform/browser/content/home-showcase-manifest.json
 import './showcase.css'
 
 type Sample = typeof manifest.entries[keyof typeof manifest.entries] & { id: HomeShowcaseKind }
-const samples: Sample[] = (Object.keys(manifest.entries) as HomeShowcaseKind[]).map(id => ({ id, ...manifest.entries[id] }))
+const featuredSampleIds = ['fantasy', 'wilderness', 'ruins', 'volcano'] as const satisfies readonly HomeShowcaseKind[]
+const samples: Sample[] = featuredSampleIds.map(id => ({ id, ...manifest.entries[id] }))
 type View = 'top' | 'oblique'
-type Angle = { file: string; fullFile: string; width: number; height: number; fullWidth: number; fullHeight: number; sha256: string; fullSha256: string }
-function sceneImage(id: HomeShowcaseKind, full = false) {
+type Angle = typeof manifest.entries[HomeShowcaseKind]['oblique']
+export function sceneImage(id: HomeShowcaseKind, full = false) {
   const { file, fullFile, pngSha256, fullPngSha256 } = manifest.entries[id]
   return `${import.meta.env.BASE_URL}assets/home-scenes/${full ? fullFile : file}?v=${full ? fullPngSha256 : pngSha256}`
 }
-function obliqueImage(image: Angle, full = false) {
+export function obliqueImage(image: Angle, full = false) {
   return `${import.meta.env.BASE_URL}assets/home-scenes/${full ? image.fullFile : image.file}?v=${full ? image.fullSha256 : image.sha256}`
 }
 const dimensions = (id: HomeShowcaseKind) => { const { width, height } = manifest.entries[id].boundsMm; return `${width / 1000} × ${height / 1000} m` }
@@ -48,7 +49,7 @@ function Details({ sample, angle, initialView, trigger, disabled, onClose, onOpe
           height={oblique?.fullHeight ?? entry.fullHeight} alt={`${sample.name}${oblique ? '3D 斜俯视' : '正俯视'}完整场景`}/>
         <figcaption>实际样板全图 · 主持人视图</figcaption>
       </figure>
-      <div className="home-detail-copy"><p>{sample.description}</p><ul>{sample.features.map(feature => <li key={feature}>{feature}</li>)}</ul><p className="home-detail-counts">{entry.rooms ? `${entry.rooms} 间房 · ` : ''}{entry.terrainAreas ? `${entry.terrainAreas} 处地形 · ` : ''}{entry.props} 件物件{entry.prefabInstances ? ` · ${entry.prefabInstances} 组组合` : ''}</p><p className="home-detail-note">保存为独立副本后，可继续编辑结构、素材和图层。</p></div>
+      <div className="home-detail-copy"><p>{sample.description}</p><ul>{sample.features.map(feature => <li key={feature}>{feature}</li>)}</ul><p className="home-detail-counts">{entry.rooms ? `${entry.rooms} 间房 · ` : ''}{entry.terrainAreas ? `${entry.terrainAreas} 处地形 · ` : ''}{entry.props} 件物件{entry.prefabInstances ? ` · ${entry.prefabInstances} 组组合` : ''}</p><p className="home-detail-note">打开副本后可编辑场景，点画布上方的「斜俯视」可以旋转取景。</p></div>
     </div>
     <div className="home-detail-actions"><button className="secondary" onClick={() => dismiss(onClose)}>返回首页</button><button className="primary" disabled={disabled} onClick={() => dismiss(onOpen)}>用此样板创建副本<ArrowRight size={16}/></button></div>
   </dialog>
@@ -57,7 +58,7 @@ function Details({ sample, angle, initialView, trigger, disabled, onClose, onOpe
 export default function SampleShowcase({ onRequest, disabled }: { onRequest: (request: WorkspaceRequest) => void; disabled: boolean }) {
   const [selected, setSelected] = useState<{ sample: Sample; trigger: HTMLButtonElement; view?: View } | null>(null)
   const open = (sample: Sample) => { setSelected(null); onRequest({ type: 'showcase', sample: sample.id }) }
-  return <section className="home-showcase" aria-labelledby="home-samples-title"><div className="home-section-heading"><div><p className="home-eyebrow">EXPLORE THE SCENES</p><h2 id="home-samples-title">从样板开始</h2></div><span>查看场景详情 · 可编辑 · 保存为独立副本</span></div>
+  return <section className="home-showcase" aria-labelledby="home-samples-title"><div className="home-section-heading"><h2 id="home-samples-title" tabIndex={-1}>从样板开始</h2><p className="home-showcase-intro">点图查看高清地图，或打开副本开始编辑。</p></div>
     <div className="home-samples">{samples.map(sample => {
       const entry = manifest.entries[sample.id]
       const angle = (entry as { oblique?: Angle }).oblique

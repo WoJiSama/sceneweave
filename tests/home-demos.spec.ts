@@ -1,0 +1,204 @@
+import { expect, test, type Locator, type Page } from '@playwright/test'
+
+const archivePath = /\/assets\/home-scenes\/projects\/[^/]+\.sceneweave$/
+const home = (page: Page) => page.getByTestId('workspace-home')
+
+async function centerOf(locator: Locator) {
+  const box = (await locator.boundingBox())!
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+}
+
+test('homepage art styles stay on their chosen sides through a full rotation around a moved pivot', async ({ page }, info) => {
+  const archives: string[] = []
+  page.on('request', request => { if (archivePath.test(new URL(request.url()).pathname)) archives.push(request.url()) })
+  await page.goto('./#home')
+  await home(page).getByRole('link', { name: '从样板开始', exact: true }).click()
+  await expect(home(page).getByRole('heading', { name: '从样板开始', exact: true })).toBeFocused()
+  await page.goto('./#home-art-style')
+  const title = '拖线对比地图画风'
+  const demo = home(page).getByRole('region', { name: title, exact: true })
+  await expect(demo.getByRole('heading', { name: title })).toBeFocused()
+  const a = demo.getByLabel('A 侧画风'), b = demo.getByLabel('B 侧画风')
+  await expect(a).toHaveValue('original')
+  await expect(b).toHaveValue('handDrawn')
+  await a.selectOption('tea')
+  await expect(b).toHaveValue('handDrawn')
+  await b.selectOption({ label: '线稿' })
+  await expect(a).toHaveValue('tea')
+  await expect(demo.getByRole('img', { name: '余烬酒馆与旅舍 · 茶绘' })).toHaveJSProperty('naturalWidth', 1024)
+  await expect(demo.getByRole('img', { name: '余烬酒馆与旅舍 · 线稿' })).toHaveJSProperty('naturalWidth', 1024)
+  await a.selectOption('original')
+  await expect(demo.getByRole('img', { name: '余烬酒馆与旅舍 · 原画' })).toHaveJSProperty('naturalWidth', 1024)
+  const divider = demo.getByLabel('两侧画风对比线', { exact: true })
+  const move = demo.getByRole('button', { name: '移动画风对比线' })
+  const turn = demo.getByRole('button', { name: '旋转对比线端点二' })
+  await divider.scrollIntoViewIfNeeded()
+  const bounds = (await divider.boundingBox())!, initial = await centerOf(move)
+  await page.mouse.move(initial.x, initial.y - 45)
+  await page.mouse.down()
+  await page.mouse.move(initial.x + .12 * bounds.width, initial.y - 45 - .08 * bounds.height, { steps: 6 })
+  await page.mouse.up()
+  expect(Number(await divider.getAttribute('data-position-x'))).toBeCloseTo(.62, 2)
+  expect(Number(await divider.getAttribute('data-position-y'))).toBeCloseTo(.42, 2)
+
+  const pivot = await centerOf(move), end = await centerOf(turn), radius = Math.min(bounds.width, bounds.height) / 4
+  await page.mouse.move(end.x, end.y)
+  await page.mouse.down()
+  try {
+    for (const angle of [45, 90, 135, 180, 225, 270, 315, 359, 0, 35]) {
+      const radians = angle * Math.PI / 180
+      const nx = Math.cos(radians), ny = Math.sin(radians)
+      await page.mouse.move(pivot.x - ny * radius, pivot.y + nx * radius, { steps: 4 })
+      const actual = Number(await divider.getAttribute('data-angle'))
+      expect(Math.abs((actual - angle + 540) % 360 - 180)).toBeLessThan(1)
+      const images = await page.evaluate(({ pivot, nx, ny, radius }) => [-1, 1].map(side =>
+        document.elementFromPoint(pivot.x + side * nx * radius / 2, pivot.y + side * ny * radius / 2)?.getAttribute('alt')
+      ), { pivot, nx, ny, radius })
+      expect(images).toEqual(['余烬酒馆与旅舍 · 原画', '余烬酒馆与旅舍 · 线稿'])
+    }
+  } finally { await page.mouse.up() }
+  const angle = await divider.getAttribute('data-angle')
+  await a.selectOption('tea')
+  await expect(divider).toHaveAttribute('data-angle', angle!)
+  await expect(divider.locator('text')).toHaveText(['A · 茶绘', 'B · 线稿'])
+  await demo.screenshot({ path: info.outputPath('home-art-style.png') })
+  await turn.press('Home')
+  await expect(divider).toHaveAttribute('data-position-x', '0.5')
+  await expect(divider).toHaveAttribute('data-position-y', '0.5')
+  await expect(divider).toHaveAttribute('data-angle', '0')
+  await turn.press('Shift+ArrowLeft')
+  await expect(divider).toHaveAttribute('data-angle', '345')
+  await turn.press('ArrowRight')
+  await expect(divider).toHaveAttribute('data-angle', '348')
+  await expect(b).toHaveValue('lineArt')
+  expect(archives).toEqual([])
+  await expect(home(page).locator('[data-project-key]')).toHaveCount(0)
+})
+
+test('homepage loads the fixed creek sample on demand and draws new camera views', async ({ page }, info) => {
+  test.setTimeout(90_000)
+  const archives: string[] = [], errors: string[] = []
+  page.on('request', request => {
+    const pathname = new URL(request.url()).pathname
+    if (archivePath.test(pathname)) archives.push(pathname)
+  })
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('./#home-oblique')
+  const title = '从正俯视转到 3D'
+  const demo = home(page).getByRole('region', { name: title, exact: true })
+  await expect(demo.getByRole('heading', { name: title })).toBeFocused()
+  const top = demo.getByRole('button', { name: '正俯视', exact: true })
+  const angle = demo.getByRole('button', { name: '3D 斜俯视', exact: true })
+  await expect(top).toHaveAttribute('aria-pressed', 'true')
+  await expect(demo.getByRole('img')).toHaveJSProperty('naturalWidth', 1024)
+  expect(archives).toEqual([])
+
+  let releaseArchive!: () => void
+  const heldArchive = new Promise<void>(resolve => { releaseArchive = resolve })
+  const matchesArchive = (url: URL) => archivePath.test(url.pathname)
+  await page.route(matchesArchive, async route => { await heldArchive; await route.continue() })
+  const stage = demo.getByRole('group', { name: '溪岸地图取景' })
+  await stage.scrollIntoViewIfNeeded()
+  const { x, y, width, height } = (await stage.boundingBox())!
+  await page.mouse.move(x + width / 3, y + height / 3)
+  await page.mouse.down()
+  try {
+    await expect(angle).toHaveAttribute('aria-pressed', 'true')
+    await expect(stage).toHaveAttribute('aria-busy', 'true')
+    await page.mouse.move(x + width / 3 + 80, y + height / 3 + 45, { steps: 5 })
+    await page.mouse.up()
+  } finally { releaseArchive() }
+  const canvas = demo.getByLabel('可旋转的溪岸地图')
+  await expect(canvas).toHaveAttribute('data-ready', 'true', { timeout: 35_000 })
+  await page.unroute(matchesArchive)
+  expect(archives).toHaveLength(1)
+  expect(archives[0]).toMatch(/\/wilderness\.sceneweave$/)
+  const image = () => canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())
+  const elevation = demo.getByRole('slider', { name: '俯角', exact: true })
+  expect(Number(await elevation.inputValue())).toBeGreaterThan(60)
+  const releasedElevation = await elevation.inputValue()
+  await page.mouse.move(x + width * .7, y + height * .7, { steps: 6 })
+  await expect(elevation).toHaveValue(releasedElevation)
+  const firstDrag = await image()
+  await demo.getByRole('button', { name: '重置视角', exact: true }).click()
+  await expect(elevation).toHaveValue('55')
+  await expect.poll(image).not.toBe(firstDrag)
+  const original = await image()
+  await page.mouse.move(x + width * .3, y + height * .45)
+  await page.mouse.down()
+  try {
+    await page.mouse.move(x + width * .65, y + height * .45, { steps: 8 })
+    await expect.poll(image).not.toBe(original)
+    const whileHeld = await image()
+    await page.mouse.move(x - 12, y + height * .45, { steps: 6 })
+    await expect.poll(image).not.toBe(whileHeld)
+  } finally { await page.mouse.up() }
+  const rotated = await image()
+  await canvas.press('ArrowRight')
+  await expect.poll(image).not.toBe(rotated)
+  await demo.getByRole('slider', { name: '缩放', exact: true }).fill('1.25')
+  await demo.screenshot({ path: info.outputPath('home-live-3d.png') })
+  await demo.getByRole('button', { name: '重置视角', exact: true }).click()
+  await expect.poll(image).toBe(original)
+  await top.click()
+  await expect(canvas).toHaveCount(0)
+  await expect(demo.getByRole('img')).toBeVisible()
+  await expect(home(page)).toContainText('共 0 个工程')
+  await expect(home(page).locator('[data-project-key]')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test.describe('narrow homepage', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, reducedMotion: 'reduce' })
+
+  test('touch controls fit the viewport and an unavailable 3D sample leaves a usable top view', async ({ page }, info) => {
+    await page.goto('./#home-art-style')
+    const comparison = home(page).getByRole('region', { name: '拖线对比地图画风', exact: true })
+    await comparison.getByLabel('A 侧画风').selectOption({ label: '线稿' })
+    await expect(comparison.getByRole('img', { name: '余烬酒馆与旅舍 · 线稿' })).toHaveJSProperty('naturalWidth', 1024)
+    const divider = comparison.getByLabel('两侧画风对比线', { exact: true })
+    const move = comparison.getByRole('button', { name: '移动画风对比线' })
+    const turn = comparison.getByRole('button', { name: '旋转对比线端点一' })
+    await divider.scrollIntoViewIfNeeded()
+    const touch = await page.context().newCDPSession(page)
+    const initial = await centerOf(move), bounds = (await divider.boundingBox())!
+    const beforeDrag = await page.evaluate(() => window.scrollY)
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [initial] })
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: initial.x + .15 * bounds.width, y: initial.y - .1 * bounds.height }] })
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    expect(Number(await divider.getAttribute('data-position-x'))).toBeCloseTo(.65, 2)
+    expect(Number(await divider.getAttribute('data-position-y'))).toBeCloseTo(.4, 2)
+    const pivot = await centerOf(move)
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [await centerOf(turn)] })
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: pivot.x + 65, y: pivot.y - 65 }] })
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    expect(Number(await divider.getAttribute('data-angle'))).toBeCloseTo(45, 0)
+    expect(await page.evaluate(() => window.scrollY)).toBe(beforeDrag)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    await comparison.screenshot({ path: info.outputPath('home-art-style-390.png') })
+
+    await page.goto('./#home-oblique')
+    const demo = home(page).getByRole('region', { name: '从正俯视转到 3D', exact: true })
+    await page.route(url => url.pathname.endsWith('/projects/wilderness.sceneweave'), route => route.fulfill({ status: 503, body: '' }))
+    await demo.getByRole('button', { name: '3D 斜俯视', exact: true }).tap()
+    await expect(demo.getByRole('alert')).toContainText('首页样板读取失败')
+    await expect(demo.getByRole('img')).toBeVisible()
+    await demo.getByRole('button', { name: '正俯视', exact: true }).tap()
+    await expect(demo.getByRole('alert')).toHaveCount(0)
+    await page.unrouteAll()
+    await demo.getByRole('button', { name: '3D 斜俯视', exact: true }).tap()
+    await expect(demo.getByLabel('可旋转的溪岸地图')).toHaveAttribute('data-ready', 'true', { timeout: 35_000 })
+    const orbit = demo.getByLabel('可旋转的溪岸地图')
+    await orbit.scrollIntoViewIfNeeded()
+    const area = (await orbit.boundingBox())!, center = { x: area.x + area.width / 2, y: area.y + area.height / 2 }
+    const scrollY = await page.evaluate(() => window.scrollY)
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [center] })
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: center.x - 35, y: center.y + 45 }] })
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    expect(Number(await demo.getByRole('slider', { name: '俯角', exact: true }).inputValue())).toBeGreaterThan(60)
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrollY)
+    await touch.detach()
+    await demo.screenshot({ path: info.outputPath('home-live-3d-390.png') })
+    await expect(home(page).locator('[data-project-key]')).toHaveCount(0)
+  })
+})

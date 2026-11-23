@@ -55,16 +55,6 @@
 .tone-curve-point:focus-visible { stroke: #fff; stroke-width: 3; outline: none; }
 .tone-curve-values { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .asset-map-wrap .asset-viewport-image .art-style-before { pointer-events: none; box-shadow: none; }
-.art-style-divider { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; touch-action: none; }
-.art-style-divider-outline { stroke: #342b25; stroke-width: 4px; opacity: .72; }
-.art-style-divider-rule { stroke: #fffaec; stroke-width: 2px; }
-.art-style-divider-grab { pointer-events: stroke; stroke: transparent; stroke-width: 24px; cursor: grab; }
-.art-style-divider-handle { stroke: #fffaec; stroke-width: 2px; fill: #31564b; pointer-events: all; }
-.art-style-divider-handle:focus-visible { stroke: #f8c977; stroke-width: 4px; outline: none; }
-.art-style-divider-turn { cursor: crosshair; }
-.art-style-divider-grab:active, .art-style-divider-turn:active { cursor: grabbing; }
-.art-style-side rect { fill: #2d3c33; opacity: .94; }
-.art-style-side text { fill: #fff8e9; font-size: 12px; }
 .art-style-comparison-status { position: absolute; z-index: 3; top: 8px; left: 8px; padding: 5px 9px; border-radius: 4px; color: #fff8e9; background: #2d3c33; font-size: 12px; pointer-events: none; }
 
 .workspace-unified .visual-panel { padding: 16px; gap: 14px; }

@@ -1,9 +1,9 @@
-import { Check, Figure, LessonLink, type TutorialChapter } from './lesson'
+import { Check, Figure, LessonLink, LessonSample, type TutorialChapter } from './lesson'
 
 export const terrain: TutorialChapter = {
   id: 'terrain', label: '地形与海洋', title: '地形、道路、高差与海洋',
   description: '从真实地面、道路中心线和高程开始，再处理过渡、植被和水面表现。',
-  start: <>手工练习新建 18 × 12 米的调查场景。研究现成的高差和岸线时，从首页「从样板开始」选择「双台岬岛」或「潮湾渔获补给站」，打开为独立副本。</>,
+  start: <>手工练习可新建 18 × 12 米的调查场景。想研究现成的高差或岸线，点击练习工程 <LessonSample sample="island"/> 或 <LessonSample sample="coast"/>，再点「保存并打开副本」。</>,
   sections: [
     { id: 'ground', title: '绘制地面与危险区域', body: <>
       <ol>
@@ -47,7 +47,7 @@ export const terrain: TutorialChapter = {
     </> },
     { id: 'ocean', title: '布置静态海面、船和海洋生物', body: <>
       <ol>
-        <li>最快从「潮湾渔获补给站」样板开始。生成新图可用「生成 → 自然地形 → 海岸」并勾静态海洋选项；保存前在候选里看浅水、岸线、生成的物件及缺项。</li>
+        <li>可以沿用本章的「潮湾渔获补给站」练习工程。生成新图可用「生成 → 自然地形 → 海岸」并勾选静态海洋选项，保存前在候选里看浅水、岸线、生成的物件及缺项。</li>
         <li>在场景中选水域，打开「水面与静态浪纹」。可比较预设的水色、浪纹和清澈度，点「预览水面外观」后观察与浅水带的衔接。</li>
         <li>在「素材与布景」选船或海洋生物，放置表面选目标水域。选中物件并展开「水面与水下表现」，设置浮在水面、水下或部分出水。对浮在水面和部分出水物件，可试勾水线与静态尾流。</li>
         <li>表现船舱时，用各自可编辑的楼层、房间和入口。分别核对各层的主持人内容与玩家输出。水纹和尾流是静态外观，实际通路与阻挡仍由地形及物件设置决定。</li>
