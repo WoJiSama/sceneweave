@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const staircasePresetIds = ['cut-stone', 'rough-stone', 'carved-rock', 'stepping-stones', 'flagstone', 'brick', 'concrete', 'timber', 'boardwalk', 'metal-grate'] as const
-export const staircaseMaterialIds = ['limestone', 'sandstone', 'granite', 'basalt', 'slate', 'terracotta', 'concrete', 'oak', 'weathered-wood', 'iron'] as const
+export const staircaseMaterialIds = ['limestone', 'sandstone', 'granite', 'basalt', 'slate', 'terracotta', 'concrete', 'oak', 'weathered-wood', 'iron', 'earth'] as const
 const coverPoint = z.object({ x: z.number().int().min(0).max(1_000_000), y: z.number().int().min(-500_000).max(500_000) }).strict()
 /** Local coordinates: x is distance along the complete route, y is lateral
  * fraction of its width. Covers follow edits and never delete the stair. */

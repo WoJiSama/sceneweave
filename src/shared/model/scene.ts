@@ -2,6 +2,7 @@ import type { BridgeArt } from '../path-assembly/profiles.js'
 import type { PathAttachment } from '../path-attachments/contracts.js'
 import type { PathAssembly, PathStyleDefaults } from '../path-assembly/contracts.js'
 import type { ConnectionRoute } from '../geometry/connection-route.js'
+import type { AutomaticRoute, RoadSurface } from '../geometry/road-surface.js'
 import type { RegionalModel1 } from '../terrain-generation/contracts.js'
 import type { GenerationSystem5, VisualSystem3 } from '../terrain-generation/composition-contracts.js'
 import type { PreparationContext } from '../ports/runtime.js'
@@ -151,8 +152,14 @@ export interface TerrainConnection extends Editable {
 export interface Path extends Editable {
   assembly?: PathAssembly
   visibility: Visibility; centerlineMm: PointMm[]; widthMm: number; supportRefs: SurfaceRef[]
+  /** Exact author points in route order. The solved centerline is saved separately as normal path geometry. */
+  automaticRoute?: AutomaticRoute
+  /** Adopted elevations for the deck, risers and banks. Rendered and sampled directly on reopen. */
+  roadSurface?: RoadSurface
   widthSections?: import('../geometry/route-width.js').RouteWidthSection[]
   staircase?: import('../stairs/contracts.js').StaircaseConfig
+  /** Paint feather inside the path outline, independent of travel width. */
+  boundaryBlendMm?: number
   surfaceStyle: SurfaceStyle | null; movementCostMultiplier: number; renderOrder: number
 }
 export type PropTemplate = Pick<Prop, 'definitionRef' | 'appearance' | 'positionMm' | 'rotationDeg' | 'visualBoundsMm' | 'footprintMm' | 'footprintOffsetMm' | 'blocksMovement' | 'blocksSight' | 'renderLayer' | 'renderOrder' | 'shadowClass' | 'shadowOverride' | 'waterAppearance' | 'sightOccluder' | 'pipePorts' | 'volume'>
@@ -179,7 +186,7 @@ export interface Decoration extends Editable {
 }
 export interface DecorationCluster extends Editable {
   visibility: Visibility; supportRef: SurfaceRef; boundsMm: BoundsMm
-  seed: string; algorithmVersion: 'cluster-v1'
+  seed: string; algorithmVersion: 'cluster-v1' | 'cluster-v2'
   palette: { key: string; definitionRef: VersionRef; kind: 'prop' | 'decoration'; weight: number }[]
   maxInstances: number; spacingMm: number; clusterRadiusMm: number; clearanceMm: number
   members: Record<string, { kind: 'prop' | 'decoration'; entityId: Id | null; state: 'managed' | 'manual' | 'deleted' | 'detached' }>
@@ -249,6 +256,7 @@ export interface SceneDocument {
   presetSnapshot: {
     presetId: string; presetVersion: number; distanceMode: 'metric' | 'grid' | 'abstract'
     source: string; gridSizeMm: number
+    starterPalette?: 'standard-v1'
   }
   constraints: {
     entranceOpeningIds: Id[]; wallEndClearanceMm: number; minDoorWidthMm?: number

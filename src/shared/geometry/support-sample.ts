@@ -5,6 +5,8 @@ import { createTerrainInlaySampler } from '../terrain-inlay/geometry.js'
 import { resolvePropContact, transformAttachmentPoint } from '../attachments/contact.js'
 import { coveredEverywhere, pointInPolygon, terrainPoints } from './geometry.js'
 import { reliefBounds, sampleTerrainRelief } from './terrain-relief.js'
+import { buildRoadSurface, createRoadSurfaceSampler } from './road-surface.js'
+import { isFlatCanvasGround } from '../model/canvas-ground.js'
 
 export interface SupportSample {
   rootSupportRef: SurfaceRef
@@ -14,6 +16,7 @@ export interface SupportSample {
   walkable: boolean
   sourceConnectionId?: string
   sourceRockShellAreaId?: string
+  sourcePathId?: string
 }
 const EPS = 1e-7
 const up = { x: 0, y: 0, z: 1 }
@@ -21,7 +24,7 @@ export const rootSurfaceElevation = (scene: SceneDocument, ref: SurfaceRef): num
 
 /** One synchronous operation owns this disposable query. No mutable-scene or ID
  * cache: callers discard it after validation/travel; saved geometry is never regenerated. */
-export function createSupportQuery(scene: SceneDocument, floorId: string, excludedAreaIds?: ReadonlySet<string>) {
+export function createSupportQuery(scene: SceneDocument, floorId: string, excludedAreaIds?: ReadonlySet<string>, includeRoads = true) {
   const floor = scene.floors[floorId]
   const areas = Object.values(scene.terrainAreas).filter(row => row.floorId === floorId && !excludedAreaIds?.has(row.id)).sort((a, b) => b.coveragePriority - a.coveragePriority || a.id.localeCompare(b.id))
   const reliefs = new Map(areas.flatMap(area => area.relief ? [[area.id, { grid: area.relief, bounds: reliefBounds(terrainPoints(area)) }] as const] : []))
@@ -40,7 +43,15 @@ export function createSupportQuery(scene: SceneDocument, floorId: string, exclud
     catch { connection.terrainInlay!.geometry.sources.forEach(source => invalidHosts.add(source.id)); return [] }
   })
   const inlayBoundaries = inlays.flatMap(row => Object.values(row.connection.terrainInlay!.geometry.faces).map(face => face.vertexIds.map(id => row.connection.terrainInlay!.geometry.verticesMm[id])))
-  const boundaries = [...areas.map(terrainPoints), ...strips.flatMap(row => row.sampler.cutFootprints), ...shellBoundaries, ...inlayBoundaries]
+  const roads = includeRoads ? Object.values(scene.paths).flatMap(path => {
+    if (path.floorId !== floorId || !path.roadSurface || path.supportRefs.some(ref => excludedAreaIds?.has(ref.id))) return []
+    try {
+      const geometry = buildRoadSurface(path, path.roadSurface)
+      return [{ path, geometry, sampler: createRoadSurfaceSampler(geometry) }]
+    } catch { return [] }
+  }) : []
+  const sourceBoundaries = [...areas.map(terrainPoints), ...strips.flatMap(row => row.sampler.cutFootprints), ...shellBoundaries, ...inlayBoundaries]
+  const boundaries = [...sourceBoundaries, ...roads.flatMap(({ geometry }) => [geometry.footprintMm, geometry.coreMm])]
   const contains = (p: PointMm) => !!floor && p.x >= floor.boundsMm.x - EPS && p.y >= floor.boundsMm.y - EPS && p.x <= floor.boundsMm.x + floor.boundsMm.width + EPS && p.y <= floor.boundsMm.y + floor.boundsMm.height + EPS
   // The unchanged authored top wins its shared boundary. The outward shell is
   // a real owned surface only beyond that top, never a replacement top ring.
@@ -52,11 +63,11 @@ export function createSupportQuery(scene: SceneDocument, floorId: string, exclud
     if (!contains(p)) return null
     const area = areas.find(row => pointInPolygon(p, terrainPoints(row)))
     const hits = shellHits(p)
-    if (hits.length > 1 || area && hits.some(hit => hit.row.area.id !== area.id)) return null
+    if (hits.length > 1 || area && !isFlatCanvasGround(area) && hits.some(hit => hit.row.area.id !== area.id)) return null
     if (hits.length) return { kind: 'terrainArea', id: hits[0].row.area.id }
     return area ? { kind: 'terrainArea', id: area.id } : { kind: 'floor', id: floorId }
   }
-  const sample = (p: PointMm, explicitSurfaceId?: string): SupportSample | null => {
+  const sourceSample = (p: PointMm, explicitSurfaceId?: string): SupportSample | null => {
     const root = rootAt(p)
     if (!root) return null
     if (root.kind === 'terrainArea' && invalidHosts.has(root.id)) return null
@@ -102,11 +113,24 @@ export function createSupportQuery(scene: SceneDocument, floorId: string, exclud
       zMm: rootSurfaceElevation(scene, root)! + (shape?.offsetMm ?? 0), normal: shape?.normal ?? { ...up },
       walkable: (root.kind !== 'terrainArea' || !scene.terrainAreas[root.id].blocksMovement) && (!shape || shape.normal.z >= Math.SQRT1_2) }
   }
+  const sample = (p: PointMm, explicitSurfaceId?: string): SupportSample | null => {
+    const ground = sourceSample(p, explicitSurfaceId)
+    if (!ground || explicitSurfaceId || ground.sourceConnectionId || ground.sourceRockShellAreaId) return ground
+    const hits = roads.flatMap(({ path, sampler }) => {
+      const hit = sampler.sample(p)
+      return hit ? [{ path, hit }] : []
+    })
+    if (hits.length > 1 && hits.some(({ hit }) => Math.abs(hit.zMm - hits[0].hit.zMm) > 1)) return null
+    if (!hits.length) return ground
+    const { path, hit } = hits.find(row => row.hit.core) ?? hits[0]
+    return { rootSupportRef: ground.rootSupportRef, actualSurfaceId: `path:${path.id}`, sourcePathId: path.id,
+      zMm: hit.zMm, normal: hit.normal, walkable: hit.normal.z >= Math.SQRT1_2 }
+  }
   const flatOn = (p: PointMm, ref: SurfaceRef): boolean => {
     const actual = sample(p)
     return !!actual && !actual.sourceRockShellAreaId && Math.abs(actual.zMm - (rootSurfaceElevation(scene, ref) ?? NaN)) <= EPS && Math.abs(actual.normal.x) <= EPS && Math.abs(actual.normal.y) <= EPS
   }
-  return { sample, rootAt, flatOn, boundaries, strips, shells, shellBoundaries, inlays, inlayBoundaries }
+  return { sample, sourceSample, rootAt, flatOn, boundaries, sourceBoundaries, roads, strips, shells, shellBoundaries, inlays, inlayBoundaries }
 }
 
 /** Explicit surface selection is required for raised item surfaces. Ordinary
@@ -122,7 +146,7 @@ export function levelGroundPolygon(scene: SceneDocument, floorId: string, polygo
   const query = createSupportQuery(scene, floorId)
   return coveredEverywhere(polygon, query.boundaries, point => {
     const sample = query.sample(point)
-    return !!sample && !sample.sourceConnectionId && !sample.sourceRockShellAreaId && Math.abs(sample.zMm - zMm) <= EPS && Math.abs(sample.normal.x) <= EPS && Math.abs(sample.normal.y) <= EPS
+    return !!sample && !sample.sourceConnectionId && !sample.sourceRockShellAreaId && !sample.sourcePathId && Math.abs(sample.zMm - zMm) <= EPS && Math.abs(sample.normal.x) <= EPS && Math.abs(sample.normal.y) <= EPS
       && refs.some(ref => ref.kind === sample.rootSupportRef.kind && ref.id === sample.rootSupportRef.id)
   })
 }

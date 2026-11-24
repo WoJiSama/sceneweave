@@ -10,7 +10,7 @@ const ellipse = (x: number, y: number, rx: number, ry: number, count = 18) =>
     return { x: x + Math.cos(angle) * rx, y: y + Math.sin(angle) * ry }
   })
 
-function textureProfile(image: ImageBitmap, miniature: CanvasRenderingContext2D) {
+function textureProfile(image: HTMLCanvasElement | ImageBitmap, miniature: CanvasRenderingContext2D) {
   const { width, height } = miniature.canvas
   miniature.clearRect(0, 0, width, height)
   miniature.drawImage(image, 0, 0, width, height)
@@ -25,26 +25,54 @@ function textureProfile(image: ImageBitmap, miniature: CanvasRenderingContext2D)
     for (let k = 0; k < 3; k++) color[k] += data[i + k] / 255
     count++
   }
-  return count
-    ? { crop: { x: left / width, y: top / height, width: (right - left) / width, height: (bottom - top) / height }, color: scaleColor(color, 1 / count) }
-    : { crop: { x: 0, y: 0, width: 1, height: 1 }, color: colorRgb('#88735a') }
+  const filled = (u: number, v: number) => data[4 * (Math.floor(top + v * (bottom - top)) * width + Math.floor(left + u * (right - left))) + 3] >= 180
+  const round = count > 0 && count / ((right - left) * (bottom - top)) > .70
+    && [.1, .9].every(u => [.1, .9].every(v => !filled(u, v)) && filled(u, .5) && filled(.5, u))
+  return { crop: count ? { x: left / width, y: top / height, width: (right - left) / width, height: (bottom - top) / height } : { x: 0, y: 0, width: 1, height: 1 },
+    color: count ? scaleColor(color, 1 / count) : colorRgb('#88735a'), round, pixels: data, width, height }
 }
 
-export function addSpatialProps(input: SurfaceMeshes, signal?: AbortSignal) {
+/** Heights follow the inked silhouette, including the gaps in a pile of rocks.
+ * The same source UVs run from the upper facets down to the actual ground. */
+function silhouetteHeights(profile: ReturnType<typeof textureProfile>, divisions: number) {
+  const count = divisions + 1, values = new Float32Array(count * count)
+  const gaps: [number, number][] = []
+  for (let y = 0; y < count; y++) for (let x = 0; x < count; x++) {
+    const ix = Math.min(profile.width - 1, Math.round(x / divisions * (profile.width - 1)))
+    const iy = Math.min(profile.height - 1, Math.round(y / divisions * (profile.height - 1)))
+    if (!x || !y || x === divisions || y === divisions || profile.pixels[(iy * profile.width + ix) * 4 + 3] < 110) gaps.push([x, y])
+  }
+  let summit = .01
+  for (let y = 1; y < divisions; y++) for (let x = 1; x < divisions; x++) {
+    let squared = divisions * divisions
+    for (const [a, b] of gaps) squared = Math.min(squared, (x - a) ** 2 + (y - b) ** 2)
+    const distance = Math.sqrt(squared)
+    const height = Math.min(2.5, distance) + distance * .32 + Math.min(1, distance) * ((divisions - x) * .09 + y * .043)
+    values[y * count + x] = height
+    summit = Math.max(summit, height)
+  }
+  return values.map(value => value / summit)
+}
+
+export function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<string>, signal?: AbortSignal) {
   const { projection, mesh, privacy, zOffset, images, ground, temporaryCanvas } = input
   const miniature = temporaryCanvas(32, 32).getContext('2d', { willReadFrequently: true })!
-  const profiles = new Map<ImageBitmap, ReturnType<typeof textureProfile>>()
+  const profiles = new Map<HTMLCanvasElement | ImageBitmap, ReturnType<typeof textureProfile>>()
+  const silhouetteProfiles = new Map<HTMLCanvasElement | ImageBitmap, Float32Array>()
   const shadow = temporaryCanvas(48, 48), shadowCtx = shadow.getContext('2d')!
   const gradient = shadowCtx.createRadialGradient(24, 24, 1, 24, 24, 24)
   gradient.addColorStop(0, '#1e190fe0'); gradient.addColorStop(.57, '#211c1598'); gradient.addColorStop(1, '#201a1100')
   shadowCtx.fillStyle = gradient; shadowCtx.fillRect(0, 0, 48, 48)
   const contact: MeshMaterial = { image: shadow, unlit: true, opacity: .59, privacy }
+  const brushContact: MeshMaterial = { ...contact, opacity: .45, alphaCutoff: .008 }
   const bridgeColors = new Map<string, SpatialColor>()
   for (const [index, prop] of projection.props.entries()) {
     if (index % 32 === 0) signal?.throwIfAborted()
+    if (decalIds.has(prop.id)) continue
     const volume = projection.propVolumes?.[prop.id]
     if (!volume) continue
     const { appearance, visualBoundsMm: bounds, positionMm, rotationDeg } = prop
+    const brush = appearance.kind === 'image' ? projection.materialBrushes?.[appearance.assetId] : undefined
     const image = appearance.kind === 'image' ? images.get(appearance.assetId) : undefined
     let profile = image && profiles.get(image)
     if (image && !profile) { profile = textureProfile(image, miniature); profiles.set(image, profile) }
@@ -76,7 +104,7 @@ export function addSpatialProps(input: SurfaceMeshes, signal?: AbortSignal) {
     if (heightMm > 40 && !prop.waterAppearance && !projection.terrain.some(area => area.waterSurface && area.id === prop.supportRef.id)) {
       const shade = box((kind === 'tree' ? body.x : fitBody.x) - 100, fitBody.y - 70, fitBody.width + 280, fitBody.height + 240)
       // Attached items shade the same surface on which they sit.
-      capQuad(contact, shade, groundZ + 18)
+      capQuad(brush ? brushContact : contact, shade, groundZ + 18)
     }
     if (kind === 'flat') {
       const rect = image ? bounds : footprint
@@ -88,6 +116,22 @@ export function addSpatialProps(input: SurfaceMeshes, signal?: AbortSignal) {
         const v = (local.y - rect.y) / rect.height
         return [(local.x - rect.x) / rect.width, appearance.mirrorY ? 1 - v : v]
       })
+      continue
+    }
+    if (kind === 'rock' && image && profile && (brush === 'stone' || brush === 'foliage')) {
+      const divisions = projection.props.length > 300 ? 6 : 10, count = divisions + 1
+      let heights = silhouetteProfiles.get(image)
+      if (!heights) { heights = silhouetteHeights(profile, divisions); silhouetteProfiles.set(image, heights) }
+      const vertices = Array.from(heights, (_, i) => {
+        const x = i % count, y = Math.floor(i / count), u = x / divisions, v = y / divisions
+        const sourceY = appearance.mirrorY ? divisions - y : y
+        return { point: atHeight(pose({ x: bounds.x + bounds.width * u, y: bounds.y + bounds.height * v }),
+          base + heightMm * heights[sourceY * count + x]), uv: [u, sourceY / divisions] as [number, number] }
+      })
+      for (let y = 0; y < divisions; y++) for (let x = 0; x < divisions; x++) {
+        const i = y * count + x, a = vertices[i], b = vertices[i + 1], c = vertices[i + count + 1], d = vertices[i + count]
+        mesh.quad(face, [a.point, b.point, c.point, d.point], [a.uv, b.uv, c.uv, d.uv])
+      }
       continue
     }
     if (kind === 'tree') {
@@ -131,9 +175,12 @@ export function addSpatialProps(input: SurfaceMeshes, signal?: AbortSignal) {
     }
     if (kind === 'table' || kind === 'seat') {
       const board = Math.min(110, heightMm * .25), leg = Math.min(fitBody.height, fitBody.width) * .14
-      layer(side, fitBody, top - board, top, !image)
-      for (const x of [fitBody.x + leg * .45, fitBody.x + fitBody.width - leg * 1.45]) {
-        for (const y of [fitBody.y + leg * .45, fitBody.y + fitBody.height - leg * 1.45]) layer(trim, box(x, y, leg, leg), base, top - board)
+      const round = !!brush && profile?.round
+      if (round) mesh.solid(side, ellipse(center.x, center.y, fitBody.width / 2, fitBody.height / 2, 24).map(pose), top - board, top, 800, false)
+      else layer(side, fitBody, top - board, top, !image)
+      const inset = leg * (round ? 1.25 : .45)
+      for (const x of [fitBody.x + inset, fitBody.x + fitBody.width - leg - inset]) {
+        for (const y of [fitBody.y + inset, fitBody.y + fitBody.height - leg - inset]) layer(trim, box(x, y, leg, leg), base, top - board)
       }
     } else if (kind === 'rail') {
       const { x, y, width, height } = fitBody

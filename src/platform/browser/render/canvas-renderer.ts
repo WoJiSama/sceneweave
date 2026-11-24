@@ -32,8 +32,8 @@ import type { Audience, ProjectedBridgeEntrance, ProjectedConnection, ProjectedD
 import { decorationPaintBounds } from '../../../shared/decorations/presentation.js'
 import { createEditorRenderPlan, editorPaintBounds } from './editor-render-plan'
 import type { EditorPropDetail } from './editor-render-plan'
-import { boundaryConnections, clipConnectionOpenings, connectionFrame, connectionSideSegments, drawConnectionCheeks } from './connection-geometry'
-import { polylineBand, connectionBand, polygonInside } from '../../../shared/geometry/geometry.js'
+import { boundaryConnections, clipConnectionOpenings, connectionFrame, connectionPolygon, connectionSideSegments, drawConnectionCheeks } from './connection-geometry'
+import { polylineBand, polygonInside } from '../../../shared/geometry/geometry.js'
 import { connectionArcFrame } from '../../../shared/geometry/connection-route.js'
 import { connectionLandingBlend, connectionLandingDepthMm } from '../../../shared/geometry/connection-landings.js'
 import { naturalRockTreads } from './cliff-relief.js'
@@ -50,21 +50,31 @@ import { drawTerrainSlopeFinish } from './terrain-slope-renderer.js'
 import { drawTerrainReliefLight } from './terrain-relief-paint.js'
 import { reliefBounds, sampleTerrainRelief } from '../../../shared/geometry/terrain-relief.js'
 import { drawStaircase } from './staircase-renderer.js'
-import { staircasePatch, staircasePointAt, type StaircaseGeometry } from '../../../shared/stairs/geometry.js'
+import { planStaircase, staircasePatch, staircasePointAt, type StaircaseGeometry } from '../../../shared/stairs/geometry.js'
+import { earthenRoad } from './earthen-road.js'
+import { drawEarthenRoadPaint, erodeRoadPaintEdge } from './earthen-road-paint.js'
+import { projectGround } from './projected-ground.js'
+import { fadeGradedRoadEnds, paintGradedRoadCovers, paintGradedRoadRisers, paintRoadBanks, paintRoadWear, paintRoadWearMask, roadBankSampler } from './graded-road-paint.js'
 import { planProjectedShorelines, shorelinePaintPadding } from '../../../shared/projection/shorelines.js'
 import { intersectsVisualBounds, variableOffsetPolyline } from './visual-geometry'
 import { drawTerrainFacadeFace } from './terrain-facade-renderer.js'
 import { planFacadeFaces, type FacadeOpenings } from './terrain-facade-geometry.js'
-import { cliffBandWidth, mixPoints, terrainBandCells, terrainEdgeRuns, type TerrainBandCell, type TerrainEdgeRun } from './terrain-edge-bands.js'
+import { cliffBandWidth, mixPoints, terrainBandCells, terrainEdgeRuns, terrainShadow, type TerrainBandCell, type TerrainEdgeRun } from './terrain-edge-bands.js'
 import { artStyleArtworkIds, artStyleSource } from '../../../shared/visual/art-style-sources.js'
 import { mixVectorArtStyle, paintArtStyleArtwork } from './art-style-artwork.js'
 import { applyArtStyleGrades, captureArtStyleTiles, captureArtStyleLineEdges, paintArtStyleMarks, type ArtStyleGradeSource } from './art-style-grade.js'
 import { ArtStyleLineGuide } from './art-style-line-guide.js'
+import { drawGroundPigment, drawSoilTrailGrain, paintedMaterialImages } from './material-drawing.js'
 import { bitmapLineSamplingPadding } from './bitmap-line-art.js'
 import { checkArtStyleSvg, colorArtStyleSvg } from './art-style-svg.js'
 import { rasterizeCanonicalSvgInWorker } from '../ai/svg-worker-client.js'
 import { activeLineArt, artStyleLightAmount, CURRENT_LINE_ART_PAINT_VERSION, preservesBitmapContours, usesSeparateArtStyle, type ActiveArtStyle, type ActiveArtStyles } from '../../../shared/visual/art-style.js'
 import type { NormalizedStaticSvg } from '../../../shared/ai/svg.js'
+import { PNG_MAX_LONG_EDGE, PNG_MAX_PIXELS } from './render-limits.js'
+
+export { connectionPolygon } from './connection-geometry.js'
+export { terrainFace, terrainShadow } from './terrain-edge-bands.js'
+export { EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE, PNG_MAX_PIXELS } from './render-limits.js'
 
 /** Immutable asset references plus per-call shallow-copied resource records. No SceneDocument is accepted. */
 export interface RasterSources {
@@ -113,9 +123,6 @@ export interface EditorRenderOptions extends RenderOptions {
   /** GM-only transient ground inspection; never persisted or exported. */
   groundView?: boolean
 }
-export const EDITOR_MAX_LONG_EDGE = 2048
-export const PNG_MAX_LONG_EDGE = 4096
-export const PNG_MAX_PIXELS = 16_777_216
 // RGBA8 scanlines including their filter bytes, zlib compressBound overhead,
 // and 1 MiB for PNG chunks. This exceeds a worst-case 4K Canvas encoding without
 // applying the separate 20 MiB per-asset import limit to a complete map export.
@@ -126,10 +133,6 @@ const EPS = 1e-6
 const point = (x: number, y: number): PointMm => ({ x, y })
 const signedArea = (points: PointMm[]) => points.reduce((sum, p, i) => sum + p.x * points[(i + 1) % points.length].y - points[(i + 1) % points.length].x * p.y, 0)
 const positiveRing = (points: PointMm[]) => signedArea(points) < 0 ? [...points].reverse() : points
-function wallBand(start: PointMm, end: PointMm, thickness: number): PointMm[] {
-  const length = Math.hypot(end.x - start.x, end.y - start.y), nx = -(end.y - start.y) / length * thickness / 2, ny = (end.x - start.x) / length * thickness / 2
-  return positiveRing([point(start.x + nx, start.y + ny), point(start.x - nx, start.y - ny), point(end.x - nx, end.y - ny), point(end.x + nx, end.y + ny)])
-}
 
 function canvas(width: number, height: number): HTMLCanvasElement {
   const result = document.createElement('canvas'); result.width = width; result.height = height; return result
@@ -174,7 +177,7 @@ function worldTransform(ctx: CanvasRenderingContext2D, bounds: BoundsMm, scaleX:
 
 interface RasterSet { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; styled?: Map<string, HTMLCanvasElement>;
   paintCache?: { key: string; image: HTMLCanvasElement }; readFrequently?: boolean; bitmapLine?: boolean
-  bitmapLineIds?: ReadonlySet<string>; lineGuide?: ArtStyleLineGuide }
+  bitmapLineIds?: ReadonlySet<string>; lineGuide?: ArtStyleLineGuide; spatialTexture?: true }
 
 function lineBitmapIds(projection: Projection, sources: RasterSources): Set<string> {
   const result = new Set<string>()
@@ -253,6 +256,10 @@ async function beginArtStyleArtwork(sources: RasterSources, raster: RasterSet, p
     if (paint) { bySource.set(key, paint); raster.styled.set(id, paint) }
   }
 }
+export async function prepareRasterArtwork(sources: RasterSources, raster: RasterSet, projection: Projection, signal?: AbortSignal, cache?: ArtStylePreviewCache) {
+  if (projection.artStyles) await beginArtStyleArtwork(sources, raster, projection, signal, cache)
+  if (projection.materialBrushes) paintedMaterialImages(projection, raster.byAssetId, id => sources.assetRefs[id].sha256, raster.styled ??= new Map(), signal)
+}
 export async function verifiedRenderBlob(resources: ResourceBytePort, record: AssetRecord): Promise<Blob> {
   const bytes = (await resources.read(record.sha256)).slice()
   const header = inspectImageBytes(bytes)
@@ -261,7 +268,15 @@ export async function verifiedRenderBlob(resources: ResourceBytePort, record: As
   return new Blob([bytes.buffer], { type: record.mimeType })
 }
 
-export async function decodeRequired(sources: RasterSources, projection: Projection, signal?: AbortSignal, metrics?: Pick<RenderMetrics, 'resourceVerificationMs' | 'decoderQueueWaitMs' | 'imageDecodeMs'>, residentAssetIds?: ReadonlySet<string>, cache?: ArtStylePreviewCache): Promise<RasterSet> {
+interface RasterDecodeOptions {
+  metrics?: Pick<RenderMetrics, 'resourceVerificationMs' | 'decoderQueueWaitMs' | 'imageDecodeMs'>
+  residentAssetIds?: ReadonlySet<string>
+  cache?: ArtStylePreviewCache
+  premultiplyAlpha?: ImageBitmapOptions['premultiplyAlpha']
+}
+
+export async function decodeRequired(sources: RasterSources, projection: Projection, signal?: AbortSignal,
+  { metrics, residentAssetIds, cache, premultiplyAlpha = 'default' }: RasterDecodeOptions = {}): Promise<RasterSet> {
   const bitmaps = new Map<string, ImageBitmap>(), byAssetId = new Map<string, ImageBitmap>(); let totalPixels = 0
   const verifiedHashes = new Set<string>()
   try {
@@ -285,7 +300,7 @@ export async function decodeRequired(sources: RasterSources, projection: Project
         bitmap = await withRenderDecoderSlot(signal, async () => {
           const decodeStarted = metrics ? performance.now() : 0
           if (metrics) metrics.decoderQueueWaitMs += decodeStarted - queuedStarted
-          try { return await createImageBitmap(blob, { imageOrientation: 'from-image', colorSpaceConversion: 'default', premultiplyAlpha: 'default' }) }
+          try { return await createImageBitmap(blob, { imageOrientation: 'from-image', colorSpaceConversion: 'default', premultiplyAlpha }) }
           finally { if (metrics) metrics.imageDecodeMs += performance.now() - decodeStarted }
         })
       } catch { checkCancelled(signal); throw new Error(`素材 ${id} 实际解码失败，已停止出图。`) }
@@ -324,13 +339,14 @@ function paintImage(ctx: CanvasRenderingContext2D, paint: MaterialPaint, project
   return raster.paintCache.image
 }
 function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D | null, style: SurfaceStyle | null, projection: Projection, raster: RasterSet, fallback: string, materialPatches: ProjectedSurface['materialPatches'] = [], baseColor?: string,
-  fillBase?: () => void): void {
+  fillBase?: () => void, aboveBase?: () => void): void {
   ctx.save(); if (path) ctx.clip(path); ctx.fillStyle = fallback
   const b = projection.bounds; ctx.fillRect(b.x, b.y, b.width, b.height)
   if (style && !baseColor) {
     if (fillBase) fillBase()
     else { ctx.save(); ctx.resetTransform(); ctx.globalAlpha = style.base.opacity; ctx.drawImage(paintImage(ctx, style.base, projection, raster), 0, 0); ctx.restore() }
   }
+    aboveBase?.()
     for (const overlay of [...(style?.overlays ?? [])].sort((a, b) => a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))) drawOverlay(overlay)
     for (const overlay of materialPatches) drawOverlay(overlay)
     function drawOverlay(overlay: SurfaceOverlay | NonNullable<ProjectedSurface['materialPatches']>[number]): void {
@@ -356,7 +372,15 @@ function drawTerrainSurface(ctx: CanvasRenderingContext2D, area: ProjectedSurfac
   if (area.bridgeSupport && !area.style && !area.materialPatches?.length) return
   const paint = (target: CanvasRenderingContext2D) => {
     const path = surfacePath(area)
-    fillSurface(target, path, area.style, projection, raster, area.waterSurface?.color ?? '#C3BEA8', area.materialPatches, area.waterSurface?.color)
+    const paint = area.style?.base
+    const brush = paint && !area.waterSurface && projection.materialBrushes?.[projection.materials[paint.materialRef.id].textureAssetId]
+    fillSurface(target, path, area.style, projection, raster, area.waterSurface?.color ?? '#C3BEA8', area.materialPatches, area.waterSurface?.color, undefined,
+      brush && paint.opacity ? () => {
+        target.save()
+        target.globalAlpha *= paint.opacity
+        drawGroundPigment(target, path, pointsBounds(area.points), brush)
+        target.restore()
+      } : undefined)
     drawTerrainReliefLight(target, area, path, projection.visual?.environment)
   }
   if (!area.boundaryBlendMm) { paint(ctx); return }
@@ -602,9 +626,6 @@ function drawDecoration(ctx: CanvasRenderingContext2D, value: ProjectedDecoratio
   drawVisualEntity(ctx, projection, value.id, decorationPaintBounds(value), draw, !!raster.readFrequently)
   raster.lineGuide?.sprite(!!raster.bitmapLineIds?.has(value.assetId), draw)
 }
-export function connectionPolygon(connection: Pick<ProjectedConnection, 'start' | 'end' | 'widthMm' | 'route' | 'carvedFootprintMm' | 'inlayFootprintMm'>): PointMm[] {
-  return connection.inlayFootprintMm ?? connection.carvedFootprintMm ?? (connection.route ? connectionBand(connection.route.centerlineMm, connection.widthMm) : wallBand(connection.start, connection.end, connection.widthMm))
-}
 function linePath(a: PointMm, b: PointMm): Path2D { const path = new Path2D(); path.moveTo(a.x, a.y); path.lineTo(b.x, b.y); return path }
 function excludeRing(ctx: CanvasRenderingContext2D, ring: PointMm[], bounds: BoundsMm): void {
   const path = new Path2D(); path.rect(bounds.x - 10000, bounds.y - 10000, bounds.width + 20000, bounds.height + 20000); addRing(path, ring); ctx.clip(path, 'evenodd')
@@ -613,25 +634,6 @@ function excludeRegions(ctx: CanvasRenderingContext2D, regions: NonNullable<Proj
   const path = new Path2D()
   path.rect(bounds.x - 1, bounds.y - 1, bounds.width + 2, bounds.height + 2)
   ctx.clip(regionsPath(regions, path), 'evenodd')
-}
-/** Face thickness follows the real lower side, including canonical sources that are the lower area.
- * This surface decoration is distinct from the independently controlled world-direction shadow. */
-export function terrainFace(edge: ProjectedTerrainEdge, projection: Pick<Projection, 'theme'>): PointMm[] {
-  const delta = Math.abs(edge.elevationMm - edge.neighborElevationMm)
-  if (!delta || edge.kind !== 'cliff') return []
-  const a = edge.start, b = edge.end, length = Math.hypot(b.x - a.x, b.y - a.y), sign = edge.elevationMm > edge.neighborElevationMm ? 1 : -1
-  const width = cliffBandWidth(edge, projection.theme)
-  const dx = (b.y - a.y) / length * sign * width, dy = -(b.x - a.x) / length * sign * width
-  return width ? [a, b, point(b.x + dx, b.y + dy), point(a.x + dx, a.y + dy)] : []
-}
-/** A swept edge silhouette, displaced once toward world SE; face-normal offset is not added. */
-export function terrainShadow(edge: ProjectedTerrainEdge, projection: Pick<Projection, 'theme' | 'visual'>): PointMm[] {
-  const cliff = projection.theme?.terrainCliff
-  if (edge.kind !== 'cliff' || !cliff?.opacity) return []
-  const delta = Math.abs(edge.elevationMm - edge.neighborElevationMm), offset = Math.round(Math.min(cliff.maxOffsetMm, cliff.offsetFactor * delta))
-  const direction = projection.visual?.environment.lightDirectionDeg ?? cliff.directionDeg
-  const dx = Math.cos(direction * Math.PI / 180) * offset, dy = Math.sin(direction * Math.PI / 180) * offset
-  return offset ? [edge.start, edge.end, point(edge.end.x + dx, edge.end.y + dy), point(edge.start.x + dx, edge.start.y + dy)] : []
 }
 /** Nonzero winding unions overlapping cells and bevels in one raster operation. */
 function terrainBandPath(cells: TerrainBandCell[], from = 0, to = 1, variation = 0): Path2D {
@@ -917,7 +919,7 @@ function fillPavement(ctx: CanvasRenderingContext2D, outline: Path2D | null, pat
   const courses = path.paving, style = path.style
   if (!courses || courses.length < 2) {
     const base = courses?.[0]?.paint
-    fillSurface(ctx, outline, base && style ? { ...style, base } : style, projection, raster, defaultRoadColor)
+    fillSurface(ctx, outline, base && style ? { ...style, base } : style, projection, raster, path.groundBlendMm || path.gradedSurface ? '#9a8061' : defaultRoadColor)
     return
   }
   fillSurface(ctx, outline, style, projection, raster, defaultRoadColor, [], undefined, () => {
@@ -1043,6 +1045,8 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
     return extendPavement(path, extensions)
   })
   const junctions = pathJunctionOutlines({ ...projection, paths: paintPaths }), byId = new Map(paintPaths.map(path => [path.id, path]))
+  const ground = paintPaths.some(earthenRoad) ? projectGround(projection) : undefined
+  const roadBankAt = paintPaths.some(path => path.gradedSurface) ? roadBankSampler(projection) : undefined
   for (const [roadId, joins] of byRoad) {
     const road = byId.get(roadId)!
     if (!road.paving?.length) continue
@@ -1060,13 +1064,45 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
     const path = byId.get(id)!
     const bridge = path.bridge, relief = bridge?.relief
     const offset = relief?.depthMm ? bridgeSideOffset(relief.depthMm) : undefined
-    const body = bridge ? [...path.points, ...bridge.outline] : path.points
+    const body = path.gradedSurface?.footprintMm ?? (bridge ? [...path.points, ...bridge.outline] : path.points)
     const bounds = expandedBounds(offset && bridge ? [...body, ...bridge.outline.map(({ x, y }) => point(x + offset.x, y + offset.y))] : body,
       Math.max(path.edgeStyle.bandWidthMm * 2, offset && !bridge?.structure ? 144 : 0))
     drawVisualEntity(ctx, projection, path.id, bounds, (ctx, projection) => {
       const outline = polygonPath(path.points), edge = path.edgeStyle
       const bridgeEnds = byBridge.get(path.id) ?? [], roadEnds = byRoad.get(path.id) ?? [], caps: [PointMm, PointMm][] = []
       ctx.save()
+      const graded = path.gradedSurface
+      if (graded && roadBankAt) {
+        drawPavementLayer(ctx, projection, raster, graded.footprintMm, (target, local) => {
+          target.save()
+          target.clip(outline)
+          fillPavement(target, null, path, local, raster)
+          paintRoadWear(target, graded)
+          target.restore()
+          const mask = canvas(target.canvas.width, target.canvas.height)
+          try {
+            const painter = context(mask, raster.readFrequently)
+            painter.setTransform(target.getTransform())
+            paintRoadWearMask(painter, graded, roadBankAt)
+            target.save()
+            target.resetTransform()
+            target.globalCompositeOperation = 'destination-in'
+            target.drawImage(mask, 0, 0)
+            target.restore()
+          } finally { disposeCanvas(mask) }
+          paintRoadBanks(target, graded, roadBankAt)
+          paintGradedRoadRisers(target, graded, path, !raster.spatialTexture)
+          fadeGradedRoadEnds(target, graded)
+          paintGradedRoadCovers(target, path.gradedFinish)
+        }, polygonPath(graded.footprintMm))
+        if (raster.lineGuide) {
+          raster.lineGuide.cover(outline)
+          raster.lineGuide.stroke(outline, .27, 41)
+          for (const { lower } of graded.risers) raster.lineGuide.stroke(linePath(lower[1], lower[2]), .48, 33)
+        }
+        ctx.restore()
+        return
+      }
       if (bridge) {
         const cuts = bridge.structure ? bridgeEnds.flatMap(({ platform }) => platform?.shoulderCut ?? []) : []
         const perimeter = exposedEdgeSegments(ringSegments(bridge.outline), cuts)
@@ -1118,6 +1154,61 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
         if (bridge) guide.cover(polygonPath(bridge.outline))
         guide.cover(outline)
         guide.stroke(exterior, bridge ? .82 : .58, bridge ? 99 : 53, bridge ? 1.55 : 1.12)
+      }
+      if (path.groundBlendMm && !caps.length) {
+        drawPavementLayer(ctx, projection, raster, path.points, (target, local) => {
+          fillPavement(target, null, path, local, raster)
+          const material = path.style && projection.materials[path.style.base.materialRef.id]
+          if (!path.groundBlendEnds && material && projection.materialBrushes?.[material.textureAssetId] === 'earth') {
+            drawSoilTrailGrain(target, local.bounds, pointsBounds(path.points))
+          }
+          const stairs = path.stairs
+          if (stairs) {
+            let geometry
+            if (ground && earthenRoad(path)) {
+              geometry = planStaircase(stairs.centerlineMm, stairs.widthMm, stairs.config, stairs.widthSections)
+              drawEarthenRoadPaint(target, geometry, ground.groundAt)
+            } else geometry = drawStaircase(target, stairs.centerlineMm, stairs.widthMm, stairs.config, { widthSections: stairs.widthSections })
+            guide?.treads(geometry, outline)
+          }
+          // The wearing surface is lit by the same relief and light as its banks.
+          target.save(); target.clip(outline)
+          for (const area of local.terrain) if (area.relief && intersectsVisualBounds(pointsBounds(area.points), local.bounds)) {
+            drawTerrainReliefLight(target, area, surfacePath(area), local.visual?.environment)
+          }
+          target.restore()
+          const mask = canvas(target.canvas.width, target.canvas.height)
+          try {
+            const maskContext = context(mask, raster.readFrequently)
+            drawSurfaceRuleMask(maskContext, local.bounds, mask.width, mask.height, [{ outerMm: path.points, holesMm: [] }], path.groundBlendMm!, true)
+            erodeRoadPaintEdge(maskContext, path.points, path.groundBlendMm!, path.groundBlendEnds)
+            target.save(); target.resetTransform(); target.globalCompositeOperation = 'destination-in'; target.drawImage(mask, 0, 0); target.restore()
+          } finally { disposeCanvas(mask) }
+        }, outline)
+        ctx.restore()
+        return
+      }
+      const paint = path.style?.base
+      if (paint && projection.materialBrushes?.[projection.materials[paint.materialRef.id].textureAssetId] === 'earth'
+        && !bridge && !roadEnds.length && !path.stairs && !path.paving) {
+        drawPavementLayer(ctx, projection, raster, path.points, (target, local) => {
+          fillPavement(target, null, path, local, raster)
+          // Only erode exposed soil. Shared intersections and door thresholds
+          // are excluded by the same perimeter used to join ordinary pavement.
+          target.save()
+          target.globalCompositeOperation = 'destination-out'
+          target.lineJoin = 'round'
+          target.strokeStyle = 'rgba(0,0,0,.27)'
+          target.lineWidth = 190
+          target.stroke(exterior)
+          target.setLineDash([135, 73, 290, 178])
+          target.lineWidth = 115
+          target.strokeStyle = 'rgba(0,0,0,.64)'
+          target.stroke(exterior)
+          target.restore()
+        }, outline)
+        ctx.restore()
+        return
       }
       if (edge.bandWidthMm) {
         ctx.save(); ctx.globalAlpha = .22; ctx.filter = `blur(${edge.bandWidthMm * .3 * Math.max(sx, sy)}px)`; ctx.strokeStyle = edge.color; ctx.lineWidth = edge.bandWidthMm; ctx.lineJoin = 'round'; ctx.stroke(exterior); ctx.restore()
@@ -1806,7 +1897,7 @@ function finishProjection(ctx: CanvasRenderingContext2D, projection: Projection,
  * Canvas/resource backend. Receives disposable physical projection and resource
  * records only. Strict version-specific entrypoints own document validation.
  */
-export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm, previewCache?: ArtStylePreviewCache): Promise<HTMLCanvasElement> {
+export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions & { spatialTexture?: true }, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm, previewCache?: ArtStylePreviewCache): Promise<HTMLCanvasElement> {
   options = { ...options }
   const started = options.onMetrics ? validationStarted ?? performance.now() : 0
   const metrics: RenderMetrics | undefined = options.onMetrics ? { validationProjectionMs: 0, resourceVerificationMs: 0, decoderQueueWaitMs: 0, imageDecodeMs: 0, drawSubmissionMs: 0, totalMs: 0, decodedImages: 0, decodedPixels: 0, width: 0, height: 0, audience: options.audience, ...(projection.floorId === undefined ? {} : { floorId: projection.floorId }) } : undefined
@@ -1858,7 +1949,10 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   if (width * height > PNG_MAX_PIXELS) throw new Error('图片超过 16M 像素预算。')
   if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') throw new Error('图片绘制需要支持真实位图解码与 Canvas 的浏览器。')
   if (metrics) { metrics.validationProjectionMs = performance.now() - started; metrics.width = width; metrics.height = height }
-  const raster = await decodeRequired(sources, projection, options.signal, metrics, plan ? editorResidentAssetIds(visibleProjection, plan) : undefined, cache)
+  const raster = await decodeRequired(sources, projection, options.signal, {
+    metrics, residentAssetIds: plan ? editorResidentAssetIds(visibleProjection, plan) : undefined, cache,
+  })
+  raster.spatialTexture = options.spatialTexture
   raster.bitmapLine = bitmapLine
   raster.bitmapLineIds = bitmapLineIds
   // Formal 4K output is read back for PNG encoding. Keep all of its temporary
@@ -1879,7 +1973,7 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   }
   try {
     checkCancelled(options.signal)
-    if (drawingProjection.artStyles) await beginArtStyleArtwork(sources, raster, drawingProjection, options.signal, cache)
+    await prepareRasterArtwork(sources, raster, drawingProjection, options.signal, cache)
     checkCancelled(options.signal)
     output = canvas(width, height)
     const ctx = context(output, !!raster.readFrequently || styleReadback)

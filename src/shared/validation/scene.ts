@@ -7,6 +7,7 @@ import { attachmentSurfaceRecordSchema, attachmentRecordSchema } from '../attach
 import { terrainFacadeSchema } from '../appearance/terrain-facade.js'
 import { rockBodySchema, carvedStripSchema } from '../carved-rock/contracts.js'
 import { terrainReliefSchema } from '../geometry/terrain-relief.js'
+import { automaticRouteSchema, roadSurfaceSchema } from '../geometry/road-surface.js'
 import { terrainInlaySchema } from '../terrain-inlay/persistence.js'
 import { staircaseSchema } from '../stairs/contracts.js'
 import { imageEnhancementMetadataSchema } from '../image-enhancement/metadata.js'
@@ -70,7 +71,8 @@ const sceneShape = {
 
   assets: record(z.object({ id, sha256: z.string().regex(/^[a-f0-9]{64}$/), mimeType: z.enum(['image/png', 'image/jpeg', 'image/webp']),
     pixelWidth: positive, pixelHeight: positive, logicalSizeMm: size, licenseRef: id, origin, imageEnhancement: imageEnhancementMetadataSchema.optional(), imageRefinement: assetRefinementMetadataSchema.optional() }).strict()),
-  presetSnapshot: z.object({ presetId: id, presetVersion: positive, distanceMode: z.enum(['metric', 'grid', 'abstract']), source: z.string(), gridSizeMm: positive }).strict(),
+  presetSnapshot: z.object({ presetId: id, presetVersion: positive, distanceMode: z.enum(['metric', 'grid', 'abstract']), source: z.string(), gridSizeMm: positive,
+    starterPalette: z.literal('standard-v1').optional() }).strict(),
   rooms: record(z.object({ ...editable, boundaryVertexIds: ids.min(3).max(256), purpose: z.string(), visibility,
     accessExpectation: z.enum(['unspecified', 'required', 'intentionalIsolation']), supportRef: groundRef, groundElevationMm: int, floorStyle: style, furnishingPlan: roomFurnishingPlanSchema.optional() }).strict()),
   walls: record(z.object({ ...editable, startVertexId: id, endVertexId: id, thicknessMm: positive, blocksMovement: z.boolean(), blocksSight: z.boolean(), topStyle: style, edgeProfile: z.literal('stone-blocks-v1').optional() }).strict().refine(wall => !wall.edgeProfile || supportsWallReliefStyle(wall.topStyle), '块石外缘需要遗迹石灰岩墙顶材质；更换材质前请先恢复平直外缘。')),
@@ -96,7 +98,9 @@ const sceneShape = {
   attachmentSurfaces: attachmentSurfaceRecordSchema.optional(),
   attachments: attachmentRecordSchema.optional(),
   paths: record(z.object({ ...editable, visibility, centerlineMm: z.array(point).min(2).max(256), widthMm: positive, supportRefs: z.array(surfaceRef).min(1).refine(unique, '支撑引用不能重复'),
-    widthSections: routeWidthSectionsSchema.optional(), staircase: staircaseSchema.optional(), surfaceStyle: pathSurfaceStyle, movementCostMultiplier: movementCost, renderOrder: rank, assembly: pathAssemblySchema.optional() }).strict()),
+    automaticRoute: automaticRouteSchema.optional(), roadSurface: roadSurfaceSchema.optional(),
+    widthSections: routeWidthSectionsSchema.optional(), staircase: staircaseSchema.optional(), boundaryBlendMm: int.min(0).max(10000).optional(),
+    surfaceStyle: pathSurfaceStyle, movementCostMultiplier: movementCost, renderOrder: rank, assembly: pathAssemblySchema.optional() }).strict()),
   prefabDefinitions: record(z.object({ ...identity, name: z.string(), tags: strings, pathStyle: pathStyleDefaultsSchema.optional(), members: z.array(z.object({ key: id, propTemplate: z.object(templateShape).strict() }).strict()).min(1).max(128) }).strict()),
   prefabInstances: record(z.object({ ...editable, visibility, definitionRef: versionRef, anchorMm: point, rotationDeg: angle,
     members: record(z.object({ propId: id.nullable(), overrideFields }).strict()) }).strict()),

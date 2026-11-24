@@ -3,6 +3,24 @@ import type { ProjectedConnection } from '../../../shared/projection/types.js'
 import { pointInPolygon, connectionBand } from '../../../shared/geometry/geometry.js'
 import { connectionArcFrame } from '../../../shared/geometry/connection-route.js'
 
+export function connectionPolygon(connection: Pick<ProjectedConnection, 'start' | 'end' | 'widthMm' | 'route' | 'carvedFootprintMm' | 'inlayFootprintMm'>): PointMm[] {
+  const { start, end, widthMm, route, inlayFootprintMm, carvedFootprintMm } = connection
+  const footprint = inlayFootprintMm ?? carvedFootprintMm
+  if (footprint) return footprint
+  if (route) return connectionBand(route.centerlineMm, widthMm)
+  const length = Math.hypot(end.x - start.x, end.y - start.y)
+  const nx = -(end.y - start.y) / length * widthMm / 2, ny = (end.x - start.x) / length * widthMm / 2
+  const points = [
+    { x: start.x + nx, y: start.y + ny }, { x: start.x - nx, y: start.y - ny },
+    { x: end.x - nx, y: end.y - ny }, { x: end.x + nx, y: end.y + ny },
+  ]
+  const signedArea = points.reduce((sum, point, i) => {
+    const next = points[(i + 1) % points.length]
+    return sum + point.x * next.y - next.x * point.y
+  }, 0)
+  return signedArea < 0 ? points.reverse() : points
+}
+
 /** Disposable paint geometry; the saved endpoints and full physical width stay authoritative. */
 export function connectionFrame(connection: Pick<ProjectedConnection, 'start' | 'end' | 'widthMm' | 'fromElevationMm' | 'toElevationMm' | 'route'>) {
   const ascending = connection.toElevationMm > connection.fromElevationMm

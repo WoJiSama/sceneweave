@@ -74,6 +74,11 @@ export interface ProjectedDoorThreshold {
 }
 export interface ProjectedPath {
   id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle; bridge?: ProjectedBridge
+  gradedSurface?: import('../geometry/road-surface.js').RoadSurfaceGeometry
+  gradedFinish?: { material: import('../stairs/contracts.js').StaircaseMaterialId; covers: import('../stairs/geometry.js').StaircaseGeometry['covers'] }
+  /** Inward paint blend over the already audience-filtered ground. */
+  groundBlendMm?: number
+  groundBlendEnds?: { point: PointMm; inward: PointMm; widthMm: number }[]
   paving?: import('./route-paving.js').ProjectedPavingCourse[]
   stairs?: { centerlineMm: PointMm[]; widthMm: number; widthSections?: import('../geometry/route-width.js').RouteWidthSection[]; config: import('../stairs/contracts.js').StaircaseConfig }
   /** Paint-only continuation through an audience-visible attached doorway. */
@@ -127,6 +132,7 @@ export interface Projection {
   outputBackground?: import('../model/scene.js').SceneOutputBackground
   floorArtwork?: import('../model/scene.js').FloorArtwork
   artStyles?: import('../visual/art-style.js').ActiveArtStyles
+  materialBrushes?: Record<string, import('./material-drawing.js').MaterialBrush>
   rooms: ProjectedSurface[]; terrain: ProjectedSurface[]; walls: ProjectedWall[]
   /** Canonical ground/object/canopy, renderOrder, id order; independent copies of source props. */
   props: Prop[]
@@ -170,7 +176,7 @@ export interface Projection {
   maskPublicRooms?: PointMm[][][]
   regional?: { areas: ProjectedRegionalArea[]; lines: ProjectedRegionalLine[]; landmarks: ProjectedRegionalLandmark[]; symbols: ProjectedRegionalSymbol[] }
   theme: Pick<StyleTheme, 'outline' | 'openingStyle' | 'shadowPresets' | 'edgeStyles' | 'terrainCliff'> | null
-  materials: Record<string, Pick<MaterialRef, 'id' | 'version' | 'textureAssetId'>>
+  materials: Record<string, Pick<MaterialRef, 'id' | 'version' | 'textureAssetId'> & { bankMaterial?: import('./road-material.js').RoadBankMaterial }>
   visual?: ProjectedVisualSystem
   assetIds: string[]; limitations: string[]; diagnostics: string[]
 }

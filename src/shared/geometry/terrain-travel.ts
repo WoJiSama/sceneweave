@@ -4,6 +4,8 @@ import { connectionCenterline, connectionArcFrame } from './connection-route.js'
 import { carvedStripCenterline } from '../carved-rock/index.js'
 import { createSupportQuery, type SupportSample } from './support-sample.js'
 import { bridgeDeckIds } from '../path-assembly/contracts.js'
+import { ROAD_RISER_LIMIT_MM, roadFaceNormal, roadSpanTriangles } from './road-surface.js'
+import { reliefBounds } from './terrain-relief.js'
 import type { Issue, Path, PointMm, SceneDocument, SurfaceRef, TerrainConnection } from '../model/scene.js'
 
 export interface TerrainTravelRequest { floorId: string; from: PointMm; to: PointMm; widthMm: number }
@@ -81,7 +83,7 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
     const area = support.kind === 'terrainArea' ? scene.terrainAreas[support.id] : undefined
     // A valid full-width authored stair carries its own usable treads across
     // the steeper exposed bank. Raw relief without that stair still blocks.
-    return !!area?.relief && !area.blocksMovement && !sample.sourceConnectionId && usable.some(({ connection, polygon }) =>
+    return !!area?.relief && !area.blocksMovement && !sample.sourceConnectionId && !sample.sourcePathId && usable.some(({ connection, polygon }) =>
       !connection.carvedStrip && !connection.terrainInlay && (connection.kind === 'stairs' || !!connection.staircase)
       && [connection.from, connection.to].some(end => sameRef(groundRef(scene, end.surfaceRef), support)) && pointInPolygon(p, polygon))
   })) issue('TERRAIN_NOT_WALKABLE', '整条净宽带必须留在世界内的实际可步行面；水面、岩体侧壳、切口外肩或不足宽/阻挡连接不能普通穿越。')
@@ -91,6 +93,20 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
   const deckIds = bridgeDeckIds(scene)
   const allBoundaries = [...boundaries, band, ...usable.map(item => item.polygon)]
   const allEdges = allBoundaries.flatMap(edges)
+  const box = reliefBounds(band), travelEdges = edges(band)
+  for (const { path, geometry, sampler } of query.roads) {
+    const bounds = sampler.bounds
+    if (bounds.x > box.x + box.width || box.x > bounds.x + bounds.width || bounds.y > box.y + box.height || box.y > bounds.y + bounds.height) continue
+    if (geometry.spans.some(span => ([0, 2] as const).some(lane => roadSpanTriangles(span, lane).some(face =>
+      roadFaceNormal(face).z < Math.SQRT1_2 && polygonsOverlap(band, face))))) issue('TERRAIN_NOT_WALKABLE', '通行带跨到过陡的路肩或填坡。', path.id)
+    for (const { lower, upper } of geometry.risers) {
+      const [a, b] = [lower[1], lower[2]], cuts = segmentCuts(a, b, travelEdges)
+      if (cuts.slice(1).some((t, i) => pointInPolygon(at(a, b, (cuts[i] + t) / 2), band, false))
+        && (Math.hypot(b.x - a.x, b.y - a.y) + EPS < widthMm || upper[1].z - a.z > ROAD_RISER_LIMIT_MM)) {
+        issue('TERRAIN_ROAD_RISER', '沿踏步通行须使用有效阶高内的完整道路净宽。', path.id)
+      }
+    }
+  }
   const physicalEdges = [...areas.flatMap(area => area.boundaryMm.map((row, index) => ({ a: row.positionMm, b: area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm, area, index }))),
     ...query.strips.flatMap(row => row.sampler.cutFootprints.flatMap(polygon => edges(polygon).map(([a, b]) => ({ a, b, area: undefined, index: -1 })))),
     ...query.shellBoundaries.flatMap(polygon => edges(polygon).map(([a, b]) => ({ a, b, area: undefined, index: -1 }))), ...query.inlayBoundaries.flatMap(polygon => edges(polygon).map(([a, b]) => ({ a, b, area: undefined, index: -1 })))]

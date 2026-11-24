@@ -110,7 +110,7 @@ export interface ProjectionAssetClosure { readonly complete: boolean; readonly c
 // A new projection module cannot silently inherit sprite-only decode behavior.
 const projectionModules = {
   audience: true, floorId: true, sourceRevision: true, bounds: true, gridSizeMm: true, outputBackground: true, floorArtwork: true, artStyles: true, rooms: true, terrain: true, walls: true, props: true,
-  decorations: true, spritePaintOrder: true, propPresentations: true, propVolumes: true, groundView: true, edges: true, lineArtShorelines: true, paths: true, connections: true, rocks: true, inlays: true,
+  decorations: true, spritePaintOrder: true, propPresentations: true, propVolumes: true, materialBrushes: true, groundView: true, edges: true, lineArtShorelines: true, paths: true, connections: true, rocks: true, inlays: true,
   pathJoinGroups: true, bridgeEntrances: true, pathJoinPaintOrder: true, pathTerrainJoins: true, pathPaintOrder: true, openingPaintOrder: true, notes: true, regions: true, masks: true, regional: true,
   maskPublicRooms: true, theme: true, materials: true, visual: true, assetIds: true, limitations: true, diagnostics: true,
 } satisfies Record<keyof Projection, true>

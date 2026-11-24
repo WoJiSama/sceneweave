@@ -21,9 +21,12 @@ import { WALL_RELIEF_LIMIT_MM } from '../appearance/wall-edge-profile.js'
 import type { BoundsMm, EdgeStyle, Note, PointMm, Prop, ShadowStyle, SurfaceRef, SurfaceStyle, TerrainArea, TerrainEdge } from '../model/scene.js'
 import type { SceneDocument } from '../model/scene.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
-import { openingEndpoints, pathPolygon, pointInPolygon, roomPoints, terrainPoints } from '../geometry/geometry.js'
+import { openingEndpoints, pointInPolygon, roomPoints, terrainPoints } from '../geometry/geometry.js'
 import { fitSteelLandingFacades, planBridgeEntrances } from './bridge-entrances.js'
 import { pathAnchorPosition, pathDecorationPadding, pathEdgeStyle, projectDoorThreshold, projectPath } from './paths.js'
+import { roadEffectsPolygon } from '../geometry/road-domain.js'
+import { roadBankMaterial } from './road-material.js'
+import { projectMaterialBrushes } from './material-drawing.js'
 import { regionalEntityVisibility } from '../terrain-generation/integrity.js'
 import { decorationPaintGeometry, decorationPaintBounds } from '../decorations/presentation.js'
 import { resolveSurfaceRules } from '../surface-rules/resolve.js'
@@ -637,7 +640,7 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
       if (area && index >= 0) privateBounds.push({ entityKind: 'terrainEdge', entityId: edge.id, boundsMm: inflate(pointsBounds([area.boundaryMm[index].positionMm, area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm]), Math.max(edgePadding, shorePadding)) })
     }
     for (const connection of floorValues(scene.terrainConnections)) if (!connectionPublic(connection.id) && !(connection.carvedStrip && areaPublic(connection.carvedStrip.hostAreaId))) privateBounds.push({ entityKind: 'terrainConnection', entityId: connection.id, boundsMm: connection.terrainInlay ? inflate(pointsBounds(terrainInlayFootprint(connection)), 624) : connection.route ? inflate(pointsBounds(connectionFootprint(connection)), 24) : inflate(pointsBounds([connection.from.positionMm, connection.to.positionMm]), connection.widthMm / 2 + 24) })
-    for (const path of floorValues(scene.paths)) if (!pathPublic(path.id)) privateBounds.push({ entityKind: 'path', entityId: path.id, boundsMm: inflate(pointsBounds(pathPolygon(path)), pathDecorationPadding(pathEdgeStyle(theme))) })
+    for (const path of floorValues(scene.paths)) if (!pathPublic(path.id)) privateBounds.push({ entityKind: 'path', entityId: path.id, boundsMm: inflate(pointsBounds(roadEffectsPolygon(path)), pathDecorationPadding(pathEdgeStyle(theme))) })
     for (const region of floorValues(scene.regions)) if ((region.kind === 'terrain' || region.kind === 'hazard') && region.visibility !== 'public') privateBounds.push({ entityKind: 'region', entityId: region.id, boundsMm: pointsBounds(region.boundaryMm) })
     const issues = collectPlayerCoverageIssues(privateBounds, rectangles, bounds, targetFloorId)
     if (issues.length) throw new PlayerCoverageError(issues)
@@ -649,10 +652,13 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   const floorArtwork = scene.floors[targetFloorId].artwork
   if (floorArtwork) assetIds.add(floorArtwork.assetId)
   const surfacePaints = styles.flatMap(style => style ? [style.base, ...style.overlays.map(o => o.paint)] : []).concat(terrain.flatMap(area => (area.materialPatches ?? []).map(patch => patch.paint)))
+  const gradedRoads = paths.some(path => path.gradedSurface)
   for (const paint of surfacePaints) {
     const material = scene.materials[paint.materialRef.id]
     if (!material || material.version !== paint.materialRef.version) throw new Error('绘制需要的材质快照缺失或版本不符。')
-    materials[material.id] = { id: material.id, version: material.version, textureAssetId: material.textureAssetId }; assetIds.add(material.textureAssetId)
+    materials[material.id] = { id: material.id, version: material.version, textureAssetId: material.textureAssetId,
+      ...(gradedRoads ? { bankMaterial: roadBankMaterial(material) } : {}) }
+    assetIds.add(material.textureAssetId)
   }
   for (const prop of props) if (prop.appearance.kind === 'image') assetIds.add(prop.appearance.assetId)
   for (const value of decorations) assetIds.add(value.assetId)
@@ -711,5 +717,6 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   }
   if (pathTerrainJoins) result.pathTerrainJoins = pathTerrainJoins
   if (pathJoinGroups.length || pathTerrainJoins) result.pathJoinPaintOrder = pathJoinPaintOrder
+  if (scene.artStyle?.version === 2 && scene.artStyle.materialDrawing) result.materialBrushes = projectMaterialBrushes(scene, result)
   return result
 }

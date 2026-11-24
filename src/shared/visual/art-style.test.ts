@@ -1,18 +1,44 @@
 import { expect, test } from 'vitest'
 import { normalizeStaticSvg } from '../ai/svg.js'
 import { applyCommands } from '../commands/commands.js'
+import { createBasePlacedProp } from '../commands/base.js'
 import { toCurrentSceneDocument } from '../model/current-scene.js'
 import type { AssetRef, SceneDocument } from '../model/scene.js'
 import { projectScene } from '../projection/projection.js'
 import { artStyleSource } from './art-style-sources.js'
 import { activeArtStyles, activeLineArt, ART_STYLE_DEFAULTS, artStyleBrushKey, CURRENT_ART_STYLE_PAINT_VERSION, CURRENT_BITMAP_LINE_VERSION, CURRENT_LINE_ART_PAINT_VERSION, preservesBitmapContours,
-  defaultSceneArtStyle, enabledArtStylePresets, sceneArtStyleSchema, setArtStyleEnabled, upgradeSceneArtStyle, type LegacySceneArtStyle } from './art-style.js'
+  defaultSceneArtStyle, enabledArtStylePresets, newMapArtStyle, sceneArtStyleSchema, setArtStyleEnabled, upgradeSceneArtStyle, type LegacySceneArtStyle } from './art-style.js'
 import { THEME_PACK_ART } from './theme-pack-art.js'
 import { HANDDRAWN_SURFACE_ART } from './handdrawn-surfaces.js'
 import builtin from '../../platform/browser/content/builtin-data.json'
 import { colorFilterSchema, colorCurveTable, neutralColorFilter } from './color-filter.js'
 
 const legacy = (): LegacySceneArtStyle => ({ version: 1, active: 'original', presets: structuredClone(ART_STYLE_DEFAULTS) })
+
+test('material drawing uses only visible fixed sources and is opt-in for stored themes', () => {
+  const scene = toCurrentSceneDocument(structuredClone(builtin.project.document) as unknown as SceneDocument)
+  const runtime = { clock: { now: () => scene.updatedAt }, ids: { nextId: () => 'unused-id' } }
+  const layer = Object.values(scene.userLayers)[0], floor = scene.floors[layer.floorId]
+  for (const [index, id] of ['desk', 'chair'].entries()) {
+    const prop = createBasePlacedProp(scene, index ? 'b2-p-02' : 'b2-p-01', { x: floor.boundsMm.x + 2500 + index * 2000, y: floor.boundsMm.y + 3000 }, runtime, { id, floorId: floor.id })
+    scene.props[id] = { ...prop, visibility: index ? 'gm' : 'public' }; scene.entityLayers[id] = layer.id
+  }
+  const { x, y } = floor.boundsMm
+  scene.regions['cover-chair'] = { id: 'cover-chair', floorId: floor.id, kind: 'manualMask', visibility: 'gm', editLocked: false, blocksMovement: false,
+    movementCostMultiplier: 1, boundaryMm: [{ x: x + 3300, y: y + 1500 }, { x: x + 6200, y: y + 1500 }, { x: x + 6200, y: y + 4500 }, { x: x + 3300, y: y + 4500 }] }
+  scene.entityLayers['cover-chair'] = layer.id
+  const desk = scene.props.desk.appearance, chair = scene.props.chair.appearance
+  if (desk.kind !== 'image' || chair.kind !== 'image') throw Error('Expected fixed furniture artwork')
+  scene.artStyle = defaultSceneArtStyle()
+  expect(projectScene(scene, 'gm').materialBrushes).toBeUndefined()
+  scene.artStyle = newMapArtStyle()
+  expect(projectScene(scene, 'gm').materialBrushes).toMatchObject({ [desk.assetId]: 'wood', [chair.assetId]: 'wood' })
+  expect(projectScene(scene, 'player').materialBrushes).toEqual({ [desk.assetId]: 'wood' })
+  scene.props.desk.appearance = { ...chair }
+  expect(projectScene(scene, 'player').materialBrushes).toEqual({})
+  scene.props.chair.visibility = 'public'
+  expect(projectScene(scene, 'gm').materialBrushes).toEqual({})
+})
 
 test('commits one presentation setting and projects only the enabled presets in paint order', () => {
   const scene = toCurrentSceneDocument(structuredClone(builtin.project.document) as unknown as SceneDocument)

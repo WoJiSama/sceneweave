@@ -14,6 +14,9 @@ import { resolvePropContact } from '../attachments/contact.js'
 import { bridgeDeckIds } from '../path-assembly/contracts.js'
 import { routeWidthFrame } from './route-width.js'
 import { propSightLine } from './sight-occluder.js'
+import { AUTOMATIC_ROAD_VERSION, roadSurfaceFrame } from './road-surface.js'
+import { validateAdoptedRoad } from './road-domain.js'
+import { isFlatCanvasGround, isFloorSizedCanvasGround } from '../model/canvas-ground.js'
 
 const EPS = 1e-7
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
@@ -119,7 +122,7 @@ export function polygonInside(subject: PointMm[], container: PointMm[]): boolean
   }
   return true
 }
-export function propFootprint(prop: Prop): PointMm[] {
+export function propFootprint(prop: Pick<Prop, 'positionMm' | 'rotationDeg' | 'footprintMm' | 'footprintOffsetMm'>): PointMm[] {
   const b = { x: prop.footprintOffsetMm.x - prop.footprintMm.width / 2, y: prop.footprintOffsetMm.y - prop.footprintMm.height / 2, ...prop.footprintMm }
   return transformBounds(b, prop.positionMm, prop.rotationDeg)
 }
@@ -171,7 +174,9 @@ function pointOnQueriedSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef
     return !!actual && refEqual(actual.rootSupportRef, ref) && !actual.sourceConnectionId && !actual.sourceRockShellAreaId
   }
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !pointInPolygon(p, terrainPoints(candidate))) return false
-  return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && pointInPolygon(p, terrainPoints(item), false)) && !!query?.flatOn(p, ref)
+  return !Object.values(scene.terrainAreas).some(item => item.floorId === floorId
+    && (candidate ? item.coveragePriority > candidate.coveragePriority : !isFlatCanvasGround(item))
+    && pointInPolygon(p, terrainPoints(item), false)) && !!query?.flatOn(p, ref)
 }
 export function supportedPolygon(scene: SceneDocument, polygon: PointMm[], ref: SurfaceRef, floorId: string): boolean {
   return polygonOnQueriedSurface(scene, polygon, ref, floorId, createSupportQuery(scene, floorId), true)
@@ -184,7 +189,9 @@ function polygonOnQueriedSurface(scene: SceneDocument, polygon: PointMm[], ref: 
   const floor = own(scene.floors, floorId), candidate = ref.kind === 'terrainArea' ? own(scene.terrainAreas, ref.id) : undefined
   if (!floor || polygon.some(p => !boundsContain(p, floor.boundsMm))) return false
   if (ref.kind === 'floor' ? ref.id !== floorId : !candidate || candidate.floorId !== floorId || !polygonInside(polygon, terrainPoints(candidate))) return false
-  if (Object.values(scene.terrainAreas).some(item => item.floorId === floorId && (candidate ? item.coveragePriority > candidate.coveragePriority : true) && polygonsOverlap(polygon, terrainPoints(item)))) return false
+  if (Object.values(scene.terrainAreas).some(item => item.floorId === floorId
+    && (candidate ? item.coveragePriority > candidate.coveragePriority : !isFlatCanvasGround(item))
+    && polygonsOverlap(polygon, terrainPoints(item)))) return false
   if (!query) return false
   if (candidate?.relief && allowRelief) return coveredEverywhere(polygon, query.boundaries, p => pointOnQueriedSurface(scene, p, ref, floorId, query, true))
   // Failed samplers are absent from query arrays but must still reject support.
@@ -200,6 +207,9 @@ export function corridor(a: PointMm, b: PointMm, width: number, squareCaps = fal
 }
 /** Square caps, miter joins capped at twice half-width, then bevel. No stored second contour. */
 export function pathPolygon(path: Path): PointMm[] {
+  if (path.roadSurface) {
+    try { return roadSurfaceFrame(path).coreMm } catch { return [] }
+  }
   if (path.widthSections?.length) return widthProfileBand(path.centerlineMm, path.widthMm, path.widthSections)
   return path.assembly?.bridge ? connectionBand(path.centerlineMm, path.widthMm) : polylineBand(path.centerlineMm, path.widthMm, true)
 }
@@ -445,7 +455,8 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (issues.length) continue
     const triangles = createRockShellSampler(shell).triangles.map(face => face.verticesMm.map(({ x, y }) => ({ x, y })))
     shellRows.push({ area: item, triangles })
-    if (areas.some(other => other.id !== item.id && other.floorId === item.floorId && triangles.some(face => polygonsOverlap(face, terrainPoints(other))))) {
+    if (areas.some(other => other.id !== item.id && other.floorId === item.floorId && !isFlatCanvasGround(other)
+      && triangles.some(face => polygonsOverlap(face, terrainPoints(other))))) {
       error('ROCK_SHELL_TERRAIN_OVERLAP', '岩体实际侧壳只能落在同 Floor 的零高空地，不能侵入其他地形的真实占地。', item.id)
     }
   }
@@ -459,7 +470,8 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (a.floorId !== b.floorId) continue
     if (a.coveragePriority === b.coveragePriority && polygonsOverlap(ap, bp)) error('TERRAIN_PRIORITY_OVERLAP', '同覆盖优先级地形不可正面积重叠。', b.id)
     // A deck crosses independent ground boundaries without sharing their segments.
-    if (bridgeDecks.has(a.id) || bridgeDecks.has(b.id)) continue
+    const floor = scene.floors[a.floorId]
+    if (bridgeDecks.has(a.id) || bridgeDecks.has(b.id) || floor && (isFloorSizedCanvasGround(a, floor) || isFloorSizedCanvasGround(b, floor))) continue
     for (const [a1, a2] of edges(ap)) for (const [b1, b2] of edges(bp)) {
       if (!meet(a1, a2, b1, b2)) continue
       const sharedFull = (same(a1, b1) && same(a2, b2)) || (same(a1, b2) && same(a2, b1))
@@ -724,10 +736,28 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   const pathPolygons = new Map<string, PointMm[]>()
   for (const path of Object.values(scene.paths)) {
     styleGeometry(path.surfaceStyle)
+    if (path.automaticRoute) {
+      const fixed = path.automaticRoute.fixedPointsMm
+      let index = -1
+      const inOrder = fixed.every(point => {
+        index = path.centerlineMm.findIndex((candidate, i) => i > index && same(candidate, point))
+        return index >= 0
+      })
+      if (!inOrder || !same(fixed[0], path.centerlineMm[0]) || index !== path.centerlineMm.length - 1) {
+        error('PATH_FIXED_POINTS', '自动道路的起终点和人工固定点必须按原顺序落在完整中心线上。', path.id)
+      }
+    }
     const band = pathPolygon(path); pathPolygons.set(path.id, band)
     if (!polygon(band, path.id)) continue
     const crossing = path.centerlineMm.slice(1).some((b, i) => path.centerlineMm.slice(i + 3).some((d, k) => meet(path.centerlineMm[i], b, path.centerlineMm[i + 2 + k], d)))
     if (crossing) error('PATH_SELF_OVERLAP', '路径中心线/带区不能自交或折返。', path.id)
+    if (path.roadSurface || path.automaticRoute?.algorithm === AUTOMATIC_ROAD_VERSION) {
+      try {
+        validateAdoptedRoad(scene, path)
+        if (path.staircase) planStaircase(path.centerlineMm, path.widthMm, { ...path.staircase, layout: { kind: 'stretch', stepCount: 1 } }, path.widthSections)
+      } catch (cause) { error('PATH_GRADED_SURFACE', cause instanceof Error ? cause.message : String(cause), path.id) }
+      continue
+    }
     if (path.staircase && !crossing) {
       try {
         const stairs = planStaircase(path.centerlineMm, path.widthMm, path.staircase, path.widthSections)

@@ -11,6 +11,49 @@ async function openTavern(page: Page) {
   await keyboardWorkspaceSaved(page)
 }
 
+test('fine texture detail converges when zoomed out and transparent paint keeps its pigment', async ({ page }) => {
+  await page.goto('./#home')
+  const samples = await page.evaluate(async () => {
+    const meshModule = '/src/platform/browser/render/oblique-mesh.ts'
+    const { ObliqueMesh, mountObliqueMesh } = await import(meshModule)
+    const canvas = (width: number, height: number) => Object.assign(document.createElement('canvas'), { width, height })
+    const source = canvas(510, 318), paint = source.getContext('2d')!
+    const bounds = { x: 0, y: 0, width: 2600, height: 2600 }
+    const render = () => {
+      const mesh = new ObliqueMesh()
+      mesh.quad({ image: source, unlit: true }, [[0, 0, 0], [2600, 0, 0], [2600, 2600, 0], [0, 2600, 0]])
+      const target = canvas(96, 96)
+      const read = canvas(96, 96).getContext('2d')!
+      const view = mountObliqueMesh(target, mesh, bounds, [1, 1, 1], [0, .24, .33])
+      try {
+        view.draw({ azimuthDeg: 32, elevationDeg: 46, zoom: .83 })
+        read.drawImage(target, 0, 0)
+        return read
+      } finally { view.dispose() }
+    }
+    paint.fillStyle = '#000'
+    paint.fillRect(0, 0, source.width, source.height)
+    paint.fillStyle = '#fff'
+    for (let x = 0; x < source.width; x += 2) paint.fillRect(x, 0, 1, source.height)
+    const bands = Array.from(render().getImageData(36, 36, 24, 24).data).filter((_, i) => i % 4 === 0)
+    paint.clearRect(0, 0, source.width, source.height)
+    paint.fillStyle = '#ff9a48'
+    paint.beginPath()
+    paint.ellipse(255, 159, 186, 106, 0, 0, Math.PI * 2)
+    paint.fill()
+    const { data } = render().getImageData(0, 0, 96, 96)
+    let darkFringe = 0
+    for (let i = 0; i < data.length; i += 4) {
+      const [r, g] = [data[i], data[i + 1]]
+      if (r > 55 && g < 61 + r / 255 * 93 - 5) darkFringe++
+    }
+    return { min: Math.min(...bands), max: Math.max(...bands), darkFringe }
+  })
+  expect(samples.min).toBeGreaterThan(113)
+  expect(samples.max).toBeLessThan(142)
+  expect(samples.darkFringe).toBe(0)
+})
+
 test('sample opens on the editable plane, rotates on demand, and exports the current camera', async ({ page }, info) => {
   test.setTimeout(120_000)
   await openTavern(page)

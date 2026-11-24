@@ -62,6 +62,7 @@ const themeRecipeSchema = z.object({ filter: colorFilterSchema, effects: themeEf
 const themeLineRecipeSchema = themeRecipeSchema.extend({ effects: themeLineEffectsSchema })
 const sceneThemeSchema = z.object({
   version: z.literal(2),
+  materialDrawing: z.literal(1).optional(),
   active: z.enum(artStyleModes),
   original: colorFilterSchema,
   presets: z.object({ handDrawn: themeRecipeSchema, tea: themeRecipeSchema, lineArt: themeLineRecipeSchema }).strict(),
@@ -125,6 +126,11 @@ export function defaultSceneArtStyle(): SceneTheme {
   style.presets.tea.effects.grain = 57
   style.presets.tea.effects.grainSize = 44
   return style
+}
+
+/** The material drawing is a base layer. Legacy projects keep their saved paint. */
+export function newMapArtStyle(): SceneTheme {
+  return { ...defaultSceneArtStyle(), materialDrawing: 1 }
 }
 
 export function enabledArtStylePresets(active: ArtStyleMode): readonly ArtStylePreset[] {

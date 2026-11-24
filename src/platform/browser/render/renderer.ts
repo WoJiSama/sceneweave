@@ -3,8 +3,8 @@ import type { ProjectBundle } from '../../../shared/model/project.js'
 import { validateProjectBundle, validateProjectSnapshot } from '../../../shared/project/resources.js'
 import { browserProjectValidation } from '../project-validation.js'
 import { projectEditorScene, projectScene } from '../../../shared/projection/projection.js'
-import { encodePng, renderRasterProjection, verifiedRenderBlob, EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE } from './canvas-renderer'
-import type { ArtStylePreviewCache, RenderOptions, EditorRenderOptions } from './canvas-renderer'
+import type { ArtStylePreviewCache, RenderOptions, EditorRenderOptions, verifiedRenderBlob } from './canvas-renderer'
+import { EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE } from './render-limits.js'
 import { atmosphereComparison } from './atmosphere-comparison'
 import { floorDisplayStack } from '../../../shared/floors/output.js'
 import type { Projection } from '../../../shared/projection/types.js'
@@ -15,10 +15,14 @@ import { resolvePartitionOutput } from '../../../shared/geometry/partitions.js'
 import { activeArtStyles, activeLineArt, artStyleBrushKey, artStyleLightAmount, sceneArtStyleSchema, usesSeparateArtStyle, type SceneArtStyle } from '../../../shared/visual/art-style.js'
 import type { NormalizedStaticSvg } from '../../../shared/ai/svg.js'
 import { checkArtStyleSvg } from './art-style-svg.js'
+import { projectMaterialBrushes } from '../../../shared/projection/material-drawing.js'
 import { applyArtStyleGrades } from './art-style-grade.js'
 
 export type { RenderMetrics, RenderOptions, WallGeometry } from './canvas-renderer'
-export { EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE, PNG_MAX_PIXELS, wallGeometry, connectionPolygon, terrainFace, terrainShadow } from './canvas-renderer'
+export { EDITOR_MAX_LONG_EDGE, PNG_MAX_LONG_EDGE, PNG_MAX_PIXELS } from './render-limits.js'
+export { wallGeometry, wallGeometry as wallGeometryV2, wallGeometry as wallGeometryV3 } from '../../../shared/geometry/wall-paint-geometry.js'
+export { connectionPolygon, connectionPolygon as connectionPolygonV2 } from './connection-geometry.js'
+export { terrainFace, terrainShadow } from './terrain-edge-bands.js'
 export interface EditorProjectRenderOptions extends EditorRenderOptions {
   /** GM session only. Ignored by player previews and both formal audiences. */
   hiddenLayerIds?: ReadonlySet<string>
@@ -58,7 +62,8 @@ function fullMapProjections(bundle: ProjectBundle, editor: EditorProjectRenderOp
   return result
 }
 
-function artStylePreviewCache(bundle: ProjectBundle, drawing: Projection, editor: EditorProjectRenderOptions): ArtStylePreviewCache {
+function artStylePreviewCache(bundle: ProjectBundle, drawing: Projection, editor: EditorProjectRenderOptions,
+  readVerifiedRenderBlob: typeof verifiedRenderBlob): ArtStylePreviewCache {
   if (activeArtworkFrames?.owner.deref() !== bundle) activeArtworkFrames = {
     owner: new WeakRef(bundle), frames: new Map(), svg: new Map(), imageBlobs: new Map(), imageBytes: 0,
   }
@@ -66,13 +71,13 @@ function artStylePreviewCache(bundle: ProjectBundle, drawing: Projection, editor
   const { frames } = session
   const looks = drawing.artStyles!
   const context = JSON.stringify([drawing.floorId, editor.groundView === true, editor.longEdgePx, editor.screenScalePxPerMm,
-    [...(editor.hiddenLayerIds ?? [])].sort(), looks.map(look => look.preset)])
+    [...(editor.hiddenLayerIds ?? [])].sort(), !!drawing.materialBrushes, looks.map(look => look.preset)])
   const key = artStyleBrushKey(looks)
   return {
     readVerifiedImage: record => {
       const existing = session.imageBlobs.get(record.sha256)
       if (existing) return existing
-      const pending = verifiedRenderBlob(bundle.resources, record).catch(error => {
+      const pending = readVerifiedRenderBlob(bundle.resources, record).catch(error => {
         if (session.imageBlobs.get(record.sha256) === pending) {
           session.imageBlobs.delete(record.sha256); session.imageBytes -= record.sizeBytes
         }
@@ -118,7 +123,11 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
   if (!Number.isInteger(options.longEdgePx) || options.longEdgePx < 256 || options.longEdgePx > PNG_MAX_LONG_EDGE) throw new Error('图片长边须为 256–4096 整数像素。')
   const draftStyle = options.audience === 'gm' && editor?.artStyleDraft ? sceneArtStyleSchema.parse(editor.artStyleDraft) : undefined
   const validation = { ...browserProjectValidation, signal: options.signal }
-  const bundle = await (editor ? validateProjectSnapshot(input, validation) : validateProjectBundle(input, validation)), project = bundle.project, scene = project.document
+  const [bundle, { renderRasterProjection, verifiedRenderBlob }] = await Promise.all([
+    editor ? validateProjectSnapshot(input, validation) : validateProjectBundle(input, validation),
+    import('./canvas-renderer'),
+  ])
+  const project = bundle.project, scene = project.document
   checkCancelled(options.signal)
   if (editor && activeArtworkFrames && (options.audience !== 'gm' || activeArtworkFrames.owner.deref() !== bundle)) activeArtworkFrames = undefined
   if (editor && previewProjections && (options.audience !== 'gm' || previewProjections.owner.deref() !== bundle)) previewProjections = undefined
@@ -148,7 +157,7 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
     const drawing = source === fullMapPreview?.source ? fullMapPreview.drawing : options.audience === 'gm' && editor?.hiddenLayerIds?.size
       ? projectEditorScene(scene, { floorId: source.floorId ?? options.floorId, hiddenLayerIds: editor.hiddenLayerIds }, project.appearance) : source
     if (options.audience === 'gm' && editor?.atmosphereBypass) return atmosphereComparison(drawing)
-    return draftStyle ? { ...drawing, artStyles: activeArtStyles(draftStyle) } : drawing
+    return draftStyle ? { ...drawing, artStyles: activeArtStyles(draftStyle), materialBrushes: projectMaterialBrushes(scene, drawing, draftStyle) } : drawing
   }
   function renderFloor(source: Projection, drawing: Projection, stacked = false) {
     const linkedFloor = source.floorId !== projection.floorId
@@ -160,7 +169,7 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
     const preview = editor && { ...editor, hiddenLayerIds: undefined, drawingProjection: align(options.audience === 'gm' && editor.groundView && !linkedFloor ? { ...drawing, groundView: true } : drawing) }
     const cache = editor && !editor.viewBoundsMm && !stacked && drawing.audience === 'gm'
       && drawing.artStyles?.some(look => (look.parameters.paintVersion ?? 0) >= 3)
-      ? artStylePreviewCache(bundle, drawing, editor) : undefined
+      ? artStylePreviewCache(bundle, drawing, editor, verifiedRenderBlob) : undefined
     return renderRasterProjection(sources, align(source), { ...options, floorId: source.floorId ?? options.floorId,
       onMetrics: linkedFloor ? undefined : options.onMetrics }, preview, started, partition?.bounds, undefined, cache)
   }
@@ -216,13 +225,13 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
 
 export async function exportPng(input: ProjectBundle, options: RenderOptions): Promise<Blob> {
   options = { ...options }
-  return encodePng(await renderProject(input, options), options.signal, options.onPngMetrics)
+  const [canvas, { encodePng }] = await Promise.all([renderProject(input, options), import('./canvas-renderer')])
+  return encodePng(canvas, options.signal, options.onPngMetrics)
 }
 
 // Existing leaf prop names remain source-compatible while all data and runtime paths are native-v1.
 export { renderEditorProject as renderEditorProjectV2 }
 export type { RenderOptions as RenderOptionsV2, EditorProjectRenderOptions as EditorRenderOptionsV2 }
-export { wallGeometry as wallGeometryV2, wallGeometry as wallGeometryV3, connectionPolygon as connectionPolygonV2 } from './canvas-renderer'
 
 /** Actual public crop for explicitly authorized visual feedback. No editor LOD or hidden-layer state is used. */
 export async function exportPublicViewportPng(input: ProjectBundle, boundsMm: import('../../../shared/model/scene.js').BoundsMm, longEdgePx = 768, signal?: AbortSignal, floorId?: string): Promise<Blob> {
@@ -230,7 +239,12 @@ export async function exportPublicViewportPng(input: ProjectBundle, boundsMm: im
   if (!values.every(Number.isSafeInteger) || boundsMm.width <= 0 || boundsMm.height <= 0) throw new Error('视觉回读范围须为有效整数毫米矩形。')
   if (!Number.isSafeInteger(longEdgePx) || longEdgePx < 256 || longEdgePx > PNG_MAX_LONG_EDGE) throw new Error('视觉回读长边须为256–4096整数像素。')
   checkCancelled(signal)
-  const bundle = await validateProjectBundle(input, { ...browserProjectValidation, signal }), scene = bundle.project.document
+  const [bundle, { encodePng, renderRasterProjection }] = await Promise.all([
+    validateProjectBundle(input, { ...browserProjectValidation, signal }),
+    import('./canvas-renderer'),
+  ])
+  checkCancelled(signal)
+  const scene = bundle.project.document
   const projection = projectScene(scene, 'player', bundle.project.appearance, { floorId }), b = projection.bounds
   if (boundsMm.x < b.x || boundsMm.y < b.y || boundsMm.x + boundsMm.width > b.x + b.width || boundsMm.y + boundsMm.height > b.y + b.height) throw new Error('视觉回读范围须完全落在固定导出范围内。')
   const sources = { assetRefs: scene.assets, assets: bundle.project.assets, resources: bundle.resources, vectorSources: bundle.project.authoringSources }

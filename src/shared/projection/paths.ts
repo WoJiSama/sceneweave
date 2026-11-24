@@ -5,6 +5,8 @@ import { bridgeDeckGeometry } from '../path-assembly/layout.js'
 import type { EdgeStyle, Path, PointMm } from '../model/scene.js'
 import type { ProjectedDoorThreshold, ProjectedOpening, ProjectedPath, ProjectedWall, Projection } from './types.js'
 import { projectRoutePaving } from './route-paving.js'
+import { buildRoadSurface } from '../geometry/road-surface.js'
+import { planStaircase } from '../stairs/geometry.js'
 
 const fallbackPathEdge: EdgeStyle = { strokeWidthMm: 18, color: '#78745F', bandWidthMm: 100 }
 
@@ -15,8 +17,26 @@ export const pathDecorationPadding = (style: EdgeStyle): number => Math.max(styl
 /** Call only after audience/support filtering. No source, layer or generation metadata is retained. */
 export function projectPath(path: Path, theme: Projection['theme'], masks: PointMm[][] = []): ProjectedPath {
   const result: ProjectedPath = { id: path.id, points: pathPolygon(path), style: cloneJson(path.surfaceStyle), edgeStyle: pathEdgeStyle(theme) }
+  if (path.roadSurface) {
+    result.gradedSurface = buildRoadSurface(path, path.roadSurface)
+    result.points = result.gradedSurface.coreMm
+    if (path.staircase) result.gradedFinish = { material: path.staircase.material,
+      covers: planStaircase(path.centerlineMm, path.widthMm, { ...path.staircase, layout: { kind: 'stretch', stepCount: 1 } }, path.widthSections).covers }
+  } else if (path.automaticRoute && !path.assembly?.bridge) {
+    result.groundBlendMm = Math.min(150, Math.round(Math.min(path.widthMm, ...(path.widthSections ?? []).map(row => row.widthMm)) / 9))
+    const points = path.centerlineMm
+    const first = path.widthSections?.find(row => row.startPpm === 0)?.widthMm ?? path.widthMm
+    const last = path.widthSections?.find(row => row.endPpm === 1_000_000)?.widthMm ?? path.widthMm
+    result.groundBlendEnds = ([[points[0], points[1], first], [points.at(-1)!, points.at(-2)!, last]] as const).map(([point, next, widthMm]) => {
+      const dx = next.x - point.x, dy = next.y - point.y, length = Math.hypot(dx, dy)
+      return { point: { ...point }, inward: { x: dx / length, y: dy / length }, widthMm }
+    })
+  } else if (path.boundaryBlendMm && !path.assembly?.bridge && !path.staircase) {
+    const minimumWidth = Math.min(path.widthMm, ...(path.widthSections ?? []).map(row => row.widthMm))
+    result.groundBlendMm = Math.min(path.boundaryBlendMm, Math.floor(minimumWidth / 5))
+  }
   if (result.style?.base.alignment === 'route') result.paving = projectRoutePaving(path, result.style.base)
-  if (path.staircase) result.stairs = { centerlineMm: cloneJson(path.centerlineMm), widthMm: path.widthMm,
+  if (path.staircase && !path.roadSurface) result.stairs = { centerlineMm: cloneJson(path.centerlineMm), widthMm: path.widthMm,
     ...(path.widthSections ? { widthSections: cloneJson(path.widthSections) } : {}), config: cloneJson(path.staircase) }
   const assembly = path.assembly
   if (assembly?.bridge) {

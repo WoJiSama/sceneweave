@@ -5,10 +5,11 @@ import { validateProjectBundle, validateProjectSnapshot } from '../../../shared/
 import { projectEditorScene, projectScene } from '../../../shared/projection/projection.js'
 import type { Audience, Projection } from '../../../shared/projection/types.js'
 import { browserProjectValidation } from '../project-validation'
-import { decodeRequired, encodePng, PNG_MAX_LONG_EDGE, renderRasterProjection, type RasterSources } from './canvas-renderer'
+import { decodeRequired, encodePng, PNG_MAX_LONG_EDGE, prepareRasterArtwork, renderRasterProjection, type RasterSources } from './canvas-renderer'
 import { mountObliqueMesh, ObliqueMesh, rectangle, type SpatialPoint } from './oblique-mesh'
 import { DEFAULT_OBLIQUE_CAMERA, type ObliqueCamera } from './oblique-camera'
-import { addWorldSurfaces, addWorldWalls, colorRgb, projectGround, spatialPrivacyMask } from './oblique-surfaces'
+import { addWorldSurfaces, addWorldWalls, colorRgb, planSpatialEarthenRoads, spatialPrivacyMask } from './oblique-surfaces'
+import { projectGround } from './projected-ground.js'
 import { addSpatialProps } from './oblique-props'
 
 export { DEFAULT_OBLIQUE_CAMERA, type ObliqueCamera } from './oblique-camera'
@@ -77,22 +78,38 @@ async function prepare(input: ProjectBundle, options: ObliqueOptions, preview: b
       if (projected.limitations.length) throw new Error(projected.limitations.join(' '))
       const first = index === 0, local = projected.bounds
       const floorGround = first && (!projected.rooms.length || projected.terrain.length > 0 || !!projected.floorArtwork)
-      const base: Projection = {
-        ...projected, gridSizeMm: null, notes: [], regions: [], walls: [],
-        props: [], decorations: [], spritePaintOrder: [],
-        outputBackground: floorGround ? projected.outputBackground : { mode: 'transparent' },
-      }
-      const texture = await renderRasterProjection(sources, base, { audience, floorId: projected.floorId, longEdgePx: textureSize, signal })
-      ownedCanvases.add(texture)
-      const raster = await decodeRequired(sources, projected, signal)
-      for (const bitmap of raster.bitmaps.values()) ownedImages.add(bitmap)
+      const earthenSteps = planSpatialEarthenRoads(projected)
       const zOffset = 0
       const ground = projectGround(projected, zOffset)
+      // Paint terrain decals in the surface atlas. A quad at four sampled
+      // heights can cut through the relief between those corners.
+      const decals = projected.props.filter(prop => {
+        if (prop.renderLayer !== 'ground' || prop.waterAppearance || prop.supportRef.kind !== 'terrainArea') return false
+        const support = ground.levels.get(prop.supportRef.id), volume = projected.propVolumes?.[prop.id]
+        return support?.relief && volume?.kind === 'flat' && volume.baseMm + zOffset === ground.elevation(support, prop.positionMm)
+      })
+      const decalIds = new Set(decals.map(prop => prop.id))
+      const base: Projection = {
+        ...projected, gridSizeMm: null, notes: [], regions: [], walls: [],
+        props: decals, decorations: [], spritePaintOrder: projected.spritePaintOrder?.filter(id => decalIds.has(id)),
+        paths: earthenSteps.size ? projected.paths.map(path => earthenSteps.has(path.id) ? { ...path, stairs: undefined } : path) : projected.paths,
+        outputBackground: floorGround ? projected.outputBackground : { mode: 'transparent' },
+      }
+      const texture = await renderRasterProjection(sources, base, { audience, floorId: projected.floorId, longEdgePx: textureSize, signal, spatialTexture: true })
+      ownedCanvases.add(texture)
+      const raster = await decodeRequired(sources, projected, signal, { premultiplyAlpha: 'premultiply' })
+      for (const bitmap of raster.bitmaps.values()) ownedImages.add(bitmap)
+      if (projected.materialBrushes) {
+        try { await prepareRasterArtwork(sources, raster, projected, signal) }
+        finally { for (const image of raster.styled?.values() ?? []) ownedCanvases.add(image) }
+      }
       const privacy = spatialPrivacyMask(projected, temporaryCanvas)
-      const surfaces = { mesh, projection: projected, texture, images: raster.byAssetId, privacy, zOffset, blankGround: floorGround, temporaryCanvas, ground }
+      const images = new Map<string, ImageBitmap | HTMLCanvasElement>(raster.byAssetId)
+      for (const [id, image] of raster.styled ?? []) images.set(id, image)
+      const surfaces = { mesh, projection: projected, texture, images, privacy, zOffset, blankGround: floorGround, temporaryCanvas, ground, earthenSteps }
       addWorldSurfaces(surfaces)
       addWorldWalls(surfaces)
-      addSpatialProps(surfaces, signal)
+      addSpatialProps(surfaces, decalIds, signal)
       if (projected.masks.length && !floorGround) {
         // Paint the fixed mask into the actual scene. Geometry is already
         // filtered and the same opaque mask also clips raised model fragments.

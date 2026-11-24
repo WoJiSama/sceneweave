@@ -28,8 +28,14 @@ export function projectPropVolumes(scene: SceneDocument, projection: Projection)
     const baseMm = attached.has(prop.id) ? resolvePropContact(scene, prop.id).contactElevationMm : (surface?.elevationMm ?? 0) + offset
     const tags = prop.definitionRef && scene.propDefinitions[prop.definitionRef.id]?.tags || []
     const shape = defaultVolume(prop, tags)
+    const brush = prop.appearance.kind === 'image' ? projection.materialBrushes?.[prop.appearance.assetId] : undefined
+    let kind = shape.kind
+    if (!prop.volume && kind === 'box' && (brush === 'wood' || brush === 'cloth')) {
+      if (has(tags, ['table', 'desk', '小桌', '圆桌', '书桌'])) kind = 'table'
+      else if (has(tags, ['chair', 'seat', 'stool', '椅', '木椅'])) kind = 'seat'
+    }
     const supportTop = tops.get(prop.id)
-    return [prop.id, { baseMm, kind: supportTop && shape.kind === 'flat' ? 'box' : shape.kind, heightMm: supportTop ?? shape.heightMm }]
+    return [prop.id, { baseMm, kind: supportTop && kind === 'flat' ? 'box' : kind, heightMm: supportTop ?? shape.heightMm }]
   }))
 }
 

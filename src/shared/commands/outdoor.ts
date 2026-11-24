@@ -10,7 +10,7 @@ import { polygonDistance, propFootprint, roomPoints, terrainPoints } from '../ge
 import { buildScatterRegeneration } from '../geometry/scatter.js'
 import { SCATTER_ALGORITHM_VERSIONS } from '../geometry/scatter-algorithm.js'
 import { sceneSchema } from '../validation/scene.js'
-import type { Editable, PointMm, SurfaceStyle, TerrainArea, TerrainEdge, VersionRef } from '../model/scene.js'
+import type { Editable, PointMm, SurfaceStyle, TerrainArea, TerrainConnection, TerrainEdge, VersionRef } from '../model/scene.js'
 import { defaultMaterialPaint } from '../appearance/surface-paint.js'
 import { geometryDocumentForValidation, geometryIdentityIds } from './domain.js'
 import { orderedLayers } from './layers.js'
@@ -227,6 +227,13 @@ const emptyImpact = (): OutdoorImpact => ({ rootIds: [], affectedIds: [], create
 function recordsCost(before: Record<string, unknown>, after: Record<string, unknown>): number {
   return new Set([...Object.keys(before), ...Object.keys(after)]).size === 0 ? 0 : [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(key => !equal(before[key], after[key])).length
 }
+export function connectionRouteChangeCost(before: TerrainConnection['route'], after: TerrainConnection['route']): number {
+  if (equal(before, after)) return 0
+  const controls = (route: TerrainConnection['route']) => Object.fromEntries((route?.segments ?? []).map(segment => [segment.id, segment]))
+  const samples = (route: TerrainConnection['route']) => Object.fromEntries((route?.centerlineMm ?? []).map((point, index) => [index, point]))
+  const edges = (route: TerrainConnection['route']) => Object.fromEntries((route?.centerlineMm ?? []).slice(1).map((point, index) => [index, [route!.centerlineMm[index], point]]))
+  return recordsCost(controls(before), controls(after)) * 5 + recordsCost(samples(before), samples(after)) + recordsCost(edges(before), edges(after))
+}
 function diffImpact(before: SceneDocument, after: SceneDocument, roots: readonly string[]): OutdoorImpact {
   const left = entities(before), right = entities(after)
   // Relations have no independent user layer, but their actual creation,
@@ -236,15 +243,15 @@ function diffImpact(before: SceneDocument, after: SceneDocument, roots: readonly
   const createdIds = [...right.keys()].filter(id => !left.has(id)), removedIds = [...left.keys()].filter(id => !right.has(id))
   const changedIds = [...left.keys()].filter(id => right.has(id) && (!equal(left.get(id), right.get(id)) || before.entityLayers[id] !== after.entityLayers[id]))
   let commandCost = createdIds.length + changedIds.length + removedIds.length
+  for (const id of new Set([...Object.keys(before.paths), ...Object.keys(after.paths)])) {
+    const stations = (scene: SceneDocument) => Object.fromEntries((scene.paths[id]?.roadSurface?.stations ?? []).map((row, i) => [i, row]))
+    commandCost += recordsCost(stations(before), stations(after))
+  }
   // The saved source controls and complete physical sample are separate work.
   // A curved connection must not become a one-field way around the edit budget.
   for (const id of new Set([...Object.keys(before.terrainConnections), ...Object.keys(after.terrainConnections)])) {
     const a = before.terrainConnections[id]?.route, b = after.terrainConnections[id]?.route
-    if (equal(a, b)) continue
-    const controls = (route: typeof a) => Object.fromEntries((route?.segments ?? []).map(segment => [segment.id, segment]))
-    const samples = (route: typeof a) => Object.fromEntries((route?.centerlineMm ?? []).map((point, index) => [index, point]))
-    const edges = (route: typeof a) => Object.fromEntries((route?.centerlineMm ?? []).slice(1).map((point, index) => [index, [route!.centerlineMm[index], point]]))
-    commandCost += recordsCost(controls(a), controls(b)) * 5 + recordsCost(samples(a), samples(b)) + recordsCost(edges(a), edges(b))
+    commandCost += connectionRouteChangeCost(a, b)
   }
   for (const areaId of new Set([...Object.keys(before.terrainAreas), ...Object.keys(after.terrainAreas)])) {
     const a = before.terrainAreas[areaId], b = after.terrainAreas[areaId]
@@ -421,15 +428,23 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       fresh(scene, command.id); const layer = targetLayer(scene, command.floorId, command.layerId)
       if (command.materialRef && command.surfaceStyle !== undefined) throw new Error('请明确选择固定材质或完整表面样式，不能同时提供两者。')
       scene.paths[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, centerlineMm: cloneJson(command.centerlineMm), widthMm: command.widthMm, supportRefs: cloneJson(command.supportRefs), visibility: command.visibility ?? 'public',
+        ...(command.automaticRoute ? { automaticRoute: cloneJson(command.automaticRoute) } : {}),
+        ...(command.roadSurface ? { roadSurface: cloneJson(command.roadSurface) } : {}),
         ...(command.widthSections ? { widthSections: cloneJson(command.widthSections) } : {}),
         ...(command.staircase ? { staircase: cloneJson(command.staircase) } : {}),
+        ...(command.boundaryBlendMm !== undefined ? { boundaryBlendMm: command.boundaryBlendMm } : {}),
         surfaceStyle: cloneJson(command.surfaceStyle === undefined ? styleFor(scene, command.materialRef, 'path') : command.surfaceStyle), movementCostMultiplier: command.movementCostMultiplier ?? 1, renderOrder: command.renderOrder ?? 0 }
       scene.entityLayers[command.id] = layer; break
     }
     case 'updatePath': {
       const path = required(scene.paths, command.id, '道路')
       const { widthSections, staircase, ...changes } = command.changes
+      if (path.roadSurface && !changes.roadSurface && (changes.centerlineMm && !equal(changes.centerlineMm, path.centerlineMm)
+        || changes.widthMm !== undefined && changes.widthMm !== path.widthMm || widthSections !== undefined && !equal(widthSections ?? undefined, path.widthSections))) {
+        throw new Error('路线或净宽变化需要同时预览新的道路地表。')
+      }
       Object.assign(path, cloneJson(changes))
+      if (path.automaticRoute && !path.roadSurface && staircase !== undefined && !changes.automaticRoute) path.automaticRoute.automaticStairs = false
       if (widthSections === null) delete path.widthSections
       else if (widthSections) path.widthSections = cloneJson(widthSections)
       if (staircase === null) delete path.staircase

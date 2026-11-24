@@ -81,6 +81,26 @@ export function cliffBandWidth(edge: ProjectedTerrainEdge, theme: Projection['th
   return edge.customFinish ? edge.style.bandWidthMm : Math.min(edge.style.bandWidthMm, cliff?.maxOffsetMm ?? 600, Math.round((cliff?.offsetFactor ?? .18) * delta))
 }
 
+/** Face thickness follows the real lower side, including canonical sources that are the lower area. */
+export function terrainFace(edge: ProjectedTerrainEdge, projection: Pick<Projection, 'theme'>): PointMm[] {
+  const delta = Math.abs(edge.elevationMm - edge.neighborElevationMm)
+  if (!delta || edge.kind !== 'cliff') return []
+  const a = edge.start, b = edge.end, length = Math.hypot(b.x - a.x, b.y - a.y), sign = edge.elevationMm > edge.neighborElevationMm ? 1 : -1
+  const width = cliffBandWidth(edge, projection.theme)
+  const dx = (b.y - a.y) / length * sign * width, dy = -(b.x - a.x) / length * sign * width
+  return width ? [a, b, { x: b.x + dx, y: b.y + dy }, { x: a.x + dx, y: a.y + dy }] : []
+}
+
+/** A swept edge silhouette, displaced once toward world SE; face-normal offset is not added. */
+export function terrainShadow(edge: ProjectedTerrainEdge, projection: Pick<Projection, 'theme' | 'visual'>): PointMm[] {
+  const cliff = projection.theme?.terrainCliff
+  if (edge.kind !== 'cliff' || !cliff?.opacity) return []
+  const delta = Math.abs(edge.elevationMm - edge.neighborElevationMm), offset = Math.round(Math.min(cliff.maxOffsetMm, cliff.offsetFactor * delta))
+  const direction = projection.visual?.environment.lightDirectionDeg ?? cliff.directionDeg
+  const dx = Math.cos(direction * Math.PI / 180) * offset, dy = Math.sin(direction * Math.PI / 180) * offset
+  return offset ? [edge.start, edge.end, { x: edge.end.x + dx, y: edge.end.y + dy }, { x: edge.start.x + dx, y: edge.start.y + dy }] : []
+}
+
 /** A bounded miter shares identical feet on both segments. A sharp exterior
  * turn gets a bevel. At a short inside turn the quads overlap, so the band
  * keeps its coverage without folding either cell back across its own top. */

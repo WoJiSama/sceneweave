@@ -4,12 +4,14 @@ import type { ObliqueCamera } from './oblique-camera'
 export type SpatialPoint = [number, number, number]
 export type SpatialColor = [number, number, number]
 type UV = [number, number]
+type TextureSource = HTMLCanvasElement | ImageBitmap
 export interface MeshMask { image: HTMLCanvasElement; bounds: BoundsMm }
 interface WallFade { center: PointMm; nearSide: PointMm }
 export interface MeshMaterial {
-  image?: HTMLCanvasElement | ImageBitmap
+  image?: TextureSource
   color?: SpatialColor
   opacity?: number
+  alphaCutoff?: number
   repeat?: boolean
   unlit?: boolean
   wall?: WallFade
@@ -106,7 +108,7 @@ const fragmentSource = `
   uniform sampler2D uImage, uCoverage, uPrivacy;
   uniform vec4 uCoverageBounds, uPrivacyBounds;
   uniform vec3 uColor, uSun;
-  uniform float uOpacity, uRepeat, uUnlit;
+  uniform float uOpacity, uRepeat, uUnlit, uAlphaCutoff;
   varying vec3 vNormal;
   varying vec2 vUv, vWorld;
   void main() {
@@ -114,15 +116,15 @@ const fragmentSource = `
     if (texture2D(uCoverage, coverageUv).a < .01) discard;
     vec2 privacyUv = (vWorld-uPrivacyBounds.xy)/uPrivacyBounds.zw;
     if (texture2D(uPrivacy, privacyUv).a > .001) discard;
-    vec4 texel = texture2D(uImage, uRepeat > .5 ? fract(vUv) : clamp(vUv, 0.0, 1.0));
-    if (texel.a < .22) discard;
+    vec4 texel = texture2D(uImage, uRepeat > .5 ? fract(vUv) : vUv);
+    if (texel.a < uAlphaCutoff) discard;
     vec3 n = normalize(vNormal);
     float shade = mix(.66 + .43*max(0.0,dot(n,uSun)), 1.0, uUnlit);
-    gl_FragColor = vec4(texel.rgb*uColor*shade, uOpacity*texel.a);
+    gl_FragColor = vec4(texel.rgb/texel.a*uColor*shade, uOpacity*texel.a);
   }
 `
 
-function compile(gl: WebGLRenderingContext, program: WebGLProgram, type: number, source: string) {
+function compile(gl: WebGLRenderingContext | WebGL2RenderingContext, program: WebGLProgram, type: number, source: string) {
   const shader = gl.createShader(type)!
   gl.shaderSource(shader, source)
   gl.compileShader(shader)
@@ -138,13 +140,19 @@ function compile(gl: WebGLRenderingContext, program: WebGLProgram, type: number,
 /** One context owns the buffers and textures for the mounted preview. Camera changes
  * only update uniforms and translucent wall order. */
 export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, bounds: BoundsMm, sun: SpatialPoint, background: SpatialColor) {
-  const gl = canvas.getContext('webgl', { alpha: false, antialias: true, preserveDrawingBuffer: true })
+  const options = { alpha: false, antialias: true, preserveDrawingBuffer: true }
+  const gl2 = canvas.getContext('webgl2', options) as WebGL2RenderingContext | null
+  const gl = gl2 ?? (canvas.getContext('webgl', options) as WebGLRenderingContext | null)
   if (!gl) throw new Error('当前设备无法准备 3D 预览。')
-  const textures = new Map<MeshMaterial['image'] | null, WebGLTexture>()
+  const textures = {
+    color: new Map<TextureSource | undefined | null, WebGLTexture>(),
+    repeat: new Map<TextureSource | undefined | null, WebGLTexture>(),
+    mask: new Map<TextureSource | undefined | null, WebGLTexture>(),
+  }
   const buffers: WebGLBuffer[] = []
   const program = gl.createProgram()!
   const dispose = () => {
-    for (const texture of textures.values()) gl.deleteTexture(texture)
+    for (const cache of Object.values(textures)) for (const texture of cache.values()) gl.deleteTexture(texture)
     for (const buffer of buffers) gl.deleteBuffer(buffer)
     gl.deleteProgram(program)
     gl.getExtension('WEBGL_lose_context')?.loseContext()
@@ -155,22 +163,37 @@ export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, b
     gl.linkProgram(program)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? '无法载入 3D 预览。')
     gl.useProgram(program)
-    const names = ['uCenter', 'uYaw', 'uPitch', 'uScale', 'uDepth', 'uSun', 'uImage', 'uCoverage', 'uPrivacy', 'uCoverageBounds', 'uPrivacyBounds', 'uColor', 'uOpacity', 'uRepeat', 'uUnlit'] as const
+    const names = ['uCenter', 'uYaw', 'uPitch', 'uScale', 'uDepth', 'uSun', 'uImage', 'uCoverage', 'uPrivacy', 'uCoverageBounds', 'uPrivacyBounds', 'uColor', 'uOpacity', 'uRepeat', 'uUnlit', 'uAlphaCutoff'] as const
     const u = Object.fromEntries(names.map(name => [name, gl.getUniformLocation(program, name)])) as Record<typeof names[number], WebGLUniformLocation>
     const attributes = [['aPosition', 3, 0], ['aNormal', 3, 3], ['aUv', 2, 6]].map(([name, size, offset]) =>
       ({ index: gl.getAttribLocation(program, String(name)), size: Number(size), offset: Number(offset) }))
-    const upload = (image: MeshMaterial['image'] | null) => {
-      const saved = textures.get(image)
+    const powerOfTwo = (n: number) => n > 0 && (n & (n - 1)) === 0
+    const canMip = (image: TextureSource) => !!gl2 || (powerOfTwo(image.width) && powerOfTwo(image.height))
+    const anisotropy = gl.getExtension('EXT_texture_filter_anisotropic')
+    const maxAnisotropy = anisotropy ? Math.min(4, gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number) : 1
+    const upload = (image: TextureSource | undefined | null, mode: keyof typeof textures) => {
+      const cache = textures[mode]
+      const saved = cache.get(image)
       if (saved) return saved
       const texture = gl.createTexture()!
-      textures.set(image, texture)
+      cache.set(image, texture)
       gl.bindTexture(gl.TEXTURE_2D, texture)
+      // ImageBitmap uses the decode options. Canvas uploads use the same
+      // premultiplied representation so filtered transparent edges keep their color.
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1)
       if (image) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image)
       else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, image === null ? 0 : 255]))
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+      // Keep privacy and coverage lookups at their original resolution.
+      const sampled = image && mode !== 'mask' && canMip(image)
+      if (sampled) {
+        gl.generateMipmap(gl.TEXTURE_2D)
+        if (anisotropy) gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, maxAnisotropy)
+      }
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, sampled ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+      const wrap = sampled && mode === 'repeat' ? gl.REPEAT : gl.CLAMP_TO_EDGE
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap)
       return texture
     }
     const batches = [...mesh.batches].map(([material, vertices]) => {
@@ -186,8 +209,9 @@ export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, b
         for (let j = 2; j < 8; j++) values[i + j] = vertices[i + j]
       }
       gl.bufferData(gl.ARRAY_BUFFER, values, gl.STATIC_DRAW)
-      return { material, buffer, count: vertices.length / 8, image: upload(material.image),
-        coverage: upload(material.coverage?.image), privacy: upload(material.privacy?.image ?? null) }
+      const shaderRepeat = material.repeat && material.image && !canMip(material.image)
+      return { material, buffer, count: vertices.length / 8, image: upload(material.image, material.repeat ? 'repeat' : 'color'),
+        coverage: upload(material.coverage?.image, 'mask'), privacy: upload(material.privacy?.image ?? null, 'mask'), shaderRepeat }
     })
     gl.enable(gl.DEPTH_TEST)
     gl.depthFunc(gl.LEQUAL)
@@ -198,7 +222,7 @@ export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, b
     gl.uniform1i(u.uPrivacy, 2)
     const maskBounds = (uniform: WebGLUniformLocation, box?: BoundsMm) =>
       gl.uniform4f(uniform, (box?.x ?? bounds.x) - bounds.x, (box?.y ?? bounds.y) - bounds.y, box?.width ?? 1, box?.height ?? 1)
-    const drawBatch = ({ material, buffer, count, image, coverage, privacy }: typeof batches[number], opacity: number) => {
+    const drawBatch = ({ material, buffer, count, image, coverage, privacy, shaderRepeat }: typeof batches[number], opacity: number) => {
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
       for (const { index, size, offset } of attributes) {
         gl.enableVertexAttribArray(index)
@@ -211,7 +235,8 @@ export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, b
       maskBounds(u.uPrivacyBounds, material.privacy?.bounds)
       gl.uniform3fv(u.uColor, material.color ?? [1, 1, 1])
       gl.uniform1f(u.uOpacity, opacity)
-      gl.uniform1f(u.uRepeat, Number(!!material.repeat))
+      gl.uniform1f(u.uAlphaCutoff, material.alphaCutoff ?? .22)
+      gl.uniform1f(u.uRepeat, Number(!!shaderRepeat))
       gl.uniform1f(u.uUnlit, Number(!!material.unlit))
       gl.drawArrays(gl.TRIANGLES, 0, count)
     }

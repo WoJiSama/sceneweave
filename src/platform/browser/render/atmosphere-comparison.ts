@@ -10,5 +10,5 @@ export function atmosphereComparison(projection: Projection): Projection {
   return { ...projection, terrain, visual: { ...projection.visual,
     environment: { ...environment, ambientOpacity: 0, exposure: 1 },
     lights: [], fixtureGlows: undefined, fogs: [], filters: [],
-  }, ...(projection.artStyles ? { artStyles: undefined } : {}) }
+  }, ...(projection.artStyles ? { artStyles: undefined } : {}), ...(projection.materialBrushes ? { materialBrushes: undefined } : {}) }
 }

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { LAYER_ENTITY_COLLECTIONS, type BoundsMm, type SceneDocument } from '../model/scene.js'
+import { canvasGroundId, isFloorSizedCanvasGround } from '../model/canvas-ground.js'
 
 export type CanvasBoundsCommand = { type: 'setCanvasBounds'; floorId: string; floorBoundsMm: BoundsMm; exportBoundsMm: BoundsMm }
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__')
@@ -15,6 +16,14 @@ export function applyCanvasBoundsCommand(scene: SceneDocument, command: CanvasBo
   if (Object.values(scene.userLayers).some(layer => layer.floorId === floor.id && layer.editLocked)) throw new Error('目标Floor有锁定图层，不能修改范围。')
   const locked = entities.filter(entity => entity.editLocked || scene.userLayers[scene.entityLayers[entity.id]]?.editLocked)
   if (locked.length) throw new Error(`调整世界范围涉及已锁定实体或图层：${locked.map(entity => entity.id).join('、')}。`)
+  const ground = scene.terrainAreas[canvasGroundId(floor.id)]
+  if (ground && isFloorSizedCanvasGround(ground, floor)) {
+    const before = floor.boundsMm, after = command.floorBoundsMm
+    for (const point of ground.boundaryMm) point.positionMm = {
+      x: after.x + (point.positionMm.x === before.x ? 0 : after.width),
+      y: after.y + (point.positionMm.y === before.y ? 0 : after.height),
+    }
+  }
   floor.boundsMm = { ...command.floorBoundsMm }
   if (Object.keys(scene.floors).length > 1 || floor.outputBoundsMm) floor.outputBoundsMm = { ...command.exportBoundsMm }
   else scene.exportBoundsMm = { ...command.exportBoundsMm }

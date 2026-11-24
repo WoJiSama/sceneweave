@@ -38,6 +38,7 @@ export const STAIRCASE_MATERIALS: readonly StaircaseMaterial[] = [
   { id: 'oak', label: '橡木', palette: { top: '#a17b4c', alternate: '#916a3d', light: '#d1ae74', shadow: '#644725', joint: '#3e3021', grain: '#795731' } },
   { id: 'weathered-wood', label: '风化木', palette: { top: '#8f8a70', alternate: '#7e7c64', light: '#bcb59a', shadow: '#555744', joint: '#343f32', grain: '#696e56' } },
   { id: 'iron', label: '铁', palette: { top: '#7c8784', alternate: '#687773', light: '#bdc9c2', shadow: '#414f4b', joint: '#26352f', grain: '#8f9b92' } },
+  { id: 'earth', label: '夯土', palette: { top: '#9e815d', alternate: '#977953', light: '#bba07a', shadow: '#746046', joint: '#66513d', grain: '#a88b63' } },
 ]
 
 export const staircasePreset = (id: StaircasePresetId): StaircasePreset => STAIRCASE_PRESETS.find(row => row.id === id)!

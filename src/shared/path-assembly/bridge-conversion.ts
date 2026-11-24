@@ -9,6 +9,7 @@ import type { PathAssemblyCommand } from './contracts.js'
 import { cloneJson } from '../validation/json.js'
 
 export function bridgeConversionReason(scene: SceneDocument, road: Path): string | undefined {
+  if (road.roadSurface) return '已塑形的道路含路肩与地面接合。跨越水面请单独绘制桥梁。'
   if (road.assembly || road.widthSections || road.staircase) return '请选择等宽且尚未布置阶梯和沿线构件的道路。'
   const id = road.id
   if (road.visibility === 'public' && !createPublicVisibility(scene).path(id)) return '道路使用了主持人支撑面。请先把道路设为仅主持人可见。'
