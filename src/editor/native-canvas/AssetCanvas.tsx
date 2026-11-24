@@ -12,11 +12,12 @@ import { partitionAt } from '../../shared/geometry/partitions'
 import { PIPE_PORTS } from '../../shared/path-assembly/pipe-geometry'
 import type { BoundsMm, PointMm, Prop as PropV2, SceneDocument as SceneDocumentV2 } from '../../shared/model/scene.js'
 import type { EditableProject as CompleteProjectV2 } from '../../application/workspace/project'
+import type { ProjectBundle } from '../../shared/model/project.js'
 import { toBundle } from '../../application/workspace/project'
 import { decodePlacementPreviewV2 } from './placement-preview'
 import { pointsBoundsV2, projectSceneV2 } from './projection'
 import type { AudienceV2, ProjectedWallV2 } from './projection'
-import { connectionPolygonV2, renderEditorProjectV2, wallGeometryV2 } from '../../platform/browser/render/renderer'
+import { connectionPolygonV2, renderEditorProjectV2, sameVerifiedEditorPixels, wallGeometryV2 } from '../../platform/browser/render/renderer'
 import type { EditorRenderOptionsV2, RenderOptionsV2 } from '../../platform/browser/render/renderer'
 import type { SelectionOptionsV2 } from './selection'
 import { constrainViewportV2, FIT_VIEWPORT_V2, MAX_VIEW_ZOOM_V2, MIN_VIEW_ZOOM_V2, resizeViewportV2, viewportMapRectV2, zoomViewportV2 } from './viewport'
@@ -44,6 +45,26 @@ export interface CanvasArtStyleComparison {
   style?: SceneArtStyle
   labels?: readonly [string, string]
   onPaint?: (style: SceneArtStyle | undefined) => void
+}
+
+interface EditorFrameSource {
+  bundle: ProjectBundle
+  hiddenLayerIds: ReadonlySet<string>
+  atmosphereBypass: boolean
+}
+
+interface PaintedEditorFrame {
+  source: EditorFrameSource
+  floorId: string
+  groundView: boolean
+}
+
+function canReuseEditorFrame(previous: PaintedEditorFrame, source: EditorFrameSource, floorId: string, groundView: boolean): boolean {
+  const hidden = previous.source.hiddenLayerIds
+  return previous.floorId === floorId && previous.groundView === groundView
+    && previous.source.atmosphereBypass === source.atmosphereBypass
+    && hidden.size === source.hiddenLayerIds.size && [...hidden].every(id => source.hiddenLayerIds.has(id))
+    && previous.source.bundle !== source.bundle && sameVerifiedEditorPixels(previous.source.bundle, source.bundle)
 }
 
 /** The supported visual subset is checked before editor-only simplification. */
@@ -140,13 +161,14 @@ export type CanvasSelectionDragStart = (ids: readonly string[]) => {
   finish: (offsetMm: PointMm) => void
 } | null
 
-export default function AssetCanvas({ floorId, project, selected, onSelect, audience = 'gm', groundView = false, persistenceBusy = false, disabled = false, inspectOnly = false, onRenderMetrics, onPaint, placement, placementTop, placementRoomOutline, fillCopy, onFillCopyCancel, onFillCopyPreview, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, onDeleteSelection, onCopySelection, onPasteSelection, memberMode = false, onMemberMode, focusPoint, onFocusPartition, sightOverlay, partitionOutline, fitRequest = 0, editorRenderer, artStyleDraft, onArtStylePaint, artStyleComparison, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, terrainBrush, visualBoundary, onVisualBoundaryChange, onVisualBoundaryFinish, onWallDragPreview, onSelectionDragStart, toolControlsTarget, viewControlsTarget }: { floorId?: string; groundView?: boolean; persistenceBusy?: boolean; terrainBrush?: CanvasTerrainBrush | null; fillCopy?: Omit<CanvasFillCopy, 'onPreview' | 'onCancel'> | null; onFillCopyPreview?: CanvasFillCopy['onPreview']; onFillCopyCancel?: () => void; onVisualBoundaryFinish?: (value: VisualBoundary) => void; onWallDragPreview?: (wallId: string, offsetMm: PointMm) => void; onSelectionDragStart?: CanvasSelectionDragStart; visualBoundary?: VisualBoundary | null; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; artStyleDraft?: SceneArtStyle; onArtStylePaint?: CanvasArtStyleComparison['onPaint']; artStyleComparison?: CanvasArtStyleComparison; worldTool?: CanvasWorldTool | null; editorRenderer?: (options: EditorRenderOptionsV2) => Promise<HTMLCanvasElement>; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onDeleteSelection?: () => void; onCopySelection?: () => string | null; onPasteSelection?: (marker: string) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; focusPoint?: { positionMm: PointMm; sequence: number; scope?: BoundsMm }; onFocusPartition?: (id: string) => void; sightOverlay?: { origin: PointMm; boundary: PointMm[] }; partitionOutline?: PointMm[]; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; inspectOnly?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; placementTop?: PointMm[]; placementRoomOutline?: PointMm[]; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
+export default function AssetCanvas({ floorId, project, selected, onSelect, audience = 'gm', groundView = false, persistenceBusy = false, disabled = false, inspectOnly = false, onRenderMetrics, onPaint, placement, placementTop, placementRoomOutline, fillCopy, onFillCopyCancel, onFillCopyPreview, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, onDeleteSelection, onCopySelection, onPasteSelection, memberMode = false, onMemberMode, focusPoint, onFocusPartition, sightOverlay, partitionOutline, fitRequest = 0, editorSource, artStyleDraft, onArtStylePaint, artStyleComparison, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, terrainBrush, visualBoundary, onVisualBoundaryChange, onVisualBoundaryFinish, onWallDragPreview, onSelectionDragStart, toolControlsTarget, viewControlsTarget }: { floorId?: string; groundView?: boolean; persistenceBusy?: boolean; terrainBrush?: CanvasTerrainBrush | null; fillCopy?: Omit<CanvasFillCopy, 'onPreview' | 'onCancel'> | null; onFillCopyPreview?: CanvasFillCopy['onPreview']; onFillCopyCancel?: () => void; onVisualBoundaryFinish?: (value: VisualBoundary) => void; onWallDragPreview?: (wallId: string, offsetMm: PointMm) => void; onSelectionDragStart?: CanvasSelectionDragStart; visualBoundary?: VisualBoundary | null; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; artStyleDraft?: SceneArtStyle; onArtStylePaint?: CanvasArtStyleComparison['onPaint']; artStyleComparison?: CanvasArtStyleComparison; worldTool?: CanvasWorldTool | null; editorSource?: EditorFrameSource; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onDeleteSelection?: () => void; onCopySelection?: () => string | null; onPasteSelection?: (marker: string) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; focusPoint?: { positionMm: PointMm; sequence: number; scope?: BoundsMm }; onFocusPartition?: (id: string) => void; sightOverlay?: { origin: PointMm; boundary: PointMm[] }; partitionOutline?: PointMm[]; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; inspectOnly?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; placementTop?: PointMm[]; placementRoomOutline?: PointMm[]; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
   const canSelect = audience === 'gm' && (!disabled || inspectOnly)
   const comparisonEnabled = audience === 'gm' && !!artStyleComparison
   const comparingAlternatives = comparisonEnabled && !!artStyleComparison.labels
-  const paintContext = useMemo(() => ({}), [project, floorId, audience, groundView, editorRenderer, comparingAlternatives])
+  const paintContext = useMemo(() => ({}), [project, floorId, audience, groundView, editorSource, comparingAlternatives])
   const previewScope = useMemo(() => ({}), [paintContext, artStyleDraft])
   const lastPaintContext = useRef<object | null>(null)
+  const paintedEditorFrame = useRef<PaintedEditorFrame | null>(null)
   const roadSources = useMemo(() => {
     if (!worldTool?.road) return null
     try { return prepareRoadSnapTargets(project.document, { ...worldTool.road, audience: worldTool.road.visibility === 'public' ? 'player' : audience, excludedEntityIds: selectionOptions?.hiddenIds }) }
@@ -196,7 +218,9 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   }
   const sessionIds = useSelectionIdsV2(selectionSession)
   // The caller supplies the complete native-v1 project and its immutable resource port.
-  const renderPreview = useMemo(() => editorRenderer ?? ((options: EditorRenderOptionsV2) => renderEditorProjectV2(toBundle(project), options)), [project, editorRenderer])
+  const renderPreview = useMemo(() => (options: EditorRenderOptionsV2) => editorSource
+    ? renderEditorProjectV2(editorSource.bundle, { ...options, hiddenLayerIds: editorSource.hiddenLayerIds, atmosphereBypass: editorSource.atmosphereBypass })
+    : renderEditorProjectV2(toBundle(project), options), [project, editorSource])
   const pointHits = pointHitTest ?? hitTestAllV2
   const boundsHits = boundsSelector ?? selectInBoundsV2
   const readGeometry = selectionGeometry ?? selectionGeometryV2
@@ -418,6 +442,16 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
     const paint = () => previewScheduler.runMain(previewScope, {
       run: signal => {
         const report = metricsCallback.current
+        const painted = paintedEditorFrame.current, visible = canvas.current
+        if (!report && !signal.aborted && !artStyleDraft && !comparisonEnabled && audience === 'gm' && visible?.width && visible.height
+          && painted && editorSource && canReuseEditorFrame(painted, editorSource, targetFloorId, groundView)) {
+          // The scheduler releases its previous result. Copy the pixels from
+          // this canvas's last completed main paint into the new owned result.
+          const image = document.createElement('canvas')
+          image.width = visible.width; image.height = visible.height
+          const context = image.getContext('2d', { colorSpace: 'srgb' })
+          if (context) { context.drawImage(visible, 0, 0); return Promise.resolve(image) }
+        }
         return renderPreview({ audience, floorId: targetFloorId, longEdgePx: 1200, signal, onMetrics: report ? metrics => { if (!signal.aborted) report(metrics) } : undefined, groundView, artStyleDraft })
       },
       publish: image => { setResult({ project, audience, token: previewScope, image }); setRenderCount(count => count + 1) },
@@ -430,7 +464,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
     let request: ReturnType<typeof paint> | undefined
     const timer = setTimeout(() => { request = paint() }, ART_STYLE_PREVIEW_DELAY_MS)
     return () => { clearTimeout(timer); request?.cancel() }
-  }, [project, audience, groundView, previewScope, previewScheduler, renderPreview, artStyleDraft, paintContext])
+  }, [project, audience, groundView, previewScope, previewScheduler, renderPreview, artStyleDraft, paintContext, editorSource, targetFloorId, comparisonEnabled])
   // Keep the existing world raster moving immediately. A bounded visible crop is
   // rebuilt only after the gesture settles; no selection dependency enters here.
   useLayoutEffect(() => {
@@ -463,9 +497,11 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
     const ctx = target.getContext('2d', { colorSpace: 'srgb' })
     if (!ctx) { onArtStylePaint?.(undefined); return }
     ctx.drawImage(result.image, 0, 0)
+    paintedEditorFrame.current = editorSource && audience === 'gm' && !artStyleDraft && !comparisonEnabled
+      ? { source: { ...editorSource, hiddenLayerIds: new Set(editorSource.hiddenLayerIds) }, floorId: targetFloorId, groundView } : null
     lastPaintContext.current = paintContext
     onArtStylePaint?.(artStyleDraft)
-  }, [result, previewScope, paintContext, artStyleDraft, onArtStylePaint, failed])
+  }, [result, previewScope, paintContext, artStyleDraft, onArtStylePaint, failed, editorSource, audience, targetFloorId, groundView, comparisonEnabled])
   useLayoutEffect(() => {
     if (!overlay.current || !result || result.project !== project || result.audience !== audience || result.token !== previewScope) return
     const target = overlay.current

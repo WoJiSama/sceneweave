@@ -173,13 +173,28 @@ test('create and transform a natural group through production preview, undo and 
   await cancel(page)
   await expect(workbench).toHaveAttribute('data-revision', '1')
   await itemCoordinates(page, '6', '6')
+
+  const map = page.getByLabel('材质场景主持人预览', { exact: true })
+  const mapPixels = async () => {
+    await expect(map).toBeVisible()
+    return map.evaluate(async (canvas: HTMLCanvasElement) => {
+      const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height)
+      const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', pixels.data))
+      return { width: pixels.width, height: pixels.height, hash: Array.from(hash) }
+    })
+  }
+  const originalPixels = await mapPixels()
   await prepareTransform()
+  const candidatePixels = await mapPixels()
+  expect(candidatePixels).not.toEqual(originalPixels)
   await adopt(page)
   await expect(workbench).toHaveAttribute('data-revision', '2')
+  expect(await mapPixels()).toEqual(candidatePixels)
   await itemCoordinates(page, '11', '6', '90')
   await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
   await saved(page)
   await expect(workbench).toHaveAttribute('data-revision', '3')
+  expect(await mapPixels()).toEqual(originalPixels)
   await itemCoordinates(page, '6', '6')
   await page.getByRole('button', { name: '重做编辑', exact: true }).click()
   await saved(page)

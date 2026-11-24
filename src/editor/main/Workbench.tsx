@@ -74,7 +74,7 @@ import { furnitureDrop } from './furniture-drop'
 import { SIGHT_OCCLUDER_POINT_LIMIT } from '../../shared/validation/primitives'
 import type { CompositionCommand } from '../../shared/model/appearance'
 import type { FillCopyReport, FillCopyRequest } from '../../application/workspace/fill-copy'
-import { exportPng, renderEditorProject } from '../../platform/browser/render/renderer'
+import { exportPng } from '../../platform/browser/render/renderer'
 import { OUTPOST_PRESET_ID, validateOutpostEdits } from './outpost-constraints'
 import { validateStudyEdits } from './study-constraints'
 import { validateIslandEdits } from './island-constraints'
@@ -2254,7 +2254,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
   const artStyleSide = comparison?.mode === 'alternatives' ? comparison.selectedSide : 'b'
   const artStylePreview = alternatives?.b ?? pendingArtStyle
   const artStyleA = alternatives?.a
-  const editorRenderer = useMemo(() => renderProject ? (options: Parameters<typeof renderEditorProject>[1]) => renderEditorProject(toBundle(renderProject), { ...options, floorId: visibleFloorId, hiddenLayerIds: renderHiddenLayers, atmosphereBypass }) : undefined, [renderProject, visibleFloorId, renderHiddenLayers, atmosphereBypass])
+  const editorSource = useMemo(() => obliqueBundle ? { bundle: obliqueBundle, hiddenLayerIds: renderHiddenLayers, atmosphereBypass } : undefined, [obliqueBundle, renderHiddenLayers, atmosphereBypass])
   const structuredArt = useMemo(() => {
     if (!completeProject || sidebar !== 'visual' || visualTab !== 'artStyle' || audience !== 'gm') return null
     try {
@@ -3147,7 +3147,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
                 enterCanvas()
               }}>起伏笔刷</button></div>)}
           <div className="asset-stage">{visibleProject && visibleFloor ? <AssetCanvas floorId={visibleFloorId} key={panelKey} groundView={groundView} toolControlsTarget={toolControlsTarget} viewControlsTarget={viewControlsTarget}
-            project={visibleProject} persistenceBusy={state.status === 'unsaved' || state.status === 'saving'} editorRenderer={editorRenderer}
+            project={visibleProject} persistenceBusy={state.status === 'unsaved' || state.status === 'saving'} editorSource={editorSource}
             artStyleDraft={artStylePreview} onArtStylePaint={setPaintedArtStyle}
             artStyleComparison={comparison ? { divider: artStyleDivider, onChange: setArtStyleDivider, style: artStyleA, onPaint: alternatives ? setPaintedArtStyleA : undefined,
               labels: alternatives ? [artStyleSideLabel('a', alternatives.a), artStyleSideLabel('b', alternatives.b)] : undefined } : undefined}

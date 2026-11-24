@@ -1,6 +1,6 @@
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
-import { validateProjectBundle, validateProjectSnapshot } from '../../../shared/project/resources.js'
+import { getVerifiedProjectBundle, validateProjectBundle, validateProjectSnapshot } from '../../../shared/project/resources.js'
 import { browserProjectValidation } from '../project-validation.js'
 import { projectEditorScene, projectScene } from '../../../shared/projection/projection.js'
 import type { ArtStylePreviewCache, RenderOptions, EditorRenderOptions, verifiedRenderBlob } from './canvas-renderer'
@@ -31,6 +31,17 @@ export interface EditorProjectRenderOptions extends EditorRenderOptions {
   atmosphereBypass?: boolean
   /** The GM's current paint draft; never used by formal output or a player view. */
   artStyleDraft?: SceneArtStyle
+}
+
+/** An adopted candidate can keep its editor pixels when only the revision
+ * and timestamp changed. The full renderer remains the path for other data. */
+export function sameVerifiedEditorPixels(first: ProjectBundle, second: ProjectBundle): boolean {
+  const a = getVerifiedProjectBundle(first), b = getVerifiedProjectBundle(second)
+  if (!a || !b || a.resources !== b.resources || a.project.appearance !== b.project.appearance
+    || a.project.assets !== b.project.assets || a.project.authoringSources !== b.project.authoringSources) return false
+  const before = a.project.document, after = b.project.document, keys = Object.keys(before) as (keyof typeof before)[]
+  return keys.length === Object.keys(after).length && keys.every(key => Object.hasOwn(after, key)
+    && (key === 'revision' || key === 'updatedAt' || before[key] === after[key]))
 }
 
 /** Complete native-v1 boundary. Pure shared validation precedes any browser resource IO. */

@@ -8,9 +8,10 @@ import { inspectDependencies } from '../../../shared/geometry/dependencies.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
 import { crc32, sha256Bytes } from '../../../shared/project/binary.js'
-import { createMemoryResources, validateProjectBundle } from '../../../shared/project/resources.js'
+import { createMemoryResources, tryDerivedProjectBundle, validateProjectBundle } from '../../../shared/project/resources.js'
 import { encodeUtf8 } from '../../../shared/validation/json.js'
-import { exportPng, exportPublicViewportPng, renderEditorProject, renderProject } from './renderer'
+import { reviseCompositionContent } from '../../../shared/validation/content.js'
+import { exportPng, exportPublicViewportPng, renderEditorProject, renderProject, sameVerifiedEditorPixels } from './renderer'
 import { encodePng, PNG_MAX_ENCODED_BYTES, renderRasterProjection } from './canvas-renderer'
 import { inspectImageBytes, normalizePngChunks } from '../../../shared/project/image-bytes.js'
 import { browserProjectValidation } from '../project-validation.js'
@@ -103,6 +104,21 @@ function primitives() {
 }
 
 describe('native complete-v1 browser rendering boundary (Node primitives)', () => {
+  it('keeps a painted frame only across exact verified revision changes', async () => {
+    primitives()
+    const baseline = await validateProjectBundle(fixture(), browserProjectValidation)
+    const { document, appearance, historyIdentity } = baseline.project
+    const changedRevision = reviseCompositionContent({ document, appearance, historyIdentity }, document.revision + 1, '2026-10-25T00:00:00.000Z')
+    const revised = tryDerivedProjectBundle({ project: { ...baseline.project, ...changedRevision }, resources: baseline.resources }, baseline)!
+    expect(sameVerifiedEditorPixels(baseline, revised)).toBe(true)
+    expect(sameVerifiedEditorPixels(baseline, { ...revised, project: { ...revised.project } })).toBe(false)
+    expect(sameVerifiedEditorPixels(baseline, { ...revised, resources: { ...revised.resources } })).toBe(false)
+    const grid = { ...revised.project.document, units: { ...revised.project.document.units, gridVisible: true } }
+    const changedGrid = tryDerivedProjectBundle({ project: { ...revised.project, document: grid }, resources: revised.resources }, revised)!
+    expect(changedGrid.resources).toBe(baseline.resources)
+    expect(sameVerifiedEditorPixels(revised, changedGrid)).toBe(false)
+  })
+
   it('rejects target, audience and drawing-range mismatches before resource IO', async () => {
     const input = fixture(), floorId = Object.keys(input.project.document.floors)[0]
     const projection = projectScene(input.project.document, 'gm', input.project.appearance, { floorId }), read = vi.fn(input.resources.read)
