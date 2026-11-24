@@ -5,7 +5,9 @@ import { materializeSceneCollectionDocument } from './scene-collection-catalog.j
 import { WATER_PRESETS } from '../../../shared/ocean/contracts.js'
 import { runtime } from '../runtime.js'
 
-export const OPEN_OCEAN_NAME = '远洋遭遇 · 巨怪'
+import { workspaceSampleNames } from './workspace-samples.js'
+
+export const OPEN_OCEAN_NAME = workspaceSampleNames.openOcean
 
 /** An authored open-water encounter. Original fixed creature/boat dimensions
  * are retained; each remains a normal independently editable supported prop. */

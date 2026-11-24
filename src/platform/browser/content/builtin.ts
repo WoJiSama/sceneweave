@@ -1,4 +1,4 @@
-import data from './builtin-data.json'
+import type CatalogContent from './builtin-data.json'
 import type { ProjectBundle, ProjectData } from '../../../shared/model/project.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
@@ -10,8 +10,8 @@ import { loadFixedResources, type ContentLoadOptions } from './load-resources.js
 export { boundedResponseBytes } from './load-resources.js'
 export type { ContentLoadProgress } from './load-resources.js'
 
-// Frozen fixed content and resource locations only. No editor, legacy IO or persistence is imported.
-const fixed = freezeJson(captureJson(data))
+// Keep fixed metadata here. The shared image reader supplies verified local or downloaded bytes.
+let fixedContent: typeof CatalogContent | undefined
 export function builtinIdentityAudit(bundle: ProjectBundle): { items: number; images: number; curations: number; refines: number } {
   const items = listCatalogItems(bundle), keys = new Set(items.map(item => item.identity.key)), refines = [...CATALOG_CURATION.values()].filter(item => item.refines)
   if (items.length !== 62 || keys.size !== 62 || CATALOG_CURATION.size !== 62 || refines.length !== 6 || Object.keys(bundle.project.assets).length !== 57
@@ -21,6 +21,9 @@ export function builtinIdentityAudit(bundle: ProjectBundle): { items: number; im
 /** Standalone complete-v1 provider. Every call captures and validates actual source image bytes. */
 export async function loadBuiltinCatalog(validation: CompleteValidationOptions, onProgress?: ContentLoadOptions['onProgress']): Promise<VerifiedProjectBundle> {
   checkCancelled(validation.signal)
+  const { default: data } = await import('./builtin-data.json')
+  checkCancelled(validation.signal)
+  const fixed = fixedContent ??= freezeJson(captureJson(data))
   const project = captureJson(fixed.project) as unknown as ProjectData
   if (Object.keys(fixed.paths).length !== Object.keys(project.assets).length) throw new Error('内置资源路径未精确覆盖固定内容。')
   const bytes = await loadFixedResources(project.assets, fixed.paths as Record<string, string>, {}, { signal: validation.signal, onProgress })

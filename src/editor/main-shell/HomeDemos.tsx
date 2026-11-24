@@ -8,6 +8,7 @@ import { artStyleClip, INITIAL_ART_STYLE_DIVIDER } from '../native-canvas/art-st
 import { useObliqueView } from '../native-canvas/useObliqueView'
 import { homeSections } from './location'
 import { sceneImage } from './SampleShowcase'
+import HomePreviewImage from './HomePreviewImage'
 import './home-demos.css'
 
 const tavern = manifest.entries.fantasy, outdoors = manifest.entries.wilderness
@@ -25,9 +26,9 @@ function StyleChoice({ label, value, onChange }: { label: string; value: Style; 
 
 function StyleImage({ style, clipPath }: { style: Style; clipPath: string }) {
   const image = tavern.artStyles[style]
-  return <img style={{ clipPath }} alt={`${tavern.name} · ${styleLabels[style]}`}
+  return <HomePreviewImage style={{ clipPath }} alt={`${tavern.name} · ${styleLabels[style]}`}
     src={`${import.meta.env.BASE_URL}assets/home-scenes/${image.file}?v=${image.sha256}`} width={image.width} height={image.height}
-    loading="lazy" decoding="async" draggable={false}/>
+    decoding="async" draggable={false}/>
 }
 
 export function HomeArtStyleDemo({ onOpen, disabled }: { onOpen: () => void; disabled: boolean }) {
@@ -77,9 +78,9 @@ async function prepareOutdoors(canvas: HTMLCanvasElement, signal: AbortSignal) {
   return prepareObliquePreview(canvas, bundle, { audience: 'gm', signal })
 }
 
-function OutdoorsImage() {
-  return <img src={sceneImage('wilderness')} width={outdoors.width} height={outdoors.height}
-    alt="溪岸巡林补给站的正俯视地图，显示小屋、树木和跨溪木桥" loading="lazy" draggable={false}/>
+function OutdoorsImage({ covered }: { covered: boolean }) {
+  return <HomePreviewImage src={sceneImage('wilderness')} width={outdoors.width} height={outdoors.height}
+    alt="溪岸巡林补给站的正俯视地图，显示小屋、树木和跨溪木桥" aria-hidden={covered} decoding="async" draggable={false}/>
 }
 
 function OutdoorsPreview({ oblique, activate }: { oblique: boolean; activate: () => void }) {
@@ -90,7 +91,7 @@ function OutdoorsPreview({ oblique, activate }: { oblique: boolean; activate: ()
   return <>
     <div className="home-orbit-stage" role="group" aria-label="溪岸地图取景" aria-describedby="home-orbit-instructions"
       tabIndex={ready ? -1 : 0} aria-busy={oblique && phase === 'loading' && !error} {...handlers}>
-      {!visible && <OutdoorsImage/>}
+      <OutdoorsImage covered={visible}/>
       {oblique && <canvas ref={canvas} width={1120} height={700} aria-label="可旋转的溪岸地图" aria-hidden={!visible} tabIndex={ready ? 0 : -1}
         data-visible={visible} data-ready={ready}/>}
       {oblique && (error ? <p className="home-orbit-status" role="alert">{error} 可切回正俯视继续浏览。</p>

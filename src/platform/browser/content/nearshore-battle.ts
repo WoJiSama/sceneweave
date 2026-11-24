@@ -12,7 +12,9 @@ import { validateSceneDocument } from '../../../shared/validation/scene.js'
 import { runtime } from '../runtime.js'
 import { naturalContourSegments } from '../../../shared/visual/natural-contours.js'
 
-export const NEARSHORE_BATTLE_NAME = '碎潮礁湾 · 近岸海战'
+import { workspaceSampleNames } from './workspace-samples.js'
+
+export const NEARSHORE_BATTLE_NAME = workspaceSampleNames.nearshore
 
 /** Existing terrain/material/shore recipe; there is no separate ocean coast model. */
 export function createNearshoreBattleDocument(options: { sceneId?: string; now?: string } = {}): SceneDocument {

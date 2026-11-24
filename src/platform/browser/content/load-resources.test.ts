@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AssetRecord } from '../../../shared/model/project.js'
 import { PACKAGE_LIMITS } from '../../../shared/project/limits.js'
+import { sha256Bytes } from '../../../shared/project/binary.js'
 import { CONTENT_FETCH_CONCURRENCY, boundedResponseBytes, loadFixedResources, type ContentLoadProgress } from './load-resources.js'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
-const hash = (index: number) => (index + 1).toString(16).padStart(64, '0')
+const hash = (index: number) => sha256Bytes(new Uint8Array([index & 255, index >> 8]))
 function fixture(count: number) {
   const assets: Record<string, AssetRecord> = {}, paths: Record<string, string> = {}
   for (let index = 0; index < count; index++) {
-    assets[hash(index)] = { sha256: hash(index), mimeType: 'image/png', sizeBytes: 1, pixelWidth: 1, pixelHeight: 1 }
+    assets[hash(index)] = { sha256: hash(index), mimeType: 'image/png', sizeBytes: 2, pixelWidth: 1, pixelHeight: 1 }
     paths[hash(index)] = `assets/sceneweave-handdrawn/test-${index}.png`
   }
   return { assets, paths }
@@ -30,7 +31,7 @@ describe('bounded fixed content byte loading', () => {
     expect(fetcher).toHaveBeenCalledTimes(CONTENT_FETCH_CONCURRENCY)
     let released = 0
     while (released < 9) {
-      for (const gate of gates.slice(released)) { gate.resolve(new Response(new Uint8Array([released++]))); }
+      for (const gate of gates.slice(released)) { gate.resolve(new Response(new Uint8Array([released++, 0]))); }
       await tick(); await tick(); await tick(); await tick()
     }
     const result = await pending
@@ -83,16 +84,57 @@ describe('bounded fixed content byte loading', () => {
   })
 
   it('retains exact lengths and owned bytes for embedded images and cancels oversized streams', async () => {
-    const { assets } = fixture(1), value = new Uint8Array([7])
+    const { assets } = fixture(1), value = new Uint8Array([7, 0])
     const result = await loadFixedResources(assets, {}, { [hash(0)]: btoa(String.fromCharCode(...value)) })
     expect(result.get(hash(0))).toEqual(value)
     await expect(loadFixedResources(assets, {}, { [hash(0)]: 'AAAA' })).rejects.toThrow('实际图片')
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 2]))))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))))
     await expect(loadFixedResources(assets, fixture(1).paths, {})).rejects.toThrow('固定字节预算')
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array())))
     await expect(loadFixedResources(assets, fixture(1).paths, {})).rejects.toThrow('实际字节长度')
     const cancelled = vi.fn(), oversized = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([1, 2])) }, cancel: cancelled })
     await expect(boundedResponseBytes(new Response(oversized), 1, {})).rejects.toThrow('固定字节预算')
     expect(cancelled).toHaveBeenCalledOnce()
+  })
+
+  it('shares a verified transfer with predownload when another reader cancels, and repairs corrupt cache bytes', async () => {
+    const { assets, paths } = fixture(1), bytes = new Uint8Array([0, 0])
+    let cached: Response | undefined
+    const cache = {
+      match: async () => cached?.clone(),
+      put: vi.fn(async (_key: string, value: Response) => { cached = value }),
+      delete: vi.fn(async () => { cached = undefined; return true }),
+    }
+    vi.stubGlobal('caches', { open: async () => cache })
+    const gate = deferred<Response>()
+    const fetcher = vi.fn(() => gate.promise)
+    vi.stubGlobal('fetch', fetcher)
+    const abort = new AbortController()
+    const preview = loadFixedResources(assets, paths, {}, { signal: abort.signal })
+    const download = loadFixedResources(assets, paths, {}, { requireStored: true })
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce())
+    abort.abort()
+    await expect(preview).rejects.toMatchObject({ name: 'AbortError' })
+    gate.resolve(new Response(bytes))
+    expect((await download).get(hash(0))).toEqual(bytes)
+    expect((await loadFixedResources(assets, paths, {})).get(hash(0))).toEqual(bytes)
+    expect(fetcher).toHaveBeenCalledOnce()
+    cached = new Response(new Uint8Array([1, 0]))
+    fetcher.mockResolvedValueOnce(new Response(bytes))
+    expect((await loadFixedResources(assets, paths, {})).get(hash(0))).toEqual(bytes)
+    expect(cache.delete).toHaveBeenCalledOnce()
+    expect(cache.put).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports a predownload storage failure while an ordinary edit can still use the same verified image', async () => {
+    const { assets, paths } = fixture(1), bytes = new Uint8Array([0, 0])
+    const cache = { match: async () => undefined, put: async () => { throw new DOMException('Full', 'QuotaExceededError') } }
+    vi.stubGlobal('caches', { open: async () => cache })
+    const fetcher = vi.fn(async () => new Response(bytes))
+    vi.stubGlobal('fetch', fetcher)
+    const edit = loadFixedResources(assets, paths, {})
+    await expect(loadFixedResources(assets, paths, {}, { requireStored: true })).rejects.toThrow('剩余空间')
+    expect((await edit).get(hash(0))).toEqual(bytes)
+    expect(fetcher).toHaveBeenCalledOnce()
   })
 })

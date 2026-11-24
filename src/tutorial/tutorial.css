@@ -55,6 +55,7 @@
 }
 
 .tutorial-brand small { margin-left: 6px; color: var(--tutorial-muted); font-size: 14px; font-weight: 400; }
+.tutorial-header-actions { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .tutorial-open { min-height: 40px; padding-inline: 11px; border: 1px solid var(--tutorial-rule); border-radius: 6px; font-size: 13px; }
 .tutorial-open:hover { background: var(--tutorial-panel); }
 
@@ -223,6 +224,10 @@
   .tutorial-article-header p { font-size: 15px; }
   .tutorial-cover img { aspect-ratio: 1.76; }
   .tutorial-section { margin-top: 25px; padding-top: 23px; }
+}
+
+@media (max-width: 450px) {
+  .tutorial-brand small { display: none; }
 }
 
 @media (max-width: 460px) {

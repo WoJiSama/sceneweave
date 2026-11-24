@@ -13,7 +13,9 @@ import { runtime } from '../runtime.js'
 import { transportDefinitionId } from '../../../shared/assets/transport-collection.js'
 import { lightingDefinitionId } from '../../../shared/assets/lighting-collection.js'
 
-export const SHIP_INTERIOR_NAME = '逐潮号 · 三层船图'
+import { workspaceSampleNames } from './workspace-samples.js'
+
+export const SHIP_INTERIOR_NAME = workspaceSampleNames.shipInterior
 export const SHIP_FLOORS = [
   { id: 'collection-floor', name: '甲板' }, { id: 'ship-cabin', name: '船舱' }, { id: 'ship-hold', name: '底舱' },
 ] as const

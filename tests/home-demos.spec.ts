@@ -110,6 +110,7 @@ test('homepage loads the fixed creek sample on demand and draws new camera views
   } finally { releaseArchive() }
   const canvas = demo.getByLabel('可旋转的溪岸地图')
   await expect(canvas).toHaveAttribute('data-ready', 'true', { timeout: 35_000 })
+  await expect(demo.getByRole('img')).toHaveCount(0)
   await page.unroute(matchesArchive)
   expect(archives).toHaveLength(1)
   expect(archives[0]).toMatch(/\/wilderness\.sceneweave$/)

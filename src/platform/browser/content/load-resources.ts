@@ -2,43 +2,13 @@ import type { AssetRecord } from '../../../shared/model/project.js'
 import type { CancellationSignal } from '../../../shared/ports/resources.js'
 import { checkCancelled } from '../../../shared/ports/resources.js'
 import { PACKAGE_LIMITS } from '../../../shared/project/limits.js'
+import { readFixedImage } from './fixed-image-cache.js'
+export { boundedResponseBytes } from './bounded-response.js'
 
 export interface ContentLoadProgress { phase: 'resources' | 'validation'; completed: number; total: number }
-export interface ContentLoadOptions { signal?: CancellationSignal; onProgress?: (progress: ContentLoadProgress) => void }
+export interface ContentLoadOptions { signal?: CancellationSignal; onProgress?: (progress: ContentLoadProgress) => void; requireStored?: boolean }
 export const CONTENT_FETCH_CONCURRENCY = 4
 const fixedPath = /^assets\/sceneweave-handdrawn(?:-outdoor|-outpost|-content)?\/[a-z0-9-]+\.png$/
-
-/** Capture every response chunk under its declared bound, including while cancellation is pending. */
-export async function boundedResponseBytes(response: Response, limit: number, options: Pick<ContentLoadOptions, 'signal'>): Promise<Uint8Array> {
-  checkCancelled(options.signal)
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > PACKAGE_LIMITS.imageBytes) throw new Error('内置素材响应超过固定字节预算。')
-  if (!response.body) {
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    checkCancelled(options.signal)
-    if (bytes.byteLength > limit) throw new Error('内置素材响应超过固定字节预算。')
-    return bytes
-  }
-  const reader = response.body.getReader(), chunks: Uint8Array[] = []
-  const signal = typeof AbortSignal !== 'undefined' && options.signal instanceof AbortSignal ? options.signal : undefined
-  const abortRead = () => { void reader.cancel().catch(() => undefined) }
-  signal?.addEventListener('abort', abortRead, { once: true })
-  let total = 0
-  try {
-    for (;;) {
-      checkCancelled(options.signal)
-      const { done, value } = await reader.read()
-      checkCancelled(options.signal)
-      if (done) break
-      total += value.byteLength
-      if (total > limit) throw new Error('内置素材响应超过固定字节预算。')
-      chunks.push(value.slice())
-    }
-  } catch (error) { await reader.cancel().catch(() => undefined); throw error }
-  finally { signal?.removeEventListener('abort', abortRead); reader.releaseLock() }
-  const bytes = new Uint8Array(total); let offset = 0
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
-  return bytes
-}
 
 /** Four bounded byte readers only; actual hashes, headers and pixels remain a complete validation step. */
 export async function loadFixedResources(assets: Readonly<Record<string, AssetRecord>>, paths: Readonly<Record<string, string>>,
@@ -76,12 +46,8 @@ export async function loadFixedResources(assets: Readonly<Record<string, AssetRe
         if (index >= entries.length) return
         const { hash, path, encoded, size } = entries[index]
         let value: Uint8Array
-        if (path) {
-          const response = await fetch(`${import.meta.env.BASE_URL}${path}`, { signal: controller.signal })
-          checkpoint()
-          if (!response.ok) { void response.body?.cancel().catch(() => undefined); throw new Error(`内置素材读取失败：${path} (${response.status})。`) }
-          value = await boundedResponseBytes(response, size, { signal: controller.signal })
-        } else value = Uint8Array.from(atob(encoded!), character => character.charCodeAt(0))
+        if (path) value = await readFixedImage(hash, path, size, controller.signal, options.requireStored === true)
+        else value = Uint8Array.from(atob(encoded!), character => character.charCodeAt(0))
         checkpoint()
         if (value.length !== size) throw new Error('内置素材实际字节长度不匹配。')
         results.set(hash, value); completed++; report()

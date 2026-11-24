@@ -1,0 +1,14 @@
+.resource-download-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(540px, calc(100% - 24px));
+  max-height: min(720px, calc(100dvh - 24px));
+  margin: auto;
+  padding: clamp(14px, 3vw, 24px);
+  color: #35483c;
+}
+.resource-download-dialog::backdrop { background: #16291f73; }
+.resource-download-dialog .modal-heading { margin: 0; }
+.resource-download-dialog .modal-heading button { margin: 0; }
+.resource-download-dialog .sceneweave-loading { min-height: 130px; }

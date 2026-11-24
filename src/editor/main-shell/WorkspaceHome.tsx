@@ -2,17 +2,23 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ArrowRight, BookOpen, Download, FileUp, FolderOpen, HardDrive, ImagePlus, Layers3, Map as MapIcon, PencilLine, Plus, RefreshCw, Search } from 'lucide-react'
 import { tutorialHash, tutorialHref } from '../../tutorial/location'
-import { projectRepository } from '../../platform/browser/runtime'
-import type { ProjectDirectoryEntry, ProjectDirectoryCursor } from '../../application/ports/project-directory'
+import type { ProjectDirectoryEntry, ProjectDirectoryCursor, ProjectDirectoryQuery } from '../../application/ports/project-directory'
 import type { WorkspaceRequest, WorkspaceSessionSummary } from './session'
 import showcaseManifest from '../../platform/browser/content/home-showcase-manifest.json'
 import SampleShowcase, { obliqueImage, sceneImage } from './SampleShowcase'
+import HomePreviewImage from './HomePreviewImage'
+import ResourceDownloadButton from './ResourceDownloadButton'
 import { HomeArtStyleDemo, HomeObliqueDemo } from './HomeDemos'
 import { homeSections, isHomeSectionHash } from './location'
 import '../workspace/home.css'
 import './home-ux.css'
 
 const scenePreview = showcaseManifest.entries.wilderness
+
+async function readProjectDirectory(query: ProjectDirectoryQuery) {
+  const { projectRepository } = await import('../../platform/browser/runtime')
+  return projectRepository.projectDirectory(query)
+}
 
 export default function WorkspaceHome({ session, onContinue, onRequest, disabled = false, developmentTools }: {
   session: WorkspaceSessionSummary | null; onContinue: () => void; onRequest: (request: WorkspaceRequest) => void
@@ -38,7 +44,7 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
     return () => window.removeEventListener('hashchange', showSection)
   }, [])
   useEffect(() => { const ticket = ++directoryRequest.current; setLoading(true); setNext(null)
-    void projectRepository.projectDirectory({ query, limit: 50 }).then(value => {
+    void readProjectDirectory({ query, limit: 50 }).then(value => {
       if (ticket === directoryRequest.current) { setEntries(value.entries); setNext(value.next); setTotal(value.total); setError(null) }
     }, failure => { if (ticket === directoryRequest.current) setError(String(failure instanceof Error ? failure.message : failure)) }).finally(() => { if (ticket === directoryRequest.current) setLoading(false) })
     // A new filter/session or unmount also invalidates a later pagination read.
@@ -47,7 +53,7 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
   const loadMore = () => {
     if (!next || loading) return
     const ticket = ++directoryRequest.current; setLoading(true)
-    void projectRepository.projectDirectory({ query, after: next, limit: 50 }).then(value => {
+    void readProjectDirectory({ query, after: next, limit: 50 }).then(value => {
       if (ticket === directoryRequest.current) {
         setEntries(current => [...new Map([...current, ...value.entries].map(entry => [entry.sceneId, entry])).values()])
         setNext(value.next); setTotal(value.total); setError(null)
@@ -64,6 +70,7 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
       <a href="#home" className="home-brand" aria-label="织境首页"><Layers3 size={28} aria-hidden="true"/><span>织境 <small>Sceneweave</small></span></a>
       <div className="home-header-actions">
         <span className="home-local"><HardDrive size={15} aria-hidden="true"/>工程保存在此浏览器</span>
+        <ResourceDownloadButton className="home-tutorial-link"/>
         <a className="home-tutorial-link" href={tutorialHash}><BookOpen size={16} aria-hidden="true"/>使用教程</a>
       </div>
     </header>
@@ -98,8 +105,8 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
         </div>
         <figure className="home-scene-preview">
           <div className="home-featured-views">
-            <div><img src={sceneImage('wilderness')} width={scenePreview.width} height={scenePreview.height} alt="溪流旁的小屋、树木和木桥"/><span>正俯视</span></div>
-            <div><img src={obliqueImage(scenePreview.oblique)} width={scenePreview.oblique.width} height={scenePreview.oblique.height} alt="溪岸小屋、树冠和木桥的侧面"/><span>3D 斜俯视</span></div>
+            <div><HomePreviewImage src={sceneImage('wilderness')} width={scenePreview.width} height={scenePreview.height} alt="溪流旁的小屋、树木和木桥"/><span>正俯视</span></div>
+            <div><HomePreviewImage src={obliqueImage(scenePreview.oblique)} width={scenePreview.oblique.width} height={scenePreview.oblique.height} alt="溪岸小屋、树冠和木桥的侧面"/><span>3D 斜俯视</span></div>
           </div>
           <figcaption>{scenePreview.name}</figcaption>
         </figure>

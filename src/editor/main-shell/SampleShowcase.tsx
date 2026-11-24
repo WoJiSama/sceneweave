@@ -3,6 +3,7 @@ import { ArrowRight, Maximize2, X } from 'lucide-react'
 import type { WorkspaceRequest } from './session'
 import type { HomeShowcaseKind } from '../../platform/browser/content/home-showcase'
 import manifest from '../../platform/browser/content/home-showcase-manifest.json'
+import HomePreviewImage from './HomePreviewImage'
 import './showcase.css'
 
 type Sample = typeof manifest.entries[keyof typeof manifest.entries] & { id: HomeShowcaseKind }
@@ -65,11 +66,11 @@ export default function SampleShowcase({ onRequest, disabled }: { onRequest: (re
       return <article className={`home-showcase-card sample-${sample.id}`} key={sample.id} data-sample={sample.id}>
         <div className={`home-showcase-views${angle ? ' is-paired' : ''}`}>
           <button className="home-showcase-image" aria-label={`查看${sample.name}详情`} onClick={event => setSelected({ sample, trigger: event.currentTarget })}>
-            <img src={sceneImage(sample.id)} width={entry.width} height={entry.height} alt={`${sample.name}正俯视实际场景`} loading="lazy"/>
+            <HomePreviewImage src={sceneImage(sample.id)} width={entry.width} height={entry.height} alt={`${sample.name}正俯视实际场景`} decoding="async"/>
             <span><Maximize2 size={12}/>正俯视</span>
           </button>
           {angle && <button className="home-showcase-image home-showcase-angle" aria-label={`查看${sample.name}3D 斜俯视`} onClick={event => setSelected({ sample, trigger: event.currentTarget, view: 'oblique' })}>
-            <img src={obliqueImage(angle)} width={angle.width} height={angle.height} alt={`${sample.name}3D 斜俯视实际场景`} loading="lazy"/>
+            <HomePreviewImage src={obliqueImage(angle)} width={angle.width} height={angle.height} alt={`${sample.name}3D 斜俯视实际场景`} decoding="async"/>
             <span><Maximize2 size={12}/>3D 斜俯视</span>
           </button>}
         </div>

@@ -1,0 +1,24 @@
+.resource-download-intro, .resource-download-progress, .resource-download-empty { color: #50634f; line-height: 1.6; }
+.resource-download-tools, .resource-download-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.resource-download-tools strong { font-size: 14px; }
+.resource-download-search { display: flex; align-items: center; gap: 6px; min-width: 0; border: 1px solid #ced9c8; border-radius: 5px; padding: 5px 8px; }
+.resource-download-search input { width: 130px; min-width: 0; padding: 2px 0; border: 0; background: transparent; font: inherit; }
+.resource-download-list { min-height: 50px; overflow-y: auto; overscroll-behavior: contain; border-block: 1px solid #dce2d6; scrollbar-gutter: stable; }
+.resource-download-list fieldset { border: 0; min-width: 0; padding: 4px 0 10px; }
+.resource-download-list legend { padding: 12px 0 2px; color: #4f634a; font-size: 12px; font-weight: 650; }
+.resource-download-row { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 4px 7px; border-radius: 4px; cursor: pointer; }
+.resource-download-row:hover, .resource-download-row:has(:checked) { background: #edf2e7; }
+.resource-download-row input { accent-color: #466344; width: 16px; height: 16px; flex: none; }
+.resource-download-size { margin-inline-start: auto; color: #586755; font-size: 12px; white-space: nowrap; }
+.resource-download-row small { display: block; }
+.resource-download-row small, .resource-download-error { overflow-wrap: anywhere; color: #864234; }
+.resource-download-empty { display: grid; place-items: center; gap: 9px; padding: 24px 0; text-align: center; }
+.resource-download-actions { justify-content: flex-end; }
+.resource-download-actions > span { margin-inline-end: auto; color: #50634f; font-size: 12px; }
+.resource-download-actions > span:empty { display: none; }
+.resource-download-progress { display: grid; gap: 4px; font-size: 12px; }
+.resource-download-progress progress { width: 100%; accent-color: #52734d; }
+@media (max-width: 480px) {
+  .resource-download-row { min-height: 42px; }
+  .resource-download-actions > span { flex-basis: 100%; }
+}

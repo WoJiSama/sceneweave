@@ -16,8 +16,10 @@ import type { OutpostVegetationDensity } from './outpost-vegetation.js'
 import { materializeVisualArt } from './visual-art-project.js'
 import { runtime } from '../runtime.js'
 
-export const NATURAL_DETAIL_ISLAND_NAME = '岬湾苔岛 · 自然岩阶与崖面'
-export const NATURAL_DETAIL_OUTPOST_NAME = '林中哨站 · 自然编排'
+import { workspaceSampleNames } from './workspace-samples.js'
+
+export const NATURAL_DETAIL_ISLAND_NAME = workspaceSampleNames.naturalIsland
+export const NATURAL_DETAIL_OUTPOST_NAME = workspaceSampleNames.naturalOutpost
 interface Options { sceneId?: string; now?: string }
 const checked = (scene: SceneDocument): SceneDocument => {
   const result = validateSceneDocument(scene)

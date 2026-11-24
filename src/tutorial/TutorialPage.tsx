@@ -13,6 +13,7 @@ import { aiTools } from './ai'
 import { OpenTutorialSample, tutorialImage } from './lesson'
 import type { HomeShowcaseKind } from '../platform/browser/content/home-showcase'
 import { tutorialHref } from './location'
+import ResourceDownloadButton from '../editor/main-shell/ResourceDownloadButton'
 import './tutorial.css'
 
 const chapters = [firstMap, scene, building, generation, terrain, assets, images, atmosphere, delivery, aiTools]
@@ -54,7 +55,10 @@ export default function TutorialPage({ onOpenSample }: { onOpenSample: (id: Home
     <header className="tutorial-header">
       <div className="tutorial-header-inner">
         <a href="#home" className="tutorial-brand" aria-label="织境首页"><Layers3 size={24} aria-hidden="true"/><span>织境 <small>Sceneweave</small></span></a>
-        <a className="tutorial-open" href="#home" target="_blank" rel="noopener" aria-label="打开织境（新标签页）">打开织境<ExternalLink size={15} aria-hidden="true"/></a>
+        <div className="tutorial-header-actions">
+          <ResourceDownloadButton className="tutorial-open"/>
+          <a className="tutorial-open" href="#home" target="_blank" rel="noopener" aria-label="打开织境（新标签页）">打开织境<ExternalLink size={15} aria-hidden="true"/></a>
+        </div>
       </div>
     </header>
 

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import data from './scenes-data.json'
+import type SceneContent from './scenes-data.json'
 import { loadFixedResources, type ContentLoadOptions } from './load-resources.js'
 export type { ContentLoadProgress } from './load-resources.js'
 import { runtime, validation } from '../runtime.js'
@@ -12,6 +12,7 @@ import { fromBundle, type EditableProject } from '../../../application/workspace
 import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { projectResourceHashes } from '../../../shared/project/source-resources.js'
 import { namespaceMixedInteriorCatalogue } from './mixed-palette.js'
+import { canvasGroundId, CANVAS_GROUND_PRIORITY } from '../../../shared/model/canvas-ground.js'
 import { newMapArtStyle } from '../../../shared/visual/art-style.js'
 
 export type SampleKind = 'study' | 'island' | 'outpost' | 'calibration' | 'graveyard' | 'volcano'
@@ -26,11 +27,25 @@ const optionsSchema = z.object({ title: z.string().trim().min(1).max(120), width
   preset: z.enum(['investigation', 'tactical', 'narrative']), gridVisible: z.boolean().optional(),
   sceneId: z.string().min(1).max(256).refine(value => value !== '__proto__').optional(), now: z.string().datetime().optional(),
 }).strict().refine(value => Math.max(value.widthMm, value.heightMm) / Math.min(value.widthMm, value.heightMm) <= 20, '画布长宽比最多为20:1。')
-const fixed = freezeJson(captureJson(data))
+type FixedSceneContent = typeof SceneContent
+let fixedSceneContent: FixedSceneContent | undefined
 
-async function complete(project: ProjectData, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress']): Promise<EditableProject> {
+async function loadFixedSceneContent(signal?: AbortSignal) {
+  signal?.throwIfAborted()
+  if (fixedSceneContent) return fixedSceneContent
+  const { default: data } = await import('./scenes-data.json')
+  signal?.throwIfAborted()
+  return fixedSceneContent ??= freezeJson(captureJson(data))
+}
+
+async function complete(project: ProjectData, fixed: FixedSceneContent, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress']): Promise<EditableProject> {
   signal?.throwIfAborted()
   const bytes = await loadFixedResources(project.assets, fixed.paths as Record<string, string>, fixed.embedded as Record<string, string>, { signal, onProgress })
+  return validateFixedScene(project, bytes, signal, onProgress)
+}
+
+async function validateFixedScene(project: ProjectData, bytes: Map<string, Uint8Array>, signal?: AbortSignal,
+  onProgress?: ContentLoadOptions['onProgress']): Promise<EditableProject> {
   signal?.throwIfAborted()
   onProgress?.({ phase: 'validation', completed: 0, total: bytes.size })
   const editable = await fromBundle({ project, resources: createMemoryResources(bytes) }, { ...validation, signal })
@@ -43,37 +58,76 @@ async function complete(project: ProjectData, signal?: AbortSignal, onProgress?:
 /** Native fixed templates were independently extracted and pixel-validated; no old factory runs in the editor. */
 export async function createSampleProject(sample: SampleKind, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress']): Promise<EditableProject> {
   if (!['study', 'island', 'outpost', 'calibration', 'graveyard', 'volcano'].includes(sample)) throw new Error('未知样板。')
+  const fixed = await loadFixedSceneContent(signal)
   const project = captureJson(fixed.scenes[sample]) as unknown as ProjectData, now = runtime.clock.now()
   Object.assign(project.document, { sceneId: runtime.ids.nextId(), revision: 0, createdAt: now, updatedAt: now })
   project.schemaVersion = 1
   project.document = toCurrentSceneDocument(project.document)
   project.appearance = { ...project.appearance, version: 2, presentations: Object.fromEntries(Object.values(project.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, { mode: 'topDown' as const, rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround' as const, groundShadowMm: null }])) }
   project.historyIdentity = createHistoryIdentity(project.document, runtime)
-  return complete(project, signal, onProgress)
+  return complete(project, fixed, signal, onProgress)
 }
 
-/** Same 34-image/37-item preinstallation and creation bounds as the previous primary workspace. */
-export async function createBlankProject(input: BlankOptions, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress']): Promise<EditableProject> {
+/** Fixed recipes can still explicitly request the full original catalog. */
+export function createBlankProject(input: BlankOptions, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress']) {
+  return createBlank(input, false, signal, onProgress)
+}
+
+export function createStarterProject(input: BlankOptions, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress'], preloadedArchive?: Promise<Uint8Array>) {
+  return createBlank(input, true, signal, onProgress, preloadedArchive)
+}
+
+async function createBlank(input: BlankOptions, modular: boolean, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress'],
+  preloadedArchive?: Promise<Uint8Array>): Promise<EditableProject> {
   const options = optionsSchema.parse(captureJson(input)), preset = BLANK_PRESETS.find(value => value.id === options.preset)!
-  const project = captureJson(fixed.scenes.blank) as unknown as ProjectData, now = options.now ?? runtime.clock.now()
+  const { project, resources } = await loadBlankContent(modular, signal, onProgress, preloadedArchive)
   project.document.artStyle = newMapArtStyle()
+  const now = options.now ?? runtime.clock.now()
   const bounds = { x: 0, y: 0, width: options.widthMm, height: options.heightMm }, floor = Object.values(project.document.floors)[0]
   Object.assign(project.document, { sceneId: options.sceneId ?? runtime.ids.nextId(), revision: 0, title: options.title, createdAt: now, updatedAt: now, exportBoundsMm: { ...bounds } })
   floor.boundsMm = { ...bounds }
   project.document.units = { world: 'mm', display: preset.display, gridSizeMm: preset.gridSizeMm, snapMm: preset.snapMm, gridVisible: options.gridVisible ?? preset.gridVisible }
   project.document.presetSnapshot = { presetId: preset.id, presetVersion: 1, distanceMode: preset.distanceMode, source: `Sceneweave 通用${preset.name}偏好；非官方规则`, gridSizeMm: preset.gridSizeMm }
+  if (modular) project.document.presetSnapshot.starterPalette = 'standard-v1'
   project.schemaVersion = 1
   project.document = toCurrentSceneDocument(project.document)
   project.appearance = { ...project.appearance, version: 2, presentations: Object.fromEntries(Object.values(project.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, { mode: 'topDown' as const, rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround' as const, groundShadowMm: null }])) }
   project.historyIdentity = createHistoryIdentity(project.document, runtime)
-  return complete(project, signal, onProgress)
+  return validateFixedScene(project, resources, signal, onProgress)
+}
+
+async function loadBlankContent(modular: boolean, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress'], preloadedArchive?: Promise<Uint8Array>) {
+  if (modular) {
+    const { loadStarterBlankContent } = await import('./blank-scene-archive.js')
+    return loadStarterBlankContent(signal, onProgress, preloadedArchive)
+  }
+  const fixed = await loadFixedSceneContent(signal)
+  const project = captureJson(fixed.scenes.blank) as unknown as ProjectData
+  const resources = await loadFixedResources(project.assets, fixed.paths as Record<string, string>, fixed.embedded as Record<string, string>, { signal, onProgress })
+  return { project, resources }
+}
+
+/** The interactive blank scene starts on an editable surface. Generator and
+ * sample factories still use their own verified starting geometry. */
+export async function prepareCanvasGround(project: EditableProject, signal?: AbortSignal): Promise<EditableProject> {
+  const scene = project.document, floor = Object.values(scene.floors)[0]
+  const layer = Object.values(scene.userLayers).find(row => row.floorId === floor.id && !row.editLocked)
+  if (!layer) throw new Error('新建场景缺少可用的地面图层。')
+  const { x, y, width, height } = floor.boundsMm
+  const material = scene.materials['m1d-m-01'] ?? Object.values(scene.materials).find(row => row.applicableSurfaces.includes('terrain'))
+  const { prepareCompositionCommands } = await import('../../../application/workspace/prepare.js')
+  return prepareCompositionCommands(project, [{
+    type: 'createTerrainArea', id: canvasGroundId(floor.id), floorId: floor.id, layerId: layer.id,
+    boundaryMm: [{ x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height }],
+    coveragePriority: CANVAS_GROUND_PRIORITY, ...(material ? { materialRef: { id: material.id, version: material.version } } : {}),
+  }], { runtime, validation: { ...validation, signal } })
 }
 
 /** An empty current project carrying only the exact existing volcanic palette.
  * Sample geometry, generated records, props and sample appearance never enter it. */
 export async function createVolcanoBlankProject(input: BlankOptions, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress']): Promise<EditableProject> {
   const options = optionsSchema.parse(captureJson(input)), preset = BLANK_PRESETS.find(value => value.id === options.preset)!
-  signal?.throwIfAborted()
+  const fixed = await loadFixedSceneContent(signal)
   const project = captureJson(fixed.scenes.blank) as unknown as ProjectData
   const palette = fixed.scenes.volcano as unknown as ProjectData, now = options.now ?? runtime.clock.now()
   const document = toCurrentSceneDocument(project.document)
@@ -101,7 +155,7 @@ export async function createVolcanoBlankProject(input: BlankOptions, signal?: Ab
     project.licenseBindings.push(captureJson(binding)); project.licenses[hash] = captureJson(license)
   }
   Object.assign(project, createCompositionContent(document, runtime), { schemaVersion: 1 })
-  return complete(project, signal, onProgress)
+  return complete(project, fixed, signal, onProgress)
 }
 
 /** Merge independently validated fixed catalogues into one empty project. No

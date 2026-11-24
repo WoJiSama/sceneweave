@@ -205,9 +205,10 @@ function describeItem(project: ProjectData, selector: CatalogSelector): CatalogI
 
 /** Synchronous display metadata is an index only; preparation and every external read validate actual complete bytes. */
 export function listCatalogItems(bundle: ProjectBundle): CatalogItem[] {
-  return catalogItems(captureProjectBundleInput(bundle).project)
+  return listCatalogMetadata(captureProjectBundleInput(bundle).project)
 }
-function catalogItems(project: ProjectData): CatalogItem[] {
+/** Display index only. Selecting an entry still requires its exact resource closure. */
+export function listCatalogMetadata(project: ProjectData): CatalogItem[] {
   const selectors: CatalogSelector[] = [
     ...Object.values(project.document.propDefinitions).filter(value => !value.tags.some(tag => tag.startsWith('sceneweave:'))).map(value => ({ kind: 'prop' as const, definitionId: value.id })),
     ...Object.values(project.document.materials).filter(value => !value.tags.some(tag => tag.startsWith('sceneweave:'))).map(value => ({ kind: 'material' as const, definitionId: value.id })),
@@ -252,7 +253,7 @@ export function listSnapshotCatalogItems(input: ProjectBundle): readonly Catalog
   }
   // Deep freezing prevents a UI consumer from poisoning another snapshot's
   // shared identity, tags, thumbnails or ordering through this read-only view.
-  return index.items ??= freezeJson(catalogItems(project))
+  return index.items ??= freezeJson(listCatalogMetadata(project))
 }
 
 /** Captures metadata and native bytes before any asynchronous validation. */

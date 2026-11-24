@@ -8,7 +8,9 @@ import { validateSceneDocument } from '../../../shared/validation/scene.js'
 import { createSceneCollectionSelectionDocument, materializeSceneCollectionDocument } from './scene-collection-catalog.js'
 import { runtime } from '../runtime.js'
 
-export const OCEAN_SAMPLE_NAME = '潮影航路 · 海洋成图'
+import { workspaceSampleNames } from './workspace-samples.js'
+
+export const OCEAN_SAMPLE_NAME = workspaceSampleNames.ocean
 const floorId = 'collection-floor', waterLayer = 'collection-structure', propLayer = 'collection-props'
 
 /** Authored static scene. Every ship and creature retains one editable prop. */
