@@ -103,7 +103,7 @@ test('production staircase creation, independent appearance, repeat/stretch, ben
     await page.getByTestId('workspace-resources').getByRole('group', { name: '室外任务', exact: true }).getByRole('button', { name: /^阶梯工具/ }).click()
     const tools = page.getByRole('region', { name: '阶梯工具参数', exact: true })
     await expect(tools.getByLabel('阶梯样式', { exact: true }).locator('option')).toHaveCount(10)
-    await expect(tools.getByLabel('阶梯材质', { exact: true }).locator('option')).toHaveCount(10)
+    await expect(tools.getByLabel('阶梯材质', { exact: true }).locator('option')).toHaveCount(11)
     await tools.getByLabel('连接起点表面', { exact: true }).selectOption('terrainArea:stairs-low')
     await tools.getByLabel('连接终点表面', { exact: true }).selectOption('terrainArea:stairs-high')
     await tools.getByLabel('室外通路净宽', { exact: true }).fill('1')

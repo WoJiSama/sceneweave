@@ -1,0 +1,9 @@
+.startup-scene-dialog { max-width: calc(100dvw - 28px); max-height: calc(100dvh - 28px); padding: 20px; background: #fcfdf8; }
+.startup-scene-dialog::backdrop { background: #16291f73; }
+.startup-scene-dialog .modal-heading { gap: 12px; }
+.startup-scene-dialog .modal-heading .icon-button { margin: 0; }
+.startup-scene-dialog .asset-new-fields { gap: 10px; }
+.startup-scene-dialog .workspace-start-help, .startup-scene-dialog small { color: #53644e; font-size: 12px; line-height: 1.6; }
+.startup-scene-dialog .modal-actions { position: sticky; bottom: 0; flex-wrap: wrap; margin-top: 16px; padding: 12px 0 0; background: #fcfdf8; }
+.startup-scene-dialog .modal-actions button { min-width: 0; }
+.startup-scene-dialog [role=alert] { color: #984b3f; }

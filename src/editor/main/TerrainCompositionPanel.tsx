@@ -1,9 +1,10 @@
+import type { SizeMm } from '../../shared/model/scene'
 import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { CompositionPresetInput } from '../../shared/terrain-generation/composition-presets'
 import type { TerrainPreview } from '../../application/workspace/terrain'
-export default function TerrainCompositionPanel({ busy, disabled = false, disabledReason, error, candidate, onGenerate, onAdopt, onCancel, onExport }: {
-  busy: boolean; disabled?: boolean; disabledReason?: string | null; error?: string | null; candidate: TerrainPreview | null
+export default function TerrainCompositionPanel({ busy, disabled = false, disabledReason, error, candidate, canvasSize, onGenerate, onAdopt, onCancel, onExport }: {
+  busy: boolean; disabled?: boolean; disabledReason?: string | null; error?: string | null; candidate: TerrainPreview | null; canvasSize?: SizeMm
   onGenerate: (input: Omit<CompositionPresetInput, 'sceneId'>) => Promise<void>
   onAdopt: () => Promise<void>; onCancel: () => void; onExport: () => Promise<void>
 }) {
@@ -47,13 +48,13 @@ export default function TerrainCompositionPanel({ busy, disabled = false, disabl
   </>
   return <section className="terrain-generation-panel" aria-label="通用地貌组合">
     <h2 className="terrain-generation-heading">通用地貌组合</h2>
-    <p className="terrain-generation-intro">从群岛、森林河谷或草岩丘陵开始。先检查真实分量与水道，再保存为独立工程。</p>
-    <form onSubmit={event => { event.preventDefault(); if (validSeed) void run('generate', () => onGenerate({ preset, seed: cleanSeed, widthMm: 48000, heightMm: 36000, islandCount: count })) }}>
+    <p className="terrain-generation-intro">从群岛、森林河谷或草岩丘陵开始。先检查真实分量与水道，再采用。</p>
+    <form onSubmit={event => { event.preventDefault(); if (validSeed) void run('generate', () => onGenerate({ preset, seed: cleanSeed, widthMm: canvasSize?.width ?? 48000, heightMm: canvasSize?.height ?? 36000, islandCount: count })) }}>
       <fieldset disabled={occupied || disabled}>
         <label className="terrain-generation-size">地貌组合<select aria-label="地貌组合类型" value={preset} onChange={event => setPreset(event.target.value as CompositionPresetInput['preset'])}><option value="archipelago">群岛海岸</option><option value="forestValley">森林河谷</option><option value="grassRidge">草岩丘陵</option><option value="tidalCoast">浅湾台地</option></select></label>
         <label className="terrain-generation-seed">构图方案<input aria-label="组合种子" value={seed} maxLength={128} onChange={event => setSeed(event.target.value)}/></label>
         {preset === 'archipelago' && <label className="terrain-generation-size">岛屿数量<select aria-label="组合岛屿数量" value={count} onChange={event => setCount(Number(event.target.value))}><option value={2}>2</option><option value={3}>3</option></select></label>}
-        <small className="terrain-generation-hint">48 × 36 米。生成后可继续编辑地面轮廓和高程；超过编辑容量上限的方案会说明原因。</small>
+        <small className="terrain-generation-hint">{canvasSize ? `${canvasSize.width / 1000} × ${canvasSize.height / 1000} 米。` : '48 × 36 米。'}生成后可继续编辑地面轮廓和高程；超过编辑容量上限的方案会说明原因。</small>
         {!validSeed && <p className="terrain-generation-notice" role="status">请填写组合种子，最多128个字符。</p>}
         <button className="primary terrain-generation-submit" type="submit" disabled={!validSeed}>{failure ? '重新预览地貌组合' : '预览地貌组合'}</button>
       </fieldset>
@@ -63,7 +64,7 @@ export default function TerrainCompositionPanel({ busy, disabled = false, disabl
     {active && candidate && <WorkspaceReview><div className="terrain-generation-panel workspace-review-panel">{feedback}<article className="terrain-generation-candidate" aria-label="地貌组合候选">
       <div className="workspace-review-body">
       <h3>{candidate.project.document.title}</h3>
-      <p>画布展示当前候选，原工程尚未改变。确认后保存并打开独立新工程。</p>
+      <p>画布展示当前候选，原工程尚未改变。{canvasSize ? '确认后加入当前楼层。' : '确认后保存并打开独立新工程。'}</p>
       <p>{Object.keys(candidate.project.document.terrainAreas).length} 个真实地形面</p>
       <details className="terrain-generation-cost"><summary>技术详情 · 生成与容量</summary><p>保存完整轮廓、高程、冻结阈值和身份。</p><p>{candidate.baseMap?.version === 3 ? '编辑目标' : '展开'} {candidate.cost.total}/{candidate.baseMap?.operationLimit ?? 256}</p></details>
       <p>{checks.filter(check => check.state === 'passed').length}/{checks.length} 个硬要求通过</p>

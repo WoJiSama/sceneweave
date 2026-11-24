@@ -1,21 +1,21 @@
 import { rebindPathAttachmentProofs } from '../../shared/path-attachments/state.js'
-import { prepareSceneTemplatePlacement, type SceneTemplateEntry, type SceneTemplatePlacement, type SceneTemplatePreparationControl } from '../../shared/scene-templates/content.js'
-import { prepareBridgeTemplateSync } from './bridge-template-revisions.js'
+import type { SceneTemplatePlacement, SceneTemplatePreparationControl } from '../../shared/scene-templates/content.js'
+import { captureSceneTemplateEntries, SCENE_TEMPLATE_LIMITS, type SceneTemplateEntry } from '../../shared/scene-templates/entry.js'
+import { captureBytes } from '../../shared/project/binary.js'
 import { isDecorationCommand } from '../../shared/decorations/commands.js'
 import type { AggregateEditBoundaryImpact } from './aggregate-boundary.js'
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
-import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, parseTaskBudgetProfile, type BudgetUsage, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
+import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, parseTaskBudgetProfile, TASK_BUDGET_PROFILES, type BudgetUsage, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
+import type { CanvasGenerationTarget } from './canvas-generation.js'
 import { assertCommandBudget, measureCommandBudget, retainLocalCommandBudget, selectManualTransactionBudget, MANUAL_TRANSACTION_BUDGETS, type ManualTransactionBudget, type CommandBudgetUsage } from '../../shared/budget/command-budget.js'
 import { selectManualCommandBudget } from '../../shared/budget/manual-request.js'
 import { ProfiledAuthoringScopeSchema } from '../../shared/ai/authoring-profile.js'
-import { prepareTerrainComposition } from './terrain-composition.js'
-import { prepareBaseMapProject, type BaseMapPreparationOptions } from './base-map.js'
+import type { BaseMapPreparationOptions } from './base-map.js'
 import type { InteriorCandidate } from './interior.js'
 import type { ForestCandidate } from './forest.js'
 import type { VolcanoCandidate } from './volcano.js'
 import type { MixedCandidate } from './mixed.js'
-import { prepareDomainProject, type DomainGenerationExecutor } from './generation.js'
-import { prepareMixedForestFurnitureRepair, prepareForestCandidateDiagnostics } from './forest-repair.js'
+import type { DomainGenerationExecutor } from './generation.js'
 import { getCompositionTransactionReceipt, isIssuedCompositionTransactionReceipt, releaseCompositionTransactionReceipt } from '../../shared/appearance/commands.js'
 import type { TransactionReceipt } from '../../shared/transaction/receipt.js'
 import type { DomainGenerationKind } from '../../shared/generation/execution.js'
@@ -25,24 +25,19 @@ import type { BaseMapRequest } from '../../shared/terrain-generation/base-map.js
 import type { BaseMapRequestV2 } from '../../shared/terrain-generation/base-map-v2.js'
 import type { BaseMapRequestV3 } from '../../shared/terrain-generation/base-map-v3.js'
 import type { BaseMapSourceV3 } from '../../shared/ai/continuation-protocol-v3.js'
-import { isClassifiedAuthoring, isClassifiedAuthoringState } from '../../shared/ai/authoring.js'
-import { createCurrentAuthoringStartV4, createGeneratedAuthoringStartV4 } from '../../shared/ai/current-authoring.js'
 import { CurrentAuthoringScopeV4Schema, type AuthoringStartV4, type CurrentAuthoringScope } from '../../shared/ai/authoring-protocol-v4.js'
 import type { BaseMapSource } from '../../shared/ai/continuation-protocol.js'
 import { CONTINUATION_POLICY, createContinuationPolicyV2 } from '../../shared/ai/budget-policy.js'
-import { authoringBudgetIdentity } from '../../shared/ai/authoring.js'
 import { emptyCompositionDocument } from '../../shared/terrain-generation/composition-materialize.js'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
 import { getProjectLocalTransaction, projectContentHash, releaseProjectLocalTransaction, releaseProjectTransactionReceipt } from '../../shared/project/validate.js'
-import { prepareTerrainProject, type TerrainPreview } from './terrain.js'
-import { prepareTerrainEditProject, type TerrainEditPreview } from './terrain-edit.js'
-import { prepareTerrainLocalRefreshProject, type TerrainLocalPreview } from './terrain-local.js'
-import { prepareLocalGenerationProject, protectLocalGenerationContinuity, type LocalGenerationPreview } from './generation-local.js'
+import type { TerrainPreview } from './terrain.js'
+import type { TerrainEditPreview } from './terrain-edit.js'
+import type { TerrainLocalPreview } from './terrain-local.js'
+import type { LocalGenerationPreview } from './generation-local.js'
 export type { LocalGenerationPreview } from './generation-local.js'
-import { prepareRegionalCreate, prepareRegionalEdit, prepareRegionalDrillDown, prepareRegionalDrillDownFromResult, type RegionalCandidate } from './regional.js'
+import type { prepareRegionalCreate, prepareRegionalEdit, prepareRegionalDrillDown, RegionalCandidate } from './regional.js'
 import type { RegionalDrillDownResult } from '../../shared/terrain-generation/regional-authoring.js'
-import { regionalSceneCandidate } from '../../shared/ai/terrain-authoring.js'
-import { RegionSceneCandidateResultSchema } from '../../shared/ai/region-candidate-protocol.js'
 import type { TerrainEditResult, ProfiledTerrainEditResult } from '../../shared/terrain-generation/edit.js'
 import type { TerrainGenerationResult } from '../../shared/terrain-generation/generate.js'
 import { visualBase } from '../../shared/visual/base.js'
@@ -64,24 +59,21 @@ import { reviseSceneSnapshot } from '../../shared/validation/snapshots.js'
 import { assertAllFloorPlayerProjections } from '../../shared/projection/projection.js'
 import { createHistoryIdentityTrace, mergeIdentityRecords, mergeHistoryIdentities } from '../../shared/history/identity.js'
 import { syncNewAttachmentProofs } from '../../shared/attachments/identity.js'
-import { buildRestorePlan, generationRestoreChanges, type RestorePlan, type RestoreRequest } from '../../shared/history/restore.js'
+import type { RestorePlan, RestoreRequest } from '../../shared/history/restore.js'
 import { terrainCommandCost } from '../../shared/terrain-generation/cost.js'
-import { pauseChangedCompositions } from '../../shared/terrain-generation/composition-lifecycle.js'
+import { pauseChangedCompositions, protectLocalGenerationContinuity } from '../../shared/terrain-generation/composition-lifecycle.js'
 import { StructureContinuitySession } from '../../shared/history/structure-continuity.js'
 import { VisualContinuitySession, visualTopology } from '../../shared/history/visual-continuity.js'
-import { buildStructureRestorePlan, inspectStructureRestoreScope, type StructureRestorePlan, type StructureRestoreRequest, type StructureRestoreScope } from '../../shared/history/structure-restore.js'
+import type { StructureRestorePlan, StructureRestoreRequest, StructureRestoreScope } from '../../shared/history/structure-restore.js'
 import { validateHistoryArchive, type HistoryArchive } from '../../shared/project/history.js'
-import { captureJson } from '../../shared/validation/json.js'
+import { captureJson, equalOwnedJson } from '../../shared/validation/json.js'
 import { prepareFillCopy, type FillCopyReport, type FillCopyRequest } from './fill-copy.js'
-import { prepareBuildingFurnishing } from './furnishing.js'
 import type { AuthoringDraft, AuthoringScope, AuthoringStart, DraftLease } from '../../shared/ai/authoring-protocol.js'
-import { AuthoringScopeSchema } from '../../shared/ai/authoring-protocol.js'
-import { authoringProjectHash } from '../../shared/ai/authoring.js'
+import { AuthoringScopeSchema, isClassifiedAuthoring, isClassifiedAuthoringState } from '../../shared/ai/authoring-protocol.js'
+import { authoringProjectHash } from '../../shared/ai/authoring-project-hash.js'
 import type { ResourceOptions } from '../../shared/ports/resources.js'
 import type { ProjectStore, CreateSnapshotOptions, ProjectSaveGuard, SnapshotReadSession, SourcePreservationGuard } from '../ports/project-store.js'
-import { assertAtomicLease, atomicChanges, captureAtomicDraft, captureAtomicStart, freezeAtomic, pureProject,
-  type AtomicAuthorization, type AtomicCandidate, type AtomicCandidateRecord, type AtomicAdoptionResult, type AtomicCandidateStatus } from './atomic.js'
-import { materializeAuthoringArtwork } from './artwork.js'
+import type { AtomicAuthorization, AtomicCandidate, AtomicCandidateRecord, AtomicAdoptionResult, AtomicCandidateStatus } from './atomic.js'
 import { assertAssetQualityAccepted, type AssetQualityAssessment } from '../../shared/assets/quality-review.js'
 import { combineManualPreparationUsage, materializeProject, measurePreparedCommandBudget, prepareCompositionCommands, prepareFloorArtwork, type FloorArtworkImportRequest } from './prepare.js'
 import { captureEditableDraft, consumeEditableSnapshot, fromBundle, fromVerifiedBundle, getVerifiedEditableProject, toBundle, tryDeriveEditableProject, validateEditableProject, type EditableProject } from './project.js'
@@ -220,15 +212,6 @@ const saveMessage = (error: unknown) => error instanceof Error && error.name ===
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => item && typeof item === 'object' && !Array.isArray(item)
   ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
 /** Only compare privately validated JSON branches; this is not an input validator or a hash. */
-function equalOwnedJson(left: unknown, right: unknown): boolean {
-  if (left === right) return true
-  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') return false
-  if (Array.isArray(left)) return Array.isArray(right) && left.length === right.length
-    && left.every((value, index) => equalOwnedJson(value, right[index]))
-  if (Array.isArray(right)) return false
-  const a = left as Record<string, unknown>, b = right as Record<string, unknown>, keys = Object.keys(a)
-  return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && equalOwnedJson(a[key], b[key]))
-}
 function equalOwnedContent(left: CompositionContent, right: CompositionContent): boolean {
   const receipt = getCompositionTransactionReceipt(contentOf(right), contentOf(left))
   if (receipt) return receipt.changes.length === 0
@@ -356,7 +339,8 @@ function restorationProject(current: EditableProject, historic: EditableProject,
 }
 
 /** Diff rows describe the actual materialized result, including today's layer in source mode. */
-function materializedRestorePlan(current: EditableProject, plan: RestorePlan, project: EditableProject, budget: ManualTransactionBudget): RestorePlan {
+function materializedRestorePlan(current: EditableProject, plan: RestorePlan, project: EditableProject, budget: ManualTransactionBudget,
+  generationChanges: RestorePlan['changes']): RestorePlan {
   const changes = plan.changes.filter(change => change.kind !== 'generation').map(change => {
     if (change.after === null || typeof change.after !== 'object' || Array.isArray(change.after)) return change
     const after = copy(change.after) as Record<string, unknown>
@@ -377,7 +361,7 @@ function materializedRestorePlan(current: EditableProject, plan: RestorePlan, pr
   }).filter(change => canonical(change.before) !== canonical(change.after) || change.beforeLayerId !== change.layerId)
   let commandCost = plan.commandCost
   {
-    changes.push(...generationRestoreChanges(current.document, project.document))
+    changes.push(...generationChanges)
     commandCost = assertCommandBudget(budget,
       measureCommandBudget(current.document, project.document, { before: current, after: project }, undefined, budget)).semanticTargets
   }
@@ -678,11 +662,50 @@ export class Workspace {
     if (selection.kind === 'current-project') return this.adoptLocalGeneration(selection.preview, options)
     return this.adoptDomainGeneration(selection.domain, selection.preview, options)
   }
+  /** Turn a validated generator result into one candidate on the current Floor. */
+  async previewCanvasGeneration(source: DomainPreviewMap[DomainGenerationKind] | TerrainPreview, request: CanvasGenerationTarget,
+    options: ResourceOptions = {}): Promise<CompositionPreview> {
+    const target = captureJson(request), signal = this.atomicSignal(options.signal)
+    const assertCurrent = () => {
+      checkCancelled(signal)
+      this.assertWritable()
+      this.assertCheckpoint(source.checkpoint)
+      const current = this.requireProject()
+      const status = 'profile' in source ? this.domainPreviews.get(source)?.status : this.terrainPreviews.get(source)
+      if (status !== 'active' || current.document.sceneId !== source.currentSceneId || current.document.revision !== source.currentRevision) {
+        throw new Error('生成预览或目标楼层已过期，请重新生成。')
+      }
+      return current
+    }
+    const current = assertCurrent()
+    const { prepareCanvasGeneration } = await import('./canvas-generation.js')
+    // Domain previews charge their isolated input. Placement validates both
+    // the existing catalogue and the generated catalogue in one transaction.
+    const profile = 'profile' in source
+      ? source.profile.profileId === 'small' ? TASK_BUDGET_PROFILES.standard : source.profile
+      : source.baseMap?.budgetProfile ?? TASK_BUDGET_PROFILES.standard
+    const execution = 'profile' in source ? source.candidate.usage
+      : 'executionUsage' in source.result ? source.result.executionUsage : undefined
+    const project = await prepareCanvasGeneration(current, source.project, target, { runtime: this.options.runtime, validation: { ...this.validation(), signal }, profile, execution })
+    assertCurrent()
+    const placed = await this.registerPrepared(project, '在当前画布生成内容', source.checkpoint)
+    try { assertCurrent(); return placed }
+    catch (error) { this.cancelPreview(placed); throw error }
+  }
+  releaseCanvasGenerationSource(source: DomainPreviewMap[DomainGenerationKind] | TerrainPreview): void {
+    if ('profile' in source) {
+      const witness = this.domainPreviews.get(source)
+      if (witness) this.cancelDomainGeneration(witness.domain, source)
+    } else this.cancelTerrainGeneration(source)
+  }
   private async previewDomainGeneration<K extends DomainGenerationKind>(domain: K, base: EditableProject, input: unknown, profile: TaskBudgetProfile, options: GenerationPreviewOptions = {}): Promise<DomainPreviewMap[K]> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
     const ownedInput = captureJson(input), capturedProfile = parseTaskBudgetProfile(profile)
-    const owned = await consumeEditableSnapshot(base, { ...this.validation(), signal })
+    const [owned, { prepareDomainProject }] = await Promise.all([
+      consumeEditableSnapshot(base, { ...this.validation(), signal }),
+      import('./generation.js'),
+    ])
     checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
     const preparedAt = this.options.runtime.clock.now(), identityAllocation: string[] = []
     const runtime = { clock: { now: () => preparedAt }, ids: { nextId: () => { const id = this.options.runtime.ids.nextId(); identityAllocation.push(id); return id } } }
@@ -703,6 +726,8 @@ export class Workspace {
   }
   private async replayDomainGeneration(witness: DomainGenerationWitness, input: unknown, profile: TaskBudgetProfile,
     signal: CancellationSignal, assertCurrent: () => void) {
+    const { prepareDomainProject } = await import('./generation.js')
+    assertCurrent()
     let allocationIndex = 0
     const runtime = { clock: { now: () => witness.preparedAt }, ids: { nextId: () => {
       const id = witness.identityAllocation[allocationIndex++]
@@ -710,11 +735,15 @@ export class Workspace {
       return id
     } } }
     let replay = await prepareDomainProject(witness.domain, witness.base, input, { runtime, validation: this.validation(), signal, profile })
-    if (witness.forestDiagnostics) replay = prepareForestCandidateDiagnostics(replay as MixedCandidate, signal)
-    for (const roomId of witness.repairs) {
-      if (witness.domain !== 'mixed') throw new Error('家具修正只属于本会话的混合生成候选。')
-      replay = await prepareMixedForestFurnitureRepair(replay as MixedCandidate, roomId, { runtime, validation: this.validation(), signal })
+    if (witness.forestDiagnostics || witness.repairs.length) {
+      const { prepareForestCandidateDiagnostics, prepareMixedForestFurnitureRepair } = await import('./forest-repair.js')
       assertCurrent()
+      if (witness.forestDiagnostics) replay = prepareForestCandidateDiagnostics(replay as MixedCandidate, signal)
+      for (const roomId of witness.repairs) {
+        if (witness.domain !== 'mixed') throw new Error('家具修正只属于本会话的混合生成候选。')
+        replay = await prepareMixedForestFurnitureRepair(replay as MixedCandidate, roomId, { runtime, validation: this.validation(), signal })
+        assertCurrent()
+      }
     }
     assertCurrent()
     if (allocationIndex !== witness.identityAllocation.length) throw new Error('生成候选身份分配次数与确定性重放不同。')
@@ -781,6 +810,8 @@ export class Workspace {
   async previewForestLoopGeneration(request: NewGenerationRequest<'mixed'>, options: GenerationPreviewOptions = {}): Promise<MixedPreview> {
     const parent = await this.previewDomainGeneration('mixed', request.base, request.input, request.profile, options)
     try {
+      const { prepareForestCandidateDiagnostics } = await import('./forest-repair.js')
+      checkCancelled(options.signal); this.assertCheckpoint(parent.checkpoint)
       const observed = prepareForestCandidateDiagnostics(parent, options.signal)
       checkCancelled(options.signal); this.assertCheckpoint(parent.checkpoint)
       const preview = freeze({ ...parent, ...observed }) as MixedPreview
@@ -814,6 +845,8 @@ export class Workspace {
       const parent = this.domainPreviews.get(evidence.parent)
       if (parent?.status !== 'active' || parent.domain !== 'mixed' || !parent.forestDiagnostics) throw new Error('缺少家具修正的已恢复父候选。')
       this.assertCheckpoint(evidence.parent.checkpoint)
+      const { prepareMixedForestFurnitureRepair } = await import('./forest-repair.js')
+      assertCurrent()
       candidate = await prepareMixedForestFurnitureRepair(evidence.parent, evidence.roomId, { runtime: this.options.runtime, validation: this.validation(), signal })
       witness = { ...parent, repairs: [...parent.repairs, evidence.roomId] }
     }
@@ -839,6 +872,8 @@ export class Workspace {
     const current = this.state.project
     this.assertCheckpoint(parent.checkpoint)
     if ((current?.document.sceneId ?? null) !== parent.currentSceneId || (current ? projectContentHash(toBundle(current).project) : null) !== parent.baseContentHash) throw new Error('候选基线已变化，请重新开始。')
+    const { prepareMixedForestFurnitureRepair } = await import('./forest-repair.js')
+    checkCancelled(signal); this.assertCheckpoint(parent.checkpoint)
     const prepared = await prepareMixedForestFurnitureRepair(parent, roomId, { runtime: this.options.runtime, validation: this.validation(), signal })
     checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(parent.checkpoint)
     if (witness.status !== 'active') throw new Error('父候选已取消，家具修正不再可用。')
@@ -858,9 +893,13 @@ export class Workspace {
     try {
       if (capturedRequest.checkpoint !== checkpoint || capturedRequest.workspaceSceneId !== (current?.document.sceneId ?? 'empty-workspace')) throw new Error('程序底图请求已过期，请基于当前工程重新生成。')
       checkCancelled(signal)
-      const prepared = await prepareBaseMapProject(base, capturedRequest, capturedResponse, { runtime: this.options.runtime, validation: { ...this.validation(), signal }, source: options.source,
+      const ownedBase = getVerifiedEditableProject(base) ?? captureEditableDraft(base)
+      const preparation: BaseMapPreparationOptions = { runtime: this.options.runtime, validation: { ...this.validation(), signal }, source: options.source,
         ocean: options.ocean, generationExecution: options.generationExecution, preservation: { sceneId: current?.document.sceneId ?? null,
-          revision: current?.document.revision ?? null, contentHash: current ? authoringProjectHash(pureProject(current)) : null, checkpoint } })
+          revision: current?.document.revision ?? null, contentHash: current ? authoringProjectHash(toBundle(current).project) : null, checkpoint } }
+      const { prepareBaseMapProject } = await import('./base-map.js')
+      checkCancelled(signal); this.assertCheckpoint(checkpoint)
+      const prepared = await prepareBaseMapProject(ownedBase, capturedRequest, capturedResponse, preparation)
       checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
       if (prepared.project.document.sceneId === current?.document.sceneId) throw new Error('程序底图必须具有独立的新工程身份。')
       this.validateCandidate(prepared.project.document); assertAllFloorPlayerProjections(prepared.project.document)
@@ -873,7 +912,11 @@ export class Workspace {
   async previewTerrainGeneration(base: EditableProject, input: unknown, result?: TerrainGenerationResult): Promise<TerrainPreview> {
     this.assertWritable()
     const checkpoint=this.checkpoint(), current=this.state.project
-    const prepared=await prepareTerrainProject(base,input,{runtime:this.options.runtime,validation:this.validation(),result})
+    const ownedBase = getVerifiedEditableProject(base) ?? captureEditableDraft(base)
+    const request = captureJson(input), expected = result && captureJson(result)
+    const { prepareTerrainProject } = await import('./terrain.js')
+    this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const prepared=await prepareTerrainProject(ownedBase,request,{runtime:this.options.runtime,validation:this.validation(),result:expected})
     this.assertWritable();this.assertCheckpoint(checkpoint)
     if(prepared.project.document.sceneId===current?.document.sceneId)throw new Error('生成地图必须具有独立的新工程身份。')
     this.validateCandidate(prepared.project.document)
@@ -883,7 +926,11 @@ export class Workspace {
   }
   async previewTerrainComposition(base:EditableProject,input:unknown,plan?:import('../../shared/terrain-generation/composition-field.js').TerrainCompositionPlan):Promise<TerrainPreview>{
     this.assertWritable();const checkpoint=this.checkpoint(),current=this.state.project
-    const prepared=await prepareTerrainComposition(base,input,{runtime:this.options.runtime,validation:this.validation(),plan})
+    const ownedBase = getVerifiedEditableProject(base) ?? captureEditableDraft(base)
+    const request = captureJson(input), expected = plan && captureJson(plan)
+    const { prepareTerrainComposition } = await import('./terrain-composition.js')
+    this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const prepared=await prepareTerrainComposition(ownedBase,request,{runtime:this.options.runtime,validation:this.validation(),plan:expected})
     this.assertWritable();this.assertCheckpoint(checkpoint)
     if(prepared.project.document.sceneId===current?.document.sceneId)throw new Error('地貌组合必须具有独立身份。')
     this.validateCandidate(prepared.project.document);assertAllFloorPlayerProjections(prepared.project.document)
@@ -923,7 +970,10 @@ export class Workspace {
     this.assertWritable()
     const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
     const baseContentHash = projectContentHash(toBundle(current).project)
-    const prepared = await prepareTerrainEditProject(current, input, { runtime: this.options.runtime, validation: this.validation(), result: options.result, budget: options.budget, signal })
+    const request = captureJson(input), result = options.result && captureJson(options.result), budget = options.budget && captureJson(options.budget)
+    const { prepareTerrainEditProject } = await import('./terrain-edit.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const prepared = await prepareTerrainEditProject(current, request, { runtime: this.options.runtime, validation: this.validation(), result, budget, signal })
     checkCancelled(signal); this.assertWritable(); this.assertCheckpoint(checkpoint)
     this.validateCandidate(prepared.document); assertAllFloorPlayerProjections(prepared.document)
     const preview = freeze({ ...prepared, checkpoint, currentSceneId: current.document.sceneId, currentRevision: current.document.revision, baseContentHash })
@@ -950,6 +1000,8 @@ export class Workspace {
     let committed = false
     const assertActive = () => { checkCancelled(signal); this.assertTerrainEdit(preview) }
     try {
+      const { prepareTerrainEditProject } = await import('./terrain-edit.js')
+      assertActive()
       // Replay against today's exact base; do not trust even a frozen worker or UI wrapper.
       const replayed = await prepareTerrainEditProject(this.requireProject(), preview.input, { runtime: this.options.runtime, validation: this.validation(), result: preview.result, budget: preview.budgetProfile, signal })
       assertActive()
@@ -986,7 +1038,10 @@ export class Workspace {
     this.assertWritable()
     const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
     if (current.document.mapMode !== 'scene') throw new Error('局部联动预览需要场景工程。')
-    const prepared = await prepareTerrainLocalRefreshProject(current, input, { runtime: this.options.runtime, validation: this.validation(), result: options.result, budget: options.budget, signal })
+    const request = captureJson(input), result = options.result && captureJson(options.result), budget = options.budget && captureJson(options.budget)
+    const { prepareTerrainLocalRefreshProject } = await import('./terrain-local.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const prepared = await prepareTerrainLocalRefreshProject(current, request, { runtime: this.options.runtime, validation: this.validation(), result, budget, signal })
     this.assertCheckpoint(checkpoint); checkCancelled(signal)
     this.validateCandidate(prepared.project.document); assertAllFloorPlayerProjections(prepared.project.document)
     const preview = freeze({ ...prepared, checkpoint, currentSceneId: current.document.sceneId, currentRevision: current.document.revision, baseContentHash: projectContentHash(toBundle(current).project) })
@@ -1013,6 +1068,8 @@ export class Workspace {
     let committed = false
     const assertActive = () => { checkCancelled(signal); this.assertTerrainLocal(preview) }
     try {
+      const { prepareTerrainLocalRefreshProject } = await import('./terrain-local.js')
+      assertActive()
       const replayed = await prepareTerrainLocalRefreshProject(this.requireProject(), preview.input, { runtime: this.options.runtime, validation: this.validation(), result: preview.result, budget: preview.budgetProfile, signal })
       assertActive()
       if (preview.profileHash !== replayed.profileHash || canonical(preview.usage ?? null) !== canonical(replayed.usage ?? null)) throw new Error('地形候选的预算档位或计量已变化，请重新预览。')
@@ -1044,7 +1101,10 @@ export class Workspace {
   async previewLocalGeneration(input: import('../../shared/generation/local.js').LocalGenerationRequest, options: { budget?: TaskBudgetProfile; signal?: ResourceOptions['signal'] } = {}): Promise<LocalGenerationPreview> {
     this.assertWritable()
     const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
-    const prepared = await prepareLocalGenerationProject(current, input, { runtime: this.options.runtime, validation: this.validation(), budget: options.budget, signal })
+    const request = captureJson(input), budget = options.budget && captureJson(options.budget)
+    const { prepareLocalGenerationProject } = await import('./generation-local.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const prepared = await prepareLocalGenerationProject(current, request, { runtime: this.options.runtime, validation: this.validation(), budget, signal })
     this.assertCheckpoint(checkpoint); checkCancelled(signal)
     this.validateCandidate(prepared.document); assertAllFloorPlayerProjections(prepared.document)
     const preview = freeze({ ...prepared, checkpoint, currentSceneId: current.document.sceneId, currentRevision: current.document.revision,
@@ -1072,6 +1132,8 @@ export class Workspace {
     let committed = false
     const assertActive = () => { checkCancelled(signal); this.assertLocalGeneration(preview) }
     try {
+      const { prepareLocalGenerationProject } = await import('./generation-local.js')
+      assertActive()
       const replayed = await prepareLocalGenerationProject(this.requireProject(), preview.input, { runtime: this.options.runtime, validation: this.validation(), budget: preview.budgetProfile, signal })
       assertActive()
       if (projectContentHash(toBundle(replayed.project).project) !== projectContentHash(toBundle(preview.project).project)
@@ -1103,29 +1165,37 @@ export class Workspace {
   async previewRegionalCreate(base: EditableProject, input: Parameters<typeof prepareRegionalCreate>[1], options: ResourceOptions = {}): Promise<RegionalPreview> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
-    const owned = await validateEditableProject(base, { ...this.validation(), signal })
-    const prepared = await prepareRegionalCreate(owned, input, { runtime: this.options.runtime, validation: this.validation(), signal })
+    const request = captureJson(input), owned = await validateEditableProject(base, { ...this.validation(), signal })
+    const { prepareRegionalCreate } = await import('./regional.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const prepared = await prepareRegionalCreate(owned, request, { runtime: this.options.runtime, validation: this.validation(), signal })
     return this.registerRegional(prepared, checkpoint, owned)
   }
   async previewRegionalEdit(input: Parameters<typeof prepareRegionalEdit>[1], options: ResourceOptions = {}): Promise<RegionalPreview> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), base = this.requireProject(), signal = this.atomicSignal(options.signal)
-    const prepared = await prepareRegionalEdit(base, input, { runtime: this.options.runtime, validation: this.validation(), signal })
+    const request = captureJson(input), { prepareRegionalEdit } = await import('./regional.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const prepared = await prepareRegionalEdit(base, request, { runtime: this.options.runtime, validation: this.validation(), signal })
     return this.registerRegional(prepared, checkpoint, base)
   }
   async previewRegionalDrillDown(sceneBase: EditableProject, input: Parameters<typeof prepareRegionalDrillDown>[1], options: ResourceOptions = {}): Promise<RegionalPreview> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), base = this.requireProject(), signal = this.atomicSignal(options.signal)
-    const owned = await validateEditableProject(sceneBase, { ...this.validation(), signal })
-    const prepared = await prepareRegionalDrillDown(base, input, { runtime: this.options.runtime, validation: this.validation(), signal, sceneBase: owned })
+    const request = captureJson(input), owned = await validateEditableProject(sceneBase, { ...this.validation(), signal })
+    const { prepareRegionalDrillDown } = await import('./regional.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const prepared = await prepareRegionalDrillDown(base, request, { runtime: this.options.runtime, validation: this.validation(), signal, sceneBase: owned })
     return this.registerRegional(prepared, checkpoint, base, owned)
   }
   async previewRegionalDrillDownFromResult(sceneBase: EditableProject, result: RegionalDrillDownResult, options: ResourceOptions = {}): Promise<RegionalPreview> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), base = this.requireProject(), signal = this.atomicSignal(options.signal)
-    const owned = await validateEditableProject(sceneBase, { ...this.validation(), signal })
-    const prepared = await prepareRegionalDrillDownFromResult(base, result, owned, { runtime: this.options.runtime, validation: this.validation(), signal })
-    return this.registerRegional(prepared, checkpoint, base, owned, undefined, result)
+    const captured = captureJson(result), owned = await validateEditableProject(sceneBase, { ...this.validation(), signal })
+    const { prepareRegionalDrillDownFromResult } = await import('./regional.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const prepared = await prepareRegionalDrillDownFromResult(base, captured, owned, { runtime: this.options.runtime, validation: this.validation(), signal })
+    return this.registerRegional(prepared, checkpoint, base, owned, undefined, captured)
   }
   async previewRegionalAiDrillDown(sourceCandidate: AtomicCandidate, sceneBase: EditableProject, expectedResult: RegionalDrillDownResult, options: ResourceOptions = {}): Promise<RegionalPreview> {
     this.assertWritable()
@@ -1138,12 +1208,18 @@ export class Workspace {
     if (!scope || base.document.sceneId !== authorization.currentSceneId || base.document.revision !== authorization.currentRevision
       || projectContentHash(toBundle(base).project) !== authorization.baseContentHash) throw new Error('区域来源工程已改变，请重新授权并生成候选。')
     this.assertCheckpoint(authorization.checkpoint)
+    const captured = captureJson(expectedResult), sceneBaseInput = captureEditableDraft(sceneBase)
     const source = await validateEditableProject(sourceCandidate.project, { ...this.validation(), signal })
+    const [{ RegionSceneCandidateResultSchema }, { regionalSceneCandidate }, { prepareRegionalDrillDownFromResult }] = await Promise.all([
+      import('../../shared/ai/region-candidate-protocol.js'), import('../../shared/ai/terrain-authoring.js'), import('./regional.js'),
+    ])
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    if (witness.status !== 'active') throw new Error('AI区域候选已失效。')
     const allowed = new Set([...scope.entityIds, ...witness.draft.state.changedIds])
-    const checkedExpected = RegionSceneCandidateResultSchema.parse(captureJson(expectedResult))
-    const result = regionalSceneCandidate(pureProject(source), scope, allowed, checkedExpected.request)
+    const checkedExpected = RegionSceneCandidateResultSchema.parse(captured)
+    const result = regionalSceneCandidate(toBundle(source).project, scope, allowed, checkedExpected.request)
     if (canonical(result) !== canonical(checkedExpected)) throw new Error('区域候选与本机授权范围或确定性重放不一致。')
-    const owned = await validateEditableProject(sceneBase, { ...this.validation(), signal })
+    const owned = await validateEditableProject(sceneBaseInput, { ...this.validation(), signal })
     const prepared = await prepareRegionalDrillDownFromResult(source, result, owned, { runtime: this.options.runtime, validation: this.validation(), signal })
     this.assertCheckpoint(checkpoint)
     return this.registerRegional(prepared, checkpoint, base, owned, source, result)
@@ -1174,6 +1250,7 @@ export class Workspace {
     }
     witness.status = 'applying'; this.atomicLock = token
     try {
+      const { prepareRegionalCreate, prepareRegionalEdit, prepareRegionalDrillDown, prepareRegionalDrillDownFromResult } = await import('./regional.js')
       assertActive()
       const context = { runtime: this.options.runtime, validation: this.validation(), signal }
       const replay = preview.kind === 'create' ? await prepareRegionalCreate(witness.base, preview.input as Parameters<typeof prepareRegionalCreate>[1], context)
@@ -1227,7 +1304,11 @@ export class Workspace {
     historyParent?: { id: string; hash: string }) {
     this.assertWritable(token)
     const current = this.requireProject(), checkpoint = this.checkpoint()
-    const historyIdentity = candidate.historyIdentity === current.historyIdentity ? undefined : mergeIdentityRecords(candidate.historyIdentity, [current.historyIdentity])
+    const mergedIdentity = candidate.historyIdentity === current.historyIdentity ? undefined : mergeIdentityRecords(candidate.historyIdentity, [current.historyIdentity])
+    // A complete candidate already holds the identity proof when the merge
+    // adds no retained record. Keep that exact immutable branch for revision.
+    const historyIdentity = mergedIdentity && getVerifiedEditableProject(candidate) && equalOwnedJson(mergedIdentity, candidate.historyIdentity)
+      ? undefined : mergedIdentity
     const content = reviseCompositionContent({ document: candidate.document, historyIdentity: candidate.historyIdentity, appearance: candidate.appearance },
       current.document.revision + 1, this.options.runtime.clock.now(), historyIdentity)
     this.validateCandidate(content.document)
@@ -1406,6 +1487,7 @@ export class Workspace {
     this.assertCheckpoint(checkpoint); checkCancelled(signal)
     const captured = captureEditableDraft(catalogInput), rows = captureJson(input)
     const catalog = await validateEditableProject(captured, { ...this.validation(), signal })
+    const { prepareBuildingFurnishing } = await import('./furnishing.js')
     checkCancelled(signal); this.assertCatalogImport(catalog, checkpoint)
     if (catalogAdditionCost(current, catalog) > CATALOG_ADOPTION_LIMIT) throw new Error('轻量布景固定源新增记录超过256条操作预算。')
     const result = await prepareBuildingFurnishing(catalog, rows, { ...this.manualPreparation(), signal,
@@ -1421,7 +1503,10 @@ export class Workspace {
   async previewSceneTemplate(bytes: Uint8Array, input: SceneTemplatePlacement, options: { signal?: ResourceOptions['signal'] } & SceneTemplatePreparationControl = {}): Promise<{ preview: CompositionPreview; addedIds: string[]; operationCost: number }> {
     this.assertWritable()
     const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
-    const result = await prepareSceneTemplatePlacement(toBundle(current), bytes, input, { validation: { ...this.validation(), signal }, runtime: this.options.runtime,
+    const captured = captureBytes(bytes, SCENE_TEMPLATE_LIMITS.bytes), request = captureJson(input)
+    const { prepareSceneTemplatePlacement } = await import('../../shared/scene-templates/content.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
+    const result = await prepareSceneTemplatePlacement(toBundle(current), captured, request, { validation: { ...this.validation(), signal }, runtime: this.options.runtime,
       onProgress: options.onProgress, cooperate: async () => { this.assertCheckpoint(checkpoint); await options.cooperate?.(); this.assertCheckpoint(checkpoint) } })
     checkCancelled(signal); this.assertCheckpoint(checkpoint)
     const candidate = fromVerifiedBundle(result.bundle, { signal })
@@ -1433,8 +1518,11 @@ export class Workspace {
   async previewBridgeTemplateSync(bridgeId: string, original: SceneTemplateEntry, next: SceneTemplateEntry, options: ResourceOptions = {}) {
     this.assertWritable()
     const current = this.requireProject(), checkpoint = this.checkpoint(), signal = this.atomicSignal(options.signal)
+    const [originalEntry, nextEntry] = captureSceneTemplateEntries([original, next])
+    const { prepareBridgeTemplateSync } = await import('./bridge-template-revisions.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
     let usage: CommandBudgetUsage | undefined
-    const result = await prepareBridgeTemplateSync(current, bridgeId, original, next, {
+    const result = await prepareBridgeTemplateSync(current, bridgeId, originalEntry, nextEntry, {
       ...this.manualPreparation(), signal, onBudgetUsage: value => { usage = value },
     })
     checkCancelled(signal); this.assertCheckpoint(checkpoint)
@@ -1723,12 +1811,13 @@ export class Workspace {
   async authorizeAtomic(scope: AuthoringScope, brief?: import('../../shared/ai/plan.js').AuthoringBrief): Promise<AtomicAuthorization & { start: import('../../shared/ai/authoring-protocol-v1.js').AuthoringStart }> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), current = this.requireProject()
-    const capturedScope = AuthoringScopeSchema.parse(captureJson(scope))
+    const capturedScope = AuthoringScopeSchema.parse(captureJson(scope)), capturedBrief = brief && captureJson(brief)
     const verified = await validateEditableProject(current, this.validation())
+    const { captureAtomicStart, freezeAtomic } = await import('./atomic.js')
     this.assertCheckpoint(checkpoint)
-    const project = pureProject(verified), baseContentHash = authoringProjectHash(project)
+    const project = toBundle(verified).project, baseContentHash = authoringProjectHash(project)
     const start = captureAtomicStart({ schemaVersion: 1, project, baseContentHash, scope: capturedScope, seed: crypto.randomUUID(),
-      preparedAt: this.options.runtime.clock.now(), skill: { id: capturedScope.scene || capturedScope.visual ? 'sceneweave-scene-authoring' : capturedScope.artwork ? 'sceneweave-artwork-authoring' : 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model', ...(brief ? { brief } : {}) })
+      preparedAt: this.options.runtime.clock.now(), skill: { id: capturedScope.scene || capturedScope.visual ? 'sceneweave-scene-authoring' : capturedScope.artwork ? 'sceneweave-artwork-authoring' : 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model', ...(capturedBrief ? { brief: capturedBrief } : {}) })
     const authorization = freezeAtomic({ start, scope: start.scope, checkpoint, currentSceneId: current.document.sceneId,
       currentRevision: current.document.revision, baseContentHash })
     this.assertWritable(); this.assertCheckpoint(checkpoint)
@@ -1741,12 +1830,15 @@ export class Workspace {
   async authorizeCurrentAtomic(scope: CurrentAuthoringScope, brief?: import('../../shared/ai/plan.js').AuthoringBrief): Promise<AtomicAuthorization & { start: AuthoringStartV4 }> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), current = this.requireProject()
-    const capturedScope = CurrentAuthoringScopeV4Schema.parse(captureJson(scope))
+    const capturedScope = CurrentAuthoringScopeV4Schema.parse(captureJson(scope)), capturedBrief = brief && captureJson(brief)
     const verified = await validateEditableProject(current, this.validation())
+    const [{ captureAtomicStart, freezeAtomic }, { createCurrentAuthoringStartV4 }] = await Promise.all([
+      import('./atomic.js'), import('../../shared/ai/authoring.js'),
+    ])
     this.assertWritable(); this.assertCheckpoint(checkpoint)
-    const project = pureProject(verified), baseContentHash = authoringProjectHash(project)
+    const project = toBundle(verified).project, baseContentHash = authoringProjectHash(project)
     const start = captureAtomicStart(createCurrentAuthoringStartV4({ project, scope: capturedScope, seed: crypto.randomUUID(),
-      preparedAt: this.options.runtime.clock.now(), flowId: crypto.randomUUID(), ...(brief ? { brief } : {}),
+      preparedAt: this.options.runtime.clock.now(), flowId: crypto.randomUUID(), ...(capturedBrief ? { brief: capturedBrief } : {}),
       preservation: { sceneId: current.document.sceneId, revision: current.document.revision, contentHash: baseContentHash, checkpoint } }))
     const authorization = freezeAtomic({ start, scope: start.scope, checkpoint, currentSceneId: current.document.sceneId,
       currentRevision: current.document.revision, baseContentHash })
@@ -1758,7 +1850,7 @@ export class Workspace {
   private assertBaseMapPreservation(source: BaseMapSource | BaseMapSourceV3) {
     const current = this.state.project, expected = source.preservation
     if ((current?.document.sceneId ?? null) !== expected.sceneId || (current?.document.revision ?? null) !== expected.revision
-      || (current ? authoringProjectHash(pureProject(current)) : null) !== expected.contentHash) throw new Error('底图流程的原工程保护基线已变化，请重新生成或保留独立底图。')
+      || (current ? authoringProjectHash(toBundle(current).project) : null) !== expected.contentHash) throw new Error('底图流程的原工程保护基线已变化，请重新生成或保留独立底图。')
     const local = this.baseMapSources.get(source.flowId)
     if (!local || this.terrainPreviews.get(local.preview) !== 'active' || canonical(local.preview.continuationSource) !== canonical(source)) throw new Error('底图候选已取消、替换、采用或缺少本机真实资源。')
   }
@@ -1769,17 +1861,23 @@ export class Workspace {
     if (this.terrainPreviews.get(preview) !== 'active' || !preview.continuationSource) throw new Error('只有当前完整来源的程序底图可以接续AI；旧底图仍可独立采用。')
     this.assertCheckpoint(preview.checkpoint)
     const source = preview.continuationSource, checkpoint = this.checkpoint()
+    const authoringVersion = options.authoringVersion, capturedBrief = brief && captureJson(brief)
+    const capturedScope = (authoringVersion === 4 ? CurrentAuthoringScopeV4Schema : source.version === 3 ? ProfiledAuthoringScopeSchema : AuthoringScopeSchema).parse(captureJson(scope))
     const work = this.baseMapExecution.begin(source.flowId, this.atomicSignal())
     try {
       this.assertBaseMapPreservation(source)
       const verified = await validateEditableProject(preview.project, { ...this.validation(), signal: work.signal })
+      const [{ captureAtomicStart, freezeAtomic }, { createGeneratedAuthoringStartV4 }] = await Promise.all([
+        import('./atomic.js'), import('../../shared/ai/authoring.js'),
+      ])
       this.assertWritable(); this.assertCheckpoint(checkpoint); this.assertBaseMapPreservation(source)
-      const project = pureProject(verified), capturedScope = (options.authoringVersion === 4 ? CurrentAuthoringScopeV4Schema : source.version === 3 ? ProfiledAuthoringScopeSchema : AuthoringScopeSchema).parse(captureJson(scope))
+      checkCancelled(work.signal)
+      const project = toBundle(verified).project
       const common = { project, baseContentHash: authoringProjectHash(project), scope: capturedScope,
         seed: crypto.randomUUID(), preparedAt: this.options.runtime.clock.now(), skill: { id: 'sceneweave-scene-authoring' as const, version: 1 as const },
-        disclosure: 'complete-metadata/public-model' as const, ...(brief ? { brief } : {}) }
-      if (options.authoringVersion === 4 && source.version !== 3) throw new Error('新AI协议只接续具完整档位来源的程序底图；旧底图仍可独立采用。')
-      const start = options.authoringVersion === 4 && source.version === 3
+        disclosure: 'complete-metadata/public-model' as const, ...(capturedBrief ? { brief: capturedBrief } : {}) }
+      if (authoringVersion === 4 && source.version !== 3) throw new Error('新AI协议只接续具完整档位来源的程序底图；旧底图仍可独立采用。')
+      const start = authoringVersion === 4 && source.version === 3
         ? captureAtomicStart(createGeneratedAuthoringStartV4({ ...common, schemaVersion: 3, policy: createContinuationPolicyV2(source.request.profile), source }))
         : source.version === 3
           ? captureAtomicStart({ ...common, scope: ProfiledAuthoringScopeSchema.parse(capturedScope), schemaVersion: 3, policy: createContinuationPolicyV2(source.request.profile), source })
@@ -1798,6 +1896,8 @@ export class Workspace {
     const checkpoint = this.checkpoint(), captured = captureJson(input) as AuthoringStart
     const work = isGeneratedAtomicStart(captured) ? this.baseMapExecution.begin(captured.source.flowId, this.atomicSignal()) : null
     try {
+      const { captureAtomicStart, freezeAtomic } = await import('./atomic.js')
+      this.assertWritable(); this.assertCheckpoint(checkpoint); checkCancelled(work?.signal)
       const start = captureAtomicStart(captured)
       if (isGeneratedAtomicStart(start)) {
         this.assertBaseMapPreservation(start.source)
@@ -1814,7 +1914,7 @@ export class Workspace {
       const current = this.requireProject()
       const verified = await validateEditableProject(current, this.validation())
       this.assertWritable(); this.assertCheckpoint(checkpoint)
-      if (authoringProjectHash(pureProject(verified)) !== start.baseContentHash) throw new Error('任务基线与当前完整工程不同，已保留草稿，请重新计算。')
+      if (authoringProjectHash(toBundle(verified).project) !== start.baseContentHash) throw new Error('任务基线与当前完整工程不同，已保留草稿，请重新计算。')
       const authorization = freezeAtomic({ start, scope: start.scope, checkpoint, currentSceneId: current.document.sceneId,
         currentRevision: current.document.revision, baseContentHash: start.baseContentHash })
       this.atomicAuthorizations.set(authorization, verified)
@@ -1825,23 +1925,27 @@ export class Workspace {
   async prepareAtomicCandidate(authorization: AtomicAuthorization, input: AuthoringDraft, options: ResourceOptions & { allowEmpty?: boolean } = {}): Promise<AtomicCandidate> {
     const source = this.atomicAuthorizations.get(authorization)
     if (!source) throw new Error('AI 授权并非当前工作区创建，不能信任克隆或网络凭证。')
+    const captured = captureJson(input), allowEmpty = options.allowEmpty
     const work = isGeneratedAtomicStart(authorization.start) ? this.baseMapExecution.begin(authorization.start.source.flowId, this.atomicSignal(options.signal)) : null
     const signal = work?.signal ?? this.atomicSignal(options.signal)
     try {
+      const [{ captureAtomicDraft, atomicChanges, freezeAtomic }, { authoringBudgetIdentity }, { materializeAuthoringArtwork }] = await Promise.all([
+        import('./atomic.js'), import('../../shared/ai/authoring.js'), import('./artwork.js'),
+      ])
       checkCancelled(signal)
       if (isGeneratedAtomicStart(authorization.start)) { this.assertCheckpoint(authorization.checkpoint); this.assertBaseMapPreservation(authorization.start.source) }
-      const replayed = captureAtomicDraft(input, authorization, options)
+      const replayed = captureAtomicDraft(captured, authorization, { allowEmpty })
       const raw = await fromBundle({ project: replayed.project, resources: source.resources }, { ...this.validation(), signal })
       const assetQuality: AssetQualityAssessment[] = []
       const project = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal }, { onQualityAssessment: assessment => assetQuality.push(assessment) })
       checkCancelled(signal)
       if (isGeneratedAtomicStart(authorization.start)) { this.assertCheckpoint(authorization.checkpoint); this.assertBaseMapPreservation(authorization.start.source) }
       this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
-      const changes = atomicChanges(isGeneratedAtomicStart(authorization.start) ? authorization.start.source.blank : authorization.start.project, pureProject(project), replayed.state.changedIds, replayed.visualInvalidatedIds)
-      if (!changes.length && !options.allowEmpty) throw new Error('草稿没有可采用的实际修改。')
+      const changes = atomicChanges(isGeneratedAtomicStart(authorization.start) ? authorization.start.source.blank : authorization.start.project, toBundle(project).project, replayed.state.changedIds, replayed.visualInvalidatedIds)
+      if (!changes.length && !allowEmpty) throw new Error('草稿没有可采用的实际修改。')
       const candidate = freezeAtomic({ schemaVersion: replayed.state.schemaVersion,
         ...(isClassifiedAuthoringState(replayed.state) ? { budgetIdentity: authoringBudgetIdentity(replayed.state), budget: replayed.state.budget } : {}),
-        project, document: project.document, changes, assetQuality, reviewOnly: options.allowEmpty === true && changes.length === 0, operationCost: replayed.state.operationCost,
+        project, document: project.document, changes, assetQuality, reviewOnly: allowEmpty === true && changes.length === 0, operationCost: replayed.state.operationCost,
         readIds: replayed.state.readIds, writeIds: replayed.state.writeIds, taskId: replayed.draft.taskId, generation: replayed.draft.generation,
         draftRevision: replayed.state.draftRevision, contentHash: replayed.state.contentHash, checkpoint: authorization.checkpoint,
         currentSceneId: authorization.currentSceneId, currentRevision: authorization.currentRevision })
@@ -1862,7 +1966,7 @@ export class Workspace {
     if (isGeneratedAtomicStart(record.authorization.start)) { this.assertBaseMapPreservation(record.authorization.start.source); return }
     const current = this.requireProject()
     if (current.document.sceneId !== candidate.currentSceneId || current.document.revision !== candidate.currentRevision
-      || authoringProjectHash(pureProject(current)) !== record.authorization.baseContentHash) throw new Error('AI 草稿基线、锁或来源已变化，请重新计算。')
+      || authoringProjectHash(toBundle(current).project) !== record.authorization.baseContentHash) throw new Error('AI 草稿基线、锁或来源已变化，请重新计算。')
   }
   private atomicSignal(signal?: ResourceOptions['signal']): NonNullable<ResourceOptions['signal']> {
     const workspaceSignal = this.validation().signal
@@ -1876,7 +1980,7 @@ export class Workspace {
     for (const key of ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const) Object.assign(document, { [key]: captureJson(final.document[key]) })
     const content = createCompositionContent(document, this.options.runtime)
     content.historyIdentity.lineageId = final.historyIdentity.lineageId
-    return fromBundle({ project: { ...pureProject(final), ...content, schemaVersion: final.schemaVersion }, resources: final.resources }, { ...this.validation(), signal })
+    return fromBundle({ project: { ...toBundle(final).project, ...content, schemaVersion: final.schemaVersion }, resources: final.resources }, { ...this.validation(), signal })
   }
 
   /** Publish the independent result once; the preserved main map is never its edit base. */
@@ -1888,10 +1992,12 @@ export class Workspace {
     try {
       this.assertAtomicBaseline(candidate, record); checkCancelled(signal)
       this.atomicLock = token; record.status = 'applying'
+      const { captureAtomicDraft, assertAtomicLease } = await import('./atomic.js')
+      this.assertAtomicBaseline(candidate, record); checkCancelled(signal)
       const replayed = captureAtomicDraft(record.draft, record.authorization)
       const resources = this.atomicAuthorizations.get(record.authorization)!.resources
       const project = await fromBundle({ project: replayed.project, resources }, { ...this.validation(), signal })
-      if (canonical(pureProject(project)) !== canonical(pureProject(candidate.project))) throw new Error('AI接续本机完整重放与已审阅结果不同。')
+      if (canonical(toBundle(project).project) !== canonical(toBundle(candidate.project).project)) throw new Error('AI接续本机完整重放与已审阅结果不同。')
       this.validateCandidate(project.document); assertAllFloorPlayerProjections(project.document)
       const baseline = await this.baseMapUndoBaseline(start.source, project, signal)
       const revised = captureEditableDraft(project)
@@ -1921,7 +2027,7 @@ export class Workspace {
       const cold = await this.repository.load(final.document.sceneId)
       if (!cold) throw new Error('AI底图冷读失败；当前工程保留。')
       const installed = await fromBundle(cold, { ...this.validation(), signal })
-      if (authoringProjectHash(pureProject(installed)) !== authoringProjectHash(pureProject(final))) throw new Error('AI底图在冷读前已变化；请从工程目录核对独立成果。')
+      if (authoringProjectHash(toBundle(installed).project) !== authoringProjectHash(toBundle(final).project)) throw new Error('AI底图在冷读前已变化；请从工程目录核对独立成果。')
       this.assertAtomicBaseline(candidate, record); checkCancelled(signal)
       const local = this.baseMapSources.get(start.source.flowId)
       this.atomicLock = null; this.install(installed)
@@ -1954,12 +2060,14 @@ export class Workspace {
     this.atomicLock = token; record.status = 'applying'
     let committed = false
     try {
+      const [{ captureAtomicDraft, assertAtomicLease }, { materializeAuthoringArtwork }] = await Promise.all([import('./atomic.js'), import('./artwork.js')])
+      this.assertAtomicBaseline(candidate, record); checkCancelled(signal)
       const replayed = captureAtomicDraft(record.draft, record.authorization)
       const source = this.atomicAuthorizations.get(record.authorization)!
       const raw = await fromBundle({ project: replayed.project, resources: source.resources }, { ...this.validation(), signal })
       const assetQuality: AssetQualityAssessment[] = []
       const checkedProject = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal }, { onQualityAssessment: assessment => assetQuality.push(assessment) })
-      if (canonical(pureProject(checkedProject)) !== canonical(pureProject(candidate.project))) throw new Error('素材本机物化结果与已审阅草稿不同，请重新审阅。')
+      if (canonical(toBundle(checkedProject).project) !== canonical(toBundle(candidate.project).project)) throw new Error('素材本机物化结果与已审阅草稿不同，请重新审阅。')
       if (canonical(assetQuality) !== canonical(candidate.assetQuality)) throw new Error('素材质量检查与已审阅的确切图片不同，请重新审阅。')
       assertAssetQualityAccepted(assetQuality, qualityAcknowledgments)
       // Preserve the exact verified wrapper before requesting a short-lived server claim.
@@ -2026,7 +2134,9 @@ export class Workspace {
   }
   async prepareRestore(snapshotId: string, request: RestoreRequest): Promise<RestorePreview> {
     const current = this.requireProject(), checkpoint = this.checkpoint(), frozenRequest = captureJson(request)
-    const snapshot = await this.loadNamedSnapshot(snapshotId, current.document.sceneId)
+    const [{ buildRestorePlan, generationRestoreChanges }, snapshot] = await Promise.all([
+      import('../../shared/history/restore.js'), this.loadNamedSnapshot(snapshotId, current.document.sceneId),
+    ])
     this.assertCheckpoint(checkpoint)
     if (!snapshot) throw new Error('源快照已被删除，请重新选择。')
     const budget = manualRestoreBudget(current, snapshot.project, frozenRequest)
@@ -2041,7 +2151,7 @@ export class Workspace {
     this.assertCheckpoint(checkpoint)
     this.validateCandidate(project.document)
     assertAllFloorPlayerProjections(project.document)
-    const finalPlan = materializedRestorePlan(current, plan, project, budget)
+    const finalPlan = materializedRestorePlan(current, plan, project, budget, generationRestoreChanges(current.document, project.document))
     const { project: _project, ...summary } = snapshot
     const preview = freeze({ snapshot: summary, plan: finalPlan, project, checkpoint, currentSceneId: current.document.sceneId,
       currentRevision: current.document.revision, sourceContentHash: snapshot.contentHash, budgetProfile: budget })
@@ -2068,7 +2178,9 @@ export class Workspace {
       await this.flush()
       this.assertRestore(preview)
       readSession = this.repository.beginSnapshotRead?.()
-      const source = await this.loadNamedSnapshot(preview.snapshot.id, preview.currentSceneId, readSession)
+      const [{ buildRestorePlan }, source] = await Promise.all([
+        import('../../shared/history/restore.js'), this.loadNamedSnapshot(preview.snapshot.id, preview.currentSceneId, readSession),
+      ])
       this.assertRestore(preview)
       if (!source || source.contentHash !== preview.sourceContentHash) throw new Error('源快照已删除或内容校验值已变化，请重新预览。')
       const current = this.requireProject()
@@ -2123,7 +2235,9 @@ export class Workspace {
   /** Inspect dependency expansion before the user explicitly confirms it. */
   async inspectStructureRestore(snapshotId: string, request: StructureRestoreRequest): Promise<StructureRestoreInspection> {
     const current = this.requireProject(), checkpoint = this.checkpoint(), frozenRequest = captureJson(request)
-    const snapshot = await this.loadNamedSnapshot(snapshotId, current.document.sceneId)
+    const [{ inspectStructureRestoreScope }, snapshot] = await Promise.all([
+      import('../../shared/history/structure-restore.js'), this.loadNamedSnapshot(snapshotId, current.document.sceneId),
+    ])
     this.assertCheckpoint(checkpoint)
     if (!snapshot) throw new Error('源快照已被删除，请重新选择。')
     const budget = manualRestoreBudget(current, snapshot.project, frozenRequest, true)
@@ -2135,7 +2249,9 @@ export class Workspace {
 
   async prepareStructureRestore(snapshotId: string, request: StructureRestoreRequest): Promise<StructureRestorePreview> {
     const current = this.requireProject(), checkpoint = this.checkpoint(), frozenRequest = captureJson(request)
-    const snapshot = await this.loadNamedSnapshot(snapshotId, current.document.sceneId)
+    const [{ buildStructureRestorePlan }, snapshot] = await Promise.all([
+      import('../../shared/history/structure-restore.js'), this.loadNamedSnapshot(snapshotId, current.document.sceneId),
+    ])
     this.assertCheckpoint(checkpoint)
     if (!snapshot) throw new Error('源快照已被删除，请重新选择。')
     const budget = manualRestoreBudget(current, snapshot.project, frozenRequest, true)
@@ -2177,7 +2293,9 @@ export class Workspace {
       await this.flush()
       this.assertStructureRestore(preview)
       readSession = this.repository.beginSnapshotRead?.()
-      const source = await this.loadNamedSnapshot(preview.snapshot.id, preview.currentSceneId, readSession)
+      const [{ buildStructureRestorePlan }, source] = await Promise.all([
+        import('../../shared/history/structure-restore.js'), this.loadNamedSnapshot(preview.snapshot.id, preview.currentSceneId, readSession),
+      ])
       this.assertStructureRestore(preview)
       if (!source || source.contentHash !== preview.sourceContentHash) throw new Error('源快照已删除或内容校验值已变化，请重新预览。')
       const current = this.requireProject()

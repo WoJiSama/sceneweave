@@ -1,5 +1,6 @@
 import { bridgeArtName } from '../../shared/path-assembly/profiles'
 import type { SceneDocument } from '../../shared/model/scene'
+import { isCanvasGround } from '../../shared/model/canvas-ground'
 import { visualBase } from '../../shared/visual/base'
 import { LIGHT_LABELS } from '../../shared/visual/light-geometry'
 
@@ -22,7 +23,7 @@ export function createEntityLabeler(scene: SceneDocument): (id: string) => strin
   numbered(scene.props, '物件', item => item.definitionRef ? name(item.definitionRef.id) : item.appearance.kind === 'symbol' ? item.appearance.bridgeArt ? bridgeArtName(item.appearance.bridgeArt)
     : ({ table: '桌子', chair: '椅子', shelf: '架子', rug: '地毯', crate: '木箱' })[item.appearance.symbol] : '')
   numbered(scene.prefabInstances, '组合', item => name(item.definitionRef.id))
-  numbered(scene.terrainAreas, '地形', item => `${item.surfaceStyle ? name(item.surfaceStyle.base.materialRef.id) : '未铺装地形'} · 高程 ${meters(item.groundElevationMm)}`)
+  numbered(scene.terrainAreas, '地形', item => `${isCanvasGround(item) ? '基础地面' : item.surfaceStyle ? name(item.surfaceStyle.base.materialRef.id) : '未铺装地形'} · 高程 ${meters(item.groundElevationMm)}`)
   numbered(scene.paths, '道路', item => `${item.surfaceStyle ? name(item.surfaceStyle.base.materialRef.id) : ''}${item.assembly?.bridge ? '桥梁' : '道路'} · 净宽 ${meters(item.widthMm)}`)
   numbered(scene.regions, '区域', item => item.kind === 'partition' ? item.name ?? '编辑分区' : ({ hazard: '危险区域', terrain: '用途区域', manualMask: '玩家遮罩' })[item.kind])
   numbered(scene.notes, '注记', item => text(item.title) || text(item.text).slice(0, 50))

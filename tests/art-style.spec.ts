@@ -27,6 +27,42 @@ const changeSlider = async (page: Page, name: string, value: number) => {
 }
 const canvasHash = async (canvas: Locator) => createHash('sha256').update(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).digest('hex')
 
+test('new canvas material strokes preview, save, undo and preserve original image opacity', async ({ page }, info) => {
+  test.setTimeout(150_000)
+  await createKeyboardProject(page, '默认材质笔触')
+  const style = await styleTool(page)
+  const toggle = style.getByRole('checkbox', { name: '按材质绘制笔触', exact: true })
+  await expect(toggle).toBeChecked()
+  await painted(page)
+  const map = page.getByLabel('材质场景主持人预览', { exact: true })
+  const initial = await canvasHash(map)
+  await toggle.uncheck()
+  await expect.poll(() => canvasHash(map)).not.toBe(initial)
+  await style.getByRole('button', { name: '采用画风', exact: true }).click()
+  await saved(page)
+  const backup = await keyboardProjectBackup(page, info.outputPath('without-strokes.sceneweave'))
+  expect(backup.document.artStyle).not.toHaveProperty('materialDrawing')
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
+  await saved(page)
+  await expect.poll(() => canvasHash(map)).toBe(initial)
+  const raster = await page.evaluate(async () => {
+    const module = '/src/platform/browser/render/material-drawing.ts'
+    const { drawMaterialImage } = await import(module) as typeof import('../src/platform/browser/render/material-drawing')
+    const source = document.createElement('canvas')
+    source.width = 781; source.height = 117
+    const ctx = source.getContext('2d', { willReadFrequently: true })!
+    ctx.fillStyle = '#aa9866'; ctx.fillRect(25, 4, 700, 98)
+    ctx.fillStyle = '#aa986678'; ctx.fillRect(0, 24, 670, 48)
+    const original = ctx.getImageData(0, 0, source.width, source.height).data
+    const painted = (brush: 'wood' | 'stone') => drawMaterialImage(source, brush, 921)
+      .getContext('2d')!.getImageData(0, 0, source.width, source.height).data
+    const a = painted('wood'), b = painted('wood'), stone = painted('stone')
+    return { stable: a.every((v, i) => b[i] === v), separate: a.some((v, i) => v !== stone[i]),
+      alpha: a.every((v, i) => i % 4 !== 3 || v === original[i]) }
+  })
+  expect(raster).toEqual({ stable: true, separate: true, alpha: true })
+})
+
 function coastLineMarks(canvas: HTMLCanvasElement) {
   const { width, height } = canvas
   const { data } = canvas.getContext('2d')!.getImageData(0, 0, width, height)

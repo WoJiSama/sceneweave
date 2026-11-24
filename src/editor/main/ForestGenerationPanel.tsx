@@ -1,3 +1,4 @@
+import type { SizeMm } from '../../shared/model/scene'
 import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useRef, useState } from 'react'
 import type { ForestPreview } from '../../application/workspace/workspace'
@@ -5,6 +6,7 @@ import './terrain-generation.css'
 import './forest-generation.css'
 
 import type { ForestGenerationUiRequest } from '../../application/workspace/generation-intent.js'
+import { defaultWoodlandCoverages } from '../../application/workspace/woodland-distribution.js'
 export type { ForestGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 
 const initialClearings = (): ForestGenerationUiRequest['clearings'] => [
@@ -15,23 +17,30 @@ const ppm = (percent: string) => Math.round(Number(percent) * 10000)
 const roleName = (role: string) => role === 'tree' ? '树木' : role === 'shrub' ? '灌木' : '草簇'
 
 /** The host captures the request, prepares fixed resources and owns adoption. */
-export default function ForestGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange }: {
-  busy: boolean; disabled: boolean; error: string | null; candidate: ForestPreview | null; dirty: boolean
+export default function ForestGenerationPanel({ busy, disabled, error, candidate, dirty, canvasSize, onGenerate, onAdopt, onCancel, onChange }: {
+  busy: boolean; disabled: boolean; error: string | null; candidate: ForestPreview | null; dirty: boolean; canvasSize?: SizeMm
   onGenerate: (input: ForestGenerationUiRequest) => void | Promise<void>
   onAdopt: () => void | Promise<void>; onCancel: () => void; onChange: () => void
 }) {
   const [title, setTitle] = useState('森林营地'), [seed, setSeed] = useState('forest-1')
-  const [widthMm, setWidthMm] = useState(32000), [heightMm, setHeightMm] = useState(24000)
-  const [clearings, setClearings] = useState(initialClearings)
+  const [standaloneWidth, setWidthMm] = useState(32000), [standaloneHeight, setHeightMm] = useState(24000)
+  const widthMm = canvasSize?.width ?? standaloneWidth, heightMm = canvasSize?.height ?? standaloneHeight
+  const [customClearings, setClearings] = useState<ForestGenerationUiRequest['clearings'] | null>(null)
+  const clearings = customClearings ?? initialClearings().map(row => ({ ...row, boundsMm: {
+    x: Math.round(widthMm * .375), y: Math.round(heightMm * .375),
+    width: Math.round(widthMm / 4), height: Math.round(heightMm / 4),
+  } }))
   const [entranceSide, setEntranceSide] = useState<ForestGenerationUiRequest['entranceSide']>('west')
   const [routeWidthMm, setRouteWidthMm] = useState(1800)
-  const [treeCoveragePpm, setTreeCoveragePpm] = useState(80000), [shrubCoveragePpm, setShrubCoveragePpm] = useState(10000), [grassCoveragePpm, setGrassCoveragePpm] = useState(1000)
-  const [woodlandDistribution, setWoodlandDistribution] = useState<NonNullable<ForestGenerationUiRequest['woodlandDistribution']>>('uniform')
+  const coverages = defaultWoodlandCoverages({ width: widthMm, height: heightMm })
+  const [treeCoverage, setTreeCoveragePpm] = useState<number>(), [shrubCoverage, setShrubCoveragePpm] = useState<number>(), [grassCoverage, setGrassCoveragePpm] = useState<number>()
+  const treeCoveragePpm = treeCoverage ?? coverages.tree, shrubCoveragePpm = shrubCoverage ?? coverages.shrub, grassCoveragePpm = grassCoverage ?? coverages.grass
+  const [woodlandDistribution, setWoodlandDistribution] = useState<NonNullable<ForestGenerationUiRequest['woodlandDistribution']>>('auto')
   const nextClearing = useRef(2)
   const validationId = useId()
   const locked = busy || disabled, cleanTitle = title.trim(), cleanSeed = seed.trim()
   const change = (apply: () => void) => { if (locked) return; onChange(); apply() }
-  const updateClearing = (id: string, patch: Partial<ForestGenerationUiRequest['clearings'][number]['boundsMm']>) => change(() => setClearings(current => current.map(row => row.id === id ? { ...row, boundsMm: { ...row.boundsMm, ...patch } } : row)))
+  const updateClearing = (id: string, patch: Partial<ForestGenerationUiRequest['clearings'][number]['boundsMm']>) => change(() => setClearings(clearings.map(row => row.id === id ? { ...row, boundsMm: { ...row.boundsMm, ...patch } } : row)))
   const validationReason = (() => {
     if (!cleanTitle || cleanTitle.length > 120) return '请填写工程名称，最多120个字符。'
     if (!cleanSeed || cleanSeed.length > 128) return '请填写生成种子，最多128个字符。'
@@ -58,42 +67,44 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
   return <section className="terrain-generation-panel forest-generation-panel" aria-label="森林与营地生成">
     <h2>森林与营地</h2>
     <p>先留出活动空地与入口路线，再在真实地面上布置树木、灌木和草簇。</p>
-    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">覆盖目标与实际数量分别显示。空间不足会说明缺项；保存后可继续移动或删除，不会自动补回。</p></details>
+    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">生成会在实际树群下铺苔地，用磨损土面连接入口和空地。路径以完整净宽校验。候选详情会显示覆盖目标、实际数量和缺项。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, clearings: clearings.map(row => ({ ...row, boundsMm: { ...row.boundsMm } })), entranceSide, routeWidthMm, treeCoveragePpm, shrubCoveragePpm, grassCoveragePpm, woodlandDistribution }) }}>
       <fieldset disabled={locked}>
         <legend>地图与活动空间</legend>
+        {!canvasSize && <>
         <label>工程名称<input aria-label="森林工程名称" value={title} maxLength={120} onChange={event => change(() => setTitle(event.target.value))}/></label>
         <div className="forest-field-pair">
           <label>地图宽（米）<input aria-label="森林地图宽米" type="number" min="1" max="200" step="0.1" value={widthMm / 1000} onChange={event => change(() => setWidthMm(mm(event.target.value)))}/></label>
           <label>地图高（米）<input aria-label="森林地图高米" type="number" min="1" max="200" step="0.1" value={heightMm / 1000} onChange={event => change(() => setHeightMm(mm(event.target.value)))}/></label>
         </div>
+        </>}
         <label>生成种子<input aria-label="森林生成种子" value={seed} maxLength={128} onChange={event => change(() => setSeed(event.target.value))}/></label>
         <h3>活动空地 · {clearings.length}</h3>
         <p className="asset-muted">位置从地图左上角起算。空地须完整留在地图内，树木与草灌会避让空地和路线。</p>
         {clearings.map((clearing, index) => <fieldset className="forest-clearing" key={clearing.id}>
           <legend>空地 {index + 1}</legend>
           <div className="forest-field-pair">
-            <label>横向位置（米）<input aria-label={`空地${index + 1}横向位置米`} type="number" min="0" step="0.1" value={clearing.boundsMm.x / 1000} onChange={event => updateClearing(clearing.id, { x: mm(event.target.value) })}/></label>
-            <label>纵向位置（米）<input aria-label={`空地${index + 1}纵向位置米`} type="number" min="0" step="0.1" value={clearing.boundsMm.y / 1000} onChange={event => updateClearing(clearing.id, { y: mm(event.target.value) })}/></label>
+            <label>横向位置（米）<input aria-label={`空地${index + 1}横向位置米`} type="number" min="0" step="0.001" value={clearing.boundsMm.x / 1000} onChange={event => updateClearing(clearing.id, { x: mm(event.target.value) })}/></label>
+            <label>纵向位置（米）<input aria-label={`空地${index + 1}纵向位置米`} type="number" min="0" step="0.001" value={clearing.boundsMm.y / 1000} onChange={event => updateClearing(clearing.id, { y: mm(event.target.value) })}/></label>
           </div>
           <div className="forest-field-pair">
-            <label>空地宽（米）<input aria-label={`空地${index + 1}宽米`} type="number" min="0.1" step="0.1" value={clearing.boundsMm.width / 1000} onChange={event => updateClearing(clearing.id, { width: mm(event.target.value) })}/></label>
-            <label>空地高（米）<input aria-label={`空地${index + 1}高米`} type="number" min="0.1" step="0.1" value={clearing.boundsMm.height / 1000} onChange={event => updateClearing(clearing.id, { height: mm(event.target.value) })}/></label>
+            <label>空地宽（米）<input aria-label={`空地${index + 1}宽米`} type="number" min="0.001" step="0.001" value={clearing.boundsMm.width / 1000} onChange={event => updateClearing(clearing.id, { width: mm(event.target.value) })}/></label>
+            <label>空地高（米）<input aria-label={`空地${index + 1}高米`} type="number" min="0.001" step="0.001" value={clearing.boundsMm.height / 1000} onChange={event => updateClearing(clearing.id, { height: mm(event.target.value) })}/></label>
           </div>
-          <button className="secondary" type="button" disabled={clearings.length <= 1} onClick={() => change(() => setClearings(current => current.filter(row => row.id !== clearing.id)))}>移除空地 {index + 1}</button>
+          <button className="secondary" type="button" disabled={clearings.length <= 1} onClick={() => change(() => setClearings(clearings.filter(row => row.id !== clearing.id)))}>移除空地 {index + 1}</button>
         </fieldset>)}
         <button className="secondary asset-wide" type="button" disabled={clearings.length >= 4} onClick={() => change(() => {
           const sequence = nextClearing.current++, id = `clearing-${sequence}`, width = Math.min(4000, widthMm), height = Math.min(4000, heightMm)
           const x = sequence % 2 ? Math.max(0, widthMm - width - 1000) : Math.min(1000, Math.max(0, widthMm - width))
           const y = sequence > 3 ? Math.max(0, heightMm - height - 1000) : Math.min(1000, Math.max(0, heightMm - height))
-          setClearings(current => [...current, { id, boundsMm: { x, y, width, height } }])
+          setClearings([...clearings, { id, boundsMm: { x, y, width, height } }])
         })}>增加活动空地</button>
         <h3>入口与路线</h3>
         <label>入口方向<select aria-label="森林入口方向" value={entranceSide} onChange={event => change(() => setEntranceSide(event.target.value as ForestGenerationUiRequest['entranceSide']))}><option value="west">西侧</option><option value="east">东侧</option><option value="north">北侧</option><option value="south">南侧</option></select></label>
         <label>路线净宽（米）<input aria-label="森林路线净宽米" type="number" min="0.1" max="10" step="0.1" value={routeWidthMm / 1000} onChange={event => change(() => setRouteWidthMm(mm(event.target.value)))}/></label>
         <h3>植被覆盖目标</h3>
-        <label>植被分布<select aria-label="森林植被分布" value={woodlandDistribution} onChange={event => change(() => setWoodlandDistribution(event.target.value as NonNullable<ForestGenerationUiRequest['woodlandDistribution']>))}><option value="uniform">均匀散布</option><option value="copses">疏密林地</option></select></label>
+        <label>植被分布<select aria-label="森林植被分布" value={woodlandDistribution} onChange={event => change(() => setWoodlandDistribution(event.target.value as NonNullable<ForestGenerationUiRequest['woodlandDistribution']>))}><option value="auto">自动适配林地</option><option value="uniform">均匀散布</option><option value="copses">疏密林地</option></select></label>
         {woodlandDistribution === 'copses' && <p className="asset-muted">把同一目标数量集中到两片不规则树群，外围布置灌木和草簇。活动空地与路线继续保留；目标过高或区域不足时会说明，实际数量以候选为准。</p>}
         <label>树木（%）<input aria-label="森林树木覆盖百分比" type="number" min="0" max="100" step="0.1" value={treeCoveragePpm / 10000} onChange={event => change(() => setTreeCoveragePpm(ppm(event.target.value)))}/></label>
         <div className="forest-field-pair">
@@ -114,7 +125,7 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
       <p className="asset-muted">保存后可自由修改空地、道路或植被，已删除的内容不会在重开时自动恢复。</p>
       </div>
       <div className="workspace-review-actions">
-      <button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存为新工程</button>
+      {!canvasSize && <button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存为新工程</button>}
         {cancelAction}
       </div>
     </div></div></WorkspaceReview>}

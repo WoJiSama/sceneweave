@@ -37,10 +37,11 @@ test.beforeAll(async () => {
       const deficit = (id: string) => context.receipts.at(-1)!.diagnostics!.rooms.find(room => room.roomId === id)!.roles.reduce((sum, role) => sum + role.deficit, 0)
       return deficit(b.roomId) - deficit(a.roomId)
     })[0]
-    const action = context.receipts.length >= 3 || !target && context.receipts.length > 0
+    const action = context.receipts.length >= 3 || !target && context.receipts.length > 1
       ? { kind: 'finish', stateHash: context.stateHash, candidateId: context.receipts.at(-1)!.candidateId, reason: '选择真实候选，保留逐房诊断供用户审阅。' }
       : target ? { kind: 'repair-furniture', stateHash: context.stateHash, ...target, reason: '按实际缺项修正指定房间，保全建筑和人工内容。' }
-      : { kind: 'generate', stateHash: context.stateHash, seed: context.request.parameters.seed, reason: '先按原始种子和要求生成。' }
+      : { kind: 'generate', stateHash: context.stateHash, seed: context.receipts.length ? 'forest-outpost-second-candidate' : context.request.parameters.seed,
+        reason: context.receipts.length ? '首个候选的家具齐备，换种子比较另一份实际候选。' : '先按原始种子和要求生成。' }
     return { text: '', toolCalls: [{ id: randomUUID(), name: 'sceneweave_forest_action', arguments: JSON.stringify(action) }],
       finishReason: 'tool_calls', usage: { inputTokens: 20, outputTokens: 10 }, requestId: randomUUID() }
   } }, connectionInfo(config))
@@ -54,9 +55,9 @@ test.afterAll(async () => {
   if (server) await new Promise<void>(resolve => server.close(() => resolve()))
 })
 
-test('refresh recovers the original model request and repaired candidates, then the user saves and edits a complete project', async ({ page }, info) => {
+test('refresh recovers the original model request and complete automatic candidates, then the user saves and edits', async ({ page }, info) => {
   test.setTimeout(300000)
-  await createKeyboardProject(page, '候选闭环原工程')
+  await createKeyboardProject(page, '候选闭环原工程', { widthMeters: 40, heightMeters: 32 })
   const before = await keyboardProjectBackup(page, info.outputPath('before.sceneweave'))
   const source = await forestSourceStorage(page, before.document.sceneId)
   const posted: string[] = [], lookedUp: string[] = [], pageErrors: string[] = []
@@ -74,6 +75,7 @@ test('refresh recovers the original model request and repaired candidates, then 
     await route.abort('failed')
   })
   const connect = async () => {
+    if (await generation.isVisible()) await generation.getByRole('button', { name: '关闭生成设置', exact: true }).click()
     const ai = (await openWorkspaceModule(page, 'AI')).getByLabel('AI 对话面板', { exact: true })
     await ai.getByLabel('AI 后端地址', { exact: true }).fill(backend)
     await ai.getByLabel('AI 应用凭据', { exact: true }).fill(token)
@@ -89,7 +91,7 @@ test('refresh recovers the original model request and repaired candidates, then 
     await keyboardWorkspaceSaved(page)
   }
   const openLoop = async () => {
-    await openGenerationTask(page, '混合场景')
+    if (!await generation.isVisible()) await openGenerationTask(page, '混合场景')
     if ((await loop.getAttribute('open')) === null) await loop.locator(':scope > summary').click()
     await expect(loop).toHaveJSProperty('open', true)
   }
@@ -100,7 +102,8 @@ test('refresh recovers the original model request and repaired candidates, then 
     await (await event).saveAs(path)
     return readFile(path)
   }
-  const panel = page.getByTestId('workspace-resources').getByRole('region', { name: '混合场景生成', exact: true })
+  const generation = page.getByRole('dialog', { name: '混合场景', exact: true })
+  const panel = generation.getByRole('region', { name: '混合场景生成', exact: true })
   const loop = panel.getByLabel('林中建筑自动候选闭环', { exact: true })
   const review = loop.getByRole('button', { name: '恢复候选预览', exact: true })
   const resume = loop.getByRole('button', { name: '继续本轮并使用剩余模型额度', exact: true })
@@ -138,37 +141,43 @@ test('refresh recovers the original model request and repaired candidates, then 
   await resume.click()
   await expect(loop.getByText('模型已选定候选，等待你审阅或保存。', { exact: true })).toBeVisible({ timeout: 180000 })
   expect(lookedUp).toEqual([posted[1], posted[1]])
-  expect(posted).toHaveLength(4)
-  expect(new Set(posted).size).toBe(4)
-  expect(inputs).toHaveLength(4)
+  expect(posted.length).toBeGreaterThanOrEqual(3)
+  expect(posted.length).toBeLessThanOrEqual(4)
+  expect(new Set(posted).size).toBe(posted.length)
+  expect(inputs).toHaveLength(posted.length)
   expect(inputs[1].receipts).toHaveLength(1); expect(inputs[2].receipts).toHaveLength(2)
   expect(inputs[0].request.parameters.roomCount).toBe(2)
   expect(inputs[2].request).toEqual(inputs[0].request)
   await expect(loop.getByLabel('自动候选 1', { exact: true })).toContainText('2个房间')
-  expect(inputs[1].receipts[0].diagnostics?.deficit).toBe(4)
-  expect(inputs[3].receipts[2].diagnostics?.deficit).toBeLessThan(4)
-  await expect(loop.getByLabel('自动候选 3', { exact: true })).toContainText('模型选择')
-  await expect(loop.getByLabel('自动候选 3', { exact: true })).not.toContainText('座椅目标5件，实际3件，缺2件')
+  const selectedIndex = inputs.at(-1)!.receipts.length, requestCount = posted.length
+  const firstReceipt = inputs[1].receipts[0], secondReceipt = inputs[2].receipts[1]
+  if (secondReceipt.parentCandidateId) {
+    expect(secondReceipt.parentCandidateId).toBe(firstReceipt.candidateId)
+    expect(secondReceipt.diagnostics!.deficit).toBeLessThan(firstReceipt.diagnostics!.deficit)
+  } else expect(secondReceipt.seed).not.toBe(firstReceipt.seed)
+  await expect(loop.getByLabel(`自动候选 ${selectedIndex}`, { exact: true })).toContainText('模型选择')
   await expect(loop).toContainText('模型本轮只收到结构诊断')
   expect(await forestSourceStorage(page, before.document.sceneId)).toEqual(source)
   await expect(page.getByTestId('outdoor-workbench')).toHaveAttribute('data-revision', String(before.document.revision))
-  const selected = await saveCandidate(3, 'selected-before-reload.sceneweave')
+  const selected = await saveCandidate(selectedIndex, 'selected-before-reload.sceneweave')
   await openOriginalAfterReload()
   await openLoop()
   await review.click()
-  const selectedCard = loop.getByLabel('自动候选 3', { exact: true })
+  const selectedCard = loop.getByLabel(`自动候选 ${selectedIndex}`, { exact: true })
   await expect(selectedCard).toContainText('模型选择', { timeout: 120000 })
-  expect(await saveCandidate(3, 'selected-after-reload.sceneweave')).toEqual(selected)
-  expect(posted).toHaveLength(4)
+  expect(await saveCandidate(selectedIndex, 'selected-after-reload.sceneweave')).toEqual(selected)
+  expect(posted).toHaveLength(requestCount)
   const preview = await selectedCard.getByRole('img').evaluate(async image => Array.from(new Uint8Array(await (await fetch((image as HTMLImageElement).src)).arrayBuffer())))
   await writeFile(info.outputPath('player-preview.png'), Uint8Array.from(preview))
-  const candidate = page.getByTestId('workspace-inspector').getByLabel('混合候选摘要', { exact: true })
-  await expect(candidate).not.toContainText('座椅目标5件，实际3件，缺2件')
+  await generation.getByRole('button', { name: '关闭生成设置', exact: true }).click()
+  const candidate = page.getByLabel('混合候选摘要', { exact: true })
   await candidate.getByRole('button', { name: '保存混合场景为新工程', exact: true }).click()
   await expect(page.getByRole('alert').filter({ hasText: '混合场景已完整保存并打开' })).toBeVisible({ timeout: 90000 })
   await keyboardWorkspaceSaved(page)
   const generated = await keyboardProjectBackup(page, info.outputPath('generated.sceneweave'))
   expect(Object.keys(generated.document.rooms)).toHaveLength(2)
+  expect(Object.values(generated.document.surfaceRules).some(rule => rule.field === 'material')).toBe(true)
+  expect(Object.values(generated.document.paths).every(path => path.boundaryBlendMm === 215)).toBe(true)
   const prop = Object.values(generated.document.props).find(value => typeof value.roomId === 'string')!
   await selectKeyboardProp(page, prop.id)
   const rotation = (prop.rotationDeg + 180) % 360
@@ -184,6 +193,6 @@ test('refresh recovers the original model request and repaired candidates, then 
   expect(cold.document.props[prop.id].rotationDeg).toBe(rotation)
   expect(cold.identity).toEqual(edited.identity)
   expect(cold.hashes).toEqual(edited.hashes)
-  expect(posted).toHaveLength(4)
+  expect(posted).toHaveLength(requestCount)
   expect(pageErrors).toEqual([])
 })

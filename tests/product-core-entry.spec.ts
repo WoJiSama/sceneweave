@@ -2,6 +2,18 @@ import { expect, test } from '@playwright/test'
 import { createKeyboardProject, placeKeyboardLamp } from './keyboard-ux-helpers'
 import { openWorkspaceModule } from './workspace-navigation-helpers'
 
+test('空白画布的三个入口悬浮时文字清晰', async ({ page }) => {
+  await page.goto('./#workspace')
+  const actions = page.locator('.workspace-start-actions')
+
+  for (const name of ['新建场景', '生成地图', '从样板开始']) {
+    const button = actions.getByRole('button', { name, exact: true })
+    await button.hover()
+    await expect(button).toHaveCSS('background-color', 'rgb(231, 239, 223)')
+    await expect(button).toHaveCSS('color', 'rgb(52, 85, 65)')
+  }
+})
+
 test('D1 首页生成地图打开现有生成面板', async ({ page }, info) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('./#home')

@@ -28,8 +28,10 @@ import type { RoadDoorStartInput } from './road-door-start'
 import PathAssemblyPanel from './PathAssemblyPanel'
 import { appliedStyle, PathStyleFields, styleDefaults, StyleSourceSelect, type StyleForm } from './PathStyleFields'
 import type { PathAssemblyRecipe } from '../../shared/path-assembly/contracts'
+import type { AutomaticRoadPlan } from '../../shared/geometry/automatic-road'
+import type { AutomaticRoadSession, AutomaticRoadSettings } from './useAutomaticRoad'
 
-export type OutdoorSketch = { kind: 'polygon' | 'polyline'; purpose: 'terrain' | 'region' | 'path' | 'bridge' | 'fence' | 'connection'; points: PointMm[]; cursor: PointMm | null; roadStroke?: true; drawnSupports?: SurfaceRef[] }
+export type OutdoorSketch = { kind: 'polygon' | 'polyline'; purpose: 'terrain' | 'region' | 'path' | 'bridge' | 'fence' | 'connection'; points: PointMm[]; cursor: PointMm | null; roadStroke?: true; drawnSupports?: SurfaceRef[]; automaticRoad?: AutomaticRoadSession; automaticPlan?: AutomaticRoadPlan }
 export type OutdoorTask = OutdoorSketch['purpose'] | 'stairs' | 'scatter' | 'styles'
 const taskLabels: Record<OutdoorTask, string> = { terrain: '地形与高程', region: '用途 / 危险区域', path: '道路', bridge: '桥梁', fence: '实体围栏', styles: '沿线样式', connection: '高差连接 / 坡道', stairs: '阶梯工具', scatter: '可控散布' }
 const taskHints: Record<OutdoorTask, string> = { terrain: '绘制地形并设置真实高度', region: '标注区域用途与通行', path: '沿中心线铺设道路', bridge: '画桥面，沿两侧铺设构件', fence: '画栅栏，设置围合与开口', styles: '维护源节、尺寸和工程换版', connection: '连接不同高程的实际表面', stairs: '铺设、弯曲和局部覆盖完整阶梯', scatter: '按范围铺放素材并保留人工修改' }
@@ -66,12 +68,13 @@ type Props = {
   onRoadStrokeSettings?: (settings: RoadStrokeSettings | null) => void
   roadStart?: RoadDoorStartInput | null
   onRoadStartConsumed?: (id: string) => void
+  onAutomaticRoad?: (settings: AutomaticRoadSettings) => void
   detailsTarget?: HTMLElement | null; detailsActive?: boolean
   activeTask?: OutdoorTask; onTaskChange?: (task: OutdoorTask) => void
   onBrowseScene?: () => void
 }
 export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, onSketch, onPreview, onSelect, onBoundaryEditor, onFinishReady, onRoadSettings, onRoadStrokeSettings,
-  roadStart, onRoadStartConsumed, detailsTarget, detailsActive = true, activeTask, onTaskChange, onBrowseScene, onOceanPreview, onStylePreview }: Props) {
+  roadStart, onRoadStartConsumed, onAutomaticRoad, detailsTarget, detailsActive = true, activeTask, onTaskChange, onBrowseScene, onOceanPreview, onStylePreview }: Props) {
   const split = detailsTarget !== undefined
   const [localTool, setLocalTool] = useState<OutdoorTask>('terrain'), [error, setError] = useState<string | null>(null)
   const tool = activeTask ?? localTool
@@ -139,11 +142,11 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
   const domains = [...Object.values(scene.terrainAreas).filter(area => area.floorId === floorId).map(area => ({ value: `area:${area.id}`, name: `地形 · ${name(area.id)}` })), ...Object.values(scene.paths).filter(path => path.floorId === floorId).map(path => ({ value: `path:${path.id}`, name: name(path.id) })), ...Object.values(scene.terrainEdges).filter(edge => edge.floorId === floorId).map(edge => ({ value: `edgeBand:${edge.id}`, name: name(edge.id) }))]
   const [domain, setDomain] = useState(''), [definition, setDefinition] = useState(''), [density, setDensity] = useState('0.4'), [cell, setCell] = useState('2500'), [spacing, setSpacing] = useState('300'), [seed, setSeed] = useState('camp-1')
   useEffect(() => {
-    if (!sketch || sketch.purpose === 'bridge' || sketch.purpose === 'fence') return
+    if (!sketch || sketch.automaticRoad || sketch.purpose === 'bridge' || sketch.purpose === 'fence') return
     setLocalTool(previous => previous === 'stairs' && sketch.purpose === 'connection' ? previous : sketch.purpose)
     setPoints(pointText(sketch.points))
     if (sketch.drawnSupports && !excavateRoad) setRoadSupports(sketch.drawnSupports.map(surfaceValue))
-  }, [sketch?.purpose, sketch?.points, sketch?.drawnSupports, excavateRoad])
+  }, [sketch?.purpose, sketch?.points, sketch?.drawnSupports, sketch?.automaticRoad, excavateRoad])
   const materialRef = (id: string): VersionRef | undefined => scene.materials[id] ? { id, version: scene.materials[id].version } : undefined
   const run = () => {
     if (assemblyTool || tool === 'styles') return
@@ -228,7 +231,7 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
     setRoadReview(null)
   }
   const minimum = tool === 'path' || connectionTool ? 2 : 3
-  const finishReady = !disabled && !!layerId && sketch?.purpose === sketchPurpose && sketch.points.length >= minimum
+  const finishReady = !disabled && !!layerId && !sketch?.automaticRoad && sketch?.purpose === sketchPurpose && sketch.points.length >= minimum
   const finishRef = useRef<(() => void) | null>(null), finishListener = useRef(onFinishReady)
   useLayoutEffect(() => { finishRef.current = finishReady ? run : null; finishListener.current = onFinishReady })
   const finish = useCallback(() => finishRef.current?.(), [])
@@ -244,7 +247,7 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
     <div className="asset-section-heading"><Mountain size={17}/><h2>{split ? taskLabels[tool] : '室外制作'}</h2></div>
     {split && <p className="asset-muted">目标图层 · {scene.userLayers[layerId]?.name ?? '未选择'}。预览后确认采用。</p>}
     {tool === 'terrain' && onOceanPreview && <OceanCreateTools scene={scene} layerId={layerId} disabled={disabled} onPreview={onOceanPreview}/>}
-    <fieldset disabled={disabled}>
+    <fieldset disabled={disabled || !!sketch?.automaticRoad}>
       {!split && <label>制作工具<select aria-label="室外制作工具" value={tool} onChange={event => chooseTask(event.target.value as OutdoorTask)}>{Object.entries(taskLabels).filter(([value]) => value !== 'styles' || onStylePreview).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
       {tool === 'styles' && onStylePreview ? <PathStylesPanel key={scene.revision} scene={scene} disabled={disabled} onPublish={onStylePreview} onReplace={onPreview}/>
         : assemblyTool ? <>
@@ -294,6 +297,10 @@ export default function OutdoorToolsPanel({ scene, layerId, disabled, sketch, on
         <small>先创建组，再选中组预览生成。完整结果与人工记录随工程保存；一次最多修改256个独立对象，几何和资源另行检查。</small>
       </>}
       {tool === 'path' && <>
+        {scene.mapMode === 'scene' && onAutomaticRoad && <div className="workspace-form-actions">
+          <button type="button" className="secondary asset-wide" disabled={!!sketch || !Number.isSafeInteger(Number(width)) || Number(width) <= 0} onClick={() => onAutomaticRoad({ floorId, widthMm: Number(width), visibility, ...(excavateRoad ? {} : { materialRef: materialRef(roadMaterialId) }) })}><Route size={15}/>在画布自动选路</button>
+          <small>点选起终点，按实际坡度生成路线与土阶。拖动转弯可以固定途经点。</small>
+        </div>}
         <label className="composition-check"><input type="checkbox" checked={automaticRoadSupport} onChange={event => setAutomaticRoadSupport(event.target.checked)}/>拖画时按起点选择支撑面</label>
         {!excavateRoad && <label className="composition-check"><input type="checkbox" checked={automaticRoadWidth} onChange={event => setAutomaticRoadWidth(event.target.checked)}/>遇到窄地形时允许收窄默认宽度</label>}
         <label className="composition-check"><input type="checkbox" checked={smoothRoad} onChange={event => { setSmoothRoad(event.target.checked); setRoadReview(null) }}/>自动圆滑道路</label>

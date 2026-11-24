@@ -3,8 +3,9 @@ import type { Prop, SceneDocument, SurfaceRef } from '../../shared/model/scene'
 import { NumberInput } from '../native-canvas/controls'
 import { formatDistanceMm } from '../native-canvas/building-session'
 
-export default function PlacementInspector({ scene, prop, busy, ready, onChange, onPlace, onCancel }: {
-  scene: SceneDocument; prop: Prop; busy: boolean; ready: boolean; onChange: (changes: Partial<Pick<Prop, 'positionMm' | 'rotationDeg' | 'supportRef'>>) => void; onPlace: () => void; onCancel: () => void
+export default function PlacementInspector({ scene, prop, automatic, busy, ready, onChange, onSurface, onPlace, onCancel }: {
+  scene: SceneDocument; prop: Prop; automatic: boolean; busy: boolean; ready: boolean; onChange: (changes: Partial<Pick<Prop, 'positionMm' | 'rotationDeg'>>) => void
+  onSurface: (surface?: SurfaceRef) => void; onPlace: () => void; onCancel: () => void
 }) {
   const definition = prop.definitionRef && scene.propDefinitions[prop.definitionRef.id]
   const surfaces: { ref: SurfaceRef; label: string }[] = [
@@ -18,10 +19,11 @@ export default function PlacementInspector({ scene, prop, busy, ready, onChange,
       <div className="workspace-field-pair" role="group" aria-label="放置位置"><NumberInput displayUnit={scene.units.display} label="放置 X" value={prop.positionMm.x} onCommit={x => onChange({ positionMm: { ...prop.positionMm, x } })}/>
       <NumberInput displayUnit={scene.units.display} label="放置 Y" value={prop.positionMm.y} onCommit={y => onChange({ positionMm: { ...prop.positionMm, y } })}/></div>
       <NumberInput label="放置旋转" value={prop.rotationDeg} unit="°" onCommit={rotationDeg => onChange({ rotationDeg })}/>
-      <label className="asset-select">放置表面<select aria-label="放置表面" value={`${prop.supportRef.kind}:${prop.supportRef.id}`} onChange={event => {
+      <label className="asset-select">放置表面<select aria-label="放置表面" value={automatic ? '' : `${prop.supportRef.kind}:${prop.supportRef.id}`} onChange={event => {
         const surface = surfaces.find(value => `${value.ref.kind}:${value.ref.id}` === event.target.value)
-        if (surface) onChange({ supportRef: surface.ref })
-      }}>{surfaces.map(surface => <option key={`${surface.ref.kind}:${surface.ref.id}`} value={`${surface.ref.kind}:${surface.ref.id}`}>{surface.label}</option>)}</select></label>
+        onSurface(surface?.ref)
+      }}><option value="">自动判断房间</option>{surfaces.map(surface => <option key={`${surface.ref.kind}:${surface.ref.id}`} value={`${surface.ref.kind}:${surface.ref.id}`}>{surface.label}</option>)}</select></label>
+      {automatic && <p className="asset-muted">放置到{surfaces.find(surface => surface.ref.kind === prop.supportRef.kind && surface.ref.id === prop.supportRef.id)?.label}</p>}
       <button className="primary asset-wide" disabled={!ready} onClick={onPlace}>在此放置</button>
       {!ready && <p className="asset-muted" role="status">正在检查并解码待放置素材…</p>}
     </fieldset>

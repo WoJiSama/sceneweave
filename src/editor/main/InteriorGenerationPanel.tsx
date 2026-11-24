@@ -1,5 +1,6 @@
 import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useRef, useState } from 'react'
+import type { SizeMm } from '../../shared/model/scene'
 import type { InteriorPreview } from '../../application/workspace/workspace'
 import type { InteriorLayoutParameters } from '../../shared/generation/domains/interior/contracts'
 import './terrain-generation.css'
@@ -8,20 +9,20 @@ import './interior-generation.css'
 import type { InteriorGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 export type { InteriorGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 const initialRooms = (): InteriorLayoutParameters['rooms'] => [
-  { id: 'room-1', purpose: '公共室', minAreaMm2: 8_000_000, maxAreaMm2: 80_000_000, minClearSideMm: 2000 },
-  { id: 'room-2', purpose: '储藏室', minAreaMm2: 8_000_000, maxAreaMm2: 80_000_000, minClearSideMm: 2000 },
+  { id: 'room-1', purpose: '公共室', minAreaMm2: 0, maxAreaMm2: 0, minClearSideMm: 0 },
+  { id: 'room-2', purpose: '储藏室', minAreaMm2: 0, maxAreaMm2: 0, minClearSideMm: 0 },
 ]
 const mm = (metres: string) => Math.round(Number(metres) * 1000)
 const squareMm = (metres: string) => Math.round(Number(metres) * 1_000_000)
 
 /** Business parameters only. The host owns immutable candidates and saving. */
-export default function InteriorGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange }: {
-  busy: boolean; disabled: boolean; error: string | null; candidate: InteriorPreview | null; dirty: boolean
+export default function InteriorGenerationPanel({ busy, disabled, error, candidate, dirty, canvasSize, onGenerate, onAdopt, onCancel, onChange }: {
+  busy: boolean; disabled: boolean; error: string | null; candidate: InteriorPreview | null; dirty: boolean; canvasSize?: SizeMm
   onGenerate: (input: InteriorGenerationUiRequest) => void | Promise<void>
   onAdopt: () => void | Promise<void>; onCancel: () => void; onChange: () => void
 }) {
   const [title, setTitle] = useState('室内布局'), [seed, setSeed] = useState('interior-1')
-  const [widthMm, setWidthMm] = useState(12000), [heightMm, setHeightMm] = useState(8000), [wallThicknessMm, setWallThicknessMm] = useState(200)
+  const [standaloneWidth, setWidthMm] = useState(12000), [standaloneHeight, setHeightMm] = useState(8000), [wallThicknessMm, setWallThicknessMm] = useState(200)
   const [rooms, setRooms] = useState(initialRooms), [relations, setRelations] = useState<InteriorLayoutParameters['relations']>([])
   const [corridor, setCorridor] = useState<InteriorLayoutParameters['corridor']>({ axis: 'none', clearWidthMm: 1500 })
   const [arrangement, setArrangement] = useState<InteriorGenerationUiRequest['arrangement']>({ doors: true, entrance: true, furniture: true, doorWidthMm: 1100, clearWidthMm: 900 })
@@ -31,17 +32,31 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
   const change = (apply: () => void) => { if (locked) return; onChange(); apply() }
   const updateRoom = (id: string, patch: Partial<InteriorLayoutParameters['rooms'][number]>) => change(() => setRooms(current => current.map(room => room.id === id ? { ...room, ...patch } : room)))
   const updateRelation = (index: number, patch: Partial<InteriorLayoutParameters['relations'][number]>) => change(() => setRelations(current => current.map((relation, at) => at === index ? { ...relation, ...patch } : relation)))
+  const widthMm = canvasSize?.width ?? standaloneWidth, heightMm = canvasSize?.height ?? standaloneHeight
+  const wallInset = 2 * Math.ceil(wallThicknessMm / 2) + wallThicknessMm
+  const innerWidth = widthMm - wallInset, innerHeight = heightMm - wallInset
+  const usableArea = Math.max(1, innerWidth * innerHeight)
+  const roomRequirements = rooms.map(room => ({ ...room, purpose: room.purpose.trim(),
+    minAreaMm2: room.minAreaMm2 || Math.min(8_000_000, Math.max(1, Math.floor(usableArea / (rooms.length * 3)))),
+    maxAreaMm2: room.maxAreaMm2 || usableArea,
+    minClearSideMm: room.minClearSideMm || Math.max(1, Math.min(2000, Math.floor(Math.min(innerWidth, innerHeight) / Math.sqrt(rooms.length)))),
+  }))
   const cleanSeed = seed.trim(), cleanTitle = title.trim()
   const validationReason = (() => {
     if (!cleanTitle || cleanTitle.length > 120) return '请填写工程名称，最多120个字符。'
     if (!cleanSeed || cleanSeed.length > 128) return '请填写生成种子，最多128个字符。'
     if (![widthMm, heightMm].every(value => Number.isSafeInteger(value) && value >= 1000 && value <= 200000)) return '建筑宽和高须为1–200米，请调整建筑尺寸。'
     if (!(Number.isSafeInteger(wallThicknessMm) && wallThicknessMm > 0 && wallThicknessMm <= 2000)) return '墙厚须大于0且不超过200厘米，请调整墙厚。'
-    for (const [index, room] of rooms.entries()) {
+    for (const [index, room] of roomRequirements.entries()) {
       if (!room.purpose.trim() || room.purpose.length > 120) return `请填写房间${index + 1}的用途，最多120个字符。`
       if (![room.minAreaMm2, room.maxAreaMm2].every(value => Number.isSafeInteger(value) && value > 0)) return `房间${index + 1}的最小、最大净面积须大于0，请调整面积要求。`
       if (!(Number.isSafeInteger(room.minClearSideMm) && room.minClearSideMm > 0)) return `房间${index + 1}的最小净边长须大于0，请调整净边长。`
       if (room.maxAreaMm2 < room.minAreaMm2) return `房间${index + 1}的最大净面积小于最小净面积，请调整其中一个面积要求。`
+    }
+    if (roomRequirements.reduce((total, room) => total + room.minAreaMm2, 0) > usableArea
+      || roomRequirements.some(room => room.minClearSideMm > Math.min(innerWidth, innerHeight))) return '可用净空间不足。请扩大占地，或降低房间的最小净面积和净边长。'
+    if (roomRequirements.length === 1 && corridor.axis === 'none' && roomRequirements[0].maxAreaMm2 < usableArea) {
+      return `单间将占满所选范围（净面积 ${(usableArea / 1_000_000).toFixed(1)} 平方米）。请缩小占地或提高房间最大净面积。`
     }
     for (const [index, relation] of relations.entries()) {
       if (relation.a === relation.b) return `关系${index + 1}选择了同一个房间，请选择两个不同房间。`
@@ -57,31 +72,45 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
   const cancelAction = <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消室内布局</button>
   return <section className="terrain-generation-panel interior-generation-panel" aria-label="室内布局生成">
     <h2>室内布局</h2>
-    <p>按房间面积、净边长和相邻关系安排房间。候选包含真实房间与共享墙，可保存后继续编辑。</p>
-    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">首次生成会按用途、大小与实际空间建议门和家具，并核对通路净空。未完成的建议会说明原因；保存后可自由修改、删除，不会自动补回。</p></details>
+    <p>填写各房间的用途，查看自动安排的平面。</p>
+    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">首次生成按房间用途选石板或木板，再按实际空间建议门和家具并检查通路净空。候选详情会说明布置缺项，保存后可继续编辑。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
-    <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, wallThicknessMm, rooms: rooms.map(room => ({ ...room, purpose: room.purpose.trim() })), relations, corridor, arrangement }) }}>
+    <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, wallThicknessMm, rooms: roomRequirements, relations, corridor, arrangement }) }}>
       <fieldset disabled={locked}>
-        <legend>建筑与房间要求</legend>
-        <label>工程名称<input aria-label="室内工程名称" value={title} maxLength={120} onChange={event => change(() => setTitle(event.target.value))}/></label>
+        {!canvasSize && <>        <label>工程名称<input aria-label="室内工程名称" value={title} maxLength={120} onChange={event => change(() => setTitle(event.target.value))}/></label>
         <div className="interior-field-pair">
           <label>建筑宽（米）<input aria-label="室内建筑宽米" type="number" min="1" max="200" step="0.1" value={widthMm / 1000} onChange={event => change(() => setWidthMm(mm(event.target.value)))}/></label>
           <label>建筑高（米）<input aria-label="室内建筑高米" type="number" min="1" max="200" step="0.1" value={heightMm / 1000} onChange={event => change(() => setHeightMm(mm(event.target.value)))}/></label>
         </div>
+</>}
+        <div className="interior-common-fields">
+          <h3>房间 · {rooms.length}</h3>
+          {rooms.map((room, index) => <div className="interior-room-purpose" key={room.id}>
+            <label>房间 {index + 1} 用途<input aria-label={`房间${index + 1}用途`} value={room.purpose} maxLength={120} onChange={event => updateRoom(room.id, { purpose: event.target.value })}/></label>
+            <button className="secondary" type="button" disabled={rooms.length <= 1} onClick={() => change(() => {
+              setRooms(current => current.filter(item => item.id !== room.id))
+              setRelations(current => current.filter(item => item.a !== room.id && item.b !== room.id))
+              if (arrangement.entranceRoomRequirementId === room.id) {
+                const { entranceRoomRequirementId: _removed, ...rest } = arrangement
+                setArrangement(rest)
+              }
+            })}>移除房间 {index + 1}</button>
+          </div>)}
+          <button className="secondary asset-wide" type="button" disabled={rooms.length >= 24} onClick={() => change(() => { const id = `room-${nextRoom.current++}`; setRooms(current => [...current, { id, purpose: `房间 ${current.length + 1}`, minAreaMm2: 0, maxAreaMm2: 0, minClearSideMm: 0 }]) })}>增加房间</button>
+        </div>
+        <details className="interior-settings">
+          <summary>详细设置 · 面积、走廊与布置</summary>
         <label>墙厚（厘米）<input aria-label="室内墙厚厘米" type="number" min="0.1" max="200" step="0.1" value={wallThicknessMm / 10} onChange={event => change(() => setWallThicknessMm(Math.round(Number(event.target.value) * 10)))}/></label>
         <label>生成种子<input aria-label="室内生成种子" value={seed} maxLength={128} onChange={event => change(() => setSeed(event.target.value))}/></label>
-        <h3>房间 · {rooms.length}</h3>
-        {rooms.map((room, index) => <fieldset className="interior-room-requirement" key={room.id}>
-          <legend>房间 {index + 1}</legend>
-          <label>用途<input aria-label={`房间${index + 1}用途`} value={room.purpose} maxLength={120} onChange={event => updateRoom(room.id, { purpose: event.target.value })}/></label>
+
+          {rooms.map((room, index) => <fieldset className="interior-room-requirement" key={room.id}>
+            <legend>房间 {index + 1} 净尺寸</legend>
           <div className="interior-field-pair">
-            <label>最小净面积（平方米）<input aria-label={`房间${index + 1}最小面积`} type="number" min="0.1" step="0.1" value={room.minAreaMm2 / 1_000_000} onChange={event => updateRoom(room.id, { minAreaMm2: squareMm(event.target.value) })}/></label>
-            <label>最大净面积（平方米）<input aria-label={`房间${index + 1}最大面积`} type="number" min="0.1" step="0.1" value={room.maxAreaMm2 / 1_000_000} onChange={event => updateRoom(room.id, { maxAreaMm2: squareMm(event.target.value) })}/></label>
+            <label>最小净面积（平方米）<input aria-label={`房间${index + 1}最小面积`} type="number" min="0.1" step="0.1" placeholder={String(roomRequirements[index].minAreaMm2 / 1_000_000)} value={room.minAreaMm2 ? room.minAreaMm2 / 1_000_000 : ''} onChange={event => updateRoom(room.id, { minAreaMm2: squareMm(event.target.value) })}/></label>
+            <label>最大净面积（平方米）<input aria-label={`房间${index + 1}最大面积`} type="number" min="0.1" step="0.1" placeholder={String(roomRequirements[index].maxAreaMm2 / 1_000_000)} value={room.maxAreaMm2 ? room.maxAreaMm2 / 1_000_000 : ''} onChange={event => updateRoom(room.id, { maxAreaMm2: squareMm(event.target.value) })}/></label>
           </div>
-          <label>最小净边长（米）<input aria-label={`房间${index + 1}最小净边长`} type="number" min="0.1" step="0.1" value={room.minClearSideMm / 1000} onChange={event => updateRoom(room.id, { minClearSideMm: mm(event.target.value) })}/></label>
-          <button className="secondary" type="button" disabled={rooms.length <= 1} onClick={() => change(() => { setRooms(current => current.filter(item => item.id !== room.id)); setRelations(current => current.filter(item => item.a !== room.id && item.b !== room.id)); setArrangement(current => { if (current.entranceRoomRequirementId !== room.id) return current; const { entranceRoomRequirementId: _removed, ...rest } = current; return rest }) })}>移除房间 {index + 1}</button>
-        </fieldset>)}
-        <button className="secondary asset-wide" type="button" disabled={rooms.length >= 24} onClick={() => change(() => { const id = `room-${nextRoom.current++}`; setRooms(current => [...current, { id, purpose: `房间 ${current.length + 1}`, minAreaMm2: 8_000_000, maxAreaMm2: 80_000_000, minClearSideMm: 2000 }]) })}>增加房间</button>
+          <label>最小净边长（米）<input aria-label={`房间${index + 1}最小净边长`} type="number" min="0.1" step="0.1" placeholder={String(roomRequirements[index].minClearSideMm / 1000)} value={room.minClearSideMm ? room.minClearSideMm / 1000 : ''} onChange={event => updateRoom(room.id, { minClearSideMm: mm(event.target.value) })}/></label>
+          </fieldset>)}
         <h3>房间关系</h3>
         {!relations.length && <p className="asset-muted">未指定关系时，按面积与净边长安排。</p>}
         {relations.map((relation, index) => <fieldset key={index} className="interior-room-requirement"><legend>关系 {index + 1}</legend>
@@ -103,8 +132,11 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
           <label>建议通路净宽（米）<input aria-label="室内建议通路净宽米" type="number" min="0.1" max="5" step="0.1" value={arrangement.clearWidthMm / 1000} onChange={event => change(() => setArrangement(current => ({ ...current, clearWidthMm: mm(event.target.value) })))}/></label>
           <p className="asset-muted">空间不足时保留合法布局并列出未完成建议。生成后的编辑不会强制维持这些建议。</p>
         </fieldset>
+        </details>
+        <div className="interior-submit">
         {!candidate && validationReason && <p id={validationId} className="asset-form-error" role="status">{validationReason}</p>}
         <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备室内布局…' : '预览室内布局'}</button>
+        </div>
       </fieldset>
     </form>
     {!candidate && feedback}
@@ -117,8 +149,7 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
       <p className="asset-muted">门、家具及通路检查反映本次生成结果。保存后可继续删改，系统不会自动恢复被删除的内容。</p>
       </div>
       <div className="workspace-review-actions">
-      <button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存为新工程</button>
-        {cancelAction}
+      {!canvasSize && <><button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存为新工程</button>{cancelAction}</>}
       </div>
     </div></div></WorkspaceReview>}
     {!candidate && (dirty || busy) && cancelAction}

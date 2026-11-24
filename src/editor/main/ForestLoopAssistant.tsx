@@ -123,7 +123,7 @@ export default function ForestLoopAssistant({ connection, request, unavailableRe
   const waiting = outcome?.decisions.at(-1)?.action === null && (canContinue || outcome.unknown)
   return <details className="workspace-detail-disclosure" aria-label="林中建筑自动候选闭环">
     <summary>让模型比较候选并调整</summary>
-    <p>模型比较逐房家具目标、实际数量和摆位受阻原因。你可以查看完整候选，再决定保存为新工程。</p>
+    <p>自动候选使用同一套地表、路线和房间铺装。模型比较家具需求与实际摆位。看完候选后可关闭生成窗口，到画布审阅并保存为独立工程。</p>
     {!connection && <p className="asset-muted">开始或继续模型决策前，请在「AI」连接后端。</p>}
     {connection && saved && !sameEndpoint && <p role="status">请连接本轮使用的 AI 后端 {saved.endpoint}。</p>}
     {saved === undefined && !storeError && <p role="status">正在读取本机断点…</p>}

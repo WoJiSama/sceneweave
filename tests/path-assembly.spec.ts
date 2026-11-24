@@ -694,7 +694,7 @@ test('reroutes a woodland palisade with a usable opening and preserves hand plac
 
   await openWorkspaceModule(page, '素材')
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
-  await library.getByLabel('素材来源', { exact: true }).selectOption('project')
+  await library.getByLabel('素材来源', { exact: true }).selectOption('starter')
   await library.getByLabel('搜索组件素材', { exact: true }).fill('阔叶树冠')
   for (const [x, y] of [['2.5', '2.6'], ['15.5', '2.9'], ['2.5', '11.4']]) {
     await library.getByRole('button', { name: '放置组件 阔叶树冠', exact: true }).click()
@@ -702,7 +702,7 @@ test('reroutes a woodland palisade with a usable opening and preserves hand plac
     await size(placement, '放置 X', x)
     await size(placement, '放置 Y', y)
     const support = placement.getByLabel('放置表面', { exact: true })
-    const meadow = await support.locator('option[value^="terrainArea:"]').getAttribute('value')
+    const meadow = await support.locator('option[value^="terrainArea:"]:not([value^="terrainArea:canvas-ground-"])').getAttribute('value')
     await support.selectOption(meadow!)
     const place = placement.getByRole('button', { name: '在此放置', exact: true })
     await place.click()

@@ -8,6 +8,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { unzipSync, zipSync } from 'fflate'
 import { applyCompositionCommands } from '../src/shared/appearance/commands'
 import type { CompositionCommand } from '../src/shared/appearance/commands'
+import { canvasGroundId } from '../src/shared/model/canvas-ground'
 import type { ProjectManifest } from '../src/shared/project/file'
 import { canonicalJson } from '../src/shared/validation/json'
 import { validateSceneDocument } from '../src/shared/validation/scene'
@@ -86,7 +87,12 @@ test('paired secret mutations and same-XY other-Floor effects cannot change Floo
   const definition = Object.values(source.document.propDefinitions).find(row => row.catalogId === 'prop.sw.desk-oak')!
   expect(definition).toBeDefined()
   const reference = { id: definition.id, version: definition.version }
-  const transparent = prepare(content(source), [{ type: 'setSceneBackground', background: { mode: 'transparent' } }])
+  const blankGround = canvasGroundId(a)
+  // The transparency check needs an unpainted corner outside all scene content.
+  const base = source.document.terrainAreas[blankGround]
+    ? prepare(content(source), [{ type: 'deleteOutdoorEntity', kind: 'terrainArea', id: blankGround }])
+    : content(source)
+  const transparent = prepare(base, [{ type: 'setSceneBackground', background: { mode: 'transparent' } }])
   const initial = prepare(transparent, [
     { type: 'createFloor', id: b, name: 'SECRET_FLOOR_NAME_DO_NOT_EXPORT', boundsMm: { x: 0, y: 0, width: 14000, height: 10000 }, outputBoundsMm: { x: 500, y: 500, width: 12000, height: 9000 }, newLayerId: bLayer, layerName: '第二层' },
     { type: 'setFloorEnvironment', id: a, environment },

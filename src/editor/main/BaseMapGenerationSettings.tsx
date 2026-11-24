@@ -47,7 +47,7 @@ export default function BaseMapGenerationSettings({ value, disabled, onChange }:
         ? '此配方保存连续材质覆盖与区域植物簇；生成前校验素材、许可和预算。'
         : value.surfacePalette === 'highland-v7'
           ? '高台树冠规则、受约束候选搜索与岩阶/崖缘视觉采用独立配方版本；v6 固定结果保持可重放。'
-          : '岸岩层次保存完整岸带覆盖。'}</p>}
+          : '岸岩层次下的海岸会生成岬角、潮湾、起伏岩脊和完整岸带覆盖。'}</p>}
     </details>
     {value.mode === 'server' && <>
       <label>后端地址<input aria-label="程序底图后端地址" type="url" placeholder="https://your-server.example" value={value.baseUrl} disabled={disabled}

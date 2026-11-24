@@ -8,10 +8,11 @@ import { recommendInteriorFurniture } from '../../shared/generation/domains/inte
 import { roomPoints } from '../../shared/geometry/geometry'
 import { furnishingPaletteDocument, furnishingPaletteProject } from '../../platform/browser/content/furnishing-palette'
 import RoomFurnishingReview from './RoomFurnishingReview'
+import type { StarterCatalog } from './use-starter-catalog'
 
 const eraNames = { medieval: '中世纪', fantasy: '西幻', '1920s': '1920年代' }
-export default function RoomFurnishingPanel({ project, ids, floorId, layerId, disabled, onDraftChange, onPreview }: {
-  project: EditableProject; ids: readonly string[]; floorId: string; layerId: string; disabled: boolean
+export default function RoomFurnishingPanel({ project, starter, ids, floorId, layerId, disabled, onDraftChange, onPreview }: {
+  project: EditableProject; starter?: StarterCatalog; ids: readonly string[]; floorId: string; layerId: string; disabled: boolean
   onDraftChange: (dirty: boolean) => void
   onPreview: (rows: readonly StyledRoomFurnishing[], signal: AbortSignal) => Promise<Review>
 }) {
@@ -26,7 +27,8 @@ export default function RoomFurnishingPanel({ project, ids, floorId, layerId, di
   const active = useRef<AbortController | null>(null), urls = useRef<string[]>([])
   const catalog = useMemo(() => furnishingPaletteDocument(palette), [palette.source, palette.era, palette.styleId, palette.allowMixed])
   const room = scene.rooms[roomId], props = roomFurnishingProps(scene, roomId)
-  const available = { ...catalog?.propDefinitions, ...scene.propDefinitions }, candidates = Object.values(available)
+  const currentDefinitions = useMemo(() => starter?.toolChoices(scene).propDefinitions ?? scene.propDefinitions, [starter, scene])
+  const available = { ...catalog?.propDefinitions, ...(palette.source === 'current' ? currentDefinitions : scene.propDefinitions) }, candidates = Object.values(available)
   // Rebuild from this render's actual definitions and palette. Sharing these
   // derived lists across roles avoids repeating catalog scans without caching
   // mutable project data or changing explicit cross-style selections.
@@ -95,7 +97,9 @@ export default function RoomFurnishingPanel({ project, ids, floorId, layerId, di
       for (const definition of selected.filter(row => furnishingPaletteMatches(row, palette))) {
         const appearance = definition.defaultAppearance
         if (appearance.kind !== 'image') continue
-        const source = scene.assets[appearance.assetId] ? project : provider, asset = source.document.assets[appearance.assetId]
+        const source = scene.assets[appearance.assetId] ? project : palette.source === 'current' && starter
+          ? await starter.loadItem({ kind: 'prop', definitionId: definition.id }, signal) : provider
+        const asset = source.document.assets[appearance.assetId]
         if (!asset) continue
         const bytes = await source.resources.read(asset.sha256); signal.throwIfAborted()
         const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: asset.mimeType })); created.push(url); next[definition.id] = url

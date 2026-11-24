@@ -1,6 +1,7 @@
 import type { BoundsMm, PointMm, SurfaceRef } from '../../shared/model/scene.js'
 import type { RoadDrawingSettings, RoadStrokeSettings } from './road-sketch'
 import type { ExtensionWall } from './room-extension'
+import type { AutomaticRoadCanvas } from './AutomaticRoadOverlay'
 
 export type BuildingSketch = { kind: 'rectangle' | 'polygon' | 'orthogonal' | 'ruler'; points: PointMm[]; cursor: PointMm | null }
 export type CanvasWorldTool = Omit<BuildingSketch, 'kind'> & {
@@ -9,6 +10,7 @@ export type CanvasWorldTool = Omit<BuildingSketch, 'kind'> & {
   snapMm: number
   road?: RoadDrawingSettings
   roadStroke?: { settings: RoadStrokeSettings; onEnd: (points: PointMm[], supportRefs: SurfaceRef[]) => void }
+  automaticRoad?: AutomaticRoadCanvas
   elevation?: { mode: 'elevate' | 'sample'; scopeMm?: PointMm[]; onStep: (direction: -1 | 1) => void }
   template?: { polygons: PointMm[][]; issues: string[]; onRotate: () => void }
   roomExtension?: { walls: ExtensionWall[]; selectedId?: string; depthMm: number; chooseWall: (point: PointMm, toleranceMm: number) => boolean }

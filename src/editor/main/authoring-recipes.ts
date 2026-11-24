@@ -2,6 +2,8 @@ import { runtime } from './runtime'
 import { openingEndpoints, roomPoints } from '../../shared/geometry/geometry'
 import type { BoundsMm, PointMm, SurfaceRef, SurfaceStyle, VersionRef } from '../../shared/model/scene'
 import { LAYER_ENTITY_COLLECTIONS, type PropDefinition, type SceneDocument } from '../../shared/model/scene'
+import { canvasGroundId, isFloorSizedCanvasGround } from '../../shared/model/canvas-ground'
+import { canonicalJson } from '../../shared/validation/json'
 import { isOutdoorCommand } from '../../shared/commands/outdoor'
 import { applyCompositionCommands } from '../../shared/appearance/commands'
 import type { CompositionCommand } from '../../shared/model/appearance'
@@ -43,6 +45,15 @@ const HOUSE_EXPORT: BoundsMm = { x: -500, y: -500, width: 19000, height: 15000 }
 const HOUSE_FLOOR: BoundsMm = { x: -2000, y: -2000, width: 22000, height: 18000 }
 const OUTPOST_BOUNDS: BoundsMm = { x: 0, y: 0, width: 36000, height: 28000 }
 export const AUTHORING_INTERIOR_CATALOG_IDS = ['coat-rack', 'bench', 'hearth', 'worktable', 'sideboard', 'bed-single', 'wardrobe'].map(key => `prop.sw.${key}`)
+const recipeCatalogIds: Record<AuthoringRecipeId, string[]> = {
+  'scn-01': [...AUTHORING_INTERIOR_CATALOG_IDS, 'prop.sw.supply-rack', 'prop.sw.crate', 'prop.sw.bookshelf',
+    'material.sw.wood-dark', 'prefab.sw.terrace-table', 'prefab.sw.study-desk'],
+  'scn-04': [
+    ...['water-deep', 'grass', 'rock', 'cliff-rock', 'wood-dark', 'stone-paver', 'dirt-gravel'].map(key => `material.sw.${key}`),
+    ...['bookshelf', 'crate', 'supply-rack', 'campfire', 'lamp-stand', 'tree-broadleaf', 'tree-sparse', 'shrub-round', 'shrub-dry', 'rock-small', 'rock-small-worn'].map(key => `prop.sw.${key}`),
+    'prefab.sw.study-desk', 'prefab.sw.outpost-supplies',
+  ],
+}
 const compositionTypes = new Set(['instantiatePrefab', 'createPrefab', 'duplicatePrefab', 'deletePrefab', 'detachPrefabMember', 'resetPrefabMember', 'setAppearanceSource', 'setAppearanceAdjustment', 'toggleAppearanceAdjustment', 'removeAppearanceAdjustment'])
 /** Select the existing preview surface, preserving its actual dependency review. */
 export function authoringStageKind(commands: readonly CompositionCommand[]): 'building' | 'outdoor' | 'composition' | 'display' {
@@ -108,6 +119,10 @@ function buildStages(project: EditableProject, recipe: AuthoringRecipeId): Stage
   const stages: Stage[] = [], house = recipe === 'scn-01', expectedBounds = house ? HOUSE_EXPORT : OUTPOST_BOUNDS, floorBounds = house ? HOUSE_FLOOR : OUTPOST_BOUNDS
   const prefix = house ? 'house' : 'outpost'
   const existingGeometry = entityIds(scene)
+  const ground = scene.terrainAreas[canvasGroundId(floorId)]
+  if (ground?.surfaceStyle && scene.materials[OUTPOST_CATALOG.dirt] && isFloorSizedCanvasGround(ground, floors[0])
+    && !ground.editLocked && ground.movementCostMultiplier === 1
+    && canonicalJson(ground.surfaceStyle) === canonicalJson(materialStyle(scene, OUTPOST_CATALOG.dirt))) existingGeometry.delete(ground.id)
   const hasRecipeStart = house ? !!scene.rooms.H1 : !!scene.terrainAreas[OUTPOST_IDS.water]
   if (existingGeometry.size && !hasRecipeStart) throw new Error('该工程已有其他几何，且未匹配本基线起点。请新建独立空白工程；引导不会把新场景叠加到现存工程。')
   const stage = (value: Stage) => stages.push(value)
@@ -116,7 +131,7 @@ function buildStages(project: EditableProject, recipe: AuthoringRecipeId): Stage
     instructions: [`世界范围 ${coordinates(rect(floorBounds.x, floorBounds.y, floorBounds.width, floorBounds.height))} mm。`, `固定导出范围 ${coordinates(rect(expectedBounds.x, expectedBounds.y, expectedBounds.width, expectedBounds.height))} mm；导出范围不随秘密变化。`],
     done: () => equal(scene.floors[floorId].boundsMm, floorBounds) && equal(scene.exportBoundsMm, expectedBounds),
     make: () => {
-      if (entityIds(scene).size) throw new Error('起始范围尚未匹配且工程已有几何，不能用引导覆盖现存内容。请新建空白工程，或自行明确调整范围。')
+      if (existingGeometry.size) throw new Error('起始范围尚未匹配且工程已有几何，不能用引导覆盖现存内容。请新建空白工程，或自行明确调整范围。')
       return [{ type: 'setCanvasBounds', floorId, floorBoundsMm: { ...floorBounds }, exportBoundsMm: { ...expectedBounds } }]
     } })
   const propCommand = (id: string, key: string, positionMm: PointMm, supportRef: SurfaceRef, rotationDeg = 0): CompositionCommand => {
@@ -289,8 +304,9 @@ function buildStages(project: EditableProject, recipe: AuthoringRecipeId): Stage
 /** Derives progress entirely from current scene content. No wizard state, sample
  * loading, document replacement, automatic adoption or hidden persistence. */
 export function buildAuthoringPlan(project: EditableProject, id: AuthoringRecipeId): AuthoringPlan {
-  const scene = project.document, requiredCatalogIds = id === 'scn-01' ? [...AUTHORING_INTERIOR_CATALOG_IDS] : []
-  const missingCatalogIds = requiredCatalogIds.filter(catalogId => !Object.values(scene.propDefinitions).some(definition => definition.catalogId === catalogId && definition.version === 1))
+  const scene = project.document, requiredCatalogIds = [...recipeCatalogIds[id]]
+  const fixed = [...Object.values(scene.materials), ...Object.values(scene.propDefinitions), ...Object.values(scene.prefabDefinitions)]
+  const missingCatalogIds = requiredCatalogIds.filter(catalogId => !fixed.some(definition => definition.catalogId === catalogId && definition.version === 1))
   const result: AuthoringPlan = { id, title: id === 'scn-01' ? 'SCN-01 雾灯宅 · 分步制作' : 'SCN-04 海岸哨所 · 分步制作', stages: [], requiredCatalogIds, missingCatalogIds,
     limitations: ['每一步只准备普通有限编辑指令；检查预览后由你采用，一次采用可以撤销。', '进度依据当前真实实体判断；局部完成、同ID冲突或改离基线会明确停下，不覆盖现存编辑。', '这是创作辅助流程。全图占地寻路、独立无引导手工、完整回归、P3美术签收与真实小团验收须另行记录。'] }
   try {

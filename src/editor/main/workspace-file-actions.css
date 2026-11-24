@@ -2,6 +2,11 @@
   position: relative;
 }
 
+.workspace-unified .workspace-download-button {
+  flex: none;
+  padding: 6px 9px;
+}
+
 .workspace-unified .asset-header-actions > :is(.workspace-file-menu, .workspace-export-menu, .workspace-help) {
   position: static;
   flex: none;
@@ -105,6 +110,11 @@
 }
 
 @media (max-width: 760px) {
+  .workspace-unified .asset-header:has(> .workspace-download-button) {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+  .workspace-unified .workspace-download-button { min-height: 32px; padding: 4px 6px; font-size: 11px; }
+
   .workspace-unified .workspace-save-recovery {
     gap: 6px;
     padding: 8px 12px;

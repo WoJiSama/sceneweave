@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { SceneDocument } from '../../shared/model/scene'
-import type { AppearanceGraph } from '../../shared/model/appearance'
+import type { EditableProject } from '../../application/workspace/project'
 import type { SceneCommand } from '../../shared/commands/commands'
 import { buildVegetationCompositionPlan, VEGETATION_COMPOSITION_CHANNELS, type VegetationCompositionChannel, type VegetationCompositionRequest } from '../../shared/vegetation/composition-plan'
 import OutdoorCoordinates from './OutdoorCoordinates'
@@ -11,9 +11,13 @@ import { createEntityLabeler } from './entity-label'
 
 const labels: Record<VegetationCompositionChannel, string> = { mainTrees: '主树群', secondaryTrees: '次树与林缘', shrubs: '灌木与蕨', grass: '草簇' }
 const initialCells = { mainTrees: 3200, secondaryTrees: 4200, shrubs: 2400, grass: 1800 }
-export default function VegetationCompositionTools({ scene, appearance, layerId, disabled, onPreview, onDraftChange }: {
-  scene: SceneDocument; appearance: AppearanceGraph; layerId: string; disabled: boolean
-  onPreview: (commands: SceneCommand[], label: string) => void; onDraftChange: () => void
+export interface VegetationPreview {
+  definitionIds: string[]
+  build: (project: EditableProject, signal: AbortSignal) => { commands: SceneCommand[]; description: string }
+}
+export default function VegetationCompositionTools({ scene, layerId, disabled, onPreview, onDraftChange }: {
+  scene: SceneDocument; layerId: string; disabled: boolean
+  onPreview: (plan: VegetationPreview) => void; onDraftChange: () => void
 }) {
   const floorId = scene.userLayers[layerId]?.floorId, name = createEntityLabeler(scene)
   const [areaId, setAreaId] = useState(''), [seed, setSeed] = useState('woodland-community-1'), [density, setDensity] = useState(.35)
@@ -33,18 +37,23 @@ export default function VegetationCompositionTools({ scene, appearance, layerId,
       const channels = Object.fromEntries(VEGETATION_COMPOSITION_CHANNELS.map(key => {
         if (!enabled[key]) return [key, { enabled: false }]
         const definition = scene.propDefinitions[definitions[key]]
-        if (!definition) throw new Error(`请明确选择${labels[key]}使用的已采用固定素材。`)
+        if (!definition) throw new Error(`请选择${labels[key]}使用的固定素材。`)
         return [key, { enabled: true, palette: [{ key: definition.id, propDefinitionRef: { id: definition.id, version: definition.version }, weight: 1 }],
           densityFactor: density, cellSizeMm: cells[key], minDistanceMm: spacing }]
       })) as VegetationCompositionRequest['channels']
       const chosen = avoidances.filter(row => avoid.includes(JSON.stringify(row.ref)))
-      const plan = buildVegetationCompositionPlan(scene, { version: 1, operationId: newId(), floorId, areaId, layerId, visibility: 'public', seed, channels,
+      const request: VegetationCompositionRequest = { version: 1, operationId: newId(), floorId, areaId, layerId, visibility: 'public', seed, channels,
         clearings: clearing.trim() ? [{ boundaryMm: outdoorPoints(clearing), footprintMarginMm: clearance, paintMarginMm: clearance }] : [],
-        avoidances: chosen.map(row => ({ ref: row.ref, footprintMarginMm: clearance, paintMarginMm: clearance })) },
-      { appearance, ids: { nextId: newId }, clock: { now: () => scene.updatedAt } })
-      const activeChannels = plan.channelSummary.filter(channel => channel.groupId)
-      const counts = activeChannels.map(channel => `${labels[channel.key]}：${channel.createdMembers} 件${channel.createdMembers === 0 ? '（本次未生成）' : ''}`).join('；')
-      onPreview(plan.commands, `植被群落 · 本次新增 ${activeChannels.reduce((sum, channel) => sum + channel.createdMembers, 0)} 件 · ${activeChannels.length} 组；${counts}`)
+        avoidances: chosen.map(row => ({ ref: row.ref, footprintMarginMm: clearance, paintMarginMm: clearance })) }
+      onPreview({ definitionIds: Object.values(channels).flatMap(channel => channel.enabled ? channel.palette.map(row => row.propDefinitionRef.id) : []),
+        build(project, signal) {
+          const plan = buildVegetationCompositionPlan(project.document, request,
+            { appearance: project.appearance, ids: { nextId: newId }, clock: { now: () => project.document.updatedAt }, signal })
+          const active = plan.channelSummary.filter(channel => channel.groupId)
+          const counts = active.map(channel => `${labels[channel.key]}：${channel.createdMembers} 件${channel.createdMembers === 0 ? '（本次未生成）' : ''}`).join('；')
+          return { commands: plan.commands, description: `植被群落 · 本次新增 ${active.reduce((sum, channel) => sum + channel.createdMembers, 0)} 件 · ${active.length} 组；${counts}` }
+        },
+      })
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
   }
   return <details className="workspace-advanced"><summary>植被群落编排 · 主树、林缘与草灌</summary>

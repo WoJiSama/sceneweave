@@ -1,3 +1,4 @@
+import type { SizeMm } from '../../shared/model/scene'
 import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Check, ChevronRight, Download, Mountain, RefreshCw, Waves, X } from 'lucide-react'
@@ -10,7 +11,7 @@ export type TerrainGenerationRequest = Pick<TerrainGenerationInput, 'seed' | 'ki
 export const TERRAIN_GENERATION_REVIEW_SEEDS = TERRAIN_FIXED_SEEDS
 const KIND_OPTIONS: readonly { value: TerrainGenerationKind; label: string; detail: string }[] = [
   { value: 'island', label: '岩岛', detail: '海湾 · 高台 · 登高通路' },
-  { value: 'coast', label: '海岸', detail: '岸线 · 沙滩 · 活动空地' },
+  { value: 'coast', label: '海岸', detail: '岬角 · 潮湾 · 岸边岩脊' },
   { value: 'river', label: '河谷', detail: '河道 · 浅滩 · 两岸地面' },
   { value: 'lake', label: '内湖', detail: '湖岸 · 高地 · 静水边界' },
   { value: 'forest', label: '森林', detail: '林缘 · 林间空地 · 丘台' },
@@ -49,6 +50,7 @@ export interface TerrainGenerationPanelProps {
   onExport?: () => void | Promise<void>
   disabled?: boolean
   disabledReason?: string
+  canvasSize?: SizeMm
 }
 
 const checkLabels = { passed: '已满足', failed: '需要调整', unchecked: '尚未检查' } as const
@@ -65,7 +67,7 @@ const aborted = (failure: unknown) => failure instanceof Error && failure.name =
 
 /** A presentation-only panel. The host owns candidates, resources, adoption and saving. */
 export default function TerrainGenerationPanel({
-  busy, error, candidate, onGenerate, onAdopt, onCancel, onExport, disabled = false, disabledReason,
+  busy, error, candidate, onGenerate, onAdopt, onCancel, onExport, disabled = false, disabledReason, canvasSize,
 }: TerrainGenerationPanelProps) {
   const headingId = useId(), seedHintId = useId(), settingsHintId = useId()
   const [kind, setKind] = useState<TerrainGenerationRequest['kind']>('island')
@@ -88,8 +90,8 @@ export default function TerrainGenerationPanel({
   const cleanSeed = seed.trim()
   const validSeed = cleanSeed.length > 0 && cleanSeed.length <= 128
   const selectedSize = SIZE_OPTIONS.find(option => option.value === size)
-  const widthMm = size === 'custom' ? customWidthMm : selectedSize?.widthMm ?? 0
-  const heightMm = size === 'custom' ? customHeightMm : selectedSize?.heightMm ?? 0
+  const widthMm = canvasSize?.width ?? (size === 'custom' ? customWidthMm : selectedSize?.widthMm ?? 0)
+  const heightMm = canvasSize?.height ?? (size === 'custom' ? customHeightMm : selectedSize?.heightMm ?? 0)
   const validSize = Number.isSafeInteger(widthMm) && widthMm >= 24000 && widthMm <= 120000
     && Number.isSafeInteger(heightMm) && heightMm >= 18000 && heightMm <= 90000
     && widthMm / heightMm >= 1 && widthMm / heightMm <= 1.8
@@ -162,6 +164,7 @@ export default function TerrainGenerationPanel({
             <span>{option.label}<small>{option.detail}</small></span>
           </button>)}
         </div>
+        {!canvasSize && <>
         <label className="terrain-generation-size">画布尺寸
           <select aria-label="地形画布尺寸" value={size} onChange={event => {
             if (event.target.value === 'custom' && size !== 'custom') { setCustomWidthMm(widthMm); setCustomHeightMm(heightMm) }
@@ -177,6 +180,7 @@ export default function TerrainGenerationPanel({
           <label>高度（米）<input type="number" step="0.001" min="18" max="90" aria-label="地形高度（米）" value={customHeightMm / 1000}
             onChange={event => { setCustomHeightMm(Math.round(Number(event.target.value) * 1000)); setLocalError(null) }}/></label>
         </div>}
+        </>}
         <small className="terrain-generation-hint">宽24–120米、高18–90米，宽高比1–1.8。编辑容量会按地图范围、画面细节和本机情况自动选择，也可在生成设置中选择档位；生成中不会自动降低画面细节。</small>
         {!validSize && <p className="terrain-generation-notice" role="alert">请填写允许范围内的画布尺寸，宽高比须为1–1.8（宽度不少于高度）。</p>}
         {!supportsRoute && <label><input type="checkbox" aria-label="生成海洋水面与布景" checked={ocean} onChange={event => setOcean(event.target.checked)}/>添加静态海面、浅水浪纹与舟船／海洋生物布景</label>}

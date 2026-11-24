@@ -22,8 +22,9 @@ import type { AssetImportRequest } from '../../application/workspace/asset-batch
 import { definitionPresentation } from '../../shared/appearance/presentation'
 import { CATALOG_CATEGORIES, catalogCategory, catalogSizeLabel, type CatalogCategory } from './catalog-categories'
 import './catalog-library.css'
+import { loadBuiltinIndex, useCatalogModule, type StarterCatalog } from './use-starter-catalog'
 
-type Scope = 'builtin' | 'variants' | 'mine' | 'project'
+type Scope = 'starter' | 'builtin' | 'variants' | 'mine' | 'project'
 type Draft = { keys: string[]; revision: number; tags: string; colors: CatalogColorV1[]; favorite: boolean }
 type Review = { records: CatalogBackupRecordV1[]; keys: string[]; organizationKeys: string[]; organizations: Record<string, CatalogOrganizationV1>; revision: number; strategy: 'keep-local' | 'replace-selected' }
 const KIND_LABELS: Record<CatalogKindV1, string> = { prop: '物件', material: '材质', prefab: '组合' }
@@ -37,16 +38,13 @@ export type CatalogSelectorV1 = CatalogItemV1['selector']
 
 export interface CatalogLibraryProps {
   project: EditableProject
+  starter?: StarterCatalog
   disabled: boolean
   importDisabled?: boolean
   organizationDisabled?: boolean
   importResetKey?: number
   organizationResetKey?: number
   externalRefreshKey?: number
-  builtinProject?: EditableProject
-  builtinLoading?: boolean
-  builtinError?: string
-  onBuiltinDemand?: () => void
   variantsProject?: EditableProject
   variantsLoading?: boolean
   variantsError?: string
@@ -75,8 +73,7 @@ export interface CatalogLibraryProps {
 
 /** Library browsing never selects or changes a scene entity. Fixed content is adopted through the workspace preview. */
 export default function CatalogLibrary({
-  project, disabled, importDisabled = disabled, organizationDisabled = disabled, importResetKey = 0, organizationResetKey = 0, externalRefreshKey = 0,
-  builtinProject, builtinLoading = false, builtinError, onBuiltinDemand,
+  project, starter, disabled, importDisabled = disabled, organizationDisabled = disabled, importResetKey = 0, organizationResetKey = 0, externalRefreshKey = 0,
   variantsProject, variantsLoading = false, variantsError, onVariantsDemand,
   detailTarget, detailVisible = true, onDetailChange, onManage, onBrowse, browseRef, detailReturnLabel = '返回对象', shortcuts,
   onPlace, onMaterial, onPrefab, onUse, onImport, onImportBatch, onAssetBatchDraftChange, onInvalidateAssetBatch, assetBatchPreviewActive = false, onAdopt, onPendingChange, onDraftChange,
@@ -87,7 +84,9 @@ export default function CatalogLibrary({
   pendingCallback.current = onPendingChange; draftCallback.current = onDraftChange
   const [snapshot, setSnapshot] = useState<CatalogSnapshotV1>(EMPTY_SNAPSHOT), [ready, setReady] = useState(false)
   const [reading, setReading] = useState(true), [readError, setReadError] = useState('')
-  const [scope, setScope] = useState<Scope>('project'), [filter, setFilter] = useState<CatalogFilterV1>(EMPTY_CATALOG_FILTER_V1)
+  const modular = project.document.presetSnapshot.starterPalette === 'standard-v1'
+  const [scope, setScope] = useState<Scope>(modular ? 'starter' : 'project'), [filter, setFilter] = useState<CatalogFilterV1>(EMPTY_CATALOG_FILTER_V1)
+  const builtin = useCatalogModule(loadBuiltinIndex, true, scope === 'builtin')
   const [category, setCategory] = useState<CatalogCategory | 'all'>('all')
   const [selected, setSelected] = useState<string[]>([]), [detailKey, setDetailKey] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null), [review, setReview] = useState<Review | null>(null)
@@ -107,19 +106,26 @@ export default function CatalogLibrary({
     requestAnimationFrame(() => { searchInput.current?.focus(); searchInput.current?.select() })
   }, [])
   const [missingThumbnails, setMissingThumbnails] = useState<Set<string>>(() => new Set())
+  const [thumbnailAttempts, setThumbnailAttempts] = useState<Record<string, number>>({})
+  const retryThumbnail = (key: string) => setThumbnailAttempts(attempts => ({ ...attempts, [key]: (attempts[key] ?? 0) + 1 }))
   const capsuleCache = useRef(new Map<string, Promise<EditableProject>>())
   const updateThumbnailState = useCallback((key: string, missing: boolean) => setMissingThumbnails(value => {
     if (value.has(key) === missing) return value
     const next = new Set(value); if (missing) next.add(key); else next.delete(key); return next
   }), [])
   const currentItems = useMemo(() => describeCatalogItems(project), [project])
-  const builtinItems = useMemo(() => builtinProject ? describeCatalogItems(builtinProject) : [], [builtinProject])
+  const builtinItems = useMemo(() => builtin.catalog?.items ?? [], [builtin.catalog])
   const variantItems = useMemo(() => variantsProject ? describeCatalogItems(variantsProject) : [], [variantsProject])
   const mineItems = useMemo(() => snapshot.entries.map(entry => entry.item), [snapshot.entries])
-  const allItems = useMemo(() => new Map([...mineItems, ...builtinItems, ...variantItems, ...currentItems].map(item => [item.identity.key, item])), [mineItems, builtinItems, variantItems, currentItems])
+  const starterItems = useMemo(() => {
+    const definitions = new Set(currentItems.map(item => item.selector.kind + ':' + item.selector.definitionId))
+    return starter?.items.filter(item => !definitions.has(item.selector.kind + ':' + item.selector.definitionId)) ?? []
+  }, [starter, currentItems])
+  const commonItems = useMemo(() => [...currentItems, ...starterItems], [currentItems, starterItems])
+  const allItems = useMemo(() => new Map([...mineItems, ...builtinItems, ...variantItems, ...commonItems].map(item => [item.identity.key, item])), [mineItems, builtinItems, variantItems, commonItems])
   const currentKeys = useMemo(() => new Set(currentItems.map(item => item.identity.key)), [currentItems])
   const installed = useMemo(() => new Map(snapshot.entries.map(entry => [entry.item.identity.key, entry])), [snapshot.entries])
-  const sourceItems = scope === 'project' ? currentItems : scope === 'builtin' ? builtinItems : scope === 'variants' ? variantItems : mineItems
+  const sourceItems = scope === 'starter' ? commonItems : scope === 'project' ? currentItems : scope === 'builtin' ? builtinItems : scope === 'variants' ? variantItems : mineItems
   const categories = useMemo(() => new Map(sourceItems.map(item => [item.identity.key, catalogCategory(item, catalogReadonlyTags(item))])), [sourceItems])
   const matchingItems = useMemo(() => filterCatalogItems(sourceItems, snapshot.organizations, filter), [sourceItems, snapshot.organizations, filter])
   const found = useMemo(() => category === 'all' ? matchingItems : matchingItems.filter(item => categories.get(item.identity.key) === category), [matchingItems, categories, category])
@@ -176,10 +182,14 @@ export default function CatalogLibrary({
     finally { if (controller.current === abort) controller.current = null; if (mounted.current) setBusy(false); pendingCallback.current?.(false) }
   }, [])
 
-  const sourceProject = useCallback((item: CatalogItemV1) => currentKeys.has(item.identity.key) ? project : builtinItems.some(value => value.identity.key === item.identity.key) ? builtinProject : variantItems.some(value => value.identity.key === item.identity.key) ? variantsProject : undefined, [currentKeys, project, builtinItems, builtinProject, variantItems, variantsProject])
-  const loadProject = useCallback(async (item: CatalogItemV1): Promise<EditableProject> => {
-    const source = sourceProject(item); if (source) return source
+  const loadProject = useCallback(async (item: CatalogItemV1, signal?: AbortSignal): Promise<EditableProject> => {
     const key = item.identity.key
+    if (currentKeys.has(key)) return project
+    if (!installed.has(key)) {
+      if (starter && starterItems.some(row => row.identity.key === key)) return starter.loadItem(item.selector, signal)
+      if (builtin.catalog && builtinItems.some(row => row.identity.key === key)) return builtin.catalog.loadItem(item.selector, signal)
+      if (variantsProject && variantItems.some(row => row.identity.key === key)) return variantsProject
+    }
     let pending = capsuleCache.current.get(key)
     if (!pending) {
       const repo = repository.current; if (!repo) throw new Error('素材库尚未打开。')
@@ -189,12 +199,13 @@ export default function CatalogLibrary({
       pending.catch(() => { if (capsuleCache.current.get(key) === pending) capsuleCache.current.delete(key) })
     }
     return pending
-  }, [sourceProject])
+  }, [project, currentKeys, installed, starter, starterItems, builtin.catalog, builtinItems, variantItems, variantsProject])
+  const detailAttempt = detailKey ? thumbnailAttempts[detailKey] : undefined
   useEffect(() => {
     let active = true; setDetailProject(null)
     if (detail) loadProject(detail).then(value => { if (active) setDetailProject(value) }).catch(() => {})
     return () => { active = false }
-  }, [detail, loadProject])
+  }, [detail, loadProject, detailAttempt])
 
   const prepareSelected = async (repo: CatalogRepositoryV1, items: CatalogItemV1[], signal: AbortSignal) => {
     if (!items.length || items.length > CATALOG_LIMITS_V1.batch) throw new Error(`请选择1–${CATALOG_LIMITS_V1.batch}项素材。`)
@@ -202,7 +213,7 @@ export default function CatalogLibrary({
     for (const item of items) {
       if (signal.aborted) throw new DOMException('取消', 'AbortError')
       if (installed.has(item.identity.key)) entries.push(await repo.load(item.identity.key, signal))
-      else { const source = sourceProject(item); if (!source) throw new Error(`素材“${item.name}”缺少可用的完整内容。`); entries.push(await prepareCatalogEntry(source, item.selector, signal)) }
+      else entries.push(await prepareCatalogEntry(await loadProject(item, signal), item.selector, signal))
     }
     return entries
   }
@@ -221,7 +232,7 @@ export default function CatalogLibrary({
   const useItem = (item: CatalogItemV1) => {
     if (!onUse || disabled || busy) return
     void run('正在准备素材…', async (_repo, signal) => {
-      const source = await loadProject(item)
+      const source = await loadProject(item, signal)
       signal.throwIfAborted()
       if (!mounted.current) return
       await onUse(source, item.selector, signal)
@@ -313,7 +324,7 @@ export default function CatalogLibrary({
     </div>}
     {detail && <div key={detail.identity.key} className="composition-source catalog-source" aria-label="素材来源详情">
       <h2>{detail.name}</h2>
-      <div className="catalog-detail-preview"><CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/></div>
+      <div className="catalog-detail-preview"><CatalogThumbnail key={detailAttempt} item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/></div>
       <dl className="asset-facts">
         <dt>用途分类</dt><dd>{CATALOG_CATEGORIES.find(value => value.id === catalogCategory(detail, catalogReadonlyTags(detail)))!.label}</dd>
         <dt>物理范围</dt><dd>{detail.widthMm} × {detail.heightMm} mm</dd>
@@ -321,6 +332,7 @@ export default function CatalogLibrary({
         <dt>我的素材</dt><dd>{!ready ? '尚未完成个人素材库读取' : installed.has(detail.identity.key) ? '已保存，可离线使用' : '尚未保存到个人库'}</dd>
       </dl>
       <div className="catalog-actions">
+        {missingThumbnails.has(detail.identity.key) && <button type="button" onClick={() => retryThumbnail(detail.identity.key)}>重试素材图片</button>}
         {detailProject && <button disabled={!ready || busy || !!draft || !!review || !!imageItemEdit || organizationDisabled}
           onClick={() => setImageItemEdit({ key: detail.identity.key, project: detailProject, selector: detail.selector })}>编辑素材副本</button>}
         <button disabled={!ready || busy || !!draft} onClick={() => {
@@ -334,11 +346,11 @@ export default function CatalogLibrary({
       </div>
       {refinedIdentity && <div className="catalog-refinement-comparison" role="group" aria-label="精修素材与旧版对照">
         <figure>
-          <CatalogThumbnail item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/>
+          <CatalogThumbnail key={detailAttempt} item={detail} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/>
           <figcaption>精修版 · {detail.name} · v{detail.identity.fixedVersion}</figcaption>
         </figure>
         <figure>{refinedSource ? <>
-          <CatalogThumbnail item={refinedSource} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/>
+          <CatalogThumbnail key={thumbnailAttempts[refinedSource.identity.key]} item={refinedSource} loadProject={loadProject} onThumbnailState={updateThumbnailState} eager/>
           <figcaption>旧版 · {refinedSource.name} · v{refinedSource.identity.fixedVersion}</figcaption>
         </> : <>
           <span className="catalog-comparison-missing">可从内置目录读取或安装对应旧版以查看原图。</span>
@@ -378,14 +390,14 @@ export default function CatalogLibrary({
       <details><summary>查看读取失败原因</summary><p>{readError}</p></details>
       <button className="secondary" disabled={busy || reading} onClick={refresh}><RefreshCw size={12}/>重新读取个人素材库</button>
     </div>}
-    <div hidden={managementOpen} inert={managementOpen}>
+    <div className="workspace-catalog-content" hidden={managementOpen} inert={managementOpen}>
     <label className="composition-search"><Search size={14}/><input ref={searchInput} type="search" aria-label="搜索组件素材" placeholder="搜索树木、桌椅、石块…" value={filter.query} onChange={event => updateFilter('query', event.target.value)}/></label>
     {shortcuts}
-    <label className="catalog-source-filter">素材来源<select aria-label="素材来源" value={scope} onChange={event => { const value = event.target.value as Scope; setScope(value); if (value === 'builtin') onBuiltinDemand?.(); if (value === 'variants') onVariantsDemand?.() }}><option value="project">本工程</option><option value="builtin">内置素材</option><option value="variants">地形素材包</option><option value="mine">我的素材</option></select></label>
+    <label className="catalog-source-filter">素材来源<select aria-label="素材来源" value={scope} onChange={event => { const value = event.target.value as Scope; setScope(value); if (value === 'variants') onVariantsDemand?.() }}>{modular && <option value="starter">常用与本工程</option>}<option value="project">本工程</option><option value="builtin">内置素材</option><option value="variants">地形素材包</option><option value="mine">我的素材</option></select></label>
     <div className="catalog-categories" role="group" aria-label="素材用途分类"><button type="button" aria-pressed={category === 'all'} onClick={() => setCategory('all')}>全部</button>{CATALOG_CATEGORIES.map(value => <button type="button" key={value.id} aria-pressed={category === value.id} onClick={() => setCategory(value.id)}>{value.label}</button>)}</div>
-    {scope !== 'project' && <p className="asset-muted catalog-explanation">{onUse ? '确认添加后即可放置或应用。' : '勾选素材，预览添加到本工程。'}</p>}
-    {scope === 'builtin' && builtinLoading && <p role="status">正在读取内置素材的实际资源…</p>}
-    {scope === 'builtin' && builtinError && <div><p role="alert" className="asset-form-error">内置素材缺失或读取失败：{builtinError}</p><button className="secondary" disabled={builtinLoading} onClick={onBuiltinDemand}>重试内置素材</button></div>}
+    {scope !== 'project' && scope !== 'starter' && <p className="asset-muted catalog-explanation">{onUse ? '确认添加后即可放置或应用。' : '勾选素材，预览添加到本工程。'}</p>}
+    {scope === 'builtin' && !builtin.catalog && !builtin.error && <p role="status">正在读取内置素材目录…</p>}
+    {scope === 'builtin' && builtin.error && <div><p role="alert" className="asset-form-error">内置素材目录读取失败：{builtin.error}</p><button className="secondary" onClick={builtin.retry}>重试内置素材</button></div>}
     {scope === 'variants' && variantsLoading && <p role="status">正在读取地形变体的实际资源…</p>}
     {scope === 'variants' && variantsError && <div><p role="alert" className="asset-form-error">地形变体缺失或读取失败：{variantsError}</p><button className="secondary" disabled={variantsLoading} onClick={onVariantsDemand}>重试地形变体</button></div>}
     <div className="asset-library-tabs" role="group" aria-label="素材类型"><button aria-pressed={!filter.kinds.length} onClick={() => updateFilter('kinds', [])}>全部类型</button>{(['prop', 'prefab', 'material'] as const).map(kind => <button key={kind} aria-pressed={filter.kinds.includes(kind)} onClick={() => updateFilter('kinds', toggleValue(filter.kinds, kind))}>{KIND_LABELS[kind]}</button>)}</div>
@@ -409,23 +421,25 @@ export default function CatalogLibrary({
     <div className="catalog-entries">{found.slice(0, limit).map(item => {
       const key = item.identity.key, organization = organizationOf(snapshot, key), inProject = currentKeys.has(key)
       const showingDetail = detailKey === key && detailVisible
+      const directUse = inProject || scope === 'starter'
       return <article key={key} data-definition-id={item.selector.definitionId} className={showingDetail ? 'selected' : ''}>
         <label className="catalog-select"><input type="checkbox" aria-label={`选择素材 ${item.name}`} checked={selected.includes(key)} disabled={busy} onChange={() => toggleSelection(key)}/></label>
         <button className="catalog-item-main" aria-label={`查看素材 ${item.name}`} aria-pressed={showingDetail} onClick={() => {
           setDetailKey(showingDetail ? null : key)
           onDetailChange?.(!showingDetail)
         }}>
-          <CatalogThumbnail item={item} loadProject={loadProject} onThumbnailState={updateThumbnailState}/><span className="catalog-item-copy"><strong>{item.name}{organization.favorite && <Heart size={12} aria-label="已收藏" fill="currentColor"/>}</strong><small>{KIND_LABELS[item.identity.kind]} · {catalogSizeLabel(item.widthMm, item.heightMm)}</small>{missingThumbnails.has(key) && <small className="catalog-item-warning">缩略图不可用 · 查看详情</small>}{item.visibility === 'gm' && <small>仅主持人可见</small>}</span>
+          <CatalogThumbnail key={thumbnailAttempts[key]} item={item} loadProject={loadProject} onThumbnailState={updateThumbnailState}/><span className="catalog-item-copy"><strong>{item.name}{organization.favorite && <Heart size={12} aria-label="已收藏" fill="currentColor"/>}</strong><small>{KIND_LABELS[item.identity.kind]} · {catalogSizeLabel(item.widthMm, item.heightMm)}</small>{missingThumbnails.has(key) && <small className="catalog-item-warning">缩略图不可用 · 查看详情</small>}{item.visibility === 'gm' && <small>仅主持人可见</small>}</span>
         </button>
-        {inProject && <button className="catalog-place" disabled={disabled || busy} aria-label={`${item.identity.kind === 'material' ? '应用材质' : '放置组件'} ${item.name}`} onClick={() => item.identity.kind === 'prop' ? onPlace(item.selector.definitionId) : item.identity.kind === 'material' ? onMaterial(item.selector.definitionId) : onPrefab(item.selector.definitionId)}><Plus size={14}/>{item.identity.kind === 'material' ? '应用' : '放置'}</button>}
-        {!inProject && onUse && <button className="catalog-place catalog-add-use" disabled={disabled || busy} aria-label={`${item.identity.kind === 'material' ? '添加并应用' : '添加并放置'} ${item.name}`} onClick={() => useItem(item)}><Plus size={14}/>{item.identity.kind === 'material' ? '添加并应用' : '添加并放置'}</button>}
+        {missingThumbnails.has(key) && <button type="button" aria-label={`重试图片 ${item.name}`} onClick={() => retryThumbnail(key)}>重试图片</button>}
+        {directUse && <button className="catalog-place" disabled={disabled || busy} aria-label={`${item.identity.kind === 'material' ? '应用材质' : '放置组件'} ${item.name}`} onClick={() => item.identity.kind === 'prop' ? onPlace(item.selector.definitionId) : item.identity.kind === 'material' ? onMaterial(item.selector.definitionId) : onPrefab(item.selector.definitionId)}><Plus size={14}/>{item.identity.kind === 'material' ? '应用' : '放置'}</button>}
+        {!directUse && onUse && <button className="catalog-place catalog-add-use" disabled={disabled || busy} aria-label={`${item.identity.kind === 'material' ? '添加并应用' : '添加并放置'} ${item.name}`} onClick={() => useItem(item)}><Plus size={14}/>{item.identity.kind === 'material' ? '添加并应用' : '添加并放置'}</button>}
       </article>
     })}</div>
-    {!found.length && !(scope === 'builtin' && builtinLoading) && !(scope === 'variants' && variantsLoading) && !(scope === 'mine' && (!ready || reading || !!readError)) && <p className="catalog-empty">{scope === 'mine' && !mineItems.length ? '还没有个人素材。可以从内置素材保存，或导入素材库备份。' : '当前来源没有匹配素材。试试切换素材来源，或清空筛选条件。'}</p>}
+    {!found.length && !(scope === 'builtin' && !builtin.catalog) && !(scope === 'variants' && variantsLoading) && !(scope === 'mine' && (!ready || reading || !!readError)) && <p className="catalog-empty">{scope === 'mine' && !mineItems.length ? '还没有个人素材。可以从内置素材保存，或导入素材库备份。' : '当前来源没有匹配素材。试试切换素材来源，或清空筛选条件。'}</p>}
     {found.length > limit && <button className="asset-wide" onClick={() => setLimit(value => value + 24)}>再显示24项（余{found.length - limit}项）</button>}
     </div>
     {detailTarget !== undefined ? detailTarget && createPortal(detailContent, detailTarget) : detailContent}
-    <section id={managementId} aria-label="素材导入与管理" hidden={!managementOpen} inert={!managementOpen}>
+    <section id={managementId} className="workspace-catalog-content" aria-label="素材导入与管理" hidden={!managementOpen} inert={!managementOpen}>
     <p className="workspace-panel-intro">导入文件、批量导入、整理个人库或恢复素材库备份。管理操作只作用于明确勾选的素材。</p>
     {scope === 'mine' && organizationOnlyKeys.length > 0 && <details className="catalog-organization-only"><summary>未安装素材的个人整理 · {organizationOnlyKeys.length} 项</summary><p className="asset-muted">这些记录保留原身份、标签、颜色和收藏。选择后可整理或备份；安装与放置仍需要完整素材。</p>{organizationOnlyKeys.map(key => <label key={key}><input type="checkbox" aria-label={`选择个人整理 ${JSON.parse(key)[3]}`} checked={selected.includes(key)} disabled={busy} onChange={() => toggleSelection(key)}/>{allItems.get(key)?.name ?? JSON.parse(key)[3]} · {snapshot.organizations[key].tags.join(' · ')}{snapshot.organizations[key].favorite ? ' · 已收藏' : ''}</label>)}</details>}
     <details className="catalog-management"><summary>批量添加与个人素材管理{selected.length > 0 ? ` · 已选 ${selected.length} 项` : ''}</summary><div className="catalog-batch" aria-label="素材批量操作"><p className="asset-muted">操作仅作用于明确勾选的{selected.length}项，最多64项；切换范围保留所选。</p><div className="catalog-actions">

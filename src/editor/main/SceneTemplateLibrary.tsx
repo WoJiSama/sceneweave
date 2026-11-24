@@ -9,11 +9,7 @@ import { SceneTemplateRepository } from '../../platform/browser/library/scene-te
 import { runtime, validation } from '../../platform/browser/runtime'
 import { THEMED_ROOM_PRESETS, createThemedRoomProject, type ThemedRoomPresetId } from '../../platform/browser/content/themed-rooms'
 import SceneTemplateGallery from './SceneTemplateGallery'
-
-export const bridgeTemplateFieldLabels: Record<BridgeTemplateField, string> = {
-  finish: '桥体饰面', section: '护栏源节与节距', dimensions: '构件尺寸', fit: '构件续接', lamps: '沿线灯具',
-  structure: '边梁、桥柱与桥头', sides: '铺设侧', shoulderMm: '单侧边带宽', endClearanceMm: '桥头留空', gaps: '沿线留口',
-}
+import { bridgeTemplateFieldLabels } from './bridge-template-labels'
 
 function download(bytes: Uint8Array, name: string) {
   const url = URL.createObjectURL(new Blob([bytes.slice().buffer], { type: 'application/octet-stream' })), link = document.createElement('a')
@@ -92,7 +88,7 @@ export default function SceneTemplateLibrary({ project, ids, floorId, layerId, d
       <fieldset disabled={disabled || busy}><legend>包含的房间</legend>{Object.values(scene.rooms).filter(room => room.floorId === floorId).map(room => <label key={room.id}><input type="checkbox" checked={rooms.includes(room.id)} onChange={() => { setRooms(current => toggle(current, room.id)); setDirty(true) }}/>{room.purpose || room.id}</label>)}</fieldset>
       <fieldset disabled={disabled || busy}><legend>明确携带的注记</legend>{Object.values(scene.notes).filter(note => note.floorId === floorId).map(note => <label key={note.id}><input type="checkbox" checked={notes.includes(note.id)} onChange={() => { setNotes(current => toggle(current, note.id)); setDirty(true) }}/>{note.title || note.text.slice(0, 24)} · {note.visibility === 'gm' ? '主持人' : '公开'}</label>)}</fieldset>
       <fieldset disabled={disabled || busy}><legend>玩家遮罩</legend>{Object.values(scene.regions).filter(region => region.floorId === floorId && region.kind === 'manualMask').map(region => <label key={region.id}><input type="checkbox" checked={masks.includes(region.id)} onChange={() => { setMasks(current => toggle(current, region.id)); setDirty(true) }}/>{region.id}</label>)}</fieldset>
-    {scope && <p role="status">提取范围：{scope.roomIds.length}间房、{scope.wallIds.length}段墙、{scope.openingIds.length}处开口、{scope.propIds.length}件家具、{scope.prefabIds.length}个组合、{scope.noteIds.length}条注记；{scope.layerIds.length}个源图层在放置时映射到明确选择的目标图层。光照、场景滤镜和环境使用目标工程设置。</p>}
+    {scope && <p role="status">将保存{scope.roomIds.length}间房、{scope.wallIds.length}段墙、{scope.openingIds.length}处开口、{scope.propIds.length}件物件、{scope.prefabIds.length}个组合和{scope.noteIds.length}条注记。{scope.attachmentSurfaceIds.length > 0 && `同时保存${scope.attachmentSurfaceIds.length}处物件顶面和${scope.attachmentIds.length}条承托关系。`}放置时，{scope.layerIds.length}个源图层映射到所选目标图层。光照、场景滤镜和环境使用目标工程设置。</p>}
       {scopeError && <p role="alert">{scopeError}</p>}
       <button className="secondary asset-wide" disabled={disabled || busy || !loaded || !scope || !name.trim()} onClick={() => saveTemplate(request)}>保存完整场景模板</button>
     </details>

@@ -1,3 +1,4 @@
+import type { SizeMm } from '../../shared/model/scene'
 import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useState } from 'react'
 import type { VolcanoPreview } from '../../application/workspace/workspace'
@@ -17,12 +18,13 @@ const initial = (): VolcanoGenerationUiRequest => ({
   flowHazard: true, flowBlocksMovement: true, flowMovementCostMultiplier: 3,
 })
 
-export default function VolcanoGenerationPanel({ busy, disabled, error, candidate, dirty, onGenerate, onAdopt, onCancel, onChange }: {
-  busy: boolean; disabled: boolean; error: string | null; candidate: VolcanoPreview | null; dirty: boolean
+export default function VolcanoGenerationPanel({ busy, disabled, error, candidate, dirty, canvasSize, onGenerate, onAdopt, onCancel, onChange }: {
+  busy: boolean; disabled: boolean; error: string | null; candidate: VolcanoPreview | null; dirty: boolean; canvasSize?: SizeMm
   onGenerate: (input: VolcanoGenerationUiRequest) => void | Promise<void>
   onAdopt: () => void | Promise<void>; onCancel: () => void; onChange: () => void
 }) {
-  const [input, setInput] = useState(initial)
+  const [draft, setInput] = useState(initial)
+  const input = canvasSize ? { ...draft, widthMm: canvasSize.width, heightMm: canvasSize.height } : draft
   const validationId = useId()
   const locked = busy || disabled
   const change = <K extends keyof VolcanoGenerationUiRequest>(key: K, value: VolcanoGenerationUiRequest[K]) => {
@@ -45,23 +47,25 @@ export default function VolcanoGenerationPanel({ busy, disabled, error, candidat
   const cancelAction = <button className="secondary asset-wide" disabled={disabled} onClick={onCancel}>取消火山</button>
   return <section className="terrain-generation-panel volcano-generation-panel" aria-label="火山生成">
     <h2>火山</h2>
-    <p>生成单火口、离散高台、活动平台和真实阶梯或坡道，核对指定路线的完整净宽。</p>
+    <p>生成火口、活动平台和登高路线。空间允许时，生成起伏山坡、火口裂口和贴地连接。</p>
     <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">熔岩外观、危险标记、阻挡和移动代价分别设置。保存后可自由删改，不会自动补回。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ ...input, title: input.title.trim(), seed: input.seed.trim() }) }}>
       <fieldset disabled={locked}>
         <legend>地图与火口</legend>
+        {!canvasSize && <>
         <label>工程名称<input aria-label="火山工程名称" value={input.title} maxLength={120} onChange={event => change('title', event.target.value)}/></label>
         <div className="volcano-field-pair">
           <label>地图宽（米）<input aria-label="火山地图宽米" type="number" min="1" max="200" step="0.1" value={input.widthMm / 1000} onChange={event => change('widthMm', mm(event.target.value))}/></label>
           <label>地图高（米）<input aria-label="火山地图高米" type="number" min="1" max="200" step="0.1" value={input.heightMm / 1000} onChange={event => change('heightMm', mm(event.target.value))}/></label>
         </div>
+        </>}
         <label>生成种子<input aria-label="火山生成种子" value={input.seed} maxLength={128} onChange={event => change('seed', event.target.value)}/></label>
         <div className="volcano-field-pair">
           <label>山体高程（米）<input aria-label="山体高程米" type="number" min="-100" max="100" step="0.1" value={input.mountainElevationMm / 1000} onChange={event => change('mountainElevationMm', mm(event.target.value))}/></label>
           <label>火口高程（米）<input aria-label="火口高程米" type="number" min="-100" max="100" step="0.1" value={input.craterElevationMm / 1000} onChange={event => change('craterElevationMm', mm(event.target.value))}/></label>
         </div>
-        <p className="asset-muted">地面基准为 0 米。火口须低于山体；平台位于山体西侧。火口尺寸和位置会改变真实轮廓及下行连接。</p>
+        <p className="asset-muted">地面基准为 0 米。山体高程也是西侧平台的基准，岩脊可以更高。火口尺寸和位置会改变真实轮廓和下行连接。</p>
         <div className="volcano-field-pair">
           <label>火口宽占地图（%）<input aria-label="火口宽百分比" type="number" min="1" max="99" step="1" value={input.craterWidthPercent} onChange={event => change('craterWidthPercent', Number(event.target.value))}/></label>
           <label>火口高占地图（%）<input aria-label="火口高百分比" type="number" min="1" max="99" step="1" value={input.craterHeightPercent} onChange={event => change('craterHeightPercent', Number(event.target.value))}/></label>
@@ -82,7 +86,7 @@ export default function VolcanoGenerationPanel({ busy, disabled, error, candidat
         <fieldset disabled={!input.flowEnabled}>
           <legend>流道外观与策略</legend>
           <div className="volcano-field-pair">
-            <label>流道宽（米）<input aria-label="流道宽米" type="number" min="0.1" max="10" step="0.1" value={input.flowWidthMm / 1000} onChange={event => change('flowWidthMm', mm(event.target.value))}/></label>
+            <label>流道最宽处（米）<input aria-label="流道宽米" type="number" min="0.1" max="10" step="0.1" value={input.flowWidthMm / 1000} onChange={event => change('flowWidthMm', mm(event.target.value))}/></label>
             <label>熔岩外观<select aria-label="熔岩外观" value={input.lavaAppearance} onChange={event => change('lavaAppearance', event.target.value as VolcanoGenerationUiRequest['lavaAppearance'])}><option value="cold">冷壳熔岩</option><option value="hot">热裂熔岩</option></select></label>
           </div>
           <label className="volcano-check"><input aria-label="流道标记危险" type="checkbox" checked={input.flowHazard} onChange={event => change('flowHazard', event.target.checked)}/>标记为危险</label>
@@ -98,12 +102,12 @@ export default function VolcanoGenerationPanel({ busy, disabled, error, candidat
     {candidate && p && <WorkspaceReview><div className="volcano-generation-panel workspace-review-panel">{feedback}<div className="volcano-candidate" aria-label="火山候选摘要"><div className="workspace-review-body"><h3>候选 · 单火口与活动平台</h3>
       <p>画布展示完整候选，当前工程尚未改变。</p>
       <p aria-label="火山实际生成结果">实际生成 {candidate.report.connectionIds.length} 处高差连接、{candidate.report.pathIds.length} 条路线及 {candidate.report.regionIds.length} 个通行策略区域。</p>
-      <p>山体高程 {p.mountain.elevationMm / 1000} 米，火口高程 {p.crater.elevationMm / 1000} 米；指定路线净宽 {p.route.widthMm / 1000} 米已检查。</p>
+      <p>山体基准 {p.mountain.elevationMm / 1000} 米，火口底部 {p.crater.elevationMm / 1000} 米。指定路线净宽 {p.route.widthMm / 1000} 米已检查。</p>
       <p aria-label="火山危险与外观设置">火口{p.crater.hazard ? '标记危险' : '不标记危险'}，{p.crater.blocksMovement ? '阻挡移动' : '允许移动'}，代价 ×{p.crater.movementCostMultiplier}。{p.flow ? `流道${p.flow.hazard ? '标记危险' : '不标记危险'}，${p.flow.blocksMovement ? '阻挡移动' : '允许移动'}，代价 ×${p.flow.movementCostMultiplier}。` : '未生成流道。'}</p>
       {candidate.report.notes.length > 0 && <ul aria-label="火山生成说明">{candidate.report.notes.map((note, index) => <li key={index}>{note}</li>)}</ul>}
       </div>
       <div className="workspace-review-actions">
-      <button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存为新工程</button>
+      {!canvasSize && <button className="primary asset-wide" disabled={busy || disabled} onClick={() => void onAdopt()}>保存为新工程</button>}
         {cancelAction}
       </div>
     </div></div></WorkspaceReview>}

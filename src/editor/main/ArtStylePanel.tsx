@@ -1,15 +1,11 @@
 import { useState, type ReactNode } from 'react'
+import type { EditableProject } from '../../application/workspace/project'
+import { inspectImageEnhancementTarget } from '../../platform/browser/content/image-enhancement'
 import { ART_STYLE_DEFAULTS, ART_STYLE_PRESETS, CURRENT_BITMAP_LINE_VERSION, CURRENT_LINE_ART_PAINT_VERSION, defaultSceneArtStyle, enabledArtStylePresets, setArtStyleEnabled, upgradeSceneArtStyle,
   type ArtStyleParameters, type ArtStylePreset, type ArtStyleRecipe, type SceneArtStyle, type SceneTheme, type ThemeEffects } from '../../shared/visual/art-style'
-import { colorFilterChangesPixels, type ColorFilter } from '../../shared/visual/color-filter'
+import type { ColorFilter } from '../../shared/visual/color-filter'
 import { ArtStyleSlider, ColorFilterControls } from './ColorFilterControls'
-
-const labelFor = { handDrawn: '手绘', tea: '茶绘', lineArt: '线稿' } satisfies Record<ArtStylePreset, string>
-export type ArtStyleSide = 'a' | 'b'
-export type ArtStyleAlternatives = Record<ArtStyleSide, SceneArtStyle>
-export const artStyleSideLabel = (side: ArtStyleSide, style: SceneArtStyle) =>
-  `${side.toUpperCase()} · ${enabledArtStylePresets(style.active).map(preset => labelFor[preset]).join(' + ')
-    || (style.version === 2 && colorFilterChangesPixels(style.original) ? '原画调色' : '原画')}`
+import { artStylePresetLabels as labelFor, artStyleSideLabel, type ArtStyleAlternatives, type ArtStyleSide } from './art-style-labels'
 const sliders: { key: keyof ArtStyleParameters; label: string; signed?: boolean; detail?: boolean; structural?: boolean }[] = [
   { key: 'depth', label: '厚重感', structural: true },
   { key: 'warmth', label: '冷暖', signed: true },
@@ -31,7 +27,7 @@ interface Props {
   selectedSide: ArtStyleSide
   hasStructuredArtwork: (version: ArtStyleRecipe['paintVersion']) => boolean
   selectedBitmap: (version: ArtStyleRecipe['paintVersion']) => boolean
-  onLocalPaint?: () => void
+  localPaint?: { project: EditableProject; id: string; open: () => void }
   onChange: (value: SceneArtStyle) => void
   onCopyFilter: (target: ArtStyleSide, style: SceneTheme) => void
   onToggleComparison: (mode: 'alternatives' | 'baseline') => void
@@ -80,7 +76,7 @@ function ThemeEffectsControls({ value, style, structured, onChange }: {
   </section>
 }
 
-export default function ArtStylePanel({ value, disabled, dirty, ready, comparing, alternatives, selectedSide, hasStructuredArtwork, selectedBitmap, onLocalPaint, onChange, onCopyFilter, onToggleComparison, onSelectSide, onAdopt, onCancel }: Props) {
+export default function ArtStylePanel({ value, disabled, dirty, ready, comparing, alternatives, selectedSide, hasStructuredArtwork, selectedBitmap, localPaint, onChange, onCopyFilter, onToggleComparison, onSelectSide, onAdopt, onCancel }: Props) {
   const target = alternatives ? selectedSide : 'map'
   const [editing, setEditing] = useState<Partial<Record<'map' | ArtStyleSide, ArtStylePreset>>>({})
   const enabled = enabledArtStylePresets(value.active)
@@ -166,6 +162,10 @@ export default function ArtStylePanel({ value, disabled, dirty, ready, comparing
           : '当前画风可调色和加纸纹。可用的分层笔触取决于素材和画风版本。'}</p>
     </>}
     {value.version === 2 && filter && <>
+      <label className="asset-check"><input type="checkbox" checked={!!value.materialDrawing} onChange={event => {
+        const { materialDrawing: _drawing, ...rest } = value
+        onChange(event.target.checked ? { ...rest, materialDrawing: 1 } : rest)
+      }}/>按材质绘制笔触</label>
       <ColorFilterControls key={`${target}:${current ?? 'original'}`} value={filter} original={!current}
         onChange={next => onChange(withFilter(value, current, next))}/>
       {current && effects && <ThemeEffectsControls value={effects} style={current} structured={canPaintStructure}
@@ -184,8 +184,9 @@ export default function ArtStylePanel({ value, disabled, dirty, ready, comparing
       {canUpdateLineArt && parameters && <button type="button" className="secondary"
         onClick={() => update({ ...parameters, paintVersion: CURRENT_LINE_ART_PAINT_VERSION })}>使用新版位图提线</button>}
       {current && <button type="button" className="secondary" onClick={restore}>恢复此画风默认</button>}
-      {onLocalPaint && <button type="button" className="secondary" disabled={dirty} title={dirty ? '请先采用或取消全图画风草稿' : undefined}
-        onClick={onLocalPaint}>局部补画所选图片</button>}
+      {localPaint && inspectImageEnhancementTarget(localPaint.project, { kind: 'prop', id: localPaint.id }) &&
+        <button type="button" className="secondary" disabled={dirty} title={dirty ? '请先采用或取消全图画风草稿' : undefined}
+          onClick={localPaint.open}>局部补画所选图片</button>}
     </div>
     {comparing && <p className="asset-muted">拖线移动，拖两端旋转。键盘方向键也可调整。</p>}
     {alternatives ? <div className="art-style-actions">

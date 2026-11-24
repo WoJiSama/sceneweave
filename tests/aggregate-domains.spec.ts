@@ -198,7 +198,7 @@ test('create and transform a natural group through production preview, undo and 
   await expect(inspector.getByRole('combobox', { name: '注记可见性', exact: true })).toHaveValue('gm')
   await expect(inspector.getByRole('combobox', { name: '注记附着对象', exact: true })).toHaveValue('item')
   await naturalMembers(page)
-  await reopened.getByRole('button', { name: '道路 · 宽 0.4 m', exact: true }).click()
+  await reopened.getByRole('button', { name: '道路 · 净宽 0.4 m', exact: true }).click()
   await expect(page.getByRole('listbox', { name: '对象道路支撑', exact: true })).toHaveValues(['terrainArea:ground'])
   await page.getByText('精确坐标 · 道路中心线', { exact: true }).click()
   await expect(page.getByRole('textbox', { name: '室外对象坐标', exact: true })).toHaveValue('8000, 5000\n8000, 10000')

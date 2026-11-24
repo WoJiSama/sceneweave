@@ -11,6 +11,7 @@ import { defaultShorelineStyle, terrainShorelineCommands } from '../../shared/co
 import type { SceneDocument } from '../../shared/model/scene'
 import { partitionDecorationIds } from '../../shared/geometry/partitions'
 import type { RouteWidthSection } from '../../shared/geometry/route-width'
+import { createAutomaticRoadPlanner, AUTOMATIC_ROAD_VERSION } from '../../shared/geometry/automatic-road'
 import { MaterialSelect, outdoorPoints, parseSurface, pointText, SurfaceMultiSelect, SurfaceSelect, surfaceValue } from './OutdoorToolsPanel'
 import { outdoorInspectorStyle as styleFor } from './outdoor-inspector-style'
 import ConnectionRouteFields, { newConnectionRouteDraft, readConnectionRoute } from './ConnectionRouteFields'
@@ -29,20 +30,21 @@ import CarvedMountainTools from './CarvedMountainTools'
 import TerrainInlayTools from './TerrainInlayTools'
 import { WaterSurfaceTools } from './OceanTools'
 import ShorelineSegmentPicker from './ShorelineSegmentPicker'
+import { outdoorEntityKind } from './outdoor-entity-kind'
 
-export const outdoorEntityKind = (scene: SceneDocument, id: string) => scene.terrainAreas[id] ? 'terrainArea' : scene.terrainEdges[id] ? 'terrainEdge' : scene.terrainConnections[id] ? 'terrainConnection' : scene.paths[id] ? 'path' : scene.scatterGroups[id] ? 'scatterGroup' : scene.regions[id] && scene.regions[id].kind !== 'manualMask' ? 'region' : null
-
-export default function OutdoorInspector({ scene, id, disabled, onPreview, onVisualPreview, onSelect, onBoundaryEditor, onOpenLayers, onFocusPartition, onSelectPartition, onExportPartition, onPreviewPartition, onDrawScatterExclusion }: {
+export default function OutdoorInspector({ scene, id, disabled, onPreview, onVisualPreview, onSelect, onBoundaryEditor, onOpenLayers, onFocusPartition, onSelectPartition, onExportPartition, onPreviewPartition, onDrawScatterExclusion, onEditAutomaticRoad }: {
   scene: SceneDocument; id: string; disabled: boolean; onPreview: (commands: SceneCommand[], description: string) => void
   onVisualPreview?: (commands: SceneCommand[], description: string) => void; onSelect: (id: string) => void
   onBoundaryEditor?: (editor: VisualBoundaryEditor | null) => void; onOpenLayers?: () => void
   onFocusPartition?: (id: string) => void; onSelectPartition?: (ids: string[]) => void; onExportPartition?: (id: string, audience: 'gm' | 'player') => void
   onPreviewPartition?: (id: string) => void
   onDrawScatterExclusion?: (id: string, reason: 'manual' | 'entrance') => void
+  onEditAutomaticRoad?: (path: import('../../shared/model/scene').Path) => void
 }) {
   const kind = outdoorEntityKind(scene, id), area = scene.terrainAreas[id], edge = scene.terrainEdges[id], connection = scene.terrainConnections[id], path = scene.paths[id], scatter = scene.scatterGroups[id], region = scene.regions[id]
   const entity = area ?? edge ?? connection ?? path ?? scatter ?? region
-  const [roadStairs, setRoadStairs] = useState(() => path?.staircase ?? defaultStaircase())
+  const [roadStairs, setRoadStairs] = useState(() => path?.staircase ?? (path?.roadSurface
+    ? { ...defaultStaircase(), preset: 'carved-rock' as const, material: 'earth' as const } : defaultStaircase()))
   const partition = region?.kind === 'partition' ? region : undefined
   const name = useMemo(() => createEntityLabeler(scene), [scene])
   const partitionIds = useMemo(() => partition ? partitionDecorationIds(scene, partition) : [], [partition, scene])
@@ -118,12 +120,22 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
       }
       return commands
     }
-    if (path) return [{ type: 'updatePath', id, changes: {
-      ...(!path.assembly ? { centerlineMm: outdoorPoints(points, 2), widthMm: Number(width) } : {}),
-      ...(editLocalWidth && (widthSections.length || path.widthSections) ? { widthSections: readPathWidthSections(widthSections) } : {}),
-      ...(!path.assembly?.bridge ? { supportRefs: pathSupports.map(parseSurface), surfaceStyle: styleFor(scene, material, surface, 'path'), visibility } : {}),
+    if (path) {
+      const localWidths = editLocalWidth && (widthSections.length || path.widthSections) ? readPathWidthSections(widthSections) : undefined
+      const intent = path.automaticRoute
+      const changesShape = Number(width) !== path.widthMm || localWidths !== undefined && JSON.stringify(localWidths) !== JSON.stringify(path.widthSections ?? null)
+      const graded = path.roadSurface && intent?.algorithm === AUTOMATIC_ROAD_VERSION && changesShape
+        ? createAutomaticRoadPlanner(scene, { floorId: path.floorId, widthMm: Number(width), widthSections: localWidths ?? undefined, visibility }, id)
+          (intent.fixedPointsMm, { ...path, fixedPointsMm: intent.fixedPointsMm, landings: intent.landings }, { landings: intent.landings, widthChanged: true })
+        : undefined
+      return [{ type: 'updatePath', id, changes: {
+      ...(!path.assembly ? { ...(!path.automaticRoute ? { centerlineMm: outdoorPoints(points, 2) } : {}), widthMm: Number(width) } : {}),
+      ...(localWidths !== undefined ? { widthSections: localWidths } : {}),
+      ...(graded?.roadSurface ? { roadSurface: graded.roadSurface, supportRefs: graded.supportRefs } : {}),
+      ...(!path.assembly?.bridge ? { ...(!path.automaticRoute ? { supportRefs: pathSupports.map(parseSurface) } : {}), surfaceStyle: styleFor(scene, material, surface, 'path'), visibility } : {}),
       movementCostMultiplier: Number(cost),
-    } }]
+      } }]
+    }
     if (connection) {
       if (connection.terrainInlay) return [{ type: 'updateTerrainConnection', id, changes: { surfaceStyle: styleFor(scene, material, surface), visibility, blocksMovement: blocking, movementCostMultiplier: Number(cost) } }]
       const { points: positions, route } = readConnectionRoute(ends, connectionRoute, connection.route)
@@ -145,6 +157,7 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
     <div className="asset-section-heading"><Mountain size={16}/><h2>{name(id)}</h2></div><details><summary>对象编号</summary><code>{id}</code></details>
     <p className="asset-muted">图层：{scene.userLayers[scene.entityLayers[id]]?.name} {locked ? scatter && !scatterRegenerationLocked ? '· 部分编辑受锁保护' : '· 当前锁定' : ''}。尺寸使用{scene.units.display === 'ft' ? '英尺' : '米'}，按最近 1 mm 保存。</p>
     <EntityLockNotice scene={scene} id={id} onSelect={onSelect} onOpenLayers={onOpenLayers} description={scatter && !scatterRegenerationLocked ? '以下编辑锁保护相关内容，配置与删除保持禁用。重新散布保留固定成员，并按实际变化重新检查全部锁。' : undefined}/>
+    {path?.automaticRoute && onEditAutomaticRoad && <button type="button" className="secondary asset-wide" disabled={disabled || locked} onClick={() => onEditAutomaticRoad(path)}>调整自动道路</button>}
     {partition && <fieldset disabled={disabled} aria-label="分区操作">
       {onFocusPartition && <button type="button" className="secondary asset-wide" onClick={() => onFocusPartition(id)}>放大到分区</button>}
       {onPreviewPartition && region.visibility === 'public' && <button type="button" className="secondary asset-wide" onClick={() => onPreviewPartition(id)}>预览玩家揭开此分区</button>}
@@ -162,11 +175,15 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
       {bridgeConversionReason(scene, path) ?? <PathAssemblyPanel scene={scene} layerId={scene.entityLayers[id]} path={path}
         mode="bridge-conversion" disabled={disabled || locked} onPreview={onPreview}/>}
     </details>}
-    {path && !path.assembly?.bridge && <details className="outdoor-advanced"><summary>沿道路铺阶</summary>
+    {path && !path.assembly?.bridge && <details className="outdoor-advanced"><summary>{path.roadSurface ? '踏步材质与覆盖' : '沿道路铺阶'}</summary>
       <fieldset disabled={disabled || locked}>
-        <StaircaseFields value={roadStairs} onChange={setRoadStairs} centerlineMm={path.centerlineMm} widthMm={path.widthMm}/>
-        <button type="button" className="primary asset-wide" onClick={() => onPreview([{ type: 'updatePath', id, changes: { staircase: roadStairs } }], '按道路实际净宽铺阶')}>预览道路铺阶</button>
-        {path.staircase && <button type="button" className="secondary asset-wide" onClick={() => onPreview([{ type: 'updatePath', id, changes: { staircase: null } }], '移除道路阶梯')}>预览移除道路阶梯</button>}
+        <StaircaseFields value={roadStairs} onChange={setRoadStairs} centerlineMm={path.centerlineMm} widthMm={path.widthMm} paintOnly={!!path.roadSurface}/>
+        <button type="button" className="primary asset-wide" onClick={() => onPreview([{ type: 'updatePath', id, changes: { staircase: roadStairs } }], path.roadSurface ? '修改踏步材质与覆盖' : '按道路实际净宽铺阶')}>
+          {path.roadSurface ? '预览踏步外观' : '预览道路铺阶'}
+        </button>
+        {path.staircase && <button type="button" className="secondary asset-wide" onClick={() => onPreview([{ type: 'updatePath', id, changes: { staircase: null } }], path.roadSurface ? '恢复自动踏步外观' : '移除道路阶梯')}>
+          {path.roadSurface ? '恢复自动踏步外观' : '预览移除道路阶梯'}
+        </button>}
       </fieldset>
     </details>}
     {scatter && <fieldset disabled={disabled || scatterRegenerationLocked} aria-label="重新散布">
@@ -202,10 +219,10 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
       {(path && !path.assembly || connection && !connection.terrainInlay) && <NumberInput label="通路净宽" ariaLabel="对象通路净宽" displayUnit={scene.units.display} value={Number(width)} onCommit={value => setWidth(String(value))}/>}
       {editLocalWidth && <PathLocalWidthFields sections={widthSections} setSections={setWidthSections} widthMm={Number(width)} unit={scene.units.display}/>}
       {connection && !connection.terrainInlay && <><label>连接类型<select aria-label="对象连接类型" value={connectionKind} onChange={event => setConnectionKind(event.target.value as typeof connectionKind)}><option value="stairs">台阶</option><option value="ramp">坡道</option></select></label><SurfaceSelect scene={scene} floorId={entity.floorId} value={support} onChange={setSupport} label="对象连接起点表面"/><SurfaceSelect scene={scene} floorId={entity.floorId} value={toSupport} onChange={setToSupport} label="对象连接终点表面"/></>}
-      {path && !path.assembly?.bridge && <><SurfaceMultiSelect scene={scene} floorId={entity.floorId} values={pathSupports} onChange={setPathSupports} label="对象道路支撑"/><small>按住 Ctrl / ⌘ 可多选。整条道路须位于所选支撑面的并集内。</small></>}
+      {path && !path.assembly?.bridge && !path.automaticRoute && <><SurfaceMultiSelect scene={scene} floorId={entity.floorId} values={pathSupports} onChange={setPathSupports} label="对象道路支撑"/><small>按住 Ctrl / ⌘ 可多选。整条道路须位于所选支撑面的并集内。</small></>}
       {connection && !connection.terrainInlay && <OutdoorCoordinates text={ends} onChange={setEnds} label="连接路线节点" ariaLabel="对象连接端点" minimum={2} unit={scene.units.display}/>}
       {connection && !connection.terrainInlay && <details><summary>路线形态与踏面</summary><ConnectionRouteFields enabled={scene.mapMode === 'scene'} text={ends} draft={connectionRoute} retained={connection.route} onChange={setConnectionRoute} floorId={connection.floorId} layerId={scene.entityLayers[id]} visibility={visibility} onBoundaryEditor={onBoundaryEditor}/></details>}
-      {(area || path && !path.assembly || region) && <OutdoorCoordinates text={points} onChange={value => { setPoints(value); setEdgeSegments({}) }} label={path ? '道路中心线' : '轮廓'} ariaLabel="室外对象坐标" minimum={path ? 2 : 3} unit={scene.units.display}/>}
+      {(area || path && !path.assembly && !path.automaticRoute || region) && <OutdoorCoordinates text={points} onChange={value => { setPoints(value); setEdgeSegments({}) }} label={path ? '道路中心线' : '轮廓'} ariaLabel="室外对象坐标" minimum={path ? 2 : 3} unit={scene.units.display}/>}
       {relatedEdges.length > 0 && <details><summary>关联来源边缘 · {relatedEdges.length}</summary><label className="composition-check"><input type="checkbox" aria-label="同时重映射来源边缘" checked={remapEdges} onChange={event => setRemapEdges(event.target.checked)}/>同一事务重新确认来源、相邻面与崖边</label><small>逐项选择编辑后轮廓的段序号。高差边缘变为崖边并阻挡移动；完整变化在采用前展示。无法保持唯一来源会拒绝整笔修改。</small>{relatedEdges.map(item => { const retainedIndex = boundaryDraft?.findIndex(point => point.segmentId === item.source.segmentId) ?? -1; return <label key={item.id}>{name(item.id)}{item.source.areaId === id ? <input aria-label={`重映射边段 ${item.id}`} type="number" min="0" max="2048" value={(edgeSegments[item.id] !== undefined && edgeSegments[item.id] >= 0 ? edgeSegments[item.id] : retainedIndex) + 1} onChange={event => setEdgeSegments(current => ({ ...current, [item.id]: Number(event.target.value) - 1 }))}/> : <small>保留来源 {name(item.source.segmentId)}，重新核对相邻面</small>}</label>})}</details>}
       {edge && <><details><summary>来源地形与边段</summary><button type="button" className="secondary asset-wide" onClick={() => onSelect(edge.source.areaId)}>选择源地形</button><p className="asset-muted">{name(edge.source.segmentId)}。修改来源需完整检查相邻地面。</p><label>地形编号 / 边段编号<textarea aria-label="边缘来源映射" rows={2} value={edgeSource} onChange={event => setEdgeSource(event.target.value)}/></label></details><label>边缘类型<select aria-label="对象边缘类型" value={edgeKind} onChange={event => setEdgeKind(event.target.value as typeof edgeKind)}><option value="materialTransition">材质边界</option><option value="cliff">崖边</option><option value="shore">岸地边缘</option></select></label><label className="composition-check"><input type="checkbox" aria-label="显示岸线" checked={shoreline || edgeKind === 'shore'} onChange={event => { setShoreline(event.target.checked); if (!event.target.checked && edgeKind === 'shore') setEdgeKind('materialTransition') }}/>显示岸线</label></>}
       {scatter && <><NumberInput label="生成采样间隔" ariaLabel="对象散布格距" displayUnit={scene.units.display} value={Number(cell)} onCommit={value => setCell(String(value))}/><NumberInput label="物件最小间距" ariaLabel="对象散布间距" displayUnit={scene.units.display} value={Number(spacing)} onCommit={value => setSpacing(String(value))}/><small>保存配置不自动重新散布。手工移动、删除、退出和锁定保持。</small></>}

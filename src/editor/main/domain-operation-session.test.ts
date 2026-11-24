@@ -36,12 +36,12 @@ describe('domain operation session', () => {
     expect(release[domain]).not.toHaveBeenCalled()
   })
 
-  it('owns a single domain across dirty forms, pending work and review, including synchronous double clicks', async () => {
+  it('allows independent parameter drafts and owns only one computation or candidate at a time', async () => {
     const { session } = setup(), ready = deferred<Previews['forest']>(), duplicate = vi.fn(async () => preview('forest', 2))
     session.change('forest')
-    expect(session.change('interior')).toBe(false)
+    expect(session.change('interior')).toBe(true)
     expect(session.summary('forest').blocking).toBe(false)
-    expect(session.summary('interior')).toMatchObject({ hasDraft: true, blocking: true })
+    expect(session.summary('interior')).toMatchObject({ hasDraft: true, blocking: false })
     const run = session.run('forest', () => ready.promise)
     expect(await session.run('forest', duplicate)).toBeNull()
     expect(await session.run('mixed', async () => preview('mixed'))).toBeNull()
@@ -111,6 +111,14 @@ describe('domain operation session', () => {
     expect(await run).toBeNull()
     expect(release.mixed).toHaveBeenCalledExactlyOnceWith(stale)
     expect(session.getSnapshot().mixed.phase).toBe('idle')
+  })
+
+  it('retains parameter input when the user edits the same scene after a failed generation', async () => {
+    const { session, changeSource } = setup()
+    await session.run('interior', async () => { throw new Error('建筑放不下') })
+    changeSource('scene:1')
+    expect(session.summary()).toMatchObject({ hasDraft: true, hasCandidate: false, blocking: false })
+    expect(session.getSnapshot().interior).toMatchObject({ error: '建筑放不下', resetKey: 0 })
   })
 
   it('does not cancel its own adoption when Workspace publishes a new project before resolving', async () => {

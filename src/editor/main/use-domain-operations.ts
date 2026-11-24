@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { DomainPreviewMap, LocalGenerationPreview } from '../../application/workspace/workspace'
-import { domainGenerationKinds, type DomainGenerationKind } from '../../shared/generation/domains/registry.js'
+import { domainGenerationKinds, type DomainGenerationKind } from '../../shared/generation/domains/kinds.js'
 import { DomainOperationSession } from './domain-operation-session'
 
 export const GENERATION_DOMAINS = domainGenerationKinds

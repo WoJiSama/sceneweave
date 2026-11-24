@@ -1,0 +1,6 @@
+.asset-new-loading { padding-block: 22px; }
+.asset-new-fields { border: 0; padding: 0; margin: 22px 0; display: flex; flex-direction: column; gap: 18px; }
+.asset-new-fields label { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #607253; }
+.asset-new-fields :is(input, select) { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #cfdbc4; border-radius: 5px; background: #f7f9f2; color: #425c36; font: inherit; }
+.asset-new-fields small { font-size: 11px; color: #87957a; line-height: 1.8; }
+.asset-new-dimensions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }

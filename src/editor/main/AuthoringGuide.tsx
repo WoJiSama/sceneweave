@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
 import type { CompositionCommand } from '../../shared/model/appearance'
 import type { EditableProject } from '../../application/workspace/project'
-import { buildAuthoringPlan, type AuthoringRecipeId } from './authoring-recipes'
+import { authoringStageKind, buildAuthoringPlan, type AuthoringRecipeId } from './authoring-recipes'
 import './AuthoringGuide.css'
 
 export interface AuthoringGuideProps {
   project: EditableProject
   disabled: boolean
-  onPreview: (commands: CompositionCommand[], description: string) => void
+  onPreview: (commands: CompositionCommand[], description: string, kind: ReturnType<typeof authoringStageKind>) => void
   onAdoptRequiredCatalog?: (catalogIds: string[]) => void
 }
 export default function AuthoringGuide({ project, disabled, onPreview, onAdoptRequiredCatalog }: AuthoringGuideProps) {
@@ -22,15 +22,15 @@ export default function AuthoringGuide({ project, disabled, onPreview, onAdoptRe
       <option value="scn-01">SCN-01 雾灯宅</option><option value="scn-04">SCN-04 海岸哨所</option>
     </select></label>
     <p role="status">当前内容匹配 {completed}/{plan.stages.length} 步{next ? `；下一步：${next.title}` : '；固定制作步骤已匹配，仍须完成保存、往返与验收检查。'}</p>
-    {!!plan.missingCatalogIds.length && <div className="authoring-guide-catalog"><p>雾灯宅基础家具尚缺 {plan.missingCatalogIds.length} 件固定素材；从内置素材库采用后才能预览布景。</p>
-      {onAdoptRequiredCatalog && <button className="secondary asset-wide" disabled={disabled} onClick={() => onAdoptRequiredCatalog([...plan.missingCatalogIds])}>预览采用缺少的室内素材</button>}
+    {!!plan.missingCatalogIds.length && <div className="authoring-guide-catalog"><p>所选教程还需 {plan.missingCatalogIds.length} 项固定素材。采用后，材质、家具和组合随工程保存。</p>
+      {onAdoptRequiredCatalog && <button className="secondary asset-wide" disabled={disabled} onClick={() => onAdoptRequiredCatalog([...plan.missingCatalogIds])}>预览采用本教程所需素材</button>}
     </div>}
     <ol>{plan.stages.map(stage => <li key={stage.id} data-authoring-stage={stage.id} data-status={stage.status}>
       <details open={stage.status === 'ready' || stage.status === 'blocked'}>
         <summary><span>{stage.title}</span><small>{stage.status === 'complete' ? '已匹配' : stage.status === 'ready' ? '可预览' : stage.status === 'blocked' ? '需处理' : '待前序'}</small></summary>
         {stage.instructions.map((text, index) => <p key={index}>{text}</p>)}
         {stage.reason && <p className="authoring-guide-reason">{stage.reason}</p>}
-        {stage.status === 'ready' && <button className="secondary asset-wide" disabled={disabled} onClick={() => onPreview(structuredClone(stage.commands), `${plan.title}：${stage.title}`)}>预览本步 · {stage.commands.length} 条指令</button>}
+        {stage.status === 'ready' && <button className="secondary asset-wide" disabled={disabled} onClick={() => onPreview(structuredClone(stage.commands), `${plan.title}：${stage.title}`, authoringStageKind(stage.commands))}>预览本步 · {stage.commands.length} 条指令</button>}
       </details>
     </li>)}</ol>
     <details><summary>制作范围与后续检查</summary>{plan.limitations.map(text => <p key={text}>{text}</p>)}</details>

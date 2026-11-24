@@ -57,17 +57,19 @@ export class DomainOperationSession<M extends object> {
       result.busy ||= state.phase === 'preparing' || state.phase === 'adopting'
       result.hasDraft ||= state.phase === 'draft' || state.phase === 'preparing'
       result.hasCandidate ||= state.phase === 'review' || state.phase === 'adopting'
-      result.blocking ||= state.phase !== 'idle'
+      result.blocking ||= state.phase === 'preparing' || state.phase === 'review' || state.phase === 'adopting'
     }
     return result
   }
 
   active(): { domain: keyof M; phase: Exclude<DomainOperationPhase, 'idle'> } | null {
+    let draft: { domain: keyof M; phase: 'draft' } | null = null
     for (const domain of this.options.domains) {
       const phase = this.snapshot[domain].phase
-      if (phase !== 'idle') return { domain, phase }
+      if (phase === 'draft') draft ??= { domain, phase }
+      else if (phase !== 'idle') return { domain, phase }
     }
-    return null
+    return draft
   }
 
   currentPreview(): M[keyof M] | null {
@@ -153,14 +155,14 @@ export class DomainOperationSession<M extends object> {
 
   invalidateSource(checkpoint: number, sourceKey: string): void {
     if (checkpoint === this.source.checkpoint && sourceKey === this.source.key) return
+    const sameScene = sourceKey === this.source.key
     this.source = { checkpoint, key: sourceKey }
     for (const domain of this.options.domains) {
       const phase = this.snapshot[domain].phase
       // Workspace may publish the adopted project before its promise resolves.
       // It owns CAS; our adopting operation must be allowed to finish.
-      // A different source also resets each mounted panel's previously entered
-      // fields, even if its last candidate was silently cleared by settings.
-      if (phase !== 'adopting') this.cancel(domain)
+      if (phase === 'adopting' || sameScene && (phase === 'draft' || phase === 'idle')) continue
+      this.cancel(domain, { reset: !sameScene })
     }
   }
 

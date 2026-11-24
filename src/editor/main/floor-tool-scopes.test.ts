@@ -90,8 +90,8 @@ describe('ordinary tool UI targets a complete independent Floor', () => {
   it('limits both pending prop and prefab support to their actual target Floor', () => {
     const scene = fixture(), before = canonicalJson(scene)
     const prop = { ...workspaceFixture().project.document.props.item, id: 'pending', floorId: 'B', supportRef: { kind: 'floor' as const, id: 'B' } }
-    const placement = renderToStaticMarkup(createElement(PlacementInspector, { scene, prop, busy: false, ready: true, onChange: noop, onPlace: noop, onCancel: noop }))
-    expect(values(select(placement, '放置表面'))).toEqual(['floor:B', 'room:room-B', 'terrainArea:area-B'])
+    const placement = renderToStaticMarkup(createElement(PlacementInspector, { scene, prop, automatic: true, busy: false, ready: true, onChange: noop, onSurface: noop, onPlace: noop, onCancel: noop }))
+    expect(values(select(placement, '放置表面'))).toEqual(['', 'floor:B', 'room:room-B', 'terrainArea:area-B'])
     const prefab = renderToStaticMarkup(createElement(PrefabPanel, { project: { document: scene } as EditableProject, ids: [], layerId: 'layer-B', disabled: false, placementDefinitionId: null, onPreview: noop, onSelect: noop }))
     expect(values(select(prefab, '组合支撑表面')).map(value => value.replaceAll('&quot;', '"'))).toEqual(['', '{"kind":"floor","id":"B"}', '{"kind":"room","id":"room-B"}', '{"kind":"terrainArea","id":"area-B"}'])
     expect(canonicalJson(scene)).toBe(before)

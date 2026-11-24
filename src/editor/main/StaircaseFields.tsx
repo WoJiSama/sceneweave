@@ -13,8 +13,8 @@ const polygonText = (points: PointMm[]) => points.map(point => { const view = to
 
 /** Shared controls for a new stair and the selected stair. The unfolded cover
  * board stores local polygons, so covering is reversible and follows bends. */
-export default function StaircaseFields({ value, onChange, centerlineMm, widthMm }: {
-  value: StaircaseConfig; onChange: (value: StaircaseConfig) => void; centerlineMm?: PointMm[]; widthMm?: number
+export default function StaircaseFields({ value, onChange, centerlineMm, widthMm, paintOnly = false }: {
+  value: StaircaseConfig; onChange: (value: StaircaseConfig) => void; centerlineMm?: PointMm[]; widthMm?: number; paintOnly?: boolean
 }) {
   const [coverKind, setCoverKind] = useState<StaircaseCover['kind']>('reveal-ground')
   const [dragEnd, setDragEnd] = useState<PointMm | null>(null), dragStart = useRef<PointMm | null>(null)
@@ -24,7 +24,7 @@ export default function StaircaseFields({ value, onChange, centerlineMm, widthMm
   const length = pathLength(centerlineMm) * (value.range ? (value.range.endPpm - value.range.startPpm) / 1_000_000 : 1)
   const hasLength = Number.isFinite(length) && length > 0
   const stepCount = value.layout.kind === 'stretch' ? value.layout.stepCount : hasLength && value.layout.treadDepthMm > 0 ? Math.ceil(length / value.layout.treadDepthMm) : 0
-  const diagramSteps = clamp(Number.isFinite(stepCount) ? stepCount : 1, 1, 48)
+  const diagramSteps = paintOnly ? 1 : clamp(Number.isFinite(stepCount) ? stepCount : 1, 1, 48)
   const undoId = addedIds.current.filter(id => value.covers.some(cover => cover.id === id)).at(-1)
   const change = (patch: Partial<StaircaseConfig>) => { setError(''); onChange({ ...value, ...patch }) }
   const addRectangle = (start: PointMm, end: PointMm) => {
@@ -47,7 +47,7 @@ export default function StaircaseFields({ value, onChange, centerlineMm, widthMm
   const cancelDrag = () => { dragStart.current = null; setDragEnd(null) }
   const draftPolygon = dragStart.current && dragEnd ? [dragStart.current, { x: dragEnd.x, y: dragStart.current.y }, dragEnd, { x: dragStart.current.x, y: dragEnd.y }] : null
   return <div className="staircase-fields" data-staircase-fields>
-    <label className="composition-check"><input type="checkbox" checked={!!value.range} onChange={event => {
+    {!paintOnly && <><label className="composition-check"><input type="checkbox" checked={!!value.range} onChange={event => {
       const { range: _range, ...settings } = value
       setError('')
       onChange(event.target.checked ? { ...settings, range: { startPpm: 250_000, endPpm: 750_000 } } : settings)
@@ -57,12 +57,12 @@ export default function StaircaseFields({ value, onChange, centerlineMm, widthMm
         onChange={event => change({ range: { ...value.range!, startPpm: Math.round(Number(event.target.value) * 10_000) } })}/></label>
       <label>铺阶终点（%）<input type="number" min="0" max="100" step="0.1" value={value.range.endPpm / 10_000}
         onChange={event => change({ range: { ...value.range!, endPpm: Math.round(Number(event.target.value) * 10_000) } })}/></label>
-    </div>}
+    </div>}</>}
     <div className="composition-fields">
-      <label>阶梯样式<select aria-label="阶梯样式" value={value.preset} onChange={event => change({ preset: event.target.value as StaircaseConfig['preset'] })}>{STAIRCASE_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>
+      {!paintOnly && <label>阶梯样式<select aria-label="阶梯样式" value={value.preset} onChange={event => change({ preset: event.target.value as StaircaseConfig['preset'] })}>{STAIRCASE_PRESETS.map(preset => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select></label>}
       <label>阶梯材质<select aria-label="阶梯材质" value={value.material} onChange={event => change({ material: event.target.value as StaircaseConfig['material'] })}>{STAIRCASE_MATERIALS.map(material => <option key={material.id} value={material.id}>{material.label}</option>)}</select></label>
     </div>
-    <label>续接方式<select aria-label="阶梯续接方式" value={value.layout.kind} disabled={!hasLength} onChange={event => {
+    {!paintOnly && <><label>续接方式<select aria-label="阶梯续接方式" value={value.layout.kind} disabled={!hasLength} onChange={event => {
       if (event.target.value === value.layout.kind || !hasLength) return
       change({ layout: event.target.value === 'repeat'
         ? { kind: 'repeat', treadDepthMm: clamp(Math.round(length / Math.max(1, stepCount)), 50, 2000) }
@@ -74,7 +74,7 @@ export default function StaircaseFields({ value, onChange, centerlineMm, widthMm
       : <label>固定级数<input aria-label="阶梯固定级数" type="number" min="1" max="512" step="1" value={value.layout.stepCount} onChange={event => change({ layout: { kind: 'stretch', stepCount: Number(event.target.value) } })}/><small>延长路线会加深每级踏面，材质纹理保持独立尺度。</small></label>}
     <label>材质纹理尺度（毫米）<input aria-label="阶梯纹理尺度毫米" type="number" min="50" max="4000" step="1" value={value.textureScaleMm} onChange={event => change({ textureScaleMm: Number(event.target.value) })}/></label>
     {hasLength && <p className="asset-muted" aria-live="polite">铺阶约 {Math.round(length).toLocaleString()} 毫米{widthMm && widthMm > 0 ? ` · 宽 ${widthMm.toLocaleString()} 毫米` : ''} · {stepCount} 级{value.layout.kind === 'stretch' && stepCount > 0 ? ` · 每级约 ${Math.round(length / stepCount)} 毫米` : ''}。</p>}
-    {stepCount > 512 && <p className="asset-form-error" role="alert">当前路线超过512级，请增大踏面深度或缩短路线。</p>}
+    {stepCount > 512 && <p className="asset-form-error" role="alert">当前路线超过512级，请增大踏面深度或缩短路线。</p>}</>}
     <details className="staircase-covers">
       <summary>局部覆盖与露出底层 · {value.covers.length}/32</summary>
       <p className="asset-muted">在阶梯展开示意图上拖出矩形。覆盖沿路线从起点到终点排列，随弯曲和伸长保留相对位置；清除覆盖可恢复完整阶梯。</p>

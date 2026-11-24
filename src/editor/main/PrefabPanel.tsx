@@ -5,18 +5,21 @@ import type { EditableProject } from '../../application/workspace/project'
 import type { PointMm, SurfaceRef } from '../../shared/model/scene'
 import { changedPrefabRevisionMembers, type PrefabRevisionChange } from '../../shared/appearance/prefab-revisions'
 import { createEntityLabeler } from './entity-label'
+import { prefabPlacementMembers } from '../../shared/appearance/commands'
+import { propFootprint } from '../../shared/geometry/geometry'
+import type { FurnitureRoomQuery } from '../../shared/geometry/furniture-room'
 
 export const prefabRevisionFieldLabels = { sightOccluder: '视线遮挡', appearance: '物件外观' }
 
-export default function PrefabPanel({ project, ids, layerId, disabled, placementDefinitionId, placementRoom, onCancelPlacement, onPreview, onSelect, onPublishRevision, onSyncRevision }: {
+export default function PrefabPanel({ project, ids, layerId, disabled, placementDefinitionId, placementRoom, roomAtDrop, onCancelPlacement, onPreview, onSelect, onPublishRevision, onSyncRevision }: {
   project: EditableProject; ids: readonly string[]; layerId: string; disabled: boolean; placementDefinitionId?: string | null
-  placementRoom?: { id: string; anchorMm: PointMm }; onCancelPlacement?: () => void
+  placementRoom?: { id: string; anchorMm: PointMm }; roomAtDrop?: FurnitureRoomQuery; onCancelPlacement?: () => void
   onPreview: (commands: CompositionCommand[], description: string) => void; onSelect: (id: string) => void
   onPublishRevision?: (id: string, changes: PrefabRevisionChange[]) => void; onSyncRevision?: (id: string) => void
 }) {
   const scene = project.document, [name, setName] = useState('我的组合'), [definitionId, setDefinitionId] = useState('')
   const [x, setX] = useState(String(placementRoom?.anchorMm.x ?? 1000)), [y, setY] = useState(String(placementRoom?.anchorMm.y ?? 1000))
-  const [rotation, setRotation] = useState('0'), [support, setSupport] = useState(placementRoom ? JSON.stringify({ kind: 'room', id: placementRoom.id }) : '')
+  const [rotation, setRotation] = useState('0'), [support, setSupport] = useState('')
   const group = ids.length === 1 ? scene.prefabInstances[ids[0]] : undefined, effectiveDefinitionId = placementDefinitionId ?? definitionId, definition = scene.prefabDefinitions[effectiveDefinitionId]
   const [selectedChanges, setSelectedChanges] = useState<{ groupId: string; changes: PrefabRevisionChange[] } | null>(null)
   const canRevise = group && !scene.prefabDefinitions[group.definitionRef.id].pathStyle
@@ -29,8 +32,10 @@ export default function PrefabPanel({ project, ids, layerId, disabled, placement
   const canCreate = ids.length > 0 && ids.every(id => !!scene.props[id] && !members.has(id)), anchor = canCreate ? { x: Math.round(ids.reduce((sum, id) => sum + scene.props[id].positionMm.x, 0) / ids.length), y: Math.round(ids.reduce((sum, id) => sum + scene.props[id].positionMm.y, 0) / ids.length) } : { x: 0, y: 0 }
   const instantiate = () => {
     if (!definition) return
-    const layer = scene.userLayers[layerId], parsed = support ? JSON.parse(support) as SurfaceRef : { kind: 'floor' as const, id: layer.floorId }
-    onPreview([{ type: 'instantiatePrefab', id: `prefab-${crypto.randomUUID()}`, definitionRef: { id: definition.id, version: definition.version }, memberIds: Object.fromEntries(definition.members.map(member => [member.key, `prop-${crypto.randomUUID()}`])), anchorMm: { x: Number(x), y: Number(y) }, rotationDeg: Number(rotation), layerId, supportRef: parsed }], `放置固定组合 · ${definition.name} v${definition.version}`)
+    const anchorMm = { x: Number(x), y: Number(y) }, rotationDeg = Number(rotation)
+    const parsed = support ? JSON.parse(support) as SurfaceRef : roomAtDrop?.(prefabPlacementMembers(project, definition.id, anchorMm, rotationDeg)
+      .map(member => propFootprint({ ...member.propTemplate, positionMm: member.positionMm, rotationDeg: member.rotationDeg }))).supportRef
+    onPreview([{ type: 'instantiatePrefab', id: `prefab-${crypto.randomUUID()}`, definitionRef: { id: definition.id, version: definition.version }, memberIds: Object.fromEntries(definition.members.map(member => [member.key, `prop-${crypto.randomUUID()}`])), anchorMm, rotationDeg, layerId, ...(parsed ? { supportRef: parsed } : {}) }], `放置固定组合 · ${definition.name} v${definition.version}`)
   }
   const placementForm = <form onSubmit={event => { event.preventDefault(); instantiate() }}>
     <label>组合版本<select aria-label="放置组合版本" value={effectiveDefinitionId} onChange={event => setDefinitionId(event.target.value)} disabled={!!placementDefinitionId}>
@@ -38,7 +43,7 @@ export default function PrefabPanel({ project, ids, layerId, disabled, placement
       {Object.values(scene.prefabDefinitions).map(item => <option key={item.id} value={item.id}>{item.name} · v{item.version}</option>)}
     </select></label>
     <label>放在哪个表面<select aria-label="组合支撑表面" value={support} onChange={event => setSupport(event.target.value)}>
-      <option value="">当前楼层 · {scene.floors[floorId]?.name ?? floorId}</option>
+      <option value="">自动判断整套家具所在房间</option>
       {Object.values(scene.floors).filter(item => item.id === floorId).map(item => <option key={item.id} value={JSON.stringify({ kind: 'floor', id: item.id })}>楼层 · {item.name}</option>)}
       {Object.values(scene.rooms).filter(item => item.floorId === floorId).map(item => <option key={item.id} value={JSON.stringify({ kind: 'room', id: item.id })}>房间 · {item.purpose || item.id}</option>)}
       {Object.values(scene.terrainAreas).filter(item => item.floorId === floorId).map(item => <option key={item.id} value={JSON.stringify({ kind: 'terrainArea', id: item.id })}>地形 · {entityName(item.id)}</option>)}

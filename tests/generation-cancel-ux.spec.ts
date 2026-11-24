@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, openKeyboardPanel, placeKeyboardLamp } from './keyboard-ux-helpers'
+import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, placeKeyboardLamp } from './keyboard-ux-helpers'
 import { openGenerationTask, closeWorkspaceDrawers, openWorkspaceModule } from './workspace-navigation-helpers'
 
 // Normal production UI; only delivery of genuine worker results is delayed.
@@ -61,10 +61,6 @@ async function gateFacts(page: Page) {
   })
 }
 
-async function closeNarrowDrawers(page: Page, width: number) {
-  await closeWorkspaceDrawers(page)
-}
-
 for (const scenario of [
   { task: '自然地形', width: 1512, height: 982 },
   { task: '组合地貌', width: 1512, height: 982 },
@@ -76,9 +72,9 @@ for (const scenario of [
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   const title = `取消保全 ${scenario.task} ${scenario.width}`
-  await createKeyboardProject(page, title)
+  await createKeyboardProject(page, title, { widthMeters: 60, heightMeters: 48 })
   await placeKeyboardLamp(page)
-  await closeNarrowDrawers(page, scenario.width)
+  await closeWorkspaceDrawers(page)
   const original = await keyboardProjectBackup(page, info.outputPath('before.sceneweave'))
   const undo = page.getByRole('button', { name: '撤销编辑', exact: true })
   const undoDisabled = await undo.isDisabled()
@@ -92,10 +88,12 @@ for (const scenario of [
     await expect(page.locator('.asset-save')).toHaveText('本地已保存')
   }
 
-  await openKeyboardPanel(page, 'resources')
   await openGenerationTask(page, scenario.task)
   const composition = scenario.task === '组合地貌'
-  const panel = page.getByRole('region', { name: composition ? '通用地貌组合' : '生成自然地形', exact: true })
+  const settings = page.getByRole('dialog', { name: scenario.task, exact: true })
+  await settings.getByLabel('左上 X（米）').fill('8')
+  await settings.getByLabel('左上 Y（米）').fill('8')
+  const panel = settings.getByRole('region', { name: composition ? '通用地貌组合' : '生成自然地形', exact: true })
   const seed = panel.getByLabel(composition ? '组合种子' : '地形方案种子', { exact: true })
   const seedValue = composition ? 'terrain-compose-0' : 'terrain-v1-0'
   await seed.fill(seedValue)
@@ -115,25 +113,8 @@ for (const scenario of [
   await expect(cancelRunning).toBeFocused()
   await page.screenshot({ path: info.outputPath('running-before-escape.png') })
   await page.keyboard.press('Escape')
-  if (scenario.width === 390) {
-    // The drawer consumes its own Escape before the global running-task shortcut.
-    // Closing presentation must leave the held real Worker request running.
-    await expect(page.getByTestId('workspace-resources')).toHaveAttribute('data-open', 'false')
-    const hiddenPanel = page.getByRole('region', { name: '通用地貌组合', exact: true, includeHidden: true })
-    await expect(hiddenPanel.getByRole('button', { name: '取消地貌组合生成', exact: true, includeHidden: true })).toHaveCount(1)
-    expect(await gateFacts(page)).toEqual({ posts: 1, deliveries: 0, pending: 1, failures: 0 })
-    await expectOriginal(true)
-    await page.keyboard.press('Escape')
-    await expect(hiddenPanel.getByRole('button', { name: '取消地貌组合生成', exact: true, includeHidden: true })).toHaveCount(0)
-    await openKeyboardPanel(page, 'resources')
-  }
-  await expect(progress).toHaveCount(0)
-  await expect(cancelRunning).toHaveCount(0)
+  await expect(settings).toHaveCount(0)
   await expect(candidate).toHaveCount(0)
-  await expect(preview).toBeEnabled()
-  await expect(seed).toHaveValue(seedValue)
-  if (composition) await expect(panel.getByLabel('组合岛屿数量', { exact: true })).toHaveValue('2')
-  if (scenario.width === 390) await expect(page.getByTestId('workspace-resources')).toHaveAttribute('data-open', 'true')
   await expectOriginal()
 
   // Release the exact result captured before Escape, even though its native
@@ -144,13 +125,19 @@ for (const scenario of [
   await keyboardWorkspaceSaved(page)
   await expectOriginal()
   await page.screenshot({ path: info.outputPath('cancelled-after-late-result.png') })
-  await closeNarrowDrawers(page, scenario.width)
+  await closeWorkspaceDrawers(page)
   expect((await keyboardProjectBackup(page, info.outputPath('after-late-result.sceneweave'))).hashes).toEqual(original.hashes)
   expect(await gateFacts(page)).toEqual({ posts: 1, deliveries: 1, pending: 1, failures: 0 })
 
   // A second real computation starts only after this click. Hold it too, so an
   // old candidate cannot masquerade as a successful retry while awaiting it.
-  await openKeyboardPanel(page, 'resources')
+  await openGenerationTask(page, scenario.task)
+  await expect(progress).toHaveCount(0)
+  await expect(cancelRunning).toHaveCount(0)
+  await expect(preview).toBeEnabled()
+  await expect(seed).toHaveValue(seedValue)
+  await expect(settings.getByLabel('左上 X（米）')).toHaveValue('8')
+  if (composition) await expect(panel.getByLabel('组合岛屿数量', { exact: true })).toHaveValue('2')
   await preview.click()
   await expect(progress).toBeVisible()
   await expect.poll(async () => (await gateFacts(page)).pending, { timeout: 120000 }).toBe(2)
@@ -159,8 +146,11 @@ for (const scenario of [
   await expect(undo).toBeDisabled()
   expect(await gateFacts(page)).toEqual({ posts: 2, deliveries: 1, pending: 2, failures: 0 })
   await page.evaluate(() => (window as unknown as GatedWindow).__sceneweaveGenerationEscapeGate.pending[1].deliver())
+  const review = page.getByRole('group', { name: '当前画布生成预览' })
+  await expect(review).toBeVisible({ timeout: 120000 })
+  await expect(review.getByRole('button', { name: '加入当前画布' })).toBeEnabled()
+  await review.getByRole('button', { name: '候选详情', exact: true }).click()
   await expect(candidate).toBeVisible({ timeout: 120000 })
-  await expect(candidate.getByRole('button', { name: composition ? '采用地貌组合' : '采用当前地形方案', exact: true })).toBeEnabled()
   await expect(page.locator('.workspace-unified')).toHaveAttribute('data-revision', String(original.document.revision))
   await expect(panel.getByRole('alert')).toHaveCount(0)
   await closeWorkspaceDrawers(page)
@@ -173,7 +163,7 @@ for (const scenario of [
   await expect(candidate).toHaveCount(0)
   await keyboardWorkspaceSaved(page)
   await expectOriginal()
-  await closeNarrowDrawers(page, scenario.width)
+  await closeWorkspaceDrawers(page)
   expect((await keyboardProjectBackup(page, info.outputPath('after-retry-cancel.sceneweave'))).hashes).toEqual(original.hashes)
   expect(await gateFacts(page)).toEqual({ posts: 2, deliveries: 2, pending: 2, failures: 0 })
   expect(undoDisabled).toBe(false)

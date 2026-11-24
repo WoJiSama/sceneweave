@@ -55,10 +55,6 @@ export function freezeAtomic<T>(input: T): T {
   }
   return input
 }
-export function pureProject(project: EditableProject): ProjectData {
-  const { resources: _resources, ...data } = project
-  return data
-}
 export function captureAtomicStart<T extends AuthoringStart>(input: T): T {
   const captured = captureJson(input) as unknown as AuthoringStart
   return freezeAtomic(validateAuthoringStart(captured)) as T

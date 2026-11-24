@@ -1,0 +1,57 @@
+.generation-dialog {
+  width: min(640px, calc(100% - 24px));
+  max-height: min(84dvh, 760px);
+  padding: 0;
+  overflow: auto;
+  color: #344b3d;
+  background: #fcfdf8;
+  border: 1px solid #cbd6c3;
+  border-radius: 12px;
+  box-shadow: 0 18px 58px #16322140;
+}
+.generation-dialog::backdrop { background: #253e3440; }
+.generation-dialog-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #dde5d8;
+  background: #fcfdf8;
+}
+.generation-dialog-header h2 { font-size: 17px; }
+.generation-dialog-body { padding: 14px 16px 16px; }
+.generation-dialog .terrain-generation-panel,
+.generation-dialog .regional-panel { padding: 0; border: 0; }
+.generation-dialog .terrain-generation-panel > h2,
+.generation-dialog .regional-panel > h2 { display: none; }
+.generation-location {
+  display: grid;
+  gap: 8px;
+  padding-block: 0 12px;
+}
+.generation-location-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.generation-location-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.workspace-generation-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #edf4e8;
+  border-bottom: 1px solid #d3e1ca;
+  color: #344b3d;
+  font-size: 12px;
+}
+.workspace-generation-bar > span { flex: 1 1 190px; }
+.workspace-generation-bar button { min-height: 34px; }
+.generation-dialog .interior-common-fields { display: grid; gap: 10px; min-width: 0; }
+.generation-dialog .interior-field-pair input { min-width: 0; }
+.generation-dialog .interior-room-purpose { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+.generation-dialog .interior-room-purpose label { min-width: 0; }
+.generation-dialog .interior-settings { margin-top: 8px; }
+.generation-dialog .interior-settings > summary { cursor: pointer; padding: 8px 0; }
+.generation-dialog .interior-submit { position: sticky; bottom: 0; z-index: 1; padding-block: 10px 3px; background: #fcfdf8; }

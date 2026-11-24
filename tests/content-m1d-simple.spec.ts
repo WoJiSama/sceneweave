@@ -39,6 +39,8 @@ async function adopt(page: Page) {
   await expect(button).toBeVisible({ timeout: 30000 })
   const confirmation = page.getByRole('checkbox', { name: '确认完整影响范围', exact: true })
   if (await confirmation.count()) await confirmation.check()
+  const maskImpact = page.getByRole('checkbox', { name: '确认遮罩对公开内容的影响', exact: true })
+  if (await maskImpact.count()) await maskImpact.check({ timeout: 30_000 })
   await acknowledgeAssetQuality(page)
   await expect(button).toBeEnabled({ timeout: 30000 }); await button.click(); await settled(page)
 }
@@ -115,7 +117,7 @@ for (const sample of [{ name: '苔石墓园', kind: 'graveyard' }, { name: '灰�
 test('content simple: supplemental tags and refined comparison leave the original blank unchanged until explicit adoption', async ({ page }, info) => {
   test.setTimeout(90000)
   await blank(page, '目录与精修'); const before = await current(page)
-  expect(before.assetCount).toBe(34)
+  expect(before.assetCount).toBe(2)
   await openWorkspaceModule(page, '素材')
   const lib = library(page)
   await lib.getByLabel('素材来源', { exact: true }).selectOption('builtin')
@@ -138,7 +140,7 @@ test('content simple: supplemental tags and refined comparison leave the origina
   expect(await current(page)).toEqual(before)
   await adopt(page)
   const after = await current(page)
-  expect(after.assetCount).toBe(35)
+  expect(after.assetCount).toBe(before.assetCount + 1)
   expect(after.document.props).toEqual(before.document.props)
   expect(Object.values(after.document.propDefinitions).filter(item => item.catalogId.endsWith('tree-broadleaf.refined'))).toHaveLength(1)
   await lib.getByRole('group', { name: '素材库操作', exact: true }).getByRole('button', { name: '浏览素材', exact: true }).click()
@@ -172,16 +174,18 @@ for (const recipe of ['scn-01', 'scn-04'] as const) test(`M1-D simple: ${recipe}
   await blank(page, recipe)
   const initial = await current(page)
   expect(Object.keys(initial.document.rooms)).toHaveLength(0)
-  expect(Object.keys(initial.document.terrainAreas)).toHaveLength(0)
+  const floorId = Object.keys(initial.document.floors)[0]
+  expect(Object.keys(initial.document.terrainAreas)).toEqual([`canvas-ground-${floorId}`])
   await openSceneSettings(page)
   await page.locator('.workspace-authoring-details > summary').click()
   const guide = page.getByRole('region', { name: '场景分步制作', exact: true })
   await guide.getByLabel('制作基线', { exact: true }).selectOption(recipe)
-  if (recipe === 'scn-01') {
-    await guide.getByRole('button', { name: '预览采用缺少的室内素材', exact: true }).click()
-    await adopt(page)
-    expect((await current(page)).assetCount).toBe(41)
-  }
+  await guide.getByRole('button', { name: '预览采用本教程所需素材', exact: true }).click()
+  await adopt(page)
+  const equipped = await current(page)
+  expect(equipped.assetCount).toBeGreaterThan(initial.assetCount)
+  expect(Object.values(equipped.document.materials).map(material => material.catalogId)).toContain('material.sw.wood-dark')
+  expect(Object.values(equipped.document.prefabDefinitions).map(group => group.catalogId)).toContain('prefab.sw.study-desk')
   const stages: { id: string | null; revision: number }[] = []
   for (let step = 0; step < 35; step++) {
     const ready = guide.locator('li[data-status="ready"]')

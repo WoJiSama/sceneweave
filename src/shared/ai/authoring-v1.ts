@@ -28,6 +28,7 @@ import { validateProjectData } from '../project/validate.js'
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { sha256Text } from '../validation/hash.js'
 import { canonicalJson, captureJson, cloneJson, encodeUtf8, freezeJson } from '../validation/json.js'
+import { authoringProjectHash } from './authoring-project-hash.js'
 import { AUTHORING_LIMITS, AuthoringStartSchema, AuthoringStateSchema, AuthoringStepSchema,
   type AuthoringOperation, type AuthoringStart, type AuthoringState, type AuthoringStep, type ArtworkOperation, type SceneAuthoringOperation } from './authoring-protocol-v1.js'
 
@@ -67,8 +68,7 @@ export function authoringSkill(start: AuthoringStart) {
     ...(start.scope.artwork ? [ARTWORK_SKILL.instructions] : [])].join(' ') }
 }
 
-/** Hash of all persistable metadata, never a resource-byte validation certificate. */
-export const authoringProjectHash = (project: ProjectData): string => sha256Text(canonicalJson(project))
+export { authoringProjectHash } from './authoring-project-hash.js'
 const sorted = (values: Iterable<string>): string[] => [...new Set(values)].sort()
 const has = (record: object, id: string): boolean => Object.hasOwn(record, id)
 function deny(message: string, code: OperationRejectionCode = 'invalid_geometry'): never { throw new OperationRejected(code, `AI草稿范围无效：${message}`) }

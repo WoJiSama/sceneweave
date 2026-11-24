@@ -17,7 +17,7 @@ export function assertMaterialTargets(scene: SceneDocument, ids: readonly string
   }
 }
 /** Replace only the fixed base material; keep texture coordinates and local overlays. */
-export function surfaceMaterialCommands(project: EditableProject, ids: readonly string[], materialId: string): SceneCommand[] {
+export function surfaceMaterialCommands(project: Pick<EditableProject, 'document' | 'appearance'>, ids: readonly string[], materialId: string): SceneCommand[] {
   const scene = project.document, material = scene.materials[materialId]
   if (!material) throw new Error('材质尚未完整加入工程。')
   assertMaterialTargets(scene, ids, material)

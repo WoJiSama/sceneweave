@@ -82,7 +82,7 @@ export async function openOutdoorTask(page: Page, task: OutdoorTask = '地形与
     const panel = await openWorkspaceModule(page, '地形')
     await panel.getByRole('group', { name: '室外任务', exact: true }).getByRole('button', { name: new RegExp(`^${task}`) }).click()
   }
-  const parameters = page.getByTestId('workspace-inspector').getByRole('region', { name: `${task}参数`, exact: true })
+  const parameters = page.getByTestId('workspace-resources').getByRole('region', { name: `${task}参数`, exact: true })
   await expect(parameters).toBeVisible()
   return parameters
 }
