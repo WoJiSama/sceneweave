@@ -411,16 +411,14 @@ export function measureCommandBudget(before: SceneDocument, after: SceneDocument
     ...(document.aggregateCoordinates ? { aggregateCoordinates: document.aggregateCoordinates } : {}),
   })
   let metadataRecords = 0, metadataBytes = 0
-  const recordDelta = (first: unknown, second: unknown) => {
-    if (equalOwnedJson(first ?? null, second ?? null)) return
+  const recordDelta = (first: unknown, second: unknown): boolean => {
+    if (equalOwnedJson(first ?? null, second ?? null)) return false
     const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
     if (record(first) && record(second)) {
       metadataRecords++
       metadataBytes += 2 // Changed record braces; unchanged children cost no delta bytes.
       for (const key of new Set([...Object.keys(first), ...Object.keys(second)])) {
-        if (equalOwnedJson(first[key] ?? null, second[key] ?? null)) continue
-        metadataBytes += encodeUtf8(canonicalJson(key)).length + 2 // Key, colon and separator.
-        recordDelta(first[key], second[key])
+        if (recordDelta(first[key], second[key])) metadataBytes += encodeUtf8(canonicalJson(key)).length + 2 // Key, colon and separator.
       }
     } else {
       const countRecords = (value: unknown): number => !value || typeof value !== 'object' ? 0
@@ -428,16 +426,18 @@ export function measureCommandBudget(before: SceneDocument, after: SceneDocument
       metadataRecords += Math.max(countRecords(first), countRecords(second))
       metadataBytes += Math.max(encodeUtf8(canonicalJson(first ?? null)).length, encodeUtf8(canonicalJson(second ?? null)).length)
     }
+    return true
   }
-  // Own and check each metadata tree once before comparing its branches.
-  // Canonical UTF-8 sizes are still charged for changed keys and values.
-  recordDelta(captureJson(recordData(before, metadata?.before)), captureJson(recordData(after, metadata?.after)))
+  // Certified triples already own all of these metadata branches. Other callers
+  // still capture them before comparison. Changed UTF-8 sizes remain exact.
+  const oldRecords = recordData(before, metadata?.before), newRecords = recordData(after, metadata?.after)
+  recordDelta(first ? oldRecords : captureJson(oldRecords), second ? newRecords : captureJson(newRecords))
   let implicitPoints = 0, implicitSegments = 0
   for (const target of targets) {
     const separator = target.indexOf(':'), kind = target.slice(0, separator), id = target.slice(separator + 1)
-    if (kind === 'wall' && same(before.walls[id], after.walls[id])) { implicitPoints += 2; implicitSegments++ }
-    if (kind === 'opening' && same(before.openings[id], after.openings[id])) { implicitPoints += 2; implicitSegments++ }
-    if (kind === 'room' && same(before.rooms[id], after.rooms[id])) {
+    if (kind === 'wall' && comparison.equal(before.walls[id], after.walls[id])) { implicitPoints += 2; implicitSegments++ }
+    if (kind === 'opening' && comparison.equal(before.openings[id], after.openings[id])) { implicitPoints += 2; implicitSegments++ }
+    if (kind === 'room' && comparison.equal(before.rooms[id], after.rooms[id])) {
       const count = after.rooms[id]?.boundaryVertexIds.length ?? before.rooms[id]?.boundaryVertexIds.length ?? 0
       implicitPoints += count; implicitSegments += count
     }

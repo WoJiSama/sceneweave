@@ -100,7 +100,7 @@ const kindFor = { vertices: 'vertex', rooms: 'room', walls: 'wall', openings: 'o
  * receipts remain fully validated complexity, never extra user edit targets. */
 export function semanticTargetEntries(document: SceneDocument): Map<string, { id: string; value: unknown }> {
   const rows = new Map<string, { id: string; value: unknown }>()
-  const memberships = new Map<string, unknown[]>()
+  const memberships = new Map<string, unknown[]>(), decorationMemberships = new Map<string, unknown[]>()
   for (const kind of ['prefabInstances', 'scatterGroups'] as const) for (const group of Object.values(document[kind])) {
     for (const [key, member] of Object.entries(group.members) as [string, { propId: string | null }][]) if (member.propId) {
       const list = memberships.get(member.propId) ?? []
@@ -110,6 +110,8 @@ export function semanticTargetEntries(document: SceneDocument): Map<string, { id
   for (const group of Object.values(document.decorationClusters ?? {})) for (const [key, member] of Object.entries(group.members)) if (member.entityId) {
     const list = memberships.get(member.entityId) ?? []
     list.push({ kind: 'decorationClusters', groupId: group.id, key, member }); memberships.set(member.entityId, list)
+    const placements = decorationMemberships.get(member.entityId) ?? []
+    placements.push({ clusterId: group.id, candidateKey: key, member }); decorationMemberships.set(member.entityId, placements)
   }
   for (const list of memberships.values()) list.sort((a, b) => canonicalJson(a) < canonicalJson(b) ? -1 : canonicalJson(a) > canonicalJson(b) ? 1 : 0)
   for (const key of LAYER_ENTITY_COLLECTIONS) for (const [id, row] of Object.entries(document[key])) {
@@ -128,7 +130,7 @@ export function semanticTargetEntries(document: SceneDocument): Map<string, { id
   }
   for (const key of DECORATION_COLLECTIONS) for (const [id, row] of Object.entries(document[key] ?? {})) {
     if (key === 'decorationClusters') { const { members: _members, ...properties } = row as unknown as Record<string, unknown>; rows.set(`decorationCluster:${id}`, { id, value: { row: properties, layerId: document.entityLayers[id] } }) }
-    else rows.set(`decoration:${id}`, { id, value: { row, layerId: document.entityLayers[id], memberships: Object.values(document.decorationClusters ?? {}).flatMap(group => Object.entries(group.members).filter(([, member]) => member.entityId === id).map(([candidateKey, member]) => ({ clusterId: group.id, candidateKey, member }))) } })
+    else rows.set(`decoration:${id}`, { id, value: { row, layerId: document.entityLayers[id], memberships: decorationMemberships.get(id) ?? [] } })
   }
   for (const key of SURFACE_RULE_COLLECTIONS) for (const [id, row] of Object.entries(document[key] ?? {})) rows.set(`surfaceRule:${id}`, { id, value: { row, layerId: document.entityLayers[id] } })
   for (const [id, row] of Object.entries(document.floors)) rows.set(`floor:${id}`, { id, value: row })
@@ -157,8 +159,10 @@ export function semanticTargetEntries(document: SceneDocument): Map<string, { id
 export function semanticChangedDocumentTargets(before: SceneDocument, after: SceneDocument): string[] {
   const a = semanticTargetEntries(before), b = semanticTargetEntries(after)
   const keys = new Set([...a.keys(), ...b.keys()])
-  const changed = [...keys].filter(key => !same(a.get(key)?.value, b.get(key)?.value)).sort()
-  return changed.filter(key => {
+  const equal = isCertifiedSceneSnapshot(before) && isCertifiedSceneSnapshot(after)
+    ? (first: unknown, second: unknown) => equalOwnedJson(first ?? null, second ?? null) : same
+  const changed = new Set([...keys].filter(key => !equal(a.get(key)?.value, b.get(key)?.value)).sort())
+  return [...changed].filter(key => {
     if (key.startsWith('visual.filters:')) {
       const id = key.slice('visual.filters:'.length), first = visualBase(before)?.filters[id], second = visualBase(after)?.filters[id]
       // A finite filter changes its actual targets. Its bookkeeping row does
@@ -166,7 +170,7 @@ export function semanticChangedDocumentTargets(before: SceneDocument, after: Sce
       if (first?.target.kind === 'entities' || second?.target.kind === 'entities') return false
     }
     const members = groupMemberIds(before, after, key)
-    if (!members.some(id => changed.includes(`prop:${id}`))) return true
+    if (!members.some(id => changed.has(`prop:${id}`))) return true
     const [kind, id] = splitTarget(key), collection = kind === 'prefab' ? 'prefabInstances' : 'scatterGroups'
     const first = before[collection][id], second = after[collection][id]
     if (!first || !second) return false
@@ -174,7 +178,7 @@ export function semanticChangedDocumentTargets(before: SceneDocument, after: Sce
       const { members: _members, anchorMm: _anchor, rotationDeg: _rotation, densityFactor: _density, exclusions: _exclusions, ...value } = row as Record<string, unknown>
       return value
     }
-    return !same(business(first), business(second))
+    return !equal(business(first), business(second))
   })
 }
 const splitTarget = (target: string): [string, string] => [target.slice(0, target.indexOf(':')), target.slice(target.indexOf(':') + 1)]
@@ -242,6 +246,7 @@ export const measureBudgetGeometry = (value: unknown): Pick<BudgetUsage,'geometr
   }
 
 const retainedGeometry = new WeakMap<SceneDocument, number>()
+const referenceArrayFields = new Set(['inputs', 'outputs', 'outputRefs', 'reads', 'writes', 'supportRefs'])
 /** Measured by the full meter; consumers must additionally require a private domain witness. */
 export const measuredRetainedSegments = (document: SceneDocument): number | undefined => retainedGeometry.get(document)
 
@@ -249,13 +254,18 @@ export const measuredRetainedSegments = (document: SceneDocument): number | unde
  * envelope and by the final meter. It does not validate or authorize a write. */
 export function measureBudgetDependencies(value: unknown): number {
   if (!value || typeof value !== 'object') return 0
-  if (Array.isArray(value)) return value.reduce((sum, row) => sum + measureBudgetDependencies(row), 0)
   let count = 0
-  for (const [key, row] of Object.entries(value)) {
+  if (Array.isArray(value)) {
+    for (const row of value) count += measureBudgetDependencies(row)
+    return count
+  }
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record)) {
+    const row = record[key]
     if (key.endsWith('Ref') && row && typeof row === 'object') count++
     if (key !== 'id' && key.endsWith('Id') && typeof row === 'string') count++
-    if ((['inputs', 'outputs', 'outputRefs', 'reads', 'writes', 'supportRefs'].includes(key) || key.endsWith('Ids')) && Array.isArray(row)) count += row.length
-    count += measureBudgetDependencies(row)
+    if (Array.isArray(row) && (referenceArrayFields.has(key) || key.endsWith('Ids'))) count += row.length
+    if (row && typeof row === 'object') count += measureBudgetDependencies(row)
   }
   return count
 }

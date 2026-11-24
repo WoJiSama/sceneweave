@@ -6,7 +6,8 @@ import { aggregateEntityKey, aggregateSceneSource } from '../../shared/aggregate
 import { aggregateAffectedClosure, type AggregateAffectedClosure } from '../../shared/aggregates/relations.js'
 import { deriveAggregateEntityEnvelopes, type AggregateSpatialEnvelope } from '../../shared/aggregates/spatial.js'
 import { inspectBuildingChanges, isBuildingCommand } from '../../shared/commands/building.js'
-import { canonicalJson, freezeJson } from '../../shared/validation/json.js'
+import { canonicalJson, equalCheckedJson, equalOwnedJson, freezeJson } from '../../shared/validation/json.js'
+import { isCertifiedSceneSnapshot } from '../../shared/validation/snapshots.js'
 import { getVerifiedEditableProject, toBundle, type EditableProject } from './project.js'
 
 /** Session-only GM diagnostics. Neither baseline proofs nor spatial envelopes
@@ -77,13 +78,14 @@ export function inspectAggregateEdit(
   if (!getVerifiedEditableProject(project) || !commands.length || !commands.every(supported)) return
   const scene = project.document, coordinates = scene.aggregateCoordinates
   if (!coordinates || coordinates.encoding !== 'world' || draft.sceneId !== scene.sceneId) return
+  const equal = isCertifiedSceneSnapshot(draft) ? equalOwnedJson : equalCheckedJson
   const roots: AggregateEntityRef[] = [], refsById = new Map<string, AggregateEntityRef[]>()
   for (const [kind, collection] of Object.entries(AGGREGATE_ENTITY_COLLECTIONS)) {
     const before: Record<string, unknown> = scene[collection] ?? {}, after: Record<string, unknown> = draft[collection] ?? {}
     for (const id of new Set([...Object.keys(before), ...Object.keys(after)])) {
       const ref = { kind: kind as AggregateEntityRef['kind'], id }
       refsById.set(id, [...(refsById.get(id) ?? []), ref])
-      if (canonicalJson(before[id] ?? null) !== canonicalJson(after[id] ?? null)) roots.push(ref)
+      if (!equal(before[id] ?? null, after[id] ?? null)) roots.push(ref)
     }
   }
   // Entrance edits live in constraints, outside the entity records.
@@ -116,7 +118,7 @@ export function inspectAggregateEdit(
     spatialReviewFloors: [...new Set([...beforeClosure.spatialReviewFloors, ...afterClosure.spatialReviewFloors])].sort(),
     unknownTargets, unresolvedReferences, requiresSceneWideFallback }
   // Keep the baseline's exact cached closure when the candidate graph is equal.
-  const dependencyClosure = canonicalJson(mergedClosure) === canonicalJson(beforeClosure) ? beforeClosure : freezeJson(mergedClosure)
+  const dependencyClosure = equalOwnedJson(mergedClosure, beforeClosure) ? beforeClosure : freezeJson(mergedClosure)
   const groups = groupIds.map(groupId => {
     const group = coordinates.groups[groupId], included = baseline.descendants.get(groupId)!
     const internal = (ref: AggregateEntityRef) => included.has(baseline.owners.get(key(ref)) ?? '')

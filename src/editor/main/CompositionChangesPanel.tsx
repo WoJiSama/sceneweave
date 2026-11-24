@@ -5,6 +5,8 @@ import { DECORATION_COLLECTIONS, LAYER_ENTITY_COLLECTIONS, SURFACE_RULE_COLLECTI
 import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics'
 import { inspectAppearanceScope } from '../../shared/appearance/graph'
 import { getCompositionTransactionReceipt } from '../../shared/appearance/commands.js'
+import { aggregateEntityKey } from '../../shared/aggregates/contracts.js'
+import { equalOwnedJson } from '../../shared/validation/json.js'
 import { MANUAL_TRANSACTION_BUDGET, type CommandBudgetUsage, type ManualTransactionBudget } from '../../shared/budget/command-budget'
 import type { CompositionCommand } from '../../shared/model/appearance'
 import type { EditableProject } from '../../application/workspace/project'
@@ -45,10 +47,16 @@ export default function CompositionChangesPanel({ current, candidate, commands, 
   const [recordPage, setRecordPage] = useState<{ candidate: EditableProject; index: number }>()
   const currentName = useMemo(() => createEntityLabeler(current.document), [current.document])
   const candidateName = useMemo(() => createEntityLabeler(candidate.document), [candidate.document])
-  const nearbyIds = aggregateBoundaryImpact ? [...new Set(aggregateBoundaryImpact.groups.flatMap(group => [...group.externalCandidates.previous, ...group.externalCandidates.next])
-    .filter(row => row.entity.kind !== 'floor').map(row => row.entity.id))] : []
-  const dependencyIds = aggregateBoundaryImpact ? [...new Set(aggregateBoundaryImpact.dependencyClosure.affected
-    .filter(ref => ref.kind !== 'floor' && !aggregateBoundaryImpact.dependencyClosure.roots.some(root => root.kind === ref.kind && root.id === ref.id)).map(ref => ref.id))] : []
+  const { nearbyIds, dependencyIds } = useMemo(() => {
+    if (!aggregateBoundaryImpact) return { nearbyIds: [], dependencyIds: [] }
+    const { affected, roots } = aggregateBoundaryImpact.dependencyClosure
+    const rootKeys = new Set(roots.filter(ref => ref.kind !== 'floor').map(aggregateEntityKey))
+    const nearby = aggregateBoundaryImpact.groups.flatMap(group => [...group.externalCandidates.previous, ...group.externalCandidates.next])
+    return {
+      nearbyIds: [...new Set(nearby.filter(row => row.entity.kind !== 'floor').map(row => row.entity.id))],
+      dependencyIds: [...new Set(affected.filter(ref => ref.kind !== 'floor' && !rootKeys.has(aggregateEntityKey(ref))).map(ref => ref.id))],
+    }
+  }, [aggregateBoundaryImpact])
   const changes = useMemo(() => {
     const receipt = getCompositionTransactionReceipt(candidate, current)
     const currentVisual = visualBase(current.document), candidateVisual = visualBase(candidate.document)
@@ -71,12 +79,14 @@ export default function CompositionChangesPanel({ current, candidate, commands, 
           return field === 'entityLayers' && id && (Object.hasOwn(a, id) || Object.hasOwn(b, id)) ? [id] : []
         }))]
       return ids.flatMap(id => {
-    const withLayer = (record: unknown, layerId: string | undefined): Record<string, unknown> | undefined => record ? { ...(record as Record<string, unknown>), ...(layerId ? { layerId } : {}) } : undefined
-    const before = withLayer((a as Record<string, unknown>)[id], current.document.entityLayers[id]), after = withLayer((b as Record<string, unknown>)[id], candidate.document.entityLayers[id])
-    if (JSON.stringify(before) === JSON.stringify(after)) return []
-    const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].filter(key => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
-    return [{ id, collection, before, after, keys }]
-  }) }) }, [current, candidate])
+        const withLayer = (record: unknown, layerId: string | undefined): Record<string, unknown> | undefined => record ? { ...(record as Record<string, unknown>), ...(layerId ? { layerId } : {}) } : undefined
+        const before = withLayer((a as Record<string, unknown>)[id], current.document.entityLayers[id]), after = withLayer((b as Record<string, unknown>)[id], candidate.document.entityLayers[id])
+        if (equalOwnedJson(before, after)) return []
+        const keys = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].filter(key => !equalOwnedJson(before?.[key], after?.[key]))
+        return [{ id, collection, before, after, keys }]
+      })
+    })
+  }, [current, candidate])
   const terrainChanges = useMemo(() => terrainRecordChanges(current.document, candidate.document), [current, candidate])
   const aggregateChanges = useMemo(() => {
     const before = current.document.aggregateCoordinates?.groups ?? {}, after = candidate.document.aggregateCoordinates?.groups ?? {}
