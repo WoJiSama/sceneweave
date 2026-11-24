@@ -81,6 +81,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
   const resizeDirection = (side: ResizeSide) => onLeft(side === 'resources' ? 'resources' : 'inspector') ? 1 : -1
   const visible = (panel: Panel) => narrow ? drawer === panel : !preferences[collapsedKeys[panel]]
   const resourcesVisible = visible('resources')
+  const inspectorVisible = visible('inspector')
   const panelRef = (panel: Panel) => panel === 'resources' ? resourcePanel : inspectorPanel
   const resourceModule = modules.find(module => module.id === activeModule)
   const resourceLabel = resourceModule?.label ?? panelLabels.resources
@@ -428,19 +429,21 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
       {!persistent && <span className="workspace-layout-storage" role="status">布局仅在本次会话生效</span>}
     </div>
   const style = { '--workspace-left-width': `${swapped ? widths.details : widths.resources}px`, '--workspace-right-width': `${swapped ? widths.resources : widths.details}px` } as CSSProperties
+  // Narrow drawers can finish sliding out with their content in place. Inert
+  // revokes focus and pointer access as soon as a drawer starts closing.
   const resourcesPane = <section key="resources" id={`${layoutId}-resources`} ref={resourcePanel} className="workspace-panel workspace-resources" data-testid="workspace-resources"
     aria-label={resourceLabel} data-open={resourcesVisible} data-collapsed={!resourcesVisible} data-dock={onLeft('resources') ? 'left' : 'right'}
     inert={narrow && !resourcesVisible} aria-hidden={narrow && !resourcesVisible || undefined}>
     {panelHeader('resources')}
-    <div ref={resourceBody} id={`${layoutId}-resources-content`} className="workspace-panel-body" hidden={!resourcesVisible} inert={!resourcesVisible}
+    <div ref={resourceBody} id={`${layoutId}-resources-content`} className="workspace-panel-body" hidden={!narrow && !resourcesVisible} inert={!resourcesVisible}
       onScroll={event => { if (resourcesVisible) moduleScroll.current.set(activeModule, event.currentTarget.scrollTop) }}>{resources}</div>
   </section>
   const inspectorPane = <section key="details" id={`${layoutId}-inspector`} ref={inspectorPanel} className="workspace-panel workspace-inspector" data-testid="workspace-inspector"
-    aria-label={`${inspectorTitle ?? panelLabels.inspector}面板`} data-open={visible('inspector')} data-collapsed={!visible('inspector')} data-dock={onLeft('inspector') ? 'left' : 'right'}
-    inert={narrow && !visible('inspector')} aria-hidden={narrow && !visible('inspector') || undefined}>
+    aria-label={`${inspectorTitle ?? panelLabels.inspector}面板`} data-open={inspectorVisible} data-collapsed={!inspectorVisible} data-dock={onLeft('inspector') ? 'left' : 'right'}
+    inert={narrow && !inspectorVisible} aria-hidden={narrow && !inspectorVisible || undefined}>
     {panelHeader('inspector')}
-    {visible('inspector') && inspectorSummary}
-    <div ref={inspectorBody} id={`${layoutId}-inspector-content`} className="workspace-panel-body" hidden={!visible('inspector')} inert={!visible('inspector')}>{inspector}</div>
+    {(narrow || inspectorVisible) && inspectorSummary}
+    <div ref={inspectorBody} id={`${layoutId}-inspector-content`} className="workspace-panel-body" hidden={!narrow && !inspectorVisible} inert={!inspectorVisible}>{inspector}</div>
   </section>
   return <div className="workspace-layout" ref={host} style={style} data-testid="workspace-layout" data-narrow={narrow}
     data-compact={compact} data-map-options-open={compact && mapOptionsOpen}
@@ -473,7 +476,7 @@ export default function WorkspaceLayout({ active, resources, inspector, modules,
             <SlidersHorizontal size={14} aria-hidden="true"/><span>选项</span>
           </button>
         </div>
-        {!visible('inspector') && (!narrow || !drawer) && emptyFloorActions}
+        {!inspectorVisible && (!narrow || !drawer) && emptyFloorActions}
         {children}
       </section>
       {swapped ? renderSeparator('resources', preferences.resourcesCollapsed) : renderSeparator('details', preferences.inspectorCollapsed)}

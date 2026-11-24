@@ -7,9 +7,64 @@
     <meta name="theme-color" content="#172623" />
     <meta name="description" content="织境 Sceneweave · 把故事画成可以探索的地方。" />
     <title>织境 Sceneweave · 场景工坊</title>
+    <style>
+      /* The same indicator is used before scripts run and in the editor. */
+      .sceneweave-loading { display: grid; place-items: center; }
+      .sceneweave-loading-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 45;
+        background: #f6f6ef;
+      }
+      .sceneweave-loading-mark {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 104px;
+        height: 104px;
+      }
+      .sceneweave-loading-mark::before,
+      .sceneweave-loading-mark::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+      }
+      .sceneweave-loading-mark::before { border: 1px solid #cdd8ca; }
+      .sceneweave-loading-mark::after {
+        border: 2px solid transparent;
+        border-top-color: #a08246;
+      }
+      .sceneweave-loading-mark img {
+        display: block;
+        border-radius: 14px;
+        box-shadow: 0 6px 16px #253e3426;
+      }
+      .sceneweave-loading-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+      @keyframes sceneweave-loading-turn { to { transform: rotate(1turn); } }
+      @keyframes sceneweave-loading-pulse {
+        50% { transform: scale(.93); }
+      }
+      @media (prefers-reduced-motion: no-preference) {
+        .sceneweave-loading-mark::after { animation: sceneweave-loading-turn 1.6s linear infinite; }
+        .sceneweave-loading-mark img { animation: sceneweave-loading-pulse 2.4s ease-in-out infinite; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="sceneweave-loading sceneweave-loading-screen" role="status">
+        <span class="sceneweave-loading-mark" aria-hidden="true"><img src="/favicon.svg" alt="" width="64" height="64" /></span>
+        <span class="sceneweave-loading-label">正在打开织境…</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

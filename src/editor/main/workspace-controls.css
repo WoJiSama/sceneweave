@@ -98,7 +98,8 @@
   background: #284d38;
   border-color: #284d38;
 }
-:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) button.secondary:not(:disabled):hover {
+:is(.workspace-unified .workspace-panel-body, .workspace-unified .asset-structure-preview, .workspace-unified .workspace-canvas-hint, .workspace-unified .workspace-selection-notice, .workspace-unified .workspace-save-recovery, .workspace-unified .workspace-help, .workspace-unified .workspace-export-menu, .workspace-unified .workspace-file-menu, .workspace-modal, .workspace-context-menu) button.secondary:not(:disabled):hover,
+.workspace-unified .workspace-start-actions > button:not(:disabled):hover {
   background: var(--workspace-active);
   border-color: #a7bc9a;
 }

@@ -121,6 +121,11 @@
 .home-camera-controls label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 .home-camera-controls input[type="range"] { width: clamp(56px, 8vw, 110px); margin: 0; accent-color: #3c664b; }
 
+@media (prefers-reduced-motion: no-preference) {
+  .home-orbit-stage canvas[data-visible="true"] { animation: ui-fade-in var(--motion-enter) var(--motion-ease-out); }
+  .home-camera-controls { animation: ui-reveal var(--motion-enter) var(--motion-ease-out); }
+}
+
 @media (max-width: 760px) {
   .home-demo { grid-template-columns: minmax(0, 1fr); }
   .home-demo-links { margin-top: 9px; }

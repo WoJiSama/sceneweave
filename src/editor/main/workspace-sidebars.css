@@ -117,6 +117,33 @@
 }
 .workspace-unified .workspace-panel-body .workspace-terrain-more > h3 { margin: 10px 0 6px; }
 .workspace-unified .workspace-panel-body .workspace-terrain-more > button { margin-block: 2px 4px; text-align: left; justify-content: flex-start; }
+.workspace-unified .workspace-terrain-content:not([hidden]) {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 6px var(--workspace-panel-padding) 16px;
+}
+.workspace-unified .workspace-terrain-content > :is(.terrain-generation-panel, .terrain-editing-panel) { padding-inline: 0; }
+.workspace-unified .terrain-vegetation-tools { display: grid; min-width: 0; gap: 12px; }
+.workspace-unified .terrain-vegetation-tools details {
+  padding: 8px 10px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 6px;
+  background: var(--workspace-control);
+}
+.workspace-unified .terrain-vegetation-tools summary { cursor: pointer; }
+.workspace-unified .terrain-vegetation-tools fieldset {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+}
+.workspace-unified .terrain-vegetation-tools label { display: block; min-width: 0; }
+.workspace-unified .terrain-vegetation-tools input[type=range] { width: 100%; margin: 2px 0; }
+.workspace-unified .terrain-vegetation-tools .asset-library-tabs { flex-wrap: wrap; }
+.workspace-unified .workspace-tool-status { padding: 8px var(--workspace-panel-padding); background: #f4f6e9; color: #344b3d; }
 .workspace-unified .workspace-scene-actions { padding-bottom: 8px; border-bottom: 1px solid var(--workspace-panel-line); }
 .workspace-unified .workspace-panel-body .user-layer-panel { border-bottom: 1px solid var(--workspace-panel-line); }
 .workspace-unified .workspace-panel-body .asset-library:has(.asset-object-browser) { padding-top: 12px; }
@@ -302,4 +329,25 @@
   .workspace-unified .workspace-inspector .workspace-inspector-back { min-height: 38px; }
   .workspace-unified .workspace-terrain-module > .workspace-task-picker button { min-height: 40px; }
   .workspace-unified .workspace-panel-body .workspace-catalog-browser .catalog-place { min-height: 40px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-resources > .workspace-panel-body > .history-library-stack > div:not([hidden]),
+  .workspace-inspector > .workspace-panel-body > [data-catalog-detail-open=true]:not([hidden]),
+  .workspace-inspector .workspace-context-content > div:not([hidden]) {
+    animation: ui-reveal var(--motion-enter) var(--motion-ease-out);
+  }
+
+  .workspace-unified :is(.workspace-task-section, .workspace-terrain-content, .workspace-catalog-content):not([hidden]),
+  .workspace-unified :is(.asset-notice, .workspace-canvas-hint) {
+    --motion-start-opacity: .72;
+    --motion-offset-y: 4px;
+    animation: ui-reveal var(--motion-quick) var(--motion-ease-out);
+  }
+
+  .workspace-unified .asset-header-actions > details[open] > .workspace-file-surface,
+  .workspace-unified .workspace-layout[data-compact=true][data-map-options-open=true] .asset-viewport-toolbar {
+    --motion-offset-y: -5px;
+    animation: ui-reveal var(--motion-enter) var(--motion-ease-out);
+  }
 }
