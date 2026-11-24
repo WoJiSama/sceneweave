@@ -9,6 +9,8 @@ import { VOLCANIC_SURFACE_ART, VOLCANIC_SURFACE_LICENSE, VOLCANIC_SURFACE_LICENS
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { runtime } from '../runtime.js'
 import { materializeVisualArtBatches, type VisualArtBatch } from './visual-art-project.js'
+import { newMapArtStyle } from '../../../shared/visual/art-style.js'
+import type { BlankOptions } from './factories.js'
 
 export { volcanicSurfaceAssetId, volcanicSurfaceDefinitionId } from '../../../shared/visual/volcanic-surfaces.js'
 const origin = { kind: 'original' as const,
@@ -58,4 +60,20 @@ export async function createVolcanicSurfacesCatalogProject(signal?: AbortSignal)
   signal?.throwIfAborted()
   const scene = createVolcanicSurfacesCatalogDocument({ sceneId: runtime.ids.nextId(), now: runtime.clock.now() })
   return materializeVisualArtBatches(scene, [VOLCANIC_SURFACES_BATCH], signal)
+}
+
+export function createNaturalVolcanoBlankProject(input: BlankOptions, signal?: AbortSignal): Promise<EditableProject> {
+  const document = createVolcanicSurfacesCatalogDocument({ sceneId: input.sceneId, now: input.now ?? runtime.clock.now() })
+  const floor = Object.values(document.floors)[0]
+  floor.name = '火山地表'
+  floor.boundsMm = { x: 0, y: 0, width: input.widthMm, height: input.heightMm }
+  document.exportBoundsMm = { ...floor.boundsMm }
+  document.title = input.title
+  document.artStyle = newMapArtStyle()
+  document.units.gridVisible = input.gridVisible ?? false
+  document.presetSnapshot = { ...document.presetSnapshot, presetId: input.preset, distanceMode: 'abstract' }
+  floor.environment = { ambientColor: '#E3D4BC', ambientOpacity: .055, exposure: 1.05,
+    lightDirectionDeg: 68, directionalLight: { kind: 'sun', elevationDeg: 49, color: '#F5E3CB', intensity: .67, softness: .58 },
+    contactShadowMm: 120, contactShadowOpacity: .19 }
+  return materializeVisualArtBatches(document, [VOLCANIC_SURFACES_BATCH], signal)
 }

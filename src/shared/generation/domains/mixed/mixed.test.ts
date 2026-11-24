@@ -8,6 +8,7 @@ import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
 import { resolveBuildingEntrancePort } from '../../building-port.js'
 import { createDomainExecutionRequest, executeDomainExecutionRequest } from '../../execution.js'
 import { defaultMixedInput, defaultMixedInputV3, defaultMixedInputV4, runMixedGeneration, normalizeMixedInput } from './index.js'
+import { planVolcanoPlatformBuilding } from './volcano-platform.js'
 import type { PropDefinition, SceneDocument } from '../../../model/scene.js'
 import { polygonDistance, polygonInside, polygonsOverlap, propFootprint, roomPoints } from '../../../geometry/geometry.js'
 import { furnitureUseSpacePolygon } from '../interior/furnishing-use-space.js'
@@ -21,6 +22,19 @@ const source = (kind: 'forest' | 'volcano') => {
   return base
 }
 describe('real mixed module composition', () => {
+  it('uses a real caldera shelf for the building and a continuous route to its entrance', () => {
+    const base = source('volcano'), input = defaultMixedInput(base, 'volcano', 'volcanic-building-shelf')
+    input.algorithmVersion = 19
+    planVolcanoPlatformBuilding(input.parameters, input.seed)
+    expect(input.parameters.outdoor).toMatchObject({ kind: 'volcano', parameters: { relief: 'caldera-v1' } })
+    const result = runMixedGeneration(base, input, options), scene = cloneJson(result.candidate.document) as SceneDocument
+    expect(Object.values(scene.terrainAreas).some(area => area.relief?.offsetsMm.some(offset => offset > 0))).toBe(true)
+    for (const room of Object.values(scene.rooms)) expect(room.supportRef.id).toBe(result.report.supportAreaId)
+    const path = scene.paths[result.report.approachPathId], port = resolveBuildingEntrancePort(scene, result.report.entranceOpeningId, path.widthMm)
+    expect(checkTerrainRoute(scene, { floorId: port.floorId, pointsMm: [...path.centerlineMm, port.insideMm], widthMm: path.widthMm }).ok).toBe(true)
+    expect(validateSceneDocument(scene).ok).toBe(true)
+  }, 30000)
+
   it.each([['forest', 4], ['volcano', 4], ['forest', 5], ['volcano', 5], ['forest', 6], ['volcano', 6], ['forest', 7], ['volcano', 7], ['forest', 8], ['volcano', 8], ['forest', 9], ['volcano', 9], ['forest', 10], ['volcano', 10], ['forest', 11], ['volcano', 11], ['forest', 12], ['volcano', 12], ['forest', 13], ['volcano', 13], ['forest', 14], ['volcano', 14], ['forest', 15], ['volcano', 15], ['forest', 16], ['volcano', 16], ['forest', 17], ['volcano', 17], ['forest', 18], ['volcano', 18], ['forest', 19], ['volcano', 19]] as const)('%s version %s joins actual vegetation, editable functional groups and the full-width exterior approach', (kind, version) => {
     const base = source(kind), input = defaultMixedInputV4(base, kind, 'functional-outpost-v4')
     input.algorithmVersion = version

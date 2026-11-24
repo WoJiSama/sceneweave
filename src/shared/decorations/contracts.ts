@@ -9,7 +9,7 @@ export const decorationSchema = z.object({ ...common, definitionRef: versionRef,
   scalePpm: int.min(500_000).max(1_500_000), renderOrder: rank,
 }).strict()
 export const decorationClusterSchema = z.object({ ...common, supportRef: surfaceRef, boundsMm: bounds,
-  seed: z.string().min(1).max(128), algorithmVersion: z.literal('cluster-v1'),
+  seed: z.string().min(1).max(128), algorithmVersion: z.enum(['cluster-v1', 'cluster-v2']),
   palette: z.array(z.object({ key: id, definitionRef: versionRef, kind: z.enum(['prop', 'decoration']), weight: positive }).strict()).min(1).max(DECORATION_LIMITS.palette)
     .refine(rows => new Set(rows.map(row => row.key)).size === rows.length, '簇状布景palette key必须唯一。')
     .refine(rows => new Set(rows.map(row => `${row.kind}/${row.definitionRef.id}@${row.definitionRef.version}`)).size === rows.length, '簇状布景来源及职责不能重复。'),

@@ -7,7 +7,9 @@ import { id, point, surfaceRef } from '../validation/primitives.js'
 import { sceneDocumentSchema, validateSceneDocument } from '../validation/scene.js'
 import { corridor, pointOnSurface, polygonDistance, polygonInside, polygonsOverlap, propFootprint, pathPolygon, supportedPolygon, terrainPoints, validateGeometry } from '../geometry/geometry.js'
 import { visualCommandCost } from '../visual/commands.js'
-import { checkTerrainRoute, searchTerrainRoute } from '../geometry/terrain-travel.js'
+import { connectionRouteChangeCost } from '../commands/outdoor.js'
+import { assertTerrainConnectionClearances, checkTerrainRoute, searchTerrainRoute } from '../geometry/terrain-travel.js'
+import { straightRockStairRoute } from '../geometry/connection-route.js'
 import { sampleVisualBoundary, signedVisualArea } from '../visual/geometry.js'
 import type { CubicSegment, VisualBoundary, VisualEdgeLook } from '../visual/types.js'
 import { emptyVisualSystem } from '../visual/types.js'
@@ -15,6 +17,8 @@ import { distanceToTerrainSegment, extractTerrainContours, simplifyTerrainContou
 import { sandCoastSegmentsV2, shorelineFieldV2 } from './shoreline-v2.js'
 import { islandSkeletonV3 } from './shoreline-v3.js'
 import { forestSkeletonV8, type ForestSkeletonV8 } from './forest-layout-v8.js'
+import { coastSkeletonV9, shapeCoastalRidge } from './coast-layout-v9.js'
+import { SHORE_MATERIAL_IDS } from '../visual/shore-art.js'
 
 import { BudgetUsageSchema, TaskBudgetProfileSchema, taskBudgetProfile, measureTaskBudget, assertTaskBudget, captureExecutionBudget, type ExecutionBudget, type BudgetUsage } from '../budget/task-budget.js'
 export const TERRAIN_GENERATOR_VERSION = 'terrain-scene-v1' as const
@@ -35,7 +39,10 @@ export type TerrainGenerationInputV5 = Omit<TerrainGenerationInputV4,'algorithmV
 export const terrainGenerationInputV8Schema = z.object({ ...terrainGenerationInputV4Schema.shape, kind:z.literal('forest'), algorithmVersion:z.literal(8) }).strict()
   .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '森林范围宽高比须为1–1.8。')
 export type TerrainGenerationInputV8 = z.infer<typeof terrainGenerationInputV8Schema>
-export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema> | TerrainGenerationInputV4 | TerrainGenerationInputV5 | TerrainGenerationInputV8
+export const terrainGenerationInputV9Schema = z.object({ ...terrainGenerationInputV4Schema.shape, kind: z.literal('coast'), algorithmVersion: z.literal(9) }).strict()
+  .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '海岸范围宽高比须为1–1.8。')
+export type TerrainGenerationInputV9 = z.infer<typeof terrainGenerationInputV9Schema>
+export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema> | TerrainGenerationInputV4 | TerrainGenerationInputV5 | TerrainGenerationInputV8 | TerrainGenerationInputV9
 export interface TerrainManagedTarget { kind: 'terrainArea' | 'terrainConnection' | 'path' | 'prop' | 'visualBoundary' | 'visualEdgeLook'; id: string }
 export interface TerrainGenerationResult {
   document: SceneDocument
@@ -61,7 +68,8 @@ export const terrainGenerationResultSchema = z.object({
 }).strict().superRefine(validateTerrainGenerationResult)
 function validateTerrainGenerationResult(result: TerrainGenerationResult, context: z.RefinementCtx): void {
   const cost = result.cost
-  if (cost.legacyTotal !== cost.physicalEntities + cost.terrainPoints + cost.terrainSegments + cost.pathPoints + cost.visualEntities + cost.curveSegments + cost.overlays
+  const connectionRouteCost = Object.values(result.document.terrainConnections).reduce((sum, connection) => sum + connectionRouteChangeCost(undefined, connection.route), 0)
+  if (cost.legacyTotal !== cost.physicalEntities + cost.terrainPoints + cost.terrainSegments + cost.pathPoints + cost.visualEntities + cost.curveSegments + cost.overlays + connectionRouteCost
     || cost.total !== cost.legacyTotal + cost.recommendedGenerationRecords || cost.recommendedGenerationRecords !== generationRecordCost(result.managedTargets.length, result.activity.boundaryMm.length, result.route?.pointsMm.length ?? 0)) {
     context.addIssue({ code: 'custom', path: ['cost'], message: '生成实际展开成本向量不一致。' })
   }
@@ -155,10 +163,10 @@ function addTerrain(scene: SceneDocument, value: string, points: PointMm[], inpu
   scene.terrainAreas[value] = area; scene.entityLayers[value] = GROUND
   return area
 }
-function cubicBoundary(value: string, points: PointMm[], closed: boolean, input: TerrainGenerationInput): VisualBoundary {
+function cubicBoundary(value: string, points: PointMm[], closed: boolean, input: TerrainGenerationInput, monotoneShore = false): VisualBoundary {
   const scale = Math.max(input.widthMm / 24000, input.heightMm / 18000)
   const segmentCount = closed ? points.length : points.length - 1
-  const segments: CubicSegment[] = input.algorithmVersion === 2 && input.kind === 'coast' && !closed
+  const segments: CubicSegment[] = (monotoneShore || input.algorithmVersion === 2 && input.kind === 'coast') && !closed
     ? sandCoastSegmentsV2(value, points) : Array.from({ length: segmentCount }, (_, index) => {
     const start = points[index], end = points[(index + 1) % points.length], before = points[index ? index - 1 : closed ? points.length - 1 : 0], after = points[index + 2 < points.length ? index + 2 : closed ? (index + 2) % points.length : points.length - 1]
     const boundedControl = (anchor: PointMm, dx: number, dy: number) => {
@@ -210,7 +218,7 @@ function chargeGeometryCheck(scene:SceneDocument,meter?:ExecutionBudget):void {
     +Object.values(scene.regions).reduce((sum,row)=>sum+row.boundaryMm.length,0)
   meter.charge({intersectionPairs:edges*edges})
 }
-function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity'],meter?:ExecutionBudget,kind:'stairs'|'ramp'='stairs'): void {
+function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity'],meter?:ExecutionBudget,kind:'stairs'|'ramp'='stairs', coastal = false): void {
   const ring = terrainPoints(high), scale = Math.min(input.widthMm / 24000, input.heightMm / 18000)
   let lastErrors = ''
   const candidates: { index: number; length: number; a: PointMm; b: PointMm }[] = ring.map((a, index) => {
@@ -227,7 +235,7 @@ function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, i
   for (const candidate of candidates) {
     if (candidate.length < 1000) continue
     const dx = candidate.b.x - candidate.a.x, dy = candidate.b.y - candidate.a.y, nx = -dy / candidate.length, ny = dx / candidate.length
-    const offsets = (input.algorithmVersion === 3 || input.algorithmVersion === 4) ? [850, 1050, 1250, 1650, 2100] : [1250, 1650, 2100]
+    const offsets = coastal ? [1450, 1650, 1900, 2200, 1050] : (input.algorithmVersion === 3 || input.algorithmVersion === 4) ? [850, 1050, 1250, 1650, 2100] : [1250, 1650, 2100]
     for (const fraction of [.5, .35, .65]) for (const offset of offsets) {
       const center = { x: candidate.a.x + dx * fraction, y: candidate.a.y + dy * fraction }, distance = offset * Math.min(scale, 1.5)
       const from = p(center.x - nx * distance, center.y - ny * distance), to = p(center.x + nx * distance, center.y + ny * distance)
@@ -239,8 +247,21 @@ function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, i
       scene.entityLayers[value] = GROUND
       chargeGeometryCheck(scene,meter)
       const geometry = validateGeometry(scene)
-      if (!geometry.errors.length) return
       lastErrors = geometry.errors.map(issue => issue.code).join(',')
+      if (!geometry.errors.length) {
+        if (!coastal) return
+        const stairs = scene.terrainConnections[value]
+        shapeCoastalRidge(high, low, to, activity, input.seed, meter)
+        stairs.route = straightRockStairRoute(from, to, 'terrain-coast-step-segment', 310)
+        chargeGeometryCheck(scene, meter)
+        try {
+          assertTerrainConnectionClearances(scene, [{ connectionId: value, minWidthMm: 1500, approachDepthMm: 500 }])
+          return
+        } catch (error) {
+          lastErrors = error instanceof Error ? error.message : String(error)
+          delete high.relief
+        }
+      }
       delete scene.terrainConnections[value]; delete scene.entityLayers[value]
     }
   }
@@ -254,9 +275,12 @@ function activityArea(scene: SceneDocument, center: PointMm, input: TerrainGener
   if (!supportedPolygon(scene, boundaryMm, supportRef, FLOOR)) throw new Error('明确活动区不在高台有效支撑内。')
   return { id: 'terrain-activity', boundaryMm, supportRef }
 }
-function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity'],meter?:ExecutionBudget): void {
+function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity'],meter?:ExecutionBudget,
+  coastalShape?: ReturnType<typeof coastSkeletonV9>): void {
   const island = ['tree-north-asym', 'tree-windbent', 'tree-split-crown', 'rock-north-ridge', 'rock-layered-shelf', 'rock-tidepool']
   const coast = ['grass-wind', 'grass-fan', 'reef-split', 'reef-shelf', 'reef-pool']
+  const coastBanks = ['driftwood', 'pebbles', 'reef-shelf', 'wrack', 'reef-pool']
+  const coastInland = ['grass-wind', 'grass-fan', 'grass-wind', 'reef-split', 'grass-fan', 'pebbles']
   const palette = input.kind === 'coast' ? 'coast' : 'island'
   const keys = input.kind === 'forest' ? island.filter(key => key.startsWith('tree-'))
     : input.kind === 'hill' ? island.filter(key => key.startsWith('rock-'))
@@ -272,8 +296,18 @@ function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activit
   candidates.sort((a, b) => a.order - b.order || (a.key < b.key ? -1 : 1))
   for (const candidate of candidates) {
     const count = Object.keys(scene.props).length
-    if (count >= (input.algorithmVersion === 3 ? 4 : 8)) break
-    const key = keys[count % keys.length], definition = scene.propDefinitions[`refined-prop-${palette}-${key}`]
+    if (count >= (coastalShape ? 24 : input.algorithmVersion === 3 ? 4 : 8)) break
+    let key = keys[count % keys.length]
+    if (coastalShape) {
+      const distance = candidate.y - coastalShape.shorelineAt(candidate.x)
+      if (distance < 550 || distance > input.heightMm * .54) continue
+      const onBeach = candidate.y < coastalShape.duneAt(candidate.x) + 230
+      const nearby = terrainValueNoise(input.seed, 'coast-v9/dressing-clumps', candidate.x / 7200, candidate.y / 5400)
+      if (!onBeach && nearby < -.23) continue
+      const choices = onBeach ? coastBanks : coastInland
+      key = choices[Math.floor(terrainRandomUnit(input.seed, `coast-v9/props/${candidate.key}/kind`) * choices.length)]
+    }
+    const definition = scene.propDefinitions[`refined-prop-${palette}-${key}`]
     if (!definition) throw new Error(`生成缺少固定物件：${input.kind}/${key}。`)
     const supports = ['terrain-high', 'terrain-forest', 'terrain-low'].filter(id => !!scene.terrainAreas[id])
     const supportId = supports.find(id => pointOnSurface(scene, p(candidate.x, candidate.y), { kind: 'terrainArea', id }, FLOOR))
@@ -281,7 +315,8 @@ function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activit
     const positionMm = p(candidate.x, candidate.y)
     const tree = key.startsWith('tree')
     if (tree && scene.terrainAreas['terrain-forest'] && supportId !== 'terrain-forest') continue
-    const scale = tree ? .7 : .65, value = `terrain-prop-${count}`
+    const scale = coastalShape ? (key.startsWith('grass-') ? 1.22 : .64) + terrainRandomUnit(input.seed, `coast-v9/props/${candidate.key}/size`) * .56 : tree ? .7 : .65
+    const value = `terrain-prop-${count}`
     const prop: Prop = { id: value, floorId: FLOOR, editLocked: false, visibility: 'public', definitionRef: { id: definition.id, version: definition.version }, appearance: cloneJson(definition.defaultAppearance),
       visualBoundsMm: { x: Math.round(definition.defaultVisualBoundsMm.x * scale), y: Math.round(definition.defaultVisualBoundsMm.y * scale), width: Math.round(definition.defaultVisualBoundsMm.width * scale), height: Math.round(definition.defaultVisualBoundsMm.height * scale) },
       footprintMm: { width: Math.round(definition.defaultFootprintMm.width * scale), height: Math.round(definition.defaultFootprintMm.height * scale) }, footprintOffsetMm: p(0, 0), positionMm,
@@ -457,7 +492,11 @@ export function generateForestGeometryV8(base:SceneDocument,rawInput:unknown):Te
   const input=terrainGenerationInputV8Schema.parse(captureJson(rawInput))
   return generateTerrainCore(base,{...input,algorithmVersion:4},true)
 }
-function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,forestV8=false):TerrainGenerationResult {
+export function generateCoastGeometryV9(base: SceneDocument, rawInput: unknown): TerrainGenerationResult {
+  const input = terrainGenerationInputV9Schema.parse(captureJson(rawInput))
+  return generateTerrainCore(base, { ...input, algorithmVersion: 4 }, false, coastSkeletonV9(input))
+}
+function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,forestV8=false,coastV9?: ReturnType<typeof coastSkeletonV9>):TerrainGenerationResult {
   const blank = assertBlank(base, input)
   const budget = input.algorithmVersion === 4 ? taskBudgetProfile(input.budgetProfileId) : undefined
   const meter = budget ? captureExecutionBudget(budget) : undefined
@@ -474,9 +513,9 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
   const { widthMm: width, heightMm: height, seed } = input, scale = Math.min(width / 24000, height / 18000), centre = p(width * .5, height * .5)
   const highland = highlandSkeletons[variant]
   const islandV3 = input.kind==='island' && (input.algorithmVersion === 3 || input.algorithmVersion === 4) ? islandSkeletonV3(input, variant) : undefined
-  const plateauCenter = islandV3?.plateauCenter ?? (input.kind === 'island' ? p(width * highland.island[0], height * highland.island[1])
+  const plateauCenter = coastV9?.plateauCenter ?? islandV3?.plateauCenter ?? (input.kind === 'island' ? p(width * highland.island[0], height * highland.island[1])
     : p(width * (.28 + variant * .105), height * .76))
-  const ridge = islandV3?.ridge ?? highland.knots.map(([x, y, radius]) => ({ x: plateauCenter.x + width * x, y: plateauCenter.y + height * y, radius: radius * scale }))
+  const ridge = coastV9?.ridge ?? islandV3?.ridge ?? highland.knots.map(([x, y, radius]) => ({ x: plateauCenter.x + width * x, y: plateauCenter.y + height * y, radius: radius * scale }))
   const qualityColumns=input.algorithmVersion===4?(input.quality==='detailed'?{small:80,standard:112,expanded:160}:{small:64,standard:80,expanded:96})[input.budgetProfileId]:48
   const columns = qualityColumns, rows = input.algorithmVersion===4?Math.max(2,Math.round(columns*height/width)):36, grid = { widthMm: width, heightMm: height, columns, rows }
   const islandField = (x: number, y: number) => {
@@ -498,9 +537,11 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
       const radius = a.radius + (b.radius - a.radius) * t, nx = (x - a.x - dx * t) / radius, ny = (y - a.y - dy * t) / radius
       field = Math.max(field, 1 - nx * nx - ny * ny)
     }
-    return Math.round((field + terrainValueNoise(seed, 'plateau/low', x / (width * .18), y / (height * .18)) * .08) * 1000000) / 1000000
+    const shaped = field + terrainValueNoise(seed, 'plateau/low', x / (width * .18), y / (height * .18)) * .08
+    const inland = coastV9 ? Math.min(shaped, (y - coastV9.shorelineAt(x) - height * .055) / (2000 * scale)) : shaped
+    return Math.round(inland * 1000000) / 1000000
   }
-  const lowField = islandV3?.field ?? ((input.algorithmVersion === 2 || input.algorithmVersion === 4) ? shorelineFieldV2(input, variant, bay, recipe) : input.kind === 'island' ? islandField : coastField)
+  const lowField = coastV9?.field ?? islandV3?.field ?? ((input.algorithmVersion === 2 || input.algorithmVersion === 4) ? shorelineFieldV2(input, variant, bay, recipe) : input.kind === 'island' ? islandField : coastField)
   const metered=(field:(x:number,y:number)=>number)=>(x:number,y:number)=>{meter?.charge({fieldEvaluations:1});return field(x,y)}
   meter?.charge({gridNodes:(columns+1)*(rows+1)*2})
   const lowContours = extractTerrainContours(grid, metered(lowField)), highContours = extractTerrainContours(grid, metered(plateauField))
@@ -511,7 +552,7 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
     try {
       const scene = cloneJson(blank), lowPoints = simplifyTerrainContour(lowContours[0], error * scale), highPoints = simplifyTerrainContour(highContours[0], error * scale)
       if (lowPoints.length > (input.algorithmVersion===4?32:24) || highPoints.length > (input.algorithmVersion===4?32:20)) throw new Error(`轮廓复杂度超过有限控制段预算（${lowPoints.length}/${highPoints.length}）。`)
-      const lowCurve = cubicBoundary('terrain-coast-curve', lowPoints, input.kind === 'island', input), highCurve = cubicBoundary('terrain-high-curve', highPoints, true, input)
+      const lowCurve = cubicBoundary('terrain-coast-curve', lowPoints, input.kind === 'island', input, !!coastV9), highCurve = cubicBoundary('terrain-high-curve', highPoints, true, input)
       if (islandV3 && input.algorithmVersion !== 4) {
         // Preserve the broad corners under the same physical/display sampling.
         // The explicit v3 candidate reserves real budget for two reef entities.
@@ -543,11 +584,50 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
         addTerrain(scene, `terrain-reef-${index}`, points, input, 'low')
       }
       const activity = activityArea(scene, plateauCenter, input)
-      findStairs(scene, low, high, input, activity,meter)
+      findStairs(scene, low, high, input, activity, meter, 'stairs', !!coastV9)
+      if (coastV9) {
+        const stairs = scene.terrainConnections['terrain-stairs']
+        stairs.surfaceStyle = paint(scene, SHORE_MATERIAL_IDS.rockDry)
+        stairs.surfaceStyle.base.tint = '#909f9b'
+        high.surfaceStyle = paint(scene, SHORE_MATERIAL_IDS.rockDry)
+        const water = scene.terrainAreas['terrain-water']
+        const wash = paint(scene, SHORE_MATERIAL_IDS.waterShallow).base
+        wash.opacity = .32
+        water.surfaceStyle!.overlays.push({ id: 'terrain-coast-tidal-shelf', paint: wash, blendWidthMm: Math.round(400 * scale), renderOrder: 0,
+          boundaryMm: [...samples.map(({ x, y }) => p(x, y - coastV9.shallowsWidth(x))), ...[...samples].reverse()] })
+        const dunes = Array.from({ length: 25 }, (_, i) => {
+          const x = Math.round(width * i / 24)
+          return { x, y: coastV9.duneAt(x) }
+        })
+        const grass = paint(scene, SHORE_MATERIAL_IDS.grass)
+        grass.base.opacity = .94
+        grass.base.tint = '#a6b5a0'
+        const inland = [...dunes, p(width, height), p(0, height)]
+        if (!polygonInside(inland, terrainPoints(low))) throw new Error('海岸草地跨入真实水面。')
+        low.surfaceStyle!.overlays.push({ id: 'terrain-coast-inland-cover', boundaryMm: inland, paint: grass.base,
+          blendWidthMm: Math.round(550 * scale), renderOrder: 0 })
+        const crestCover = ellipseRing(plateauCenter, 1520 * scale, 1830 * scale, 11, .35)
+        if (polygonInside(crestCover, terrainPoints(high))) high.surfaceStyle.overlays.push({ id: 'terrain-coast-ridge-grass', boundaryMm: crestCover,
+          paint: { ...grass.base, opacity: .72 }, blendWidthMm: Math.round(540 * scale), renderOrder: 0 })
+        const lowOutline = terrainPoints(low), highOutline = terrainPoints(high)
+        for (let i = 1; i <= 7; i++) {
+          const x = width * (.08 + .84 * terrainRandomUnit(seed, `coast-v9/ground-cover/${i}/x`))
+          const inlandY = coastV9.duneAt(x)
+          const t = .18 + .52 * terrainRandomUnit(seed, `coast-v9/ground-cover/${i}/y`)
+          const center = p(x, inlandY + (height - inlandY) * t)
+          const boundaryMm = ellipseRing(center, scale * 2200, scale * 1000, 13, i * .4).map((point, index) => {
+            const variation = .72 + .52 * terrainRandomUnit(seed, `coast-v9/ground-cover/${i}/${index}`)
+            return p(center.x + (point.x - center.x) * variation, center.y + (point.y - center.y) * variation)
+          })
+          if (!polygonInside(boundaryMm, inland) || !polygonInside(boundaryMm, lowOutline) || polygonsOverlap(boundaryMm, highOutline)) continue
+          const paint = { ...grass.base, tint: i % 2 ? '#788b70' : '#b7b189', opacity: i % 2 ? .64 : .72 }
+          low.surfaceStyle!.overlays.push({ id: `terrain-coast-grass-${i}`, boundaryMm, paint, blendWidthMm: Math.round(440 * scale), renderOrder: i })
+        }
+      }
       addLook(scene, lowCurve.id, 'shore', input); if (input.kind === 'island') addLook(scene, lowCurve.id, 'cliff', input)
       addLook(scene, highCurve.id, 'cliff', input)
       if (input.kind === 'island') addLook(scene, highCurve.id, 'grass', input, 'left')
-      placeProps(scene, input, activity,meter)
+      placeProps(scene, input, activity,meter,coastV9)
       chargeGeometryCheck(scene,meter)
       const checked = validateSceneDocument(scene)
       if (!checked.ok) throw new Error(checked.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}`).join('；'))
@@ -562,7 +642,7 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
       const recommendedGenerationRecords = generationRecordCost(managedTargets.length, activity.boundaryMm.length), total = legacyTotal + recommendedGenerationRecords
       if (input.algorithmVersion !== 4 && total > 256) throw new Error(`完整生成实际成本${total}超过256（旧实体/采样/控制${legacyTotal}，规则/管理/活动${recommendedGenerationRecords}）。`)
       if(budget)assertTaskBudget(budget,measureTaskBudget(blank,document,undefined,meter!.snapshot()))
-      return { document, input, ...(meter?{executionUsage:meter.snapshot()}:{}), skeleton: { variant, name: islandV3?.name ?? recipe.name, bayDirection: islandV3?.bayDirection ?? bay, plateauCenterMm: plateauCenter, gridColumns: columns, gridRows: rows, simplificationErrorMm: error * scale, fitErrorMm: maximumFitDisplacement(lowCurve, highCurve) }, activity, managedTargets,
+      return { document, input, ...(meter?{executionUsage:meter.snapshot()}:{}), skeleton: { variant, name: coastV9?.name ?? islandV3?.name ?? recipe.name, bayDirection: coastV9?.bayDirection ?? islandV3?.bayDirection ?? bay, plateauCenterMm: plateauCenter, gridColumns: columns, gridRows: rows, simplificationErrorMm: error * scale, fitErrorMm: maximumFitDisplacement(lowCurve, highCurve) }, activity, managedTargets,
         cost: { physicalEntities, terrainPoints: terrainPointsCount, terrainSegments: terrainPointsCount, pathPoints: Object.values(document.paths).reduce((sum, path) => sum + path.centerlineMm.length, 0), visualEntities, curveSegments, overlays, legacyTotal, recommendedGenerationRecords, total } }
     } catch (error) { failures.push(error instanceof Error ? error.message : '未知几何失败。') }
   }

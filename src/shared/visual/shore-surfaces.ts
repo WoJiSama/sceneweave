@@ -15,7 +15,7 @@ type PaletteKey = keyof typeof SHORE_MATERIAL_IDS
 type Ring = PointMm[]
 type RawRing = [number, number][]
 type OverlayPiece = { points: Ring; blendWidthMm: number }
-export interface ShoreSurfaceOptions { meter?: ExecutionBudget; edgeDetailScale?: number; shoreProfile?: 'natural2' }
+export interface ShoreSurfaceOptions { meter?: ExecutionBudget; edgeDetailScale?: number; shoreProfile?: 'natural2' | 'headland' }
 export const SHORE_SURFACE_LIMITS = Object.freeze({ overlaysPerArea: 128, pointsPerOverlay: 512 })
 const same = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 const q = (p: PointMm): PointMm => ({ x: Math.round(p.x), y: Math.round(p.y) })
@@ -215,7 +215,8 @@ export function applyShoreSurfaceRecipe(document: SceneDocument, seed: string, o
   const edgeDetailScale=options.edgeDetailScale??1
   if(!Number.isFinite(edgeDetailScale)||edgeDetailScale<1||edgeDetailScale>5)throw new Error('岸面边缘细节倍率须为1–5。')
   if (!seed || seed.length > 128) throw new Error('新岸崖配方需要1–128字符固定种子。')
-  if (options.shoreProfile !== undefined && options.shoreProfile !== 'natural2') throw new Error('未知岸带材质配方。')
+  const headland = options.shoreProfile === 'headland', varied = headland || options.shoreProfile === 'natural2'
+  if (options.shoreProfile !== undefined && !varied) throw new Error('未知岸带材质配方。')
   const scene = cloneJson(document), visual = visualBase(scene)
   if (!visual) throw new Error('新岸崖配方需要现存严格视觉系统。')
   const areas = Object.values(scene.terrainAreas).sort((a, b) => a.id.localeCompare(b.id))
@@ -246,6 +247,7 @@ export function applyShoreSurfaceRecipe(document: SceneDocument, seed: string, o
     if (!area.surfaceStyle || area.editLocked || scene.userLayers[scene.entityLayers[area.id]]?.editLocked) continue
     const kind = kinds.get(area.id)!, key = { rock: 'rockDry', grass: 'grass', water: 'waterDeep', shallow: 'waterShallow', sand: 'sandDry' }[kind as Exclude<Surface, 'other'>] as PaletteKey | undefined
     if (key) area.surfaceStyle.base = paint(scene, key)
+    if (headland && kind === 'rock' && area.relief) area.surfaceStyle.base.tint = '#a8b6b1'
   }
   for (const area of areas.filter(area => !isWater(area))) {
     if (area.editLocked || scene.userLayers[scene.entityLayers[area.id]]?.editLocked) continue
@@ -270,9 +272,9 @@ export function applyShoreSurfaceRecipe(document: SceneDocument, seed: string, o
       const id = token(seed, 'coast-chunk', area.id, group[0], group.at(-1)!)
       // Explicit new authoring profile; legacy calls retain their exact rings.
       // Both sides of a joined vertex evaluate the same world-space width.
-      const variation = options.shoreProfile === 'natural2' ? (point: PointMm) => .95 + terrainValueNoise(seed, 'shore-natural2-broad', point.x / 6000, point.y / 6000) * .4
+      const variation = varied ? (point: PointMm) => .95 + terrainValueNoise(seed, 'shore-natural2-broad', point.x / 6000, point.y / 6000) * .4
         + terrainValueNoise(seed, 'shore-natural2-local', point.x / 1700, point.y / 1700) * .12 : undefined
-      const bandWidth = options.shoreProfile === 'natural2' ? (reef ? 300 : 900) : (reef ? 500 : 1400)
+      const bandWidth = headland ? 520 : varied ? (reef ? 300 : 900) : (reef ? 500 : 1400)
       const bands = continuousBand(area, group, coastal, -70, -bandWidth, 600, variation)
       for (const target of water.filter(value => value.floorId === area.floorId)) {
         const excludes = areas.filter(value => value.floorId === area.floorId && !isWater(value) && value.coveragePriority > target.coveragePriority)
@@ -310,14 +312,15 @@ export function applyShoreSurfaceRecipe(document: SceneDocument, seed: string, o
       if (previous?.editLocked || previous && scene.userLayers[previous.layerId]?.editLocked) continue
       const high = area.groundElevationMm > lowerLand, reef = Math.min(Math.max(...ring.map(p => p.x)) - Math.min(...ring.map(p => p.x)), Math.max(...ring.map(p => p.y)) - Math.min(...ring.map(p => p.y))) < 5000
       const id = previous?.id ?? token(seed, lookKind, boundary.id)
+      const ridge = headland && lookKind === 'cliff' && !!area.relief
       const look: VisualEdgeLook = { id, floorId: boundary.floorId, layerId: boundary.layerId, visibility: boundary.visibility, editLocked: false,
         boundaryId: boundary.id, kind: lookKind, side: lookKind === 'grass' ? inside : isWater(area) ? inside : outward,
-        widthMm: lookKind === 'cliff' ? reef ? 360 : high ? 1320 : 680 : lookKind === 'grass' ? 340 : kind === 'sand' ? 850 : 530,
-        color: lookKind === 'cliff' ? '#65706F' : lookKind === 'grass' ? '#84A663' : '#87BFC2',
+        widthMm: ridge ? 540 : lookKind === 'cliff' ? reef ? 360 : high ? 1320 : 680 : lookKind === 'grass' ? 340 : kind === 'sand' ? 850 : 530,
+        color: ridge ? '#687366' : lookKind === 'cliff' ? '#65706F' : lookKind === 'grass' ? '#84A663' : '#87BFC2',
         accentColor: lookKind === 'cliff' ? '#D3C49A' : lookKind === 'grass' ? '#C2D28F' : '#D3E5D7',
-        opacity: lookKind === 'cliff' ? .94 : lookKind === 'grass' ? .70 : .50,
+        opacity: ridge ? .56 : lookKind === 'cliff' ? .94 : lookKind === 'grass' ? .70 : .50,
         intensity: lookKind === 'shore' ? .22 : .72, repeatMm: Math.round((lookKind === 'cliff' ? 320 : lookKind === 'grass' ? 270 : 1450)*edgeDetailScale),
-        seed: token(seed, 'paint', boundary.id, lookKind), enabled: true }
+        seed: token(seed, 'paint', boundary.id, lookKind), enabled: true, ...(ridge ? { renderProfile: 'rockRelief4' as const } : {}) }
       if (look.widthMm > sampleVisualBoundary(boundary).lengthMm / 2) throw new Error('新岸崖外观宽度超出原生边界长度保护。')
       visual.edgeLooks[id] = look
     }

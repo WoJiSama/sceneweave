@@ -4,13 +4,12 @@ import type { GenerationPreviewOptions, MixedPreview, Workspace } from '../../..
 import type { ForestLoopState } from '../../../shared/ai/forest-loop.js'
 import { taskBudgetProfile } from '../../../shared/budget/task-budget.js'
 import type { GenerationContentPort } from '../../../application/workspace/generation-intent.js'
-import { defaultMixedInputV19 } from '../../../shared/generation/domains/mixed/index.js'
 import { semanticGenerationRequestSchema, type SemanticGenerationRequest } from '../../../shared/generation/semantic-request.js'
 import { exportProject, importProject } from '../../../shared/project/file.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import { canonicalJson } from '../../../shared/validation/json.js'
-import { browserGenerationContent } from '../content/generation-intent.js'
+import { browserGenerationContent, mixedGenerationContentForBase } from '../content/generation-intent.js'
 import { exportPng } from '../render/renderer.js'
 import { runtime, validation } from '../runtime.js'
 import type { ForestLoopCandidate } from './forest-loop.js'
@@ -38,10 +37,10 @@ export function forestLoopProjects(workspace: Workspace, options: Pick<Generatio
       entities: { rooms: Object.keys(cold.project.document.rooms).length, props: Object.keys(cold.project.document.props).length },
       notes: forestFurnitureNotes(diagnostics, preview.report.notes).slice(0, 16).map(note => note.slice(0, 512)) } }
   }
-  const prepare = (semantic: SemanticGenerationRequest, signal: AbortSignal, content: GenerationContentPort = browserGenerationContent) =>
+  const prepare = (semantic: SemanticGenerationRequest, signal: AbortSignal, content: GenerationContentPort = browserGenerationContent, distribution?: 'auto' | 'uniform') =>
     prepareSemanticGenerationIntent(semantic, { runtime, content,
       authorization: { capabilityId: semantic.capabilityId, contentId: 'builtin-mixed-forest@1', requestHash: semanticGenerationRequestHash(semantic) },
-      profile: taskBudgetProfile('standard'), signal })
+      profile: taskBudgetProfile('standard'), signal }, distribution)
   const deliver = async (preview: MixedPreview, seed: string, requestHash: string, signal: AbortSignal, parent?: { candidateId: string; roomId: string }) => {
     const archive = await write(preview.project, signal)
     const result = await candidate(preview, await read(archive, signal), archive, seed, requestHash, signal, parent)
@@ -73,16 +72,14 @@ export function forestLoopProjects(workspace: Workspace, options: Pick<Generatio
         const semantic = semanticGenerationRequestSchema.parse({ ...state.request, parameters: { ...state.request.parameters, seed: receipt.seed } })
         const layer = base.document.userLayers[input.parameters.building.layerId]
         if (!layer || layer.editLocked || layer.floorId !== input.parameters.building.floorId) throw new Error('原生成图层缺失或已变化。')
-        const request = await prepare(semantic, signal, { ...browserGenerationContent, mixed: async ({ environment, seed }) => ({
-          // ZIP JSON keys are sorted. Recover the layer selected by the original
-          // intent before deriving the same defaults.
-          base, defaults: defaultMixedInputV19({ ...base.document, userLayers: {
-            [layer.id]: layer,
-            ...base.document.userLayers,
-          } }, environment, seed),
-        }) })
-        if (request.profile.profileHash !== profileHash || base.document.title !== semantic.parameters.title
-          || canonicalJson(request.input) !== canonicalJson(input)) {
+        if (base.document.title !== semantic.parameters.title) throw new Error('候选固定需求已变化。')
+        const outdoor = input.parameters.outdoor
+        const refined = outdoor.kind === 'forest' && outdoor.parameters.zones.some(zone => zone.vegetation.some(row => row.clusterVersion === 'cluster-v2'))
+        const appearance = input.parameters.building.materials.floorFinish ? 'finished' : refined ? 'refined' : 'initial'
+        const request = await prepare(semantic, signal, {
+          ...browserGenerationContent, mixed: async ({ environment, seed }) => mixedGenerationContentForBase(base, environment, seed, appearance, layer.id),
+        }, appearance === 'initial' ? 'uniform' : 'auto')
+        if (request.profile.profileHash !== profileHash || canonicalJson(request.input) !== canonicalJson(input)) {
           throw new Error('候选固定需求或生成预算已变化。')
         }
         preview = await workspace.restoreForestLoopPreview(archived, file.usage, { kind: 'generate', request, replay }, { signal })

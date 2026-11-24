@@ -217,6 +217,8 @@ export function buildDecorationRegeneration(scene: SceneDocument, source: Decora
     const id = previous?.entityId ?? context.ids.nextId(), center = centers[index % centers.length]
     const existing = previous?.entityId ? (previous.kind === 'prop' ? scene.props[previous.entityId] : decorationRecords(scene)[previous.entityId]) : undefined
     const prior = surfaceRegion ? existing : undefined
+    const rotationDeg = group.algorithmVersion === 'cluster-v2' && appearance && definitionPresentation(appearance, item.definitionRef)?.mode !== 'nearSide'
+      ? Math.floor(unit(group.seed, `slot/${index}/orientation`) * 360) : 0
     if (surfaceRegion && previous?.entityId) executionMeter?.charge({ dependencyRefs: 1 })
     let accepted: Prop | Decoration | null = null
     for (let attempt = 0; attempt < 96; attempt++) {
@@ -227,7 +229,7 @@ export function buildDecorationRegeneration(scene: SceneDocument, source: Decora
         x: Math.round(selectedBounds.x + selectedBounds.width * unit(group.seed, `slot/${index}/${candidateAttempt}/region-x`)),
         y: Math.round(selectedBounds.y + selectedBounds.height * unit(group.seed, `slot/${index}/${candidateAttempt}/region-y`)),
       } : clusteredPosition
-      const common = { id, floorId: group.floorId, editLocked: false, visibility: group.visibility, definitionRef: cloneJson(item.definitionRef), supportRef: cloneJson(group.supportRef), positionMm, rotationDeg: 0, renderOrder: index }
+      const common = { id, floorId: group.floorId, editLocked: false, visibility: group.visibility, definitionRef: cloneJson(item.definitionRef), supportRef: cloneJson(group.supportRef), positionMm, rotationDeg, renderOrder: index }
       const row: Prop | Decoration = existing ? { ...cloneJson(existing), positionMm } : item.kind === 'prop' ? {
         ...common, appearance: cloneJson(definition.defaultAppearance), visualBoundsMm: cloneJson(definition.defaultVisualBoundsMm), footprintMm: cloneJson(definition.defaultFootprintMm), footprintOffsetMm: cloneJson(definition.defaultFootprintOffsetMm),
         blocksMovement: definition.defaultBlocksMovement, blocksSight: definition.defaultBlocksSight, renderLayer: definition.defaultRenderLayer, shadowClass: definition.defaultShadowClass, shadowOverride: null,

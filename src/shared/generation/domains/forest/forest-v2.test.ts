@@ -11,6 +11,7 @@ import { decorationAsProp } from '../../../decorations/geometry.js'
 import { getLegacyGeneration } from '../../../terrain-generation/composition-contracts.js'
 import { forestGenerationRecipeSchema, generationRecipeSchema } from '../../../terrain-generation/contracts.js'
 import type { SceneDocument } from '../../../model/scene.js'
+import { projectPath } from '../../../projection/paths.js'
 import { createDomainExecutionRequest, executeDomainExecutionRequest } from '../../execution.js'
 import { regenerateForestZone } from '../../local-forest.js'
 import { forestGenerationInputSchema, normalizeForestInput, runForestGeneration, type ForestGenerationInput } from './index.js'
@@ -25,6 +26,27 @@ function fixture(algorithmVersion: ForestGenerationInput['algorithmVersion']) {
 }
 
 describe('forest algorithm 2 with explicit algorithm 1 replay', () => {
+  it('keeps the exact travelled band when the first candidate paints trees, clearings and softened trail edges', () => {
+    const { base, input } = fixture(2)
+    const ref = (id: string) => ({ id, version: 1 })
+    input.parameters.routes[0].materialRef = ref('shore-v1-material-sand-dry')
+    const before = runForestGeneration(base, input, options)
+    input.parameters.groundFinish = { kind: 'woodland-v1', mossMaterialRef: ref('refined-material-island-material-moss'), soilMaterialRef: ref('shore-v1-material-sand-dry') }
+    const after = runForestGeneration(base, input, options), scene = cloneJson(after.candidate.document) as SceneDocument
+    expect(after.candidate.document.props).toEqual(before.candidate.document.props)
+    expect(after.candidate.document.decorations).toEqual(before.candidate.document.decorations)
+    const materialRules = Object.values(scene.surfaceRules).filter(rule => rule.field === 'material')
+    expect(materialRules.map(rule => rule.paint.materialRef.id)).toEqual(expect.arrayContaining(['refined-material-island-material-moss', 'shore-v1-material-sand-dry']))
+    expect(materialRules.every(rule => rule.supportRef.id === after.report.groundAreaId)).toBe(true)
+    const path = scene.paths[after.report.pathIds[0]]
+    const prior = cloneJson(before.candidate.document.paths[path.id]) as typeof path
+    expect(path).toMatchObject({ centerlineMm: prior.centerlineMm, widthMm: prior.widthMm, supportRefs: prior.supportRefs, movementCostMultiplier: prior.movementCostMultiplier })
+    expect(projectPath(path, null).groundBlendMm).toBe(215)
+    expect(projectPath(prior, null).groundBlendMm).toBeUndefined()
+    expect(validateSceneDocument(scene).ok).toBe(true)
+    expect(runForestGeneration(base, after.input, options).resultHash).toBe(after.resultHash)
+  }, 30000)
+
   it('retains the same normalization for both algorithms and rejects unknown selectors', () => {
     const { input } = fixture(1), before = canonicalJson(input), next = cloneJson(input)
     next.algorithmVersion = 2

@@ -1,13 +1,36 @@
 import type { SceneDocument } from '../model/scene.js'
+import type { HistoryIdentity } from '../model/history.js'
 import type { CompositionContent } from '../model/appearance.js'
 import { canonicalJson } from '../validation/json.js'
 import { effectiveAdjustments, equalCompositionValue } from '../appearance/graph.js'
 import type { TerrainCompositionReference } from './composition-integrity.js'
 import { compositionInputHash, compositionOutputHash, resolveCompositionEntity, resolveCompositionTarget, terrainRequirementInputHash } from './composition-integrity.js'
+import { getLegacyGeneration } from './composition-contracts.js'
+import { generationInputHash, managedOutputHash } from './integrity.js'
 
 const same = (a: unknown, b: unknown): boolean => canonicalJson(a ?? null) === canonicalJson(b ?? null)
 const targetId = (ref: TerrainCompositionReference): string => ref.kind === 'surfaceOverlay' ? ref.parentId! : ref.entityId
 const sameTarget = (a: TerrainCompositionReference, b: TerrainCompositionReference): boolean => a.kind === b.kind && a.entityId === b.entityId && a.parentId === b.parentId
+
+/** An explicit undo may restore geometry, but cannot restore a previous outdoor
+ * topology witness. Preserve that invalidation in the existing ownership row. */
+export function protectLocalGenerationContinuity(document: SceneDocument, saved: HistoryIdentity, current: HistoryIdentity): void {
+  const generation = getLegacyGeneration(document)!
+  let changed = false
+  for (const owner of Object.values(generation.ownership)) {
+    const rule = generation.rules[owner.ruleId], recipe = rule && generation.recipes[rule.recipeRef.id]
+    if (!recipe || !('domain' in recipe) || recipe.domain !== 'volcano' || owner.target.kind !== 'terrainArea' || !owner.managedFields.includes('geometry')) continue
+    const id = owner.target.entityId, before = saved.outdoorTokens[id], now = current.outdoorTokens[id]
+    if (!document.terrainAreas[id] || !before || !now || before.token === now.token && before.topologyToken === now.topologyToken) continue
+    owner.managedFields = owner.managedFields.filter(field => field !== 'geometry')
+    owner.manualFields = [...new Set([...owner.manualFields, 'geometry' as const])]
+    owner.state = 'manual'; rule.state = 'paused'; changed = true
+  }
+  if (changed) for (const rule of Object.values(generation.rules)) {
+    rule.inputHash = generationInputHash(document, rule)
+    rule.managedOutputHash = managedOutputHash(document, rule)
+  }
+}
 
 /** Stop affected generation without rewriting its frozen inputs or receipts.
  * The return value counts changed metadata rows, not the expanded command cost.

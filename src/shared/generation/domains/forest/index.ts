@@ -19,7 +19,8 @@ import type { GenerationFieldGroup, GenerationRecipe, GenerationReference, Gener
 import { GenerationRegistry, runGeneration } from '../../orchestrator.js'
 import { generationCreationWrites } from '../../materialization.js'
 import { hashGenerationValue, type ArtifactInput, type GenerationCandidate, type GenerationRequest, type JsonValue } from '../../contracts.js'
-import { forestGenerationInputSchema, ForestGenerationError, type ForestGenerationInput, type ForestSupport } from './contracts.js'
+import { forestGenerationInputSchema, forestMaterialBindings, ForestGenerationError, type ForestGenerationInput, type ForestSupport } from './contracts.js'
+import { paintWoodlandFloor, woodlandGroundStyle, woodlandTrailFinish } from './ground-finish.js'
 
 export * from './contracts.js'
 export interface ForestReport {
@@ -64,10 +65,7 @@ export function normalizeForestInput(raw: unknown): ForestGenerationInput {
 }
 export function forestFixedBindings(input: ForestGenerationInput) {
   const p = input.parameters
-  const materials = ordered([...new Map([
-    ...(p.ground.kind === 'new' && p.ground.materialRef ? [{ role: 'ground' as const, ref: p.ground.materialRef }] : []),
-    ...p.routes.flatMap(row => row.materialRef ? [{ role: 'path' as const, ref: row.materialRef }] : []),
-  ].map(row => [canonicalJson(row), row])).values()])
+  const materials = ordered([...new Map(forestMaterialBindings(p).map(row => [canonicalJson(row), row])).values()])
   const props = ordered([...new Map(p.zones.flatMap(zone => zone.vegetation.flatMap(row => row.palette.map(item => ({ role: row.role, ref: item.definitionRef })))).map(row => [canonicalJson(row), row])).values()])
   return { materials, props }
 }
@@ -127,7 +125,8 @@ function persist(document: SceneDocument, base: SceneDocument, input: ForestGene
   }
   for (const [collection, kind] of [['terrainAreas', 'terrainArea'], ['paths', 'path'], ['props', 'prop'], ['decorations', 'decoration'], ['decorationClusters', 'decorationCluster'], ['surfaceRules', 'surfaceRule']] as const) for (const entity of Object.values(document[collection])) {
     if (base[collection][entity.id]) continue
-    const ownerId = id(`owner:${kind}:${entity.id}`), ruleId = id(`rule:${kind}:${entity.id}`), fields = managed[kind]
+    const ownerId = id(`owner:${kind}:${entity.id}`), ruleId = id(`rule:${kind}:${entity.id}`)
+    const fields = kind === 'surfaceRule' && document.surfaceRules[entity.id].field === 'material' && p.groundFinish ? [...managed[kind], 'surface' as const] : managed[kind]
     if (!gen.ownership[ownerId]) gen.ownership[ownerId] = { id: ownerId, outputKey: `${recipeId}:${kind}:${entity.id}`, ruleId, target: { kind, entityId: entity.id, parentId: null, fieldGroup: 'geometry' }, managedFields: [...fields], manualFields: [], state: 'managed', birthToken: id(`birth:${kind}:${entity.id}`) }
     const rule: GenerationRule = { id: ruleId, floorId: p.floorId, layerId: p.layerId, visibility: 'public', editLocked: false, kind: 'forest', recipeRef: { id: recipeId, version: recipe.recipeVersion }, inputs: cloneJson(inputs),
       outputs: fields.map(fieldGroup => ({ ...gen.ownership[ownerId].target, fieldGroup })), parameters: { widthMm: p.boundsMm.width, minWidthMm: 0, maxWidthMm: p.boundsMm.width, roughness: 0, densityFactor: 0 }, state: 'active', inputHash: '0'.repeat(64), managedOutputHash: '0'.repeat(64) }
@@ -188,7 +187,12 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
     materialize({ document: before, context }) {
       context.checkCancelled()
       let document = cloneJson(before) as SceneDocument
-      if (p.ground.kind === 'new') document = applyCommands(document, [{ type: 'createTerrainArea', id: id('ground'), floorId: p.floorId, layerId: p.layerId, boundaryMm: forestRectangle(p.boundsMm), groundElevationMm: p.ground.elevationMm, ...(p.ground.materialRef ? { materialRef: p.ground.materialRef } : {}) }], runtime, { budget: profile })
+      if (p.ground.kind === 'new') {
+        const finish = woodlandGroundStyle(document, p.ground, p.groundFinish)
+        document = applyCommands(document, [{ type: 'createTerrainArea', id: id('ground'), floorId: p.floorId, layerId: p.layerId,
+          boundaryMm: forestRectangle(p.boundsMm), groundElevationMm: p.ground.elevationMm,
+          ...(finish ? { surfaceStyle: finish } : p.ground.materialRef ? { materialRef: p.ground.materialRef } : {}) }], runtime, { budget: profile })
+      }
       const gen = getLegacyGeneration(document)!
       for (const row of p.clearings) {
         if (!supportedPolygon(document, row.boundaryMm, support(input, source.sceneId, row.supportRef), p.floorId)) throw new ForestGenerationError('contradiction', '空地完整范围没有所选真实支撑。')
@@ -218,7 +222,9 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
         const checked = checkTerrainRoute(document, { floorId: p.floorId, pointsMm, widthMm: route.widthMm })
         if (!checked.ok) throw new ForestGenerationError('contradiction', `指定路线${route.id}完整净宽不可用：${checked.issues.map(row => row.message).join('；')}；不会用贴图替代桥梁或高差连接。`)
         const pathId = id(`path:${route.id}`)
-        commands.push({ type: 'createPath', id: pathId, floorId: p.floorId, layerId: p.layerId, centerlineMm: cloneJson(pointsMm), widthMm: route.widthMm, supportRefs: checked.supportRefs, ...(route.materialRef ? { materialRef: route.materialRef } : {}) })
+        const finish = woodlandTrailFinish(document, p.groundFinish, route.materialRef)
+        commands.push({ type: 'createPath', id: pathId, floorId: p.floorId, layerId: p.layerId, centerlineMm: cloneJson(pointsMm), widthMm: route.widthMm, supportRefs: checked.supportRefs,
+          ...(finish ?? (route.materialRef ? { materialRef: route.materialRef } : {})) })
         report.pathIds.push(pathId)
       }
       if (commands.length) document = applyCommands(document, commands, runtime, { budget: profile })
@@ -242,7 +248,7 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
           context.checkCancelled()
           const field = vegetation.role === 'tree' ? 'trees' : vegetation.role === 'shrub' ? 'shrubs' : 'grass'
           const ruleId = id(`surface:${zone.id}:${field}`), clusterId = id(`cluster:${zone.id}:${field}`)
-          const cluster: DecorationCluster = { id: clusterId, floorId: p.floorId, editLocked: false, visibility: 'public', supportRef: support(input, source.sceneId, zone.supportRef), boundsMm: boundsOf(region), algorithmVersion: 'cluster-v1', seed: context.deriveSeed(`${zone.id}:${field}`), palette: cloneJson(vegetation.palette), spacingMm: vegetation.spacingMm, clusterRadiusMm: vegetation.clusterRadiusMm, clearanceMm: vegetation.clearanceMm, maxInstances: 64, members: {} }
+          const cluster: DecorationCluster = { id: clusterId, floorId: p.floorId, editLocked: false, visibility: 'public', supportRef: support(input, source.sceneId, zone.supportRef), boundsMm: boundsOf(region), algorithmVersion: vegetation.clusterVersion ?? 'cluster-v1', seed: context.deriveSeed(`${zone.id}:${field}`), palette: cloneJson(vegetation.palette), spacingMm: vegetation.spacingMm, clusterRadiusMm: vegetation.clusterRadiusMm, clearanceMm: vegetation.clearanceMm, maxInstances: 64, members: {} }
           const effective = { polygons: region, coveragePpm: vegetation.coveragePpm }, requested = estimateSurfaceRegionInstances(document, cluster.palette, effective)
           const generated = buildDecorationRegeneration(document, cluster, runtime, appearance, effective, meter)
           // The shared region generator selects roots. A forest zone additionally
@@ -264,6 +270,7 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
           if (placed < requested) report.notes.push(`林区${zone.id}的${vegetation.role}目标${requested}件，实际${placed}件；其余受固定尺寸、支撑、通路/空地保留和有限位置搜索限制。`)
         }
       }
+      paintWoodlandFloor(document, p, report, input.seed, id, meter, context.checkCancelled)
       checkForestResult(document, input, report, appearance)
       detachChangedOutputs(before as SceneDocument, document)
       persist(document, source, input); return document

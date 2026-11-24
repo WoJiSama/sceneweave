@@ -2,13 +2,15 @@ import type { InteriorLayoutParameters, InteriorGenerationInput } from '../../sh
 import { forestRectangle } from '../../shared/generation/domains/forest/index.js'
 import type { ForestGenerationInput, ForestVegetation } from '../../shared/generation/domains/forest/contracts.js'
 import type { VolcanoGenerationInput } from '../../shared/generation/domains/volcano/contracts.js'
+import { calderaLayout } from '../../shared/generation/domains/volcano/caldera.js'
 import type { MixedGenerationInput } from '../../shared/generation/domains/mixed/contracts.js'
 import type { TaskBudgetProfile } from '../../shared/budget/task-budget.js'
 import { checkCancelled, type ResourceOptions } from '../../shared/ports/resources.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
 import { captureJson, freezeJson } from '../../shared/validation/json.js'
 import type { EditableProject } from './project.js'
-import { createWoodlandZones, type WoodlandDistribution } from './woodland-distribution.js'
+import { forestZonesForDistribution, type WoodlandDistribution } from './woodland-distribution.js'
+import { planWoodlandTrails } from './woodland-trails.js'
 
 export interface InteriorGenerationUiRequest {
   title: string
@@ -77,16 +79,21 @@ type MaterialRef = VolcanoGenerationInput['parameters']['materials']['flow']
 export interface GenerationContentPort {
   interior(input: GenerationBaseIntent, options: ResourceOptions): Promise<{
     base: EditableProject; palette: InteriorLayoutParameters['arrangement']['palette']
+    materials?: InteriorLayoutParameters['materials']
   }>
   forest(input: GenerationBaseIntent, options: ResourceOptions): Promise<{
     base: EditableProject; groundMaterial: MaterialRef; routeMaterial: MaterialRef
+    groundFinish?: ForestGenerationInput['parameters']['groundFinish']
     palettes: Record<'tree' | 'shrub' | 'grass', ForestVegetation['palette']>
+    secondTree?: ForestVegetation['palette']
   }>
   volcano(input: GenerationBaseIntent, options: ResourceOptions): Promise<{
-    base: EditableProject; defaults: VolcanoGenerationInput; flowMaterials: Record<'cold' | 'hot', MaterialRef>
+    base: EditableProject; defaults: VolcanoGenerationInput; flowMaterials: Record<'cold' | 'hot', MaterialRef>; naturalShape?: true
   }>
-  mixed(input: GenerationBaseIntent & { environment: 'forest' | 'volcano' }, options: ResourceOptions): Promise<{
+  mixed(input: GenerationBaseIntent & { environment: 'forest' | 'volcano'; algorithmVersion?: MixedGenerationInput['algorithmVersion'] }, options: ResourceOptions): Promise<{
     base: EditableProject; defaults: MixedGenerationInput
+    secondTree?: ForestVegetation['palette']
+    loungeFocus?: false
   }>
 }
 export interface GenerationIntentOptions extends ResourceOptions {
@@ -100,6 +107,16 @@ function groundLayer(base: EditableProject, label: string) {
   const layer = floor && Object.values(base.document.userLayers).find(value => value.floorId === floor.id)
   if (!floor || !layer) throw new Error(`${label}缺少可用的地面图层。`)
   return { floor, layer }
+}
+
+function furnishLounges(rooms: InteriorLayoutParameters['rooms']) {
+  let lounges = 0
+  for (const room of rooms) {
+    if (!room.furnishingFocus && /休息室|起居室|会客室|\b(?:lounge|common room|break room)\b/i.test(room.purpose)) {
+      room.furnishingFocus = lounges++ % 2 === 0 ? 'fireside-v1' : 'reading-v1'
+    }
+  }
+  return rooms
 }
 
 /** Capture user intent before loading fixed content. This only prepares a
@@ -122,15 +139,15 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       checkCancelled(options.signal)
       const { floor, layer } = groundLayer(content.base, '室内布局'), palette = captureJson(content.palette)
       return { kind: 'new-project', domain: 'interior', base: content.base, profile: profile(), input: {
-        version: 1, algorithmVersion: 21, seed: owned.seed, parameters: {
+        version: 1, algorithmVersion: 22, seed: owned.seed, parameters: {
           floorId: floor.id, layerId: layer.id, boundsMm: { ...floor.boundsMm }, wallThicknessMm: owned.wallThicknessMm,
-          rooms: owned.rooms, relations: owned.relations, corridor: owned.corridor,
-          materials: { floor: null, wall: null }, arrangement: { ...owned.arrangement, palette },
+          rooms: owned.arrangement.furniture ? furnishLounges(owned.rooms) : owned.rooms, relations: owned.relations, corridor: owned.corridor,
+          materials: captureJson(content.materials ?? { floor: null, wall: null }), arrangement: { ...owned.arrangement, palette },
         },
       } }
     }
     case 'forest': {
-      if (intent.request.woodlandDistribution !== undefined && !['uniform', 'copses'].includes(intent.request.woodlandDistribution)) throw new Error('植被分布须为均匀散布或疏密林地。')
+      if (intent.request.woodlandDistribution !== undefined && !['auto', 'uniform', 'copses'].includes(intent.request.woodlandDistribution)) throw new Error('请选择可用的植被分布。')
       const owned = intent.request, content = await options.content.forest(baseIntent, resourceOptions)
       checkCancelled(options.signal)
       const { floor, layer } = groundLayer(content.base, '森林与营地'), bounds = floor.boundsMm
@@ -146,6 +163,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       })
       const parameters: ForestGenerationInput['parameters'] = {
         floorId: floor.id, layerId: layer.id, boundsMm: { ...bounds }, ground: { kind: 'new', elevationMm: 0, materialRef: captureJson(content.groundMaterial) },
+        ...(content.groundFinish ? { groundFinish: captureJson(content.groundFinish) } : {}),
         zones: [{ id: 'woodland', supportRef, boundaryMm: forestRectangle(bounds), vegetation: [
           { role: 'tree', coveragePpm: owned.treeCoveragePpm, spacingMm: 2500, clusterRadiusMm: 6000, clearanceMm: 200, palette: captureJson(content.palettes.tree) },
           { role: 'shrub', coveragePpm: owned.shrubCoveragePpm, spacingMm: 800, clusterRadiusMm: 4000, clearanceMm: 180, palette: captureJson(content.palettes.shrub) },
@@ -153,7 +171,8 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
         ] }], clearings, entrances: [{ id: 'entry', supportRef, positionMm, directionDeg, widthMm: owned.routeWidthMm }],
         routes: clearings.map(row => ({ id: `route:${row.id}`, fromEntranceId: 'entry', toClearingId: row.id, viaMm: [], widthMm: owned.routeWidthMm, materialRef: captureJson(content.routeMaterial) })),
       }
-      if (owned.woodlandDistribution === 'copses') parameters.zones = createWoodlandZones(content.base.document, parameters, owned.seed)
+      parameters.zones = forestZonesForDistribution(content.base.document, parameters, owned.seed, owned.woodlandDistribution, content.secondTree)
+      if (parameters.groundFinish) planWoodlandTrails(parameters, owned.seed)
       return { kind: 'new-project', domain: 'forest', base: content.base, profile: selectedProfile, input: { version: 1, algorithmVersion: 2, seed: owned.seed, parameters } }
     }
     case 'volcano': {
@@ -172,14 +191,18 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       p.route.toCraterViaMm = y === p.platform.anchorMm.y ? [] : [{ x: p.platform.anchorMm.x, y }]
       p.flow = owned.flowEnabled ? { centerlineMm: [{ x: Math.round(crater.x + crater.width * .72), y: Math.round(crater.y + crater.height * .25) }, { x: Math.round(crater.x + crater.width * .72), y: Math.round(crater.y + crater.height * .75) }], widthMm: owned.flowWidthMm, hazard: owned.flowHazard, blocksMovement: owned.flowBlocksMovement, movementCostMultiplier: owned.flowMovementCostMultiplier } : null
       p.materials.flow = captureJson(content.flowMaterials[owned.lavaAppearance])
+      if (content.naturalShape) {
+        Object.assign(p, calderaLayout(p, input.seed))
+        p.route.boundaryBlendMm = 215
+      }
       return { kind: 'new-project', domain: 'volcano', base: content.base, input, profile: profile() }
     }
     case 'mixed': {
       const owned = intent.request
       if (!Number.isSafeInteger(owned.roomCount) || owned.roomCount < 1 || owned.roomCount > 4) throw new Error('房间数量须为1–4的整数。')
       if (owned.algorithmVersion !== undefined && ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(owned.algorithmVersion)) throw new Error('混合生成算法版本须为1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17、18或19。')
-      if (owned.woodlandDistribution !== undefined && !['uniform', 'copses'].includes(owned.woodlandDistribution)) throw new Error('植被分布须为均匀散布或疏密林地。')
-      const content = await options.content.mixed({ ...baseIntent, environment: owned.environment }, resourceOptions)
+      if (owned.woodlandDistribution !== undefined && !['auto', 'uniform', 'copses'].includes(owned.woodlandDistribution)) throw new Error('请选择可用的植被分布。')
+      const content = await options.content.mixed({ ...baseIntent, environment: owned.environment, algorithmVersion: owned.algorithmVersion }, resourceOptions)
       checkCancelled(options.signal)
       const input = captureJson(content.defaults), p = input.parameters, bounds = p.building.boundsMm
       if (owned.algorithmVersion !== undefined) input.algorithmVersion = owned.algorithmVersion
@@ -188,8 +211,9 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
         minAreaMm2: Math.max(1, Math.floor(clearArea / (owned.roomCount * 3))), maxAreaMm2: clearArea, minClearSideMm: 1200 }))
       p.building.relations = []
       p.building.arrangement.furniture = owned.furniture
+      if (owned.furniture && input.algorithmVersion === 19 && content.loungeFocus !== false) furnishLounges(p.building.rooms)
       if (p.outdoor.kind === 'forest') for (const zone of p.outdoor.parameters.zones) for (const row of zone.vegetation) row.coveragePpm = Math.min(1000000, Math.round(row.coveragePpm * owned.vegetationMultiplier))
-      if (p.outdoor.kind === 'forest' && owned.woodlandDistribution === 'copses') p.outdoor.parameters.zones = createWoodlandZones(content.base.document, p.outdoor.parameters, owned.seed)
+      if (p.outdoor.kind === 'forest') p.outdoor.parameters.zones = forestZonesForDistribution(content.base.document, p.outdoor.parameters, owned.seed, owned.woodlandDistribution, content.secondTree, p)
       return { kind: 'new-project', domain: 'mixed', base: content.base, input, profile: profile() }
     }
   }

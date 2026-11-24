@@ -9,11 +9,13 @@ import { terrainVariantAssetId } from '../../../shared/visual/terrain-variant-sp
 import { TERRAIN_VARIANT_V2_ART, TERRAIN_VARIANT_V2_LICENSE } from '../../../shared/visual/terrain-variant-v2-art.js'
 import { terrainVariantV2AssetId } from '../../../shared/visual/terrain-variant-v2-specs.js'
 import { cloneJson } from '../../../shared/validation/json.js'
+import { newMapArtStyle } from '../../../shared/visual/art-style.js'
+import { visualBase } from '../../../shared/visual/base.js'
 import { createTerrainVariantCatalogDocument } from './terrain-variant-catalog.js'
 import { createTerrainVariantV2CatalogDocument } from './terrain-variant-v2-catalog.js'
 import type { BlankOptions } from './factories.js'
 import { createRefinedBlankDocument } from './refined-blank.js'
-import { materializeVisualArtBatches } from './visual-art-project.js'
+import { materializeVisualArtBatches, type VisualArtBatch } from './visual-art-project.js'
 
 export type ShoreVisualPalette = 'island' | 'coast'
 const original = { kind: 'original' as const, attribution: 'Sceneweave原创岸崖表面第1版；保留独立SVG、规范化源、实际PNG与确切MIT许可；未嵌入或描摹参考图片', canEmbed: true }
@@ -61,13 +63,26 @@ export function createShoreBlankDocument(palette: ShoreVisualPalette, options: B
   return checked.document
 }
 
-export async function createShoreBlankProject(palette: ShoreVisualPalette, options: BlankOptions, signal?: AbortSignal, includeTerrainVariants = false, includeTerrainVariantV2 = false): Promise<EditableProject> {
+export async function createShoreBlankProject(palette: ShoreVisualPalette, options: BlankOptions, signal?: AbortSignal, includeTerrainVariants = false, includeTerrainVariantV2 = false, woodlandPlants?: ReadonlySet<string>): Promise<EditableProject> {
   signal?.throwIfAborted()
-  const scene = createShoreBlankDocument(palette, options, includeTerrainVariants, includeTerrainVariantV2)
+  let scene = createShoreBlankDocument(palette, options, includeTerrainVariants, includeTerrainVariantV2)
+  scene.artStyle = newMapArtStyle()
   const base = palette === 'island' ? { artwork: REFINED_ISLAND_ART, licenseText: REFINED_ISLAND_LICENSE }
     : { artwork: REFINED_COAST_ART, licenseText: REFINED_COAST_LICENSE }
-  return materializeVisualArtBatches(scene, [{ ...base, assetId: key => `refined-art-${key}` },
+  const batches: VisualArtBatch[] = [{ ...base, assetId: key => `refined-art-${key}` },
     { artwork: SHORE_ART, licenseText: SHORE_LICENSE, assetId: shoreAssetId },
     ...(includeTerrainVariants ? [{ artwork: TERRAIN_VARIANT_ART, licenseText: TERRAIN_VARIANT_LICENSE, assetId: terrainVariantAssetId }] : []),
-    ...(includeTerrainVariantV2 ? [{ artwork: TERRAIN_VARIANT_V2_ART, licenseText: TERRAIN_VARIANT_V2_LICENSE, assetId: terrainVariantV2AssetId }] : [])], signal)
+    ...(includeTerrainVariantV2 ? [{ artwork: TERRAIN_VARIANT_V2_ART, licenseText: TERRAIN_VARIANT_V2_LICENSE, assetId: terrainVariantV2AssetId }] : [])]
+  if (woodlandPlants) {
+    const { appendWholePlantDefinitions, WHOLE_PLANT_BATCH } = await import('./whole-plant-catalog.js')
+    scene = appendWholePlantDefinitions(scene, woodlandPlants)
+    Object.values(scene.floors)[0].environment = { ...visualBase(scene)!.environment, lightDirectionDeg: 42,
+      directionalLight: { kind: 'sun', elevationDeg: 49, color: '#fff0ce', intensity: .58, softness: .65 } }
+    batches.push({ ...WHOLE_PLANT_BATCH, artwork: WHOLE_PLANT_BATCH.artwork.filter(art => woodlandPlants.has(art.key)) })
+  }
+  return materializeVisualArtBatches(scene, batches, signal)
+}
+
+export function createForestBlankProject(options: BlankOptions, signal?: AbortSignal) {
+  return createShoreBlankProject('island', options, signal, true, true, new Set(['oak-spreading', 'pine-branched', 'hazel-bush', 'bramble-fruiting', 'fern-full-crown', 'wildflower-whole-clump']))
 }

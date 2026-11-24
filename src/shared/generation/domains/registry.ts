@@ -5,6 +5,8 @@ import { normalizeForestInput, runForestGeneration } from './forest/index.js'
 import { normalizeVolcanoInput, runVolcanoGeneration } from './volcano/index.js'
 import { normalizeMixedInput, runMixedGeneration, mixedReportSchema } from './mixed/index.js'
 import { interiorFurnitureRoleSchema } from './interior/contracts.js'
+import type { DomainGenerationKind } from './kinds.js'
+export { domainGenerationKinds, type DomainGenerationKind } from './kinds.js'
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__')
 const hash = z.string().regex(/^[a-f0-9]{64}$/)
@@ -42,7 +44,5 @@ export const generationDomains = Object.freeze({
   mixed: Object.freeze({ algorithm: Object.freeze({ id: 'mixed-layout', version: 19 }), normalize: normalizeMixedInput, run: runMixedGeneration,
     resultSchema: z.object({ ...resultBase, report: mixedReportSchema }).strict(),
     presentation: 'terrain-variants', localOperations: Object.freeze([]) }),
-} as const)
-export type DomainGenerationKind = keyof typeof generationDomains
+} as const satisfies Record<DomainGenerationKind, unknown>)
 export type DomainGenerationResults = { [K in DomainGenerationKind]: ReturnType<typeof generationDomains[K]['run']> }
-export const domainGenerationKinds = Object.freeze(Object.keys(generationDomains) as DomainGenerationKind[])

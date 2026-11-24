@@ -31,12 +31,12 @@ function checked(input: SceneDocument): SceneDocument {
   return result.document
 }
 /** Construction only. Existing projects adopt an explicit catalogue selection. */
-export function appendWholePlantDefinitions(input: SceneDocument): SceneDocument {
+export function appendWholePlantDefinitions(input: SceneDocument, keys?: ReadonlySet<string>): SceneDocument {
   const source = checked(input), scene = cloneJson(source), occupied = geometryIdentityIds(source)
-  for (const spec of WHOLE_PLANT_SPECS) for (const id of [spec.assetId, spec.definitionId]) {
-    if (occupied.has(id) || source.userLayers[id]) throw new Error('整株植物固定身份已占用，不覆盖现有内容。')
-  }
   for (let i = 0; i < WHOLE_PLANT_ART.length; i++) {
+    const spec = WHOLE_PLANT_SPECS[i]
+    if (keys && !keys.has(spec.key)) continue
+    if ([spec.assetId, spec.definitionId].some(id => occupied.has(id) || source.userLayers[id])) throw new Error('整株植物固定身份已占用，不覆盖现有内容。')
     const fixed = records(i); scene.assets[fixed.asset.id] = fixed.asset; scene.propDefinitions[fixed.definition.id] = fixed.definition
   }
   return checked(scene)

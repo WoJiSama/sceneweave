@@ -22,7 +22,8 @@ const stamp = '2026-11-05T00:00:00.000Z', profile = taskBudgetProfile('small'), 
 const context = { ids: { nextId: () => { throw new Error('native room IDs must be explicit') } }, clock: { now: () => stamp } }
 const emptyConnectivity: InteriorConnectivityReport = { openingIds: [], entranceOpeningId: null, routes: [], notes: [] }
 function fixture(widthMm: number, heightMm = widthMm, twoRooms = false): { document: SceneDocument; input: InteriorGenerationInput; layout: InteriorLayout } {
-  const origin = { kind: 'original' as const, attribution: 'test fixture', canEmbed: true }, bounds = { x: 0, y: 0, width: 24000, height: 24000 }
+  const origin = { kind: 'original' as const, attribution: 'test fixture', canEmbed: true }
+  const bounds = { x: 0, y: 0, width: Math.max(24000, 4000 + widthMm * (twoRooms ? 2 : 1)), height: Math.max(24000, 4000 + heightMm) }
   const definitions: Record<string, PropDefinition> = Object.fromEntries((['bed', 'seat', 'table', 'storage', 'work', 'hearth', 'shelf'] as const).map(role => {
     const width = role === 'bed' ? 1800 : role === 'seat' ? 600 : 1000, height = role === 'bed' ? 1000 : role === 'seat' ? 600 : 700
     return [role, { id: role, catalogId: `test-${role}`, version: 1, licenseRef: 'MIT', origin, name: role, tags: [], defaultAppearance: { kind: 'symbol', symbol: 'crate', tint: null, opacity: 1 },
@@ -47,7 +48,35 @@ function fixture(widthMm: number, heightMm = widthMm, twoRooms = false): { docum
   return { document, input, layout: { rooms: roomRows, corridors: [] } }
 }
 
-describe('functional furniture versions 11 through 18', () => {
+describe('functional furniture', () => {
+  it('reserves reachable kitchen and pantry storage before trying an extra worktop', () => {
+    const value = fixture(10800, 9000, true)
+    value.input.algorithmVersion = 22
+    value.input.parameters.arrangement.entrance = true
+    value.input.parameters.rooms[0].purpose = '厨房'
+    value.input.parameters.rooms[1].purpose = '储藏室'
+    const connected = arrangeInteriorConnections(value.document, value.input, value.layout, options)
+    const slots: { requirementId: string; role: string; index: number }[] = []
+    const result = furnishInterior(connected.document, value.input, value.layout, connected.report, { ...options,
+      propIdForSlot: slot => {
+        slots.push(slot)
+        return interiorEntityId(connected.document.sceneId, value.input.seed, `furniture:${slot.requirementId}:${slot.role}:${slot.index}`)
+      },
+    })
+    const [kitchen, pantry] = result.report.rooms
+    const kitchenSlots = slots.filter(slot => slot.requirementId === kitchen.requirementId)
+    expect(kitchenSlots.slice(0, 4).map(slot => slot.role)).toEqual(['hearth', 'work', 'storage', 'shelf'])
+    expect(kitchenSlots.filter(slot => slot.role === 'work')).toHaveLength(2)
+    expect(kitchenSlots.at(-1)?.role).toBe('work')
+    expect(kitchen.placed.map(row => row.role)).toEqual(expect.arrayContaining(['hearth', 'work', 'storage', 'shelf']))
+    expect(pantry.placed.map(row => row.role)).toEqual(expect.arrayContaining(['storage', 'shelf']))
+    for (const row of [kitchen, pantry]) for (const route of row.circulation!) {
+      expect(route.status).toBe('clear')
+      expect(checkTerrainRoute(result.document, { floorId: 'floor', pointsMm: route.pointsMm, widthMm: route.widthMm }).ok).toBe(true)
+    }
+    expect(result.connectivity?.routes.every(route => route.status === 'clear')).toBe(true)
+  })
+
   it.each([
     { width: 7600, height: 10400, seed: 'kitchen-galley-heldout', version: 15 as const },
     { width: 13300, height: 8600, seed: 'kitchen-wide-heldout', version: 15 as const },

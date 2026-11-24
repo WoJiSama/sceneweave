@@ -36,6 +36,13 @@ export function sampleConnectionRoute(route: Pick<ConnectionRoute, 'kind' | 'seg
   if (sampled.length > CONNECTION_ROUTE_LIMITS.samples) throw new Error('连接路线实际采样超过256点。')
   return sampled
 }
+
+export function straightRockStairRoute(start: PointMm, end: PointMm, segmentId: string, treadDepthMm: number): ConnectionRoute {
+  const controls = { version: 1 as const, kind: 'polyline' as const,
+    segments: [{ id: segmentId, start, end, control1: start, control2: end }], sampleSpacingMm: 20000, toleranceMm: 20,
+    stairStyle: 'naturalRock' as const, treadDepthMm, renderProfile: 'naturalRockSteps4' as const }
+  return { ...controls, centerlineMm: sampleConnectionRoute(controls) }
+}
 export const connectionRouteSchema = routeShape.superRefine((route, context) => {
   try {
     if (route.renderProfile && route.stairStyle !== 'naturalRock') throw new Error('细化自然踏面仅用于自然岩阶。')

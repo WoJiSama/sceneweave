@@ -6,7 +6,8 @@ import { parseTaskBudgetProfile, selectTaskBudget, taskBudgetProfile, type TaskB
  * Reopening never re-generates from seed or mutates the stored recipe. */
 export function selectTerrainEditBudget(document: SceneDocument, requested?: TaskBudgetProfile): TaskBudgetProfile | undefined {
   const current = Object.values(getLegacyGeneration(document)?.recipes ?? {}).some(recipe => [4,5].includes(recipe.recipeVersion) && (['terrain-scene', 'terrain-scene-t3'].includes(recipe.algorithmId) && recipe.algorithmVersion === recipe.recipeVersion || recipe.algorithmId === 'terrain-compose' && recipe.algorithmVersion === 1)
-    || recipe.recipeVersion===8 && recipe.algorithmVersion===8 && recipe.algorithmId==='terrain-scene-t3' && recipe.parameters.terrainKind==='forest')
+    || recipe.recipeVersion===8 && recipe.algorithmVersion===8 && recipe.algorithmId==='terrain-scene-t3' && recipe.parameters.terrainKind==='forest'
+    || recipe.recipeVersion===9 && recipe.algorithmVersion===9 && recipe.algorithmId==='terrain-scene' && recipe.parameters.terrainKind==='coast')
   if (!current) {
     if (requested) throw new Error('旧地形工程仍按原256事务预算执行；不能在旧任务中隐式换档。')
     return undefined
@@ -14,5 +15,5 @@ export function selectTerrainEditBudget(document: SceneDocument, requested?: Tas
   if (requested) return parseTaskBudgetProfile(requested)
   const selected = selectTaskBudget({ task: 'local-edit', widthMm: document.exportBoundsMm.width,
     heightMm: document.exportBoundsMm.height, quality: 'standard', device: 'standard' })
-  return selected.profileId === 'small' && Object.values(getLegacyGeneration(document)?.recipes ?? {}).some(recipe => recipe.recipeVersion === 5 || recipe.recipeVersion === 8) ? taskBudgetProfile('standard') : selected
+  return selected.profileId === 'small' && Object.values(getLegacyGeneration(document)?.recipes ?? {}).some(recipe => [5,8,9].includes(recipe.recipeVersion)) ? taskBudgetProfile('standard') : selected
 }

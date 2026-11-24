@@ -16,6 +16,7 @@ import { hashGenerationValue, type GenerationCandidate, type GenerationRequest, 
 import { resolveBuildingEntrancePort } from '../../building-port.js'
 import { normalizeInteriorInput, runSupportedInteriorGeneration } from '../interior/index.js'
 import { normalizeForestInput, runForestGeneration, forestEntityId, forestRectangle, type ForestGenerationInput } from '../forest/index.js'
+import { woodlandGroundStyle, woodlandTrailFinish } from '../forest/ground-finish.js'
 import { normalizeVolcanoInput, runVolcanoGeneration, checkVolcanoResult, volcanoEntityId } from '../volcano/index.js'
 import { mixedGenerationInputSchema, mixedFixedBindings, type MixedGenerationInput, type MixedReport } from './contracts.js'
 import { planBuildingEntranceApproaches } from './entrance-approach.js'
@@ -83,9 +84,9 @@ function runAdapter(source: SceneDocument, input: MixedGenerationInput, supportA
       if (ground) {
         const outdoor = p.outdoor
         if (outdoor.kind !== 'forest' || outdoor.parameters.ground.kind !== 'new') throw new GenerationError('invalid-request', '地面适配要求明确森林新支撑。')
-        const f = outdoor.parameters, g = outdoor.parameters.ground
+        const f = outdoor.parameters, g = outdoor.parameters.ground, finish = woodlandGroundStyle(document, g, f.groundFinish)
         document = applyCommands(document, [{ type: 'createTerrainArea', id: supportAreaId, floorId: f.floorId, layerId: f.layerId, boundaryMm: forestRectangle(f.boundsMm), groundElevationMm: g.elevationMm,
-          ...(g.materialRef ? { materialRef: g.materialRef } : {}) }], runtime, { budget: options.profile })
+          ...(finish ? { surfaceStyle: finish } : g.materialRef ? { materialRef: g.materialRef } : {}) }], runtime, { budget: options.profile })
         persist(document, input, supportAreaId)
       } else {
         const port = resolveBuildingEntrancePort(document, openingId!, p.approach.widthMm), meter = captureExecutionBudget(options.profile)
@@ -117,8 +118,11 @@ function runAdapter(source: SceneDocument, input: MixedGenerationInput, supportA
           notes.push(...route.issues.map(row => row.message), ...joined.issues.map(row => row.message))
         }
         if (!selected) throw new GenerationError('candidate-invalid', `建筑接入路线完整净宽不可用：${[...new Set(notes)].join('；')}`)
+        const finish = p.outdoor.kind === 'forest' ? woodlandTrailFinish(document, p.outdoor.parameters.groundFinish, p.approach.materialRef) : undefined
         document = applyCommands(document, [{ type: 'createPath', id: mixedEntityId(source.sceneId, input.seed, 'approach'), floorId: port.floorId, layerId: p.outdoor.parameters.layerId,
-          centerlineMm: selected.pointsMm, widthMm, supportRefs: selected.supportRefs, ...(p.approach.materialRef ? { materialRef: p.approach.materialRef } : {}) }], runtime, { budget: options.profile })
+          centerlineMm: selected.pointsMm, widthMm, supportRefs: selected.supportRefs,
+          ...(p.outdoor.kind === 'volcano' && p.outdoor.parameters.route.boundaryBlendMm !== undefined ? { boundaryBlendMm: p.outdoor.parameters.route.boundaryBlendMm } : {}),
+          ...(finish ?? (p.approach.materialRef ? { materialRef: p.approach.materialRef } : {})) }], runtime, { budget: options.profile })
         persist(document, input, supportAreaId, openingId)
       }
       return document

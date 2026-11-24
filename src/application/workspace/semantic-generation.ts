@@ -31,12 +31,13 @@ export interface SemanticGenerationPreparationOptions {
 
 /** Normalize through the same application intent consumed by the page. The
  * returned domain input is preparation data, not a validated project or lease. */
-export async function prepareSemanticGenerationIntent(raw: unknown, options: SemanticGenerationPreparationOptions) {
+export async function prepareSemanticGenerationIntent(raw: unknown, options: SemanticGenerationPreparationOptions,
+  woodlandDistribution: 'auto' | 'uniform' = 'auto') {
   checkCancelled(options.signal)
   const request = parseSemanticGenerationRequest(raw), requestHash = hashGenerationValue(request)
   const authorization = authorizationSchema.parse(captureJson(options.authorization)), profile = parseTaskBudgetProfile(options.profile)
   if (authorization.requestHash !== requestHash) throw new Error('语义生成请求与用户授权不符。')
-  const parameters: MixedGenerationUiRequest = request.parameters
+  const parameters: MixedGenerationUiRequest = { ...request.parameters, woodlandDistribution }
   const prepared = await prepareGenerationIntent({ domain: 'mixed', request: parameters }, {
     runtime: options.runtime, content: options.content, signal: options.signal, selectBudget: () => profile,
   })

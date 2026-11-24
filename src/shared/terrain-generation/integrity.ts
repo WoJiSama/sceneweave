@@ -11,6 +11,8 @@ import { polygonBoolean } from '../geometry/polygon-boolean.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
 import { openingEndpoints, roomPoints } from '../geometry/geometry.js'
 import { mixedFixedBindings } from '../generation/domains/mixed/contracts.js'
+import { forestMaterialBindings } from '../generation/domains/forest/contracts.js'
+import { interiorMaterialBindings } from '../generation/domains/interior/contracts.js'
 
 export type TerrainContractDocument = LegacyTerrainScene
 const terrain = (value: SceneDocument | LegacyTerrainScene): TerrainContractDocument => legacyTerrainView(value)
@@ -243,21 +245,16 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
         if (!support || support.floorId !== recipe.parameters.floorId) fail('BUILDING_RECIPE_SUPPORT', '地形建筑配方须引用同Floor的真实支撑地形。', recipe.id)
       }
       if (!equal(recipe.parameters.arrangement.palette, recipe.props)) fail('BUILDING_RECIPE_PALETTE', '室内配方的固定家具与初次布置参数不一致。', recipe.id)
-      for (const role of ['floor', 'wall'] as const) {
-        const expected = recipe.parameters.materials[role], bound = recipe.materials.find(row => row.role === role)?.ref ?? null
-        if (!equal(expected, bound)) fail('BUILDING_RECIPE_MATERIAL', '室内配方的固定材质与规范参数不一致。', recipe.id)
-        if (expected && !doc.materials[expected.id]?.applicableSurfaces.includes(role === 'floor' ? 'room' : 'wall')) fail('BUILDING_RECIPE_MATERIAL', '室内配方固定材质不适用于目标表面。', recipe.id)
-      }
+      const materials = interiorMaterialBindings(recipe.parameters.materials)
+      if (!equal(materials.map(row => canonicalJson(row)).sort(), recipe.materials.map(row => canonicalJson(row)).sort())) fail('BUILDING_RECIPE_MATERIAL', '室内配方的固定材质与规范参数不一致。', recipe.id)
+      for (const { role, ref } of materials) if (!doc.materials[ref.id]?.applicableSurfaces.includes(role === 'wall' ? 'wall' : 'room')) fail('BUILDING_RECIPE_MATERIAL', '室内配方固定材质不适用于目标表面。', recipe.id)
     }
     if ('domain' in recipe && recipe.domain === 'forest') {
       const p = recipe.parameters
       if (!doc.floors[p.floorId] || doc.userLayers[p.layerId]?.floorId !== p.floorId) fail('FOREST_RECIPE_SCOPE', '森林配方的Floor/图层缺失或跨Floor。', recipe.id)
       const canonicalSet = (rows: unknown[]) => [...new Set(rows.map(row => canonicalJson(row)))].sort()
       const props = p.zones.flatMap(zone => zone.vegetation.flatMap(row => row.palette.map(item => ({ role: row.role, ref: item.definitionRef }))))
-      const materials = [
-        ...(p.ground.kind === 'new' && p.ground.materialRef ? [{ role: 'ground', ref: p.ground.materialRef }] : []),
-        ...p.routes.flatMap(row => row.materialRef ? [{ role: 'path', ref: row.materialRef }] : []),
-      ]
+      const materials = forestMaterialBindings(p)
       if (!equal(canonicalSet(props), canonicalSet(recipe.props)) || !equal(canonicalSet(materials), canonicalSet(recipe.materials))) fail('FOREST_RECIPE_BINDINGS', '森林规范参数与确切固定素材绑定不同。', recipe.id)
       for (const row of recipe.materials) if (!doc.materials[row.ref.id]?.applicableSurfaces.includes(row.role === 'ground' ? 'terrain' : 'path')) fail('FOREST_RECIPE_MATERIAL', '森林材质不适用于对应表面。', recipe.id)
     }

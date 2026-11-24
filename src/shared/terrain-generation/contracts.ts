@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { volcanoParametersSchema } from '../generation/domains/volcano/contracts.js'
-import { interiorLayoutParametersSchema, interiorFurnitureRoleSchema, supportedInteriorParametersSchema, approachedInteriorParametersSchema, directedInteriorLayoutParametersSchema, directedApproachedInteriorParametersSchema } from '../generation/domains/interior/contracts.js'
+import { interiorLayoutParametersSchema, interiorFurnitureRoleSchema, interiorMaterialRoleSchema, supportedInteriorParametersSchema, approachedInteriorParametersSchema, directedInteriorLayoutParametersSchema, directedApproachedInteriorParametersSchema } from '../generation/domains/interior/contracts.js'
 import { forestParametersSchema, forestPaletteRoleSchema } from '../generation/domains/forest/contracts.js'
 import { mixedParametersSchema, mixedMaterialRoleSchema, mixedPropRoleSchema } from '../generation/domains/mixed/contracts.js'
 
@@ -47,7 +47,7 @@ export const naturalGenerationRecipeSchema = z.object({ id, recipeVersion: posit
 const interiorGenerationRecipeV2Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('interior'), recipeVersion: z.literal(2), algorithmId: z.literal('interior-layout'), algorithmVersion: z.literal(2), mapMode: z.literal('scene'),
   parameters: interiorLayoutParametersSchema,
-  materials: z.array(z.object({ role: z.enum(['floor', 'wall']), ref: versionRef }).strict()).max(2).refine(rows => new Set(rows.map(row => row.role)).size === rows.length),
+  materials: z.array(z.object({ role: interiorMaterialRoleSchema, ref: versionRef }).strict()).max(3).refine(rows => new Set(rows.map(row => row.role)).size === rows.length),
   props: z.array(z.object({ role: interiorFurnitureRoleSchema, ref: versionRef }).strict()).max(64).refine(unique),
 }).strict()
 // Keep each replay selector paired; independent numeric unions would accept
@@ -71,7 +71,8 @@ const interiorGenerationRecipeV18Schema = interiorGenerationRecipeV2Schema.exten
 const interiorGenerationRecipeV19Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(19), algorithmVersion: z.literal(19) }).strict()
 const interiorGenerationRecipeV20Schema = interiorGenerationRecipeV2Schema.extend({ recipeVersion: z.literal(20), algorithmVersion: z.literal(20), parameters: directedInteriorLayoutParametersSchema }).strict()
 const interiorGenerationRecipeV21Schema = interiorGenerationRecipeV20Schema.extend({ recipeVersion: z.literal(21), algorithmVersion: z.literal(21) }).strict()
-export const interiorGenerationRecipeSchema = z.union([interiorGenerationRecipeV2Schema, interiorGenerationRecipeV3Schema, interiorGenerationRecipeV4Schema, interiorGenerationRecipeV5Schema, interiorGenerationRecipeV6Schema, interiorGenerationRecipeV7Schema, interiorGenerationRecipeV8Schema, interiorGenerationRecipeV9Schema, interiorGenerationRecipeV10Schema, interiorGenerationRecipeV11Schema, interiorGenerationRecipeV12Schema, interiorGenerationRecipeV13Schema, interiorGenerationRecipeV14Schema, interiorGenerationRecipeV15Schema, interiorGenerationRecipeV16Schema, interiorGenerationRecipeV17Schema, interiorGenerationRecipeV18Schema, interiorGenerationRecipeV19Schema, interiorGenerationRecipeV20Schema, interiorGenerationRecipeV21Schema])
+const interiorGenerationRecipeV22Schema = interiorGenerationRecipeV21Schema.extend({ recipeVersion: z.literal(22), algorithmVersion: z.literal(22) }).strict()
+export const interiorGenerationRecipeSchema = z.union([interiorGenerationRecipeV2Schema, interiorGenerationRecipeV3Schema, interiorGenerationRecipeV4Schema, interiorGenerationRecipeV5Schema, interiorGenerationRecipeV6Schema, interiorGenerationRecipeV7Schema, interiorGenerationRecipeV8Schema, interiorGenerationRecipeV9Schema, interiorGenerationRecipeV10Schema, interiorGenerationRecipeV11Schema, interiorGenerationRecipeV12Schema, interiorGenerationRecipeV13Schema, interiorGenerationRecipeV14Schema, interiorGenerationRecipeV15Schema, interiorGenerationRecipeV16Schema, interiorGenerationRecipeV17Schema, interiorGenerationRecipeV18Schema, interiorGenerationRecipeV19Schema, interiorGenerationRecipeV20Schema, interiorGenerationRecipeV21Schema, interiorGenerationRecipeV22Schema])
 const supportedInteriorGenerationRecipeV1Schema = interiorGenerationRecipeV2Schema.extend({
   recipeVersion: z.literal(1), algorithmId: z.literal('supported-interior'), algorithmVersion: z.literal(1),
   parameters: supportedInteriorParametersSchema,
@@ -99,7 +100,7 @@ export const supportedInteriorGenerationRecipeSchema = z.union([supportedInterio
 const forestGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('forest'), recipeVersion: z.literal(1), algorithmId: z.literal('forest-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: forestParametersSchema,
-  materials: z.array(z.object({ role: z.enum(['ground', 'path']), ref: versionRef }).strict()).max(17).refine(unique),
+  materials: z.array(z.object({ role: z.enum(['ground', 'path']), ref: versionRef }).strict()).max(19).refine(unique),
   props: z.array(z.object({ role: forestPaletteRoleSchema, ref: versionRef }).strict()).max(64).refine(unique),
 }).strict()
 const forestGenerationRecipeV2Schema = forestGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()

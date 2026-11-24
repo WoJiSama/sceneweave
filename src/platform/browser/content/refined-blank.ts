@@ -6,6 +6,7 @@ import { validateSceneDocument } from '../../../shared/validation/scene.js'
 import { REFINED_ISLAND_ART, REFINED_ISLAND_LICENSE } from '../../../shared/visual/island-art.js'
 import { REFINED_COAST_ART, REFINED_COAST_LICENSE } from '../../../shared/visual/coast-art.js'
 import { REFINED_INTERIOR_ART, REFINED_INTERIOR_LICENSE } from '../../../shared/visual/interior-art.js'
+import { newMapArtStyle } from '../../../shared/visual/art-style.js'
 import type { BlankOptions } from './factories.js'
 import { createRefinedIslandDocument } from './refined-island.js'
 import { createRefinedCoastDocument } from './refined-coast.js'
@@ -45,5 +46,6 @@ export function createRefinedBlankDocument(palette: RefinedVisualPalette, option
 export async function createRefinedBlankProject(palette: RefinedVisualPalette, options: BlankOptions, signal?: AbortSignal): Promise<EditableProject> {
   signal?.throwIfAborted()
   const key = paletteSchema.parse(palette), selected = palettes[key], scene = createRefinedBlankDocument(key, options)
+  scene.artStyle = newMapArtStyle()
   return materializeVisualArt(scene, selected.art, selected.license, key => `refined-art-${key}`, signal)
 }

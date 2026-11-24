@@ -260,7 +260,7 @@ describe('private AI task HTTP service', () => {
     const surface = ConnectionInfoSchema.parse(await (await request('/v1/capabilities?authoringVersion=3&surfaceVersion=1')).json())
     expect(surface).toEqual({ ...engine.connectionInfo, capabilities: { ...prior, surfaceRecipeVersions: [1] } })
     expect(surface.capabilities.surfaceRecipeVersions).toEqual([1])
-    for (const selector of ['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7', 'terrain-scene-v8']) {
+    for (const selector of ['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7', 'terrain-scene-v8', 'terrain-scene-v9']) {
       const selected = ConnectionInfoSchema.parse(await (await request(`/v1/capabilities?baseMapSelector=${selector}`)).json())
       expect(selected.capabilities.baseMapSelectors).toEqual([selector])
       expect(selected.capabilities.baseMapVersions).toContain(3)

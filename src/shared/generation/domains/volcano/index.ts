@@ -1,6 +1,6 @@
 import type { SceneDocument, PointMm, Path } from '../../../model/scene.js'
 import { applyCommands, type SceneCommand } from '../../../commands/commands.js'
-import { parseTaskBudgetProfile, type TaskBudgetProfile } from '../../../budget/task-budget.js'
+import { captureExecutionBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../../../budget/task-budget.js'
 import { captureJson, cloneJson, freezeJson } from '../../../validation/json.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { polygonInside, polygonDistance, polygonsOverlap, pointInPolygon, supportedPolygon, pathPolygon } from '../../../geometry/geometry.js'
@@ -13,6 +13,10 @@ import { GenerationRegistry, runGeneration } from '../../orchestrator.js'
 import { generationCreationWrites } from '../../materialization.js'
 import { hashGenerationValue, type GenerationCandidate, type GenerationRequest, type JsonValue } from '../../contracts.js'
 import { volcanoGenerationInputSchema, VolcanoGenerationError, type VolcanoGenerationInput } from './contracts.js'
+import { naturalVolcanoReliefCommands } from './relief.js'
+import { defaultMaterialPaint } from '../../../appearance/surface-paint.js'
+import { straightRockStairRoute } from '../../../geometry/connection-route.js'
+import { calderaFlowBoundary } from './caldera.js'
 
 export * from './contracts.js'
 export interface VolcanoReport {
@@ -57,6 +61,7 @@ function compact(points: PointMm[]): PointMm[] {
 }
 const flowBoundary = (input: VolcanoGenerationInput) => {
   const f = input.parameters.flow
+  if (f && input.parameters.relief) return calderaFlowBoundary(f.centerlineMm, f.widthMm)
   return f ? pathPolygon({ centerlineMm: f.centerlineMm, widthMm: f.widthMm } as Path).map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })) : null
 }
 export function normalizeVolcanoInput(raw: unknown): VolcanoGenerationInput {
@@ -122,6 +127,15 @@ export function runVolcanoGeneration(base: SceneDocument, raw: unknown, options:
   }
   const id = (key: string) => volcanoEntityId(source.sceneId, input.seed, key), ref = (key: string) => ({ kind: 'terrainArea' as const, id: id(key) })
   const report: VolcanoReport = { groundAreaId: id('ground'), mountainAreaId: id('mountain'), craterAreaId: id('crater'), platformAreaId: id('platform'), flowAreaId: p.flow ? id('flow') : null, connectionIds: [], pathIds: [], regionIds: [], notes: ['危险、阻挡和移动代价来自明确参数；材质不决定通行。初次路线和活动平台保留为建议，后续手工删改不自动恢复。'] }
+  const crossings = [
+    { id: id('ascent'), kind: p.ascent.kind, from: { surfaceRef: ref('ground'), positionMm: p.ascent.fromMm }, to: { surfaceRef: ref('mountain'), positionMm: p.ascent.toMm }, widthMm: p.route.widthMm },
+    { id: id('descent'), kind: p.descent.kind, from: { surfaceRef: ref('mountain'), positionMm: p.descent.fromMm }, to: { surfaceRef: ref('crater'), positionMm: p.descent.toMm }, widthMm: p.route.widthMm },
+  ]
+  const routes = [
+    { key: 'approach', points: compact([p.entrance.positionMm, p.ascent.fromMm, p.ascent.toMm, ...p.route.toPlatformViaMm, p.platform.anchorMm]), width: p.route.widthMm },
+    { key: 'crater-route', points: compact([p.platform.anchorMm, ...p.route.toCraterViaMm, p.descent.fromMm, p.descent.toMm]), width: p.route.widthMm },
+  ]
+  const landformBudget = p.relief ? captureExecutionBudget(profile) : undefined
   const registry = new GenerationRegistry(), determinism = { replayVersion: 1, seedDerivation: 'request/recipe/step/operator/key' as const }
   let sequence = 0
   const runtime = { clock: { now: () => source.updatedAt }, ids: { nextId: () => id(`native:${sequence++}`) } }
@@ -132,20 +146,31 @@ export function runVolcanoGeneration(base: SceneDocument, raw: unknown, options:
     materialize({ document: before, context }) {
       context.checkCancelled()
       const common = { floorId: p.floorId, layerId: p.layerId }, flow = flowBoundary(input)
+      const ridgePaint = { ...defaultMaterialPaint(before.materials[p.materials.mountain.id]), tint: '#ffdcc2' }
+      const platformPaint = p.relief ? { base: ridgePaint, overlays: [{
+        id: id('platform-worn'), boundaryMm: cloneJson(p.platform.boundaryMm),
+        paint: { ...defaultMaterialPaint(before.materials[p.materials.platform.id]), opacity: .58 }, blendWidthMm: 960, renderOrder: 0,
+      }] } : undefined
       const commands: SceneCommand[] = [
         { type: 'createTerrainArea', ...common, id: id('ground'), boundaryMm: volcanoRectangle(p.boundsMm), groundElevationMm: p.groundElevationMm, coveragePriority: 0, materialRef: p.materials.ground },
-        { type: 'createTerrainArea', ...common, id: id('mountain'), boundaryMm: cloneJson(p.mountain.boundaryMm), groundElevationMm: p.mountain.elevationMm, coveragePriority: 1, materialRef: p.materials.mountain },
+        { type: 'createTerrainArea', ...common, id: id('mountain'), boundaryMm: cloneJson(p.mountain.boundaryMm), groundElevationMm: p.mountain.elevationMm, coveragePriority: 1,
+          ...(p.relief ? { surfaceStyle: { base: ridgePaint, overlays: [] } } : { materialRef: p.materials.mountain }) },
         { type: 'createTerrainArea', ...common, id: id('crater'), boundaryMm: cloneJson(p.crater.boundaryMm), groundElevationMm: p.crater.elevationMm, coveragePriority: 2, materialRef: p.materials.crater },
-        { type: 'createTerrainArea', ...common, id: id('platform'), boundaryMm: cloneJson(p.platform.boundaryMm), groundElevationMm: p.mountain.elevationMm, coveragePriority: 2, materialRef: p.materials.platform },
+        { type: 'createTerrainArea', ...common, id: id('platform'), boundaryMm: cloneJson(p.platform.boundaryMm), groundElevationMm: p.mountain.elevationMm, coveragePriority: 2,
+          ...(platformPaint ? { surfaceStyle: platformPaint, boundaryBlendMm: 510 } : { materialRef: p.materials.platform }) },
       ]
       if (flow) commands.push({ type: 'createTerrainArea', ...common, id: id('flow'), boundaryMm: flow, groundElevationMm: p.crater.elevationMm, coveragePriority: 3, materialRef: p.materials.flow })
-      for (const [key, shape] of [['mountain', p.mountain.boundaryMm], ['crater', p.crater.boundaryMm]] as const) for (let i = 0; i < shape.length; i++) commands.push({ type: 'createTerrainEdge', id: id(`edge:${key}:${i}`), layerId: p.layerId, source: { areaId: id(key), segmentId: `${id(key)}:segment:${i}` } })
+      if (!p.relief) for (const [key, shape] of [['mountain', p.mountain.boundaryMm], ['crater', p.crater.boundaryMm]] as const) for (let i = 0; i < shape.length; i++) commands.push({ type: 'createTerrainEdge', id: id(`edge:${key}:${i}`), layerId: p.layerId, source: { areaId: id(key), segmentId: `${id(key)}:segment:${i}` } })
       for (const row of [{ key: 'crater', ...p.crater }, ...(flow && p.flow ? [{ key: 'flow', ...p.flow, boundaryMm: flow }] : []), ...p.regions.map(row => ({ ...row, key: `explicit:${row.id}` }))]) {
         const regionId = id(`region:${row.key}`)
         commands.push({ type: 'createRegion', ...common, id: regionId, boundaryMm: cloneJson(row.boundaryMm), kind: row.hazard ? 'hazard' : 'terrain', blocksMovement: row.blocksMovement, movementCostMultiplier: row.movementCostMultiplier })
         report.regionIds.push(regionId)
       }
-      const document = applyCommands(cloneJson(before) as SceneDocument, commands, runtime, { budget: profile })
+      let document = applyCommands(cloneJson(before) as SceneDocument, commands, runtime, { budget: profile })
+      if (landformBudget) {
+        const relief = naturalVolcanoReliefCommands(document, report, { seed: input.seed, routes, crossings, meter: landformBudget })
+        document = applyCommands(document, relief, runtime, { budget: profile })
+      }
       const gen = getLegacyGeneration(document)!
       gen.constraints[id('activity')] = { id: id('activity'), floorId: p.floorId, visibility: 'public', strength: 'soft', kind: 'activityArea', boundaryMm: cloneJson(p.platform.boundaryMm), clearanceMm: 0 }
       persist(document, source, input); return document
@@ -157,16 +182,23 @@ export function runVolcanoGeneration(base: SceneDocument, raw: unknown, options:
     materialize({ document: before, context }) {
       context.checkCancelled()
       const common = { floorId: p.floorId, layerId: p.layerId }
-      let document = applyCommands(cloneJson(before) as SceneDocument, [
-        { type: 'createTerrainConnection', ...common, id: id('ascent'), kind: p.ascent.kind, from: { surfaceRef: ref('ground'), positionMm: p.ascent.fromMm }, to: { surfaceRef: ref('mountain'), positionMm: p.ascent.toMm }, widthMm: p.route.widthMm },
-        { type: 'createTerrainConnection', ...common, id: id('descent'), kind: p.descent.kind, from: { surfaceRef: ref('mountain'), positionMm: p.descent.fromMm }, to: { surfaceRef: ref('crater'), positionMm: p.descent.toMm }, widthMm: p.route.widthMm },
-      ], runtime, { budget: profile })
+      let document = applyCommands(cloneJson(before) as SceneDocument, crossings.map(crossing => {
+        const command = { type: 'createTerrainConnection' as const, ...common, ...crossing }
+        if (!p.relief) return command
+        const start = crossing.from.positionMm, end = crossing.to.positionMm
+        const surfaceStyle = { base: { ...defaultMaterialPaint(before.materials[p.materials.mountain.id]), tint: '#ffdcc2' }, overlays: [] }
+        if (crossing.kind !== 'stairs') return { ...command, surfaceStyle }
+        return { ...command, surfaceStyle, route: straightRockStairRoute(start, end, `${crossing.id}-rock`, 290) }
+      }), runtime, { budget: profile })
       report.connectionIds.push(id('ascent'), id('descent'))
       const gen = getLegacyGeneration(document)!, paths: SceneCommand[] = []
-      for (const [key, points] of [['approach', [p.entrance.positionMm, p.ascent.fromMm, p.ascent.toMm, ...p.route.toPlatformViaMm, p.platform.anchorMm]], ['crater-route', [p.platform.anchorMm, ...p.route.toCraterViaMm, p.descent.fromMm, p.descent.toMm]]] as const) {
-        const pointsMm = compact(cloneJson([...points])), result = checkTerrainRoute(document, { floorId: p.floorId, pointsMm, widthMm: p.route.widthMm })
+      for (const { key, points: pointsMm } of routes) {
+        const result = checkTerrainRoute(document, { floorId: p.floorId, pointsMm, widthMm: p.route.widthMm })
         if (!result.ok) throw new VolcanoGenerationError('contradiction', `指定火山路线${key}的支撑/完整净宽失败：${result.issues.map(row => row.message).join('；')}`)
-        paths.push({ type: 'createPath', ...common, id: id(key), centerlineMm: pointsMm, widthMm: p.route.widthMm, supportRefs: result.supportRefs, materialRef: p.materials.route })
+        const routePaint = { base: { ...defaultMaterialPaint(document.materials[p.materials.route.id], 'path'), tint: '#d9c4a5' }, overlays: [] }
+        paths.push({ type: 'createPath', ...common, id: id(key), centerlineMm: pointsMm, widthMm: p.route.widthMm, supportRefs: result.supportRefs,
+          ...(p.route.boundaryBlendMm !== undefined ? { boundaryBlendMm: p.route.boundaryBlendMm } : {}),
+          ...(p.relief ? { surfaceStyle: routePaint } : { materialRef: p.materials.route }) })
         report.pathIds.push(id(key))
         gen.constraints[id(`route:${key}`)] = { id: id(`route:${key}`), floorId: p.floorId, visibility: 'public', strength: 'soft', kind: 'route', pointsMm, minWidthMm: p.route.widthMm }
       }

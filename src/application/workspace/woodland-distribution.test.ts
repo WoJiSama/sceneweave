@@ -12,7 +12,7 @@ import { canonicalJson, cloneJson } from '../../shared/validation/json.js'
 import { taskBudgetProfile } from '../../shared/budget/task-budget.js'
 import type { ForestGenerationInput, ForestParameters, ForestVegetation } from '../../shared/generation/domains/forest/contracts.js'
 import type { SceneDocument } from '../../shared/model/scene.js'
-import { createWoodlandZones } from './woodland-distribution.js'
+import { createWoodlandZones, forestZonesForDistribution } from './woodland-distribution.js'
 
 const options = { profile: taskBudgetProfile('standard'), nowMilliseconds: () => 0 }
 function fixture(width = 32000, height = 24000, x = 0, y = 0) {
@@ -47,6 +47,27 @@ function targets(document: ReturnType<typeof fixture>['document'], parameters: F
 }
 
 describe('complete woodland form preset', () => {
+  it('uses available canopy space for either seed orientation and keeps legacy explicit choices', () => {
+    const { document, parameters } = fixture(36000, 30000)
+    const building = { ...defaultMixedInputV4(document, 'forest').parameters.building, boundsMm: { x: 19600, y: 3500, width: 13500, height: 12000 } }
+    const approach = { fromMm: parameters.clearings[0].anchorMm, viaMm: [], widthMm: 1400, materialRef: null }
+    for (const seed of ['cedar-waystation-06', 'forest-outpost-1']) {
+      const zones = forestZonesForDistribution(document, parameters, seed, 'auto', undefined, { building, approach })
+      expect(zones).toHaveLength(4)
+      const east = zones.filter(z => z.vegetation.some(row => row.role === 'tree')).at(-1)!
+      const eastCenterY = east.boundaryMm.reduce((sum, p) => sum + p.y, 0) / east.boundaryMm.length
+      expect(eastCenterY).toBeGreaterThan(parameters.boundsMm.height / 2)
+      expect(zones.every(z => z.vegetation.every(v => v.clusterVersion === 'cluster-v2'))).toBe(true)
+      expect(targets(document, { ...parameters, zones })).toEqual(targets(document, parameters))
+    }
+    const small = fixture(14000, 12000)
+    const fallback = forestZonesForDistribution(small.document, small.parameters, 'small', 'auto')
+    expect(fallback).toHaveLength(1)
+    expect(fallback[0].boundaryMm).toEqual(small.parameters.zones[0].boundaryMm)
+    expect(small.parameters.zones[0].vegetation[0].clusterVersion).toBeUndefined()
+    expect(forestZonesForDistribution(small.document, small.parameters, 'small', 'uniform')).toBe(small.parameters.zones)
+    expect(() => forestZonesForDistribution(small.document, small.parameters, 'small', 'copses')).toThrow('至少16米')
+  })
   it.each([
     [16000, 16000, 0, 0, 'small-wood'], [32000, 24000, 7000, -9000, 'normal-wood'],
     [50000, 38000, -23000, 18000, 'large-wood'], [70000, 50000, 0, 0, 'wide-wood'],

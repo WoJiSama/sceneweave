@@ -2,6 +2,7 @@ import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { visualBase } from '../../../shared/visual/base.js'
 import type { PointMm, Prop, SceneDocument, SurfaceStyle, TerrainArea } from '../../../shared/model/scene.js'
 import { emptyVisualSystem, type CubicSegment, type VisualBoundary, type VisualEdgeLook } from '../../../shared/visual/types.js'
+import { newMapArtStyle } from '../../../shared/visual/art-style.js'
 import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
 import { VISUAL_SAMPLE_ART, VISUAL_SAMPLE_LICENSE } from '../../../shared/visual/sample-art.js'
 import { validateSceneDocument } from '../../../shared/validation/scene.js'
@@ -190,5 +191,7 @@ export function createVisualBlankDocument(input: BlankOptions): SceneDocument {
 
 export async function createVisualBlankProject(options: BlankOptions, signal?: AbortSignal): Promise<EditableProject> {
   signal?.throwIfAborted()
-  return materialize(createVisualBlankDocument(options), signal)
+  const scene = createVisualBlankDocument(options)
+  scene.artStyle = newMapArtStyle()
+  return materialize(scene, signal)
 }

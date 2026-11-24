@@ -120,6 +120,7 @@ export function finalizeTerrainEditDocument(scene: SceneDocument, before: SceneD
       || recipe.algorithmId === 'terrain-scene-t3' && recipe.algorithmVersion === 1
       || !!budget && ['terrain-scene','terrain-scene-t3'].includes(recipe.algorithmId) && [4,5].includes(recipe.algorithmVersion) && recipe.recipeVersion === recipe.algorithmVersion
       || !!budget && recipe.algorithmId==='terrain-scene-t3' && recipe.algorithmVersion===8 && recipe.recipeVersion===8 && recipe.parameters.terrainKind==='forest'
+      || !!budget && recipe.algorithmId==='terrain-scene' && recipe.algorithmVersion===9 && recipe.recipeVersion===9 && recipe.parameters.terrainKind==='coast'
     if(inputHash!==rule.inputHash||rule.kind!=='terrain'||!supportedTerrainAlgorithm)fail(`相关规则须独立重算，当前局部编辑不支持：${rule.id}。`)
     rule.managedOutputHash=outputHash
   }

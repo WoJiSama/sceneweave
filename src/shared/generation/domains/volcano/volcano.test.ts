@@ -11,6 +11,7 @@ import { getLegacyGeneration } from '../../../terrain-generation/composition-con
 import { createSpaceContext } from '../../space.js'
 import type { SceneDocument } from '../../../model/scene.js'
 import { defaultVolcanoInput, runVolcanoGeneration, volcanoEntityId, VolcanoGenerationError } from './index.js'
+import { calderaLayout } from './caldera.js'
 
 const options = { profile: taskBudgetProfile('standard'), nowMilliseconds: () => 0 }
 const stamp = '2026-11-05T00:00:00.000Z'
@@ -92,4 +93,33 @@ describe('volcano discrete geometry and explicit policy', () => {
     expect(document.regions[id]).toBeUndefined(); expect(owner.state).toBe('deleted'); expect(owner.birthToken).toBeTruthy()
     expect(validateSceneDocument(document).ok).toBe(true)
   }, 30000)
+})
+
+describe('volcano first-generation relief', () => {
+  it.each([['cinder-basin-58', 40, 'stairs'], ['volcano-1', 36, 'stairs'], ['broken-ridge-23', 40, 'ramp']] as const)(
+    'preserves the complete routes, platform and lava rules for %s', (seed, craterHeightPercent, kind) => {
+      const base = source(), input = defaultVolcanoInput(base, seed), p = input.parameters
+      const halfHeight = p.boundsMm.height * craterHeightPercent / 200
+      p.crater.boundaryMm[0].y = p.crater.boundaryMm[1].y = 16000 - halfHeight
+      p.crater.boundaryMm[2].y = p.crater.boundaryMm[3].y = 16000 + halfHeight
+      p.crater.elevationMm = 500
+      p.descent.kind = p.ascent.kind = kind
+      p.flow!.widthMm = 1400
+      const layout = calderaLayout(p, seed)
+      expect(layout).toBeDefined()
+      Object.assign(p, layout)
+      const result = runVolcanoGeneration(base, input, options), scene = result.candidate.document as SceneDocument
+      expect(scene.terrainAreas[result.report.mountainAreaId].relief?.offsetsMm.some(height => height > 1000)).toBe(true)
+      expect(scene.terrainAreas[result.report.craterAreaId].groundElevationMm).toBe(500)
+      const lava = scene.terrainAreas[result.report.flowAreaId!]
+      expect(lava.boundaryMm.length).toBeGreaterThan(16)
+      expect(scene.regions[volcanoEntityId(base.sceneId, seed, 'region:flow')]).toMatchObject({ kind: 'hazard', blocksMovement: true,
+        movementCostMultiplier: 3, boundaryMm: lava.boundaryMm.map(point => point.positionMm) })
+      for (const id of result.report.connectionIds) expect(scene.terrainConnections[id]).toMatchObject({ kind, widthMm: 1500 })
+      for (const id of result.report.pathIds) {
+        const path = scene.paths[id]
+        expect(checkTerrainRoute(scene, { floorId: path.floorId, widthMm: path.widthMm, pointsMm: path.centerlineMm }).ok).toBe(true)
+      }
+      expect(runVolcanoGeneration(base, input, options).resultHash).toBe(result.resultHash)
+    }, 30000)
 })

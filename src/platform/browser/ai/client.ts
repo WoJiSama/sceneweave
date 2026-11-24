@@ -3,7 +3,7 @@ import { VISION_LIMITS } from '../../../shared/ai/vision.js'
 import {
   AI_LIMITS, AiErrorSchema, ConnectionInfoSchema, ControlTaskSchema, CreateTaskSchema,
   TaskEventSchema, TaskSnapshotSchema, isTerminalTask, utf8Size, requiredSurfaceRecipeVersion,
-  type ConnectionInfo, type ControlTaskRequest, type CreateTaskRequest, type TaskEvent, type TaskSnapshot,
+  type BaseMapSelector, type ConnectionInfo, type ControlTaskRequest, type CreateTaskRequest, type TaskEvent, type TaskSnapshot,
 } from '../../../shared/ai/protocol'
 
 import { AUTHORING_LIMITS, CONTINUATION_POLICY, AuthoringDraftSchema, DraftValidationSchema, DraftClaimSchema, DraftLeaseSchema, DraftAppliedSchema, type DraftClaim, type DraftStamp, type BudgetIdentity, isClassifiedAuthoring, isClassifiedVersion } from '../../../shared/ai/authoring-protocol'
@@ -28,7 +28,7 @@ export function supportsCurrentAuthoring(info: ConnectionInfo, completeVersion: 
     && (profileHash === undefined || info.capabilities.budgetProfileHashes?.includes(profileHash) === true)
     && (surfaceVersion === undefined || info.capabilities.surfaceRecipeVersions?.includes(surfaceVersion) === true)
 }
-export function supportsBaseMapSelector(info: ConnectionInfo, selector: 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | 'terrain-scene-v8', profileHash: string): boolean {
+export function supportsBaseMapSelector(info: ConnectionInfo, selector: BaseMapSelector, profileHash: string): boolean {
   return info.capabilities.baseMapVersions?.includes(3) === true
     && info.capabilities.budgetProfileHashes?.includes(profileHash) === true
     && info.capabilities.baseMapSelectors?.includes(selector) === true
@@ -193,7 +193,7 @@ export class AiClient {
   forestLoopCapabilities(signal?: AbortSignal): Promise<ConnectionInfo> {
     return this.#json('capabilities?authoringVersion=4&workflowVersion=1&forestLoopVersion=1', ConnectionInfoSchema, 'GET', undefined, signal)
   }
-  baseMapCapabilities(signal: AbortSignal | undefined, selector: 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | 'terrain-scene-v8'): Promise<ConnectionInfo> {
+  baseMapCapabilities(signal: AbortSignal | undefined, selector: BaseMapSelector): Promise<ConnectionInfo> {
     return this.#json(`capabilities?baseMapSelector=${selector}`, ConnectionInfoSchema, 'GET', undefined, signal)
   }
   async create(request: CreateTaskRequest, signal?: AbortSignal, beforeSend?: () => void): Promise<TaskSnapshot> {

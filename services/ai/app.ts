@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { Hono } from 'hono'
-import { AI_LIMITS, ConnectionInfoSchema, ControlTaskSchema, CreateTaskSchema, utf8Size } from '../../src/shared/ai/protocol.js'
+import { AI_LIMITS, BaseMapSelectorSchema, ConnectionInfoSchema, ControlTaskSchema, CreateTaskSchema, utf8Size } from '../../src/shared/ai/protocol.js'
 import type { AiError, ConnectionInfo } from '../../src/shared/ai/protocol.js'
 import type { AiConfig } from './config.js'
 import type { ProviderAdapter } from './provider-types.js'
@@ -21,7 +21,7 @@ import { createImageEditService, ImageEditFault } from './image-edit.js'
 export function connectionInfo(config: AiConfig): ConnectionInfo {
   return ConnectionInfoSchema.parse({ schemaVersion: 1, model: config.provider.model, ...(config.provider.visionModel ? { visionModel: config.provider.visionModel } : {}), reasoningEffort: config.provider.reasoningEffort ?? null, authoringOutputTokens: config.authoringOutputTokens ?? AI_LIMITS.maxOutputTokensPerRequest, protocol: 'chat-completions',
     capabilities: { conversation: true, connectionTool: true, sceneDraft: true, svg: true, vision: config.provider.vision ?? 'unverified', taskReasoningEffort: true, workflowDiscovery: 1, forestLoop: 1,
-      surfaceRecipeVersions: [1], baseMapSelectors: ['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7', 'terrain-scene-v8'], currentAuthoring: 'sceneweave-current-authoring@1', completeProjectVersions: [1], visualReviewVersions: [1], authoringVersions: [4], baseMapVersions: [1, 2, 3], budgetPolicyHashes: BUDGET_POLICY_HASHES, budgetProfileHashes: Object.values(TASK_BUDGET_PROFILES).map(profile => profile.profileHash) }, retentionDays: AI_LIMITS.retentionDays,
+      surfaceRecipeVersions: [1], baseMapSelectors: BaseMapSelectorSchema.options, currentAuthoring: 'sceneweave-current-authoring@1', completeProjectVersions: [1], visualReviewVersions: [1], authoringVersions: [4], baseMapVersions: [1, 2, 3], budgetPolicyHashes: BUDGET_POLICY_HASHES, budgetProfileHashes: Object.values(TASK_BUDGET_PROFILES).map(profile => profile.profileHash) }, retentionDays: AI_LIMITS.retentionDays,
     limits: { modelRequests: AI_LIMITS.modelRequests, toolCalls: AI_LIMITS.toolCalls, executionMs: AI_LIMITS.executionMs, promptBytes: AI_LIMITS.promptBytes, outputBytes: AI_LIMITS.outputBytes } })
 }
 export function authenticate(config: AiConfig, authorization: string | undefined): string | undefined {
@@ -103,13 +103,13 @@ export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
     const requestedSelector = context.req.query('baseMapSelector')
     if (requestedSelector !== undefined) {
       if (Object.keys(context.req.query()).length !== 1) throw new TaskFault('invalid_request', 400)
-      if (!(['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7', 'terrain-scene-v8'] as const).includes(requestedSelector as 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | 'terrain-scene-v8')) throw new TaskFault('unsupported_base_map_selector', 400)
-      if (!engine.connectionInfo.capabilities.baseMapSelectors?.includes(requestedSelector as 'terrain-scene-v6' | 'terrain-compose-v6' | 'terrain-scene-v7' | 'terrain-compose-v7' | 'terrain-scene-v8')) throw new TaskFault('unsupported_base_map_selector', 400)
+      const selector = BaseMapSelectorSchema.safeParse(requestedSelector)
+      if (!selector.success || !engine.connectionInfo.capabilities.baseMapSelectors?.includes(selector.data)) throw new TaskFault('unsupported_base_map_selector', 400)
       const { currentAuthoring: _current, completeProjectVersions: _complete, visualReviewVersions: _review, surfaceRecipeVersions: _surfaces, baseMapSelectors: _baseMapSelectors,
         ...priorCapabilities } = info.capabilities
       return context.json({ ...info, capabilities: {
         ...priorCapabilities, authoringVersions: priorCapabilities.authoringVersions?.filter(value => value !== 4).length ? priorCapabilities.authoringVersions.filter(value => value !== 4) : undefined,
-        baseMapSelectors: [requestedSelector],
+        baseMapSelectors: [selector.data],
       } })
     }
     const version = context.req.query('authoringVersion'), surfaceVersion = context.req.query('surfaceVersion')

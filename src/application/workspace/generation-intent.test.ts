@@ -41,6 +41,18 @@ async function environment() {
 }
 
 describe('application generation intent preparation', () => {
+  it('prepares distinct lounge functions while preserving purposes and explicit furniture choices', async () => {
+    const env = await environment(), original = mixed()
+    const request = { ...original, purpose: '巡林员休息室', furniture: true, algorithmVersion: 19 as const }
+    const result = await prepareGenerationIntent({ domain: 'mixed', request }, env)
+    const rooms = result.input.parameters.building.rooms
+    expect(rooms.map(row => row.purpose)).toEqual([request.purpose, request.purpose])
+    expect(rooms.map(row => row.furnishingFocus)).toEqual(['fireside-v1', 'reading-v1'])
+    for (const edit of [{ furniture: false }, { purpose: '设备间' }]) {
+      const plain = await prepareGenerationIntent({ domain: 'mixed', request: { ...request, ...edit } }, env)
+      expect(plain.input.parameters.building.rooms.every(row => !row.furnishingFocus)).toBe(true)
+    }
+  })
   it('captures nested user intent before asynchronous content preparation and isolates supplied palettes', async () => {
     const env = await environment(), input = interior(), original = cloneJson(input)
     input.arrangement.entranceRoomRequirementId = 'room-1'
@@ -52,7 +64,7 @@ describe('application generation intent preparation', () => {
     input.rooms[0].purpose = 'Changed during load'; input.arrangement.furniture = false; delete input.arrangement.entranceRoomRequirementId
     release()
     const result = await pending
-    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 21, seed: original.seed,
+    expect(result).toMatchObject({ kind: 'new-project', domain: 'interior', input: { version: 1, algorithmVersion: 22, seed: original.seed,
       parameters: { rooms: original.rooms, corridor: original.corridor, arrangement: { ...original.arrangement, palette: env.palette } } } })
     expect(env.content.interior).toHaveBeenCalledWith(expect.objectContaining({ title: original.title, preset: 'narrative', gridVisible: false, seed: original.seed }), expect.any(Object))
     expect(env.selectBudget).toHaveBeenCalledExactlyOnceWith({ widthMm: 12000, heightMm: 8000, quality: 'standard', mode: 'auto' })

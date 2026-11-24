@@ -7,18 +7,29 @@ const ref = z.object({ id, version: positive }).strict()
 const bounds = z.object({ x: integer, y: integer, width: positive.max(1_000_000), height: positive.max(1_000_000) }).strict()
 export const interiorFurnitureRoleSchema = z.enum(['bed', 'seat', 'table', 'storage', 'work', 'hearth', 'shelf'])
 export type InteriorFurnitureRole = z.infer<typeof interiorFurnitureRoleSchema>
+export const interiorMaterialRoleSchema = z.enum(['floor', 'wall', 'service-floor'])
 /** Native integer millimetres and square millimetres. This schema has no runtime
  * dependency on the scene/parser/generator, so persisted recipes can reuse it. */
 export const interiorLayoutParametersSchema = z.object({ floorId: id, layerId: id, boundsMm: bounds,
   wallThicknessMm: positive.max(2000),
-  rooms: z.array(z.object({ id, purpose: z.string().min(1).max(120), minAreaMm2: positive.max(1_000_000_000_000), maxAreaMm2: positive.max(1_000_000_000_000), minClearSideMm: positive.max(1_000_000) }).strict()).min(1).max(24),
+  rooms: z.array(z.object({ id, purpose: z.string().min(1).max(120), minAreaMm2: positive.max(1_000_000_000_000), maxAreaMm2: positive.max(1_000_000_000_000), minClearSideMm: positive.max(1_000_000),
+    furnishingFocus: z.enum(['fireside-v1', 'reading-v1']).optional(),
+  }).strict()).min(1).max(24),
   relations: z.array(z.object({ a: id, b: id, kind: z.enum(['adjacent', 'separate', 'no-direct-connection']), minimumSharedWallMm: integer.nonnegative().max(1_000_000) }).strict()).max(256),
   corridor: z.object({ axis: z.enum(['none', 'horizontal', 'vertical']), clearWidthMm: positive.max(1_000_000) }).strict(),
-  materials: z.object({ floor: ref.nullable(), wall: ref.nullable() }).strict(),
+  materials: z.object({ floor: ref.nullable(), wall: ref.nullable(),
+    floorFinish: z.object({ kind: z.literal('room-use-v1'), serviceMaterialRef: ref }).strict().optional(),
+  }).strict(),
   arrangement: z.object({ doors: z.boolean(), entrance: z.boolean(), furniture: z.boolean(), doorWidthMm: positive.max(5000), clearWidthMm: positive.max(5000),
     palette: z.array(z.object({ role: interiorFurnitureRoleSchema, ref }).strict()).max(64),
   }).strict(),
 }).strict()
+export function interiorMaterialBindings(materials: z.infer<typeof interiorLayoutParametersSchema>['materials']) {
+  return [
+    ...(['floor', 'wall'] as const).flatMap(role => materials[role] ? [{ role, ref: materials[role]! }] : []),
+    ...(materials.floorFinish ? [{ role: 'service-floor' as const, ref: materials.floorFinish.serviceMaterialRef }] : []),
+  ]
+}
 /** Explicit first-generation entrance demand; legacy replay parameters stay strict. */
 export const directedInteriorLayoutParametersSchema = interiorLayoutParametersSchema.extend({
   arrangement: interiorLayoutParametersSchema.shape.arrangement.extend({ entranceRoomRequirementId: id.optional() }).strict(),
@@ -44,8 +55,10 @@ export const directedInteriorLayoutParametersSchema = interiorLayoutParametersSc
  * v17 replans obstructed structural routes at the same full width, door and endpoints.
  * v18 plans complete dining seats against fitting edges and prioritizes kitchen functions.
  * v19 proposes complete seated office/reception units with single-sided work seats.
- * v20 optionally requires the first exterior entrance to enter one named demand. */
-export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(15), z.literal(16), z.literal(17), z.literal(18), z.literal(19), z.literal(20), z.literal(21)]), seed: z.string().min(1).max(128), parameters: directedInteriorLayoutParametersSchema }).strict().superRefine((input, ctx) => {
+ * v20 optionally requires the first exterior entrance to enter one named demand.
+ * v21 connects furniture access to the actual exterior door approach.
+ * v22 places kitchen essentials before extra worktops and packs pantry wall runs. */
+export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(15), z.literal(16), z.literal(17), z.literal(18), z.literal(19), z.literal(20), z.literal(21), z.literal(22)]), seed: z.string().min(1).max(128), parameters: directedInteriorLayoutParametersSchema }).strict().superRefine((input, ctx) => {
   if (input.algorithmVersion < 20 && Object.hasOwn(input.parameters.arrangement, 'entranceRoomRequirementId')) ctx.addIssue({ code: 'custom', path: ['parameters', 'arrangement', 'entranceRoomRequirementId'], message: '指定入口房间需要室内算法20，旧配方不接收该字段。' })
 })
 /** A separate replay contract adds real terrain support without changing the

@@ -12,6 +12,7 @@ import { fromBundle, type EditableProject } from '../../../application/workspace
 import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { projectResourceHashes } from '../../../shared/project/source-resources.js'
 import { namespaceMixedInteriorCatalogue } from './mixed-palette.js'
+import { newMapArtStyle } from '../../../shared/visual/art-style.js'
 
 export type SampleKind = 'study' | 'island' | 'outpost' | 'calibration' | 'graveyard' | 'volcano'
 export const BLANK_PRESETS = [
@@ -55,6 +56,7 @@ export async function createSampleProject(sample: SampleKind, signal?: AbortSign
 export async function createBlankProject(input: BlankOptions, signal?: AbortSignal, onProgress?: ContentLoadOptions['onProgress']): Promise<EditableProject> {
   const options = optionsSchema.parse(captureJson(input)), preset = BLANK_PRESETS.find(value => value.id === options.preset)!
   const project = captureJson(fixed.scenes.blank) as unknown as ProjectData, now = options.now ?? runtime.clock.now()
+  project.document.artStyle = newMapArtStyle()
   const bounds = { x: 0, y: 0, width: options.widthMm, height: options.heightMm }, floor = Object.values(project.document.floors)[0]
   Object.assign(project.document, { sceneId: options.sceneId ?? runtime.ids.nextId(), revision: 0, title: options.title, createdAt: now, updatedAt: now, exportBoundsMm: { ...bounds } })
   floor.boundsMm = { ...bounds }
@@ -75,6 +77,7 @@ export async function createVolcanoBlankProject(input: BlankOptions, signal?: Ab
   const project = captureJson(fixed.scenes.blank) as unknown as ProjectData
   const palette = fixed.scenes.volcano as unknown as ProjectData, now = options.now ?? runtime.clock.now()
   const document = toCurrentSceneDocument(project.document)
+  document.artStyle = newMapArtStyle()
   const bounds = { x: 0, y: 0, width: options.widthMm, height: options.heightMm }
   Object.assign(document, { sceneId: options.sceneId ?? runtime.ids.nextId(), revision: 0, title: options.title, createdAt: now, updatedAt: now, exportBoundsMm: { ...bounds } })
   Object.values(document.floors)[0].boundsMm = { ...bounds }
@@ -103,17 +106,20 @@ export async function createVolcanoBlankProject(input: BlankOptions, signal?: Ab
 
 /** Merge independently validated fixed catalogues into one empty project. No
  * scene geometry, instance source, history or sample ownership is transferred. */
-export async function createMixedBlankProject(environment: 'forest' | 'volcano', input: BlankOptions, signal?: AbortSignal): Promise<EditableProject> {
+export async function createMixedBlankProject(environment: 'forest' | 'volcano', input: BlankOptions, signal?: AbortSignal, naturalVolcano = false): Promise<EditableProject> {
   const options = optionsSchema.parse(captureJson(input))
   if (environment !== 'forest' && environment !== 'volcano') throw new Error('混合场景暂支持森林或火山。')
   signal?.throwIfAborted()
   const { createRefinedBlankProject } = await import('./refined-blank.js')
   const interior = await createRefinedBlankProject('interior', options, signal)
-  const outdoor = environment === 'volcano' ? await createVolcanoBlankProject(options, signal)
-    : await (await import('./shore-blank.js')).createShoreBlankProject('island', options, signal, true, true)
+  const outdoor = environment === 'forest' ? await (await import('./shore-blank.js')).createForestBlankProject(options, signal)
+    : naturalVolcano ? await (await import('./volcanic-surfaces-catalog.js')).createNaturalVolcanoBlankProject(options, signal)
+      : await createVolcanoBlankProject(options, signal)
   signal?.throwIfAborted()
   const { resources: _resources, ...metadata } = interior
   const project = captureJson(metadata) as ProjectData
+  const daylight = Object.values(outdoor.document.floors)[0].environment
+  if (daylight) Object.values(project.document.floors)[0].environment = captureJson(daylight)
   namespaceMixedInteriorCatalogue(project)
   const merge = <T>(target: Record<string, T>, source: Record<string, T>) => {
     for (const [id, value] of Object.entries(source)) {

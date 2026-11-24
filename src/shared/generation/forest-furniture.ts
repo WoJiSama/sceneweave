@@ -35,7 +35,8 @@ export function diagnoseForestFurniture(document: SceneDocument, options: { prof
     const wallThicknessMm = Math.max(recipe.parameters.wallThicknessMm, ...Object.values(document.walls).filter(wall => room.boundaryVertexIds.some((id, i, ring) =>
       id === wall.startVertexId && ring[(i + 1) % ring.length] === wall.endVertexId || id === wall.endVertexId && ring[(i + 1) % ring.length] === wall.startVertexId)).map(w => w.thicknessMm))
     const algorithmVersion = recipe.algorithmId === 'supported-interior' ? supportedInteriorLayoutVersion(recipe.algorithmVersion) : recipe.algorithmVersion
-    const recommended = recipe.parameters.arrangement.furniture ? recommendInteriorFurniture(room.purpose, clearArea(boundsMm, wallThicknessMm), algorithmVersion) : []
+    const focus = room.purpose === requirement.purpose ? requirement.furnishingFocus : undefined
+    const recommended = recipe.parameters.arrangement.furniture ? recommendInteriorFurniture(room.purpose, clearArea(boundsMm, wallThicknessMm), algorithmVersion, focus) : []
     const palette = recipe.parameters.arrangement.palette
     const actualProps = Object.values(document.props).filter(prop => prop.roomId === room.id && prop.supportRef.kind === 'room' && prop.supportRef.id === room.id)
     const roles: ForestFurnitureDiagnostics['rooms'][number]['roles'] = [...new Set(recommended)].map(role => {
@@ -54,6 +55,7 @@ export function diagnoseForestFurniture(document: SceneDocument, options: { prof
       if ('entranceApproach' in parameters) delete (parameters as Partial<typeof parameters>).entranceApproach
       if ('entranceRoomRequirementId' in parameters.arrangement) delete parameters.arrangement.entranceRoomRequirementId
       parameters.rooms = [{ ...cloneJson(requirement), purpose: room.purpose }]
+      if (!focus) delete parameters.rooms[0].furnishingFocus
       parameters.wallThicknessMm = wallThicknessMm
       parameters.arrangement.furniture = true
       const input: InteriorGenerationInput = { version: 1, algorithmVersion, seed: recipe.seed, parameters }

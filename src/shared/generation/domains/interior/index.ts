@@ -13,10 +13,11 @@ import { createSpaceContext } from '../../space.js'
 import { generationCreationWrites } from '../../materialization.js'
 import { GenerationRegistry, runGeneration, checkGenerationConstraints } from '../../orchestrator.js'
 import { hashGenerationValue, type ArtifactInput, type GenerationCandidate, type GenerationRequest, type JsonValue } from '../../contracts.js'
-import { interiorGenerationInputSchema, supportedInteriorGenerationInputSchema, supportedInteriorLayoutVersion, type InteriorGenerationInput, type InteriorLayout, type InteriorRectangle, type SupportedInteriorGenerationInput } from './contracts.js'
+import { interiorGenerationInputSchema, interiorMaterialBindings, supportedInteriorGenerationInputSchema, supportedInteriorLayoutVersion, type InteriorGenerationInput, type InteriorLayout, type InteriorRectangle, type SupportedInteriorGenerationInput } from './contracts.js'
 import { arrangeInteriorConnections, type InteriorConnectivityReport } from './connectivity.js'
 import { furnishInterior, type InteriorFurnishingReport } from './furnishing.js'
 import { InteriorGenerationError, checkInteriorLayout, clearArea, interiorEntityId, rectanglePoints, solveInteriorLayout } from './layout.js'
+import { interiorFloorFinish } from './floor-finish.js'
 
 export * from './contracts.js'
 export * from './layout.js'
@@ -98,19 +99,19 @@ function assertBase(document: SceneDocument, input: InteriorInput): void {
   const b = p.boundsMm, f = floor.boundsMm
   if (b.x < f.x || b.y < f.y || b.x + b.width > f.x + f.width || b.y + b.height > f.y + f.height) throw new InteriorGenerationError('contradiction', '输入矛盾：建筑范围越过实际Floor边界。')
   for (const row of p.arrangement.palette) if (document.propDefinitions[row.ref.id]?.version !== row.ref.version) throw new InteriorGenerationError('invalid-input', '室内家具授权素材缺失或固定版本不符。')
-  for (const [role, ref] of Object.entries(p.materials)) if (ref) {
+  for (const { role, ref } of interiorMaterialBindings(p.materials)) {
     const material = document.materials[ref.id]
-    if (!material || material.version !== ref.version || !material.applicableSurfaces.includes(role === 'floor' ? 'room' : 'wall')) throw new InteriorGenerationError('invalid-input', '室内固定材质缺失、版本不符或不适用对应表面。')
+    if (!material || material.version !== ref.version || !material.applicableSurfaces.includes(role === 'wall' ? 'wall' : 'room')) throw new InteriorGenerationError('invalid-input', '室内固定材质缺失、版本不符或不适用对应表面。')
   }
 }
 
 function persistGeneration(document: SceneDocument, input: InteriorInput, layout: InteriorLayout, baseline?: SceneDocument): void {
   const p = input.parameters, gen = getLegacyGeneration(document)!, id = (key: string) => interiorEntityId(document.sceneId, input.seed, key)
   const recipeId = id('recipe'), ruleId = id('layout-rule')
-  const bindings = { materials: Object.entries(p.materials).flatMap(([role, ref]) => ref ? [{ role: role as 'floor' | 'wall', ref: cloneJson(ref) }] : []), props: cloneJson(p.arrangement.palette), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
+  const bindings = { materials: cloneJson(interiorMaterialBindings(p.materials)), props: cloneJson(p.arrangement.palette), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
   const common = { id: recipeId, domain: 'interior' as const, mapMode: 'scene' as const, seed: input.seed, ...bindings }
-  const recipe: GenerationRecipe = input.algorithmVersion === 21
-    ? interiorGenerationRecipeSchema.parse({ ...common, recipeVersion: 21, algorithmVersion: 21, algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) })
+  const recipe: GenerationRecipe = input.algorithmVersion === 21 || input.algorithmVersion === 22
+    ? interiorGenerationRecipeSchema.parse({ ...common, recipeVersion: input.algorithmVersion, algorithmVersion: input.algorithmVersion, algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) })
     : input.algorithmVersion === 20
     ? isSupported(input) ? { ...common, recipeVersion: 20, algorithmVersion: 20, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : { ...common, recipeVersion: 20, algorithmVersion: 20, algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) }
     : isSupported(input)
@@ -194,6 +195,16 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
       const commands: SceneCommand[] = [...layout.rooms.map(row => ({ ...row, purpose: p.rooms.find(r => r.id === row.requirementId)!.purpose })), ...layout.corridors.map(row => ({ ...row, purpose: '通道' }))].map(row => ({ type: 'createRoom', id: row.roomId, floorId: p.floorId, layerId: p.layerId, boundaryMm: rectanglePoints(row.boundsMm), thicknessMm: p.wallThicknessMm, purpose: row.purpose, visibility: 'public', accessExpectation: 'unspecified', supportRef: isSupported(input) ? input.parameters.supportRef : { kind: 'floor', id: p.floorId }, ...(p.materials.floor ? { materialRef: p.materials.floor } : {}) }))
       context.checkCancelled()
       const next = applyCommands(cloneJson(before) as SceneDocument, commands, { ids: { nextId: () => interiorEntityId(document.sceneId, input.seed, `native:${sequence++}`) }, clock: { now: () => document.updatedAt } }, { budget: profile })
+      if (p.materials.floorFinish) {
+        for (const row of layout.rooms) {
+          const finish = interiorFloorFinish(next, p.materials, row.boundsMm, p.rooms.find(room => room.id === row.requirementId))
+          if (finish) next.rooms[row.roomId].floorStyle = finish
+        }
+        for (const row of layout.corridors) {
+          const finish = interiorFloorFinish(next, p.materials, row.boundsMm)
+          if (finish) next.rooms[row.roomId].floorStyle = finish
+        }
+      }
       if (p.materials.wall) for (const wall of Object.values(next.walls)) {
         if (supported && Object.hasOwn(document.walls, wall.id)) continue
         const material = next.materials[p.materials.wall.id]

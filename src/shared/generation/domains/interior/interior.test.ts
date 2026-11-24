@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createShoreBlankDocument } from '../../../../platform/browser/content/shore-blank.js'
+import { createRefinedBlankDocument } from '../../../../platform/browser/content/refined-blank.js'
 import { taskBudgetProfile } from '../../../budget/task-budget.js'
 import { canonicalJson, cloneJson } from '../../../validation/json.js'
 import { createCompositionContent } from '../../../appearance/graph.js'
@@ -21,6 +22,23 @@ let sequence = 0
 const runtime = { ids: { nextId: () => `interior-token-${sequence++}` }, clock: { now: () => '2026-11-05T00:00:00.000Z' } }
 
 describe('parameterized finite interior generation', () => {
+  it('uses real service-room stone and keeps geometry and connectivity when room finishes are enabled', () => {
+    const base = createRefinedBlankDocument('interior', { title: '室内铺装', sceneId: 'interior-finishes', widthMm: 20000, heightMm: 16000, preset: 'narrative' })
+    const input = request(4), ref = (key: string) => ({ id: `refined-material-interior-material-${key}`, version: 1 })
+    input.algorithmVersion = 22
+    input.parameters.materials = { floor: ref('planks'), wall: ref('plaster') }
+    input.parameters.arrangement.doors = true
+    const plain = runInteriorGeneration(base, input, options)
+    input.parameters.materials.floorFinish = { kind: 'room-use-v1', serviceMaterialRef: ref('flags') }
+    const painted = runInteriorGeneration(base, input, options), scene = painted.candidate.document
+    expect(painted.layout).toEqual(plain.layout)
+    expect(painted.report.connectivity).toEqual(plain.report.connectivity)
+    expect(scene.openings).toEqual(plain.candidate.document.openings)
+    for (const room of Object.values(scene.rooms)) expect(room.floorStyle?.base.materialRef).toEqual(ref(room.purpose === '厨房' ? 'flags' : 'planks'))
+    expect(validateSceneDocument(scene).ok).toBe(true)
+    expect(runInteriorGeneration(base, painted.input, options).resultHash).toBe(painted.resultHash)
+  }, 30000)
+
   it.each(([12, 13, 14, 15, 16, 17, 18, 19] as const).flatMap(version => (['none', 'horizontal', 'vertical'] as const).map(axis => ({ version, axis }))))('preserves the v11 structural layout when v$version changes furniture with corridor axis $axis', ({ version, axis }) => {
     const input = request(4)
     input.seed = 'composition-layout-heldout'

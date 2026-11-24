@@ -54,6 +54,7 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
     id === wall.startVertexId && ring[(index + 1) % ring.length] === wall.endVertexId || id === wall.endVertexId && ring[(index + 1) % ring.length] === wall.startVertexId)).map(wall => wall.thicknessMm))
   input.parameters.wallThicknessMm = wallThickness
   input.parameters.rooms = [{ ...cloneJson(requirement), purpose: room.purpose }]
+  if (room.purpose !== requirement.purpose) delete input.parameters.rooms[0].furnishingFocus
   input.parameters.arrangement.furniture = true
   const layout: InteriorLayout = { rooms: [{ requirementId: requirement.id, roomId: room.id, boundsMm, clearAreaMm2: clearArea(boundsMm, wallThickness) }], corridors: [] }
   const connectivity = inspectInteriorConnections(before, input, layout, options)
@@ -88,10 +89,10 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   const owners = Object.values(gen.ownership).filter(owner => gen.rules[owner.ruleId]?.recipeRef.id === recipe.id && owner.target.kind === 'prop')
   const slots = new Map<string, { owner?: OutputOwnership; prop?: Prop; propId?: string; suppressed: boolean }>(), used = geometryIdentityIds(before)
   for (const id of Object.keys(content.historyIdentity.propTokens)) used.add(id)
-  const currentRoles = recommendInteriorFurniture(room.purpose, layout.rooms[0].clearAreaMm2, input.algorithmVersion)
+  const currentRoles = recommendInteriorFurniture(room.purpose, layout.rooms[0].clearAreaMm2, input.algorithmVersion, input.parameters.rooms[0].furnishingFocus)
   // Include original-role slots so a changed room purpose cannot bypass a
   // previously deleted or manually reserved furniture slot with a new identity.
-  const originalRoles = recommendInteriorFurniture(requirement.purpose, layout.rooms[0].clearAreaMm2, input.algorithmVersion)
+  const originalRoles = recommendInteriorFurniture(requirement.purpose, layout.rooms[0].clearAreaMm2, input.algorithmVersion, requirement.furnishingFocus)
   const notes: string[] = []
   for (const [index, role] of currentRoles.entries()) {
     const slot = { requirementId: requirement.id, role, index }, key = slotKey(slot), stableKey = `${recipe.id}:${key}`

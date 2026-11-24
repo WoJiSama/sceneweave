@@ -9,7 +9,7 @@ import { visualBase } from '../visual/base.js'
 import { emptyVisualSystem } from '../visual/types.js'
 import { visualCommandCost } from '../visual/commands.js'
 import { SHORE_MATERIAL_IDS } from '../visual/shore-art.js'
-import { applyShoreSurfaceRecipe } from '../visual/shore-surfaces.js'
+import { applyShoreSurfaceRecipe, type ShoreSurfaceOptions } from '../visual/shore-surfaces.js'
 import { generateTerrainDocumentV4, terrainGenerationInputV4Schema, terrainGenerationResultV4Schema,
   type TerrainGenerationInputV5, type TerrainGenerationResult, type TerrainManagedTarget } from './generate.js'
 import { compositionPresetV4, compositionPresetV4Schema } from './composition-presets.js'
@@ -112,8 +112,8 @@ function restyleAncillary(document:SceneDocument):void {
   }
   for(const collection of [document.terrainEdges,document.terrainConnections,document.paths])for(const row of Object.values(collection))paint(row.surfaceStyle)
 }
-function checkedSurfaceDocument(original:SceneDocument,seed:string,meter:ReturnType<typeof captureExecutionBudget>,edgeDetailScale=1):SceneDocument {
-  const document=cloneJson(applyShoreSurfaceRecipe(original,seed,{meter,edgeDetailScale}))
+function checkedSurfaceDocument(original:SceneDocument,seed:string,meter:ReturnType<typeof captureExecutionBudget>,edgeDetailScale=1,shoreProfile?: ShoreSurfaceOptions['shoreProfile']):SceneDocument {
+  const document=cloneJson(applyShoreSurfaceRecipe(original,seed,{meter,edgeDetailScale,shoreProfile}))
   restyleAncillary(document);assertPhysicalPreservation(original,document)
   return document
 }
@@ -122,9 +122,9 @@ export function generateTerrainDocumentV5(base:SceneDocument,raw:unknown):Terrai
   return styleTerrainGeometryV5(base,generateTerrainDocumentV4(base,{...input,algorithmVersion:4}),input)
 }
 /** Shared fixed surface recipe; selecting the physical algorithm is the caller's responsibility. */
-export function styleTerrainGeometryV5(base:SceneDocument,physical:TerrainGenerationResult,input:TerrainGenerationInputV5,edgeDetailScale=1):TerrainGenerationResultV5 {
+export function styleTerrainGeometryV5(base:SceneDocument,physical:TerrainGenerationResult,input:TerrainGenerationInputV5,edgeDetailScale=1,shoreProfile?: ShoreSurfaceOptions['shoreProfile']):TerrainGenerationResultV5 {
   const profile=taskBudgetProfile(input.budgetProfileId),meter=captureExecutionBudget(profile)
-  const document=checkedSurfaceDocument(physical.document,input.seed,meter,edgeDetailScale),managedTargets=sortedManagedTargets(document)
+  const document=checkedSurfaceDocument(physical.document,input.seed,meter,edgeDetailScale,shoreProfile),managedTargets=sortedManagedTargets(document)
   const executionUsage=addExecutionUsage(physical.executionUsage,meter.snapshot())
   assertTaskBudget(profile,measureTaskBudget(base,document,undefined,executionUsage))
   return terrainGenerationResultV5Schema.parse({...physical,input,document,managedTargets,executionUsage,cost:resultCost(document,physical,managedTargets)})

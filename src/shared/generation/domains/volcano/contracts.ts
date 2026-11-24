@@ -9,6 +9,7 @@ const movement = { blocksMovement: z.boolean(), movementCostMultiplier: z.number
 const connection = z.object({ kind: z.enum(['stairs', 'ramp']), fromMm: point, toMm: point }).strict()
 export const volcanoParametersSchema = z.object({
   floorId: ref.shape.id, layerId: ref.shape.id,
+  relief: z.literal('caldera-v1').optional(),
   boundsMm: z.object({ x: mm, y: mm, width: positive.max(1_000_000), height: positive.max(1_000_000) }).strict(),
   groundElevationMm: mm.min(-100_000).max(100_000),
   mountain: z.object({ boundaryMm: ring, elevationMm: mm.min(-100_000).max(100_000) }).strict(),
@@ -16,7 +17,8 @@ export const volcanoParametersSchema = z.object({
   platform: z.object({ boundaryMm: ring, anchorMm: point }).strict(),
   entrance: z.object({ positionMm: point, directionDeg: z.number().finite().min(0).lt(360) }).strict(),
   ascent: connection, descent: connection,
-  route: z.object({ widthMm: positive.max(10_000), toPlatformViaMm: z.array(point).max(16), toCraterViaMm: z.array(point).max(16) }).strict(),
+  route: z.object({ widthMm: positive.max(10_000), toPlatformViaMm: z.array(point).max(16), toCraterViaMm: z.array(point).max(16),
+    boundaryBlendMm: mm.min(0).max(10000).optional() }).strict(),
   flow: z.object({ centerlineMm: z.array(point).min(2).max(16), widthMm: positive.max(10_000), hazard: z.boolean(), ...movement }).strict().nullable(),
   regions: z.array(z.object({ id, boundaryMm: ring, hazard: z.boolean(), ...movement }).strict()).max(8),
   materials: z.object({ ground: ref, mountain: ref, crater: ref, platform: ref, flow: ref, route: ref }).strict(),

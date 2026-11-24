@@ -7,7 +7,7 @@ import { wallMovementPolygons } from '../../../geometry/doorway-clearance.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { cloneJson } from '../../../validation/json.js'
-import type { InteriorFurnitureRole, InteriorGenerationInput, InteriorLayout, InteriorRectangle } from './contracts.js'
+import type { InteriorFurnitureRole, InteriorGenerationInput, InteriorLayout, InteriorRectangle, InteriorRoomRequirement } from './contracts.js'
 import { InteriorGenerationError, interiorEntityId } from './layout.js'
 import { hashGenerationValue } from '../../contracts.js'
 import { checkInteriorCirculation, replanInteriorCirculation, interiorDoorReservations, type InteriorConnectivityReport } from './connectivity.js'
@@ -39,14 +39,15 @@ export interface InteriorFurnishingReport {
 
 const roleName: Record<InteriorFurnitureRole, string> = { bed: '床', seat: '座椅', table: '桌子', storage: '收纳家具', work: '工作台', hearth: '炉台', shelf: '书架' }
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
+const isStoragePurpose = (purpose: string) => /储藏|库房|仓库|storage|store|pantry/i.test(purpose)
 const rectangle = (b: InteriorRectangle): PointMm[] => [{ x: b.x, y: b.y }, { x: b.x + b.width, y: b.y }, { x: b.x + b.width, y: b.y + b.height }, { x: b.x, y: b.y + b.height }]
 
 /** Rank only explicitly supplied fixed definitions. Purpose changes a finite
  * suggestion preference, never the definition's dimensions or physical role. */
-function purposePreference(purpose: string, role: InteriorFurnitureRole, definition: PropDefinition | undefined): number {
+function purposePreference(requirement: InteriorRoomRequirement, role: InteriorFurnitureRole, definition: PropDefinition | undefined): number {
   if (!definition) return 1
-  const text = purpose.toLowerCase(), metadata = [definition.name, ...definition.tags].join(' ').toLowerCase()
-  const kitchen = /厨房|烹饪|kitchen/.test(text), study = /书房|办公|研究|study|office|library/.test(text)
+  const text = requirement.purpose.toLowerCase(), metadata = [definition.name, ...definition.tags].join(' ').toLowerCase()
+  const kitchen = /厨房|烹饪|kitchen/.test(text), study = requirement.furnishingFocus === 'reading-v1' || /书房|办公|研究|study|office|library/.test(text)
   if (role === 'work' && kitchen) return /厨房|备餐|烹饪|kitchen|prep|counter/.test(metadata) ? 0 : 1
   if (role === 'work' && study) return /书桌|书房|办公|写作|desk|study|office|writing/.test(metadata) ? 0 : 1
   if (role === 'table' && /餐厅|餐室|酒馆|dining|tavern/.test(text)) return /餐桌|餐厅|长桌|dining|long/.test(metadata) ? 0 : 1
@@ -55,18 +56,31 @@ function purposePreference(purpose: string, role: InteriorFurnitureRole, definit
 
 /** First-generation suggestions only. Neither the purpose vocabulary nor these
  * area thresholds become constraints on later manual edits. */
-export function recommendInteriorFurniture(purpose: string, clearAreaMm2: number, algorithmVersion: InteriorGenerationInput['algorithmVersion'] = 2): InteriorFurnitureRole[] {
+export function recommendInteriorFurniture(purpose: string, clearAreaMm2: number, algorithmVersion: InteriorGenerationInput['algorithmVersion'] = 2, focus?: InteriorRoomRequirement['furnishingFocus']): InteriorFurnitureRole[] {
   const area = clearAreaMm2 / 1_000_000, text = purpose.toLowerCase()
   if (area < 4 || /走廊|通道|corridor|hallway/.test(text)) return []
   const result: InteriorFurnitureRole[] = []
   const add = (threshold: number, ...roles: InteriorFurnitureRole[]) => { if (area >= threshold) result.push(...roles) }
+  if (focus === 'fireside-v1') {
+    add(4, 'table'); add(7, 'seat'); add(12, 'seat'); add(18, 'hearth'); add(25, 'storage'); add(44, 'seat'); add(65, 'shelf')
+    return result
+  }
+  if (focus === 'reading-v1') {
+    add(4, 'work'); add(7, 'seat'); add(12, 'shelf'); add(20, 'storage'); add(34, 'table', 'seat'); add(60, 'shelf')
+    return result
+  }
+  if (algorithmVersion >= 22 && isKitchenPurpose(text)) {
+    add(4, 'work'); add(8, 'storage'); add(14, 'hearth'); add(18, 'shelf')
+    add(30, 'storage'); add(44, 'shelf'); add(72, 'storage'); add(80, 'work'); add(90, 'shelf')
+    return result
+  }
   if (/卧室|客房|寝室|宿舍|bedroom|guest|dorm/.test(text)) {
     add(4, 'bed'); add(10, 'storage'); add(18, 'seat'); add(28, 'table'); add(40, 'bed')
   } else if (/书房|办公|研究|study|office|library/.test(text)) {
     add(4, 'work'); add(8, 'seat'); add(14, 'shelf'); add(28, 'shelf'); add(40, 'seat')
   } else if (/厨房|烹饪|kitchen/.test(text)) {
     add(4, 'work'); add(8, 'storage'); add(14, 'hearth'); add(28, 'work'); add(40, 'storage')
-  } else if (/储藏|库房|仓库|storage|store|pantry/.test(text)) {
+  } else if (isStoragePurpose(text)) {
     add(4, 'storage'); add(12, 'storage'); add(24, 'storage'); add(40, 'storage')
   } else {
     add(4, 'table'); add(8, 'seat'); add(16, 'seat'); add(24, 'storage'); add(32, 'seat'); add(48, 'table')
@@ -81,7 +95,7 @@ export function recommendInteriorFurniture(purpose: string, clearAreaMm2: number
     add(24, 'work', 'seat'); add(45, 'work', 'seat', 'storage'); add(70, 'work', 'seat', 'shelf'); add(95, 'work', 'seat')
   } else if (/厨房|烹饪|kitchen/.test(text)) {
     add(20, 'shelf'); add(35, 'work', 'storage'); add(55, 'work', 'shelf'); add(80, 'work', 'storage')
-  } else if (/储藏|库房|仓库|storage|store|pantry/.test(text)) {
+  } else if (isStoragePurpose(text)) {
     add(16, 'shelf'); add(28, 'shelf'); add(40, 'shelf', 'storage'); add(55, 'shelf', 'storage'); add(75, 'shelf', 'storage')
   } else {
     // The legacy second table gains its own seats; additional dining groups
@@ -167,9 +181,11 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
     const spatialProps = (document = next) => (input.algorithmVersion >= 10 ? Object.values(document.props).filter(prop => nearExternal.has(prop.id)
       || prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId) : Object.values(document.props))
       .filter(prop => !pendingRepack.has(prop.id) || document !== next && prop.id === evaluatingId)
-    const roomReport: InteriorFurnishingRoom = { requirementId: row.requirementId, roomId: row.roomId, recommended: options.rolesForRoom?.(row.roomId) ?? recommendInteriorFurniture(requirement.purpose, row.clearAreaMm2, input.algorithmVersion), placed: [], notes: [] }
+    const roomReport: InteriorFurnishingRoom = { requirementId: row.requirementId, roomId: row.roomId, recommended: options.rolesForRoom?.(row.roomId) ?? recommendInteriorFurniture(requirement.purpose, row.clearAreaMm2, input.algorithmVersion, requirement.furnishingFocus), placed: [], notes: [] }
     report.rooms.push(roomReport)
     const slots = roomReport.recommended.map((role, index) => ({ role, index }))
+    const kitchen = input.algorithmVersion >= 6 && isKitchenPurpose(requirement.purpose)
+    const pantry = input.algorithmVersion >= 22 && isStoragePurpose(requirement.purpose)
     // Resolve every work/table anchor before its seats. Keep the original slot
     // indices for identities and local protection, rather than re-indexing the
     // recipe when a later table is brought forward for placement.
@@ -189,15 +205,22 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
       const kitchenOrder = (slot: typeof slots[number]) => slot.index <= 2 ? slot.index
         : slot.role === 'work' || slot.role === 'hearth' ? 3 : slot.role === 'storage' ? 4 : 5
       const kitchenFunctionOrder = (slot: typeof slots[number]) => slot.role === 'hearth' ? 0 : slot.role === 'work' ? 1 : slot.role === 'storage' ? 2 : 3
+      const firstWork = slots.find(slot => slot.role === 'work')?.index
+      const firstStorage = slots.find(slot => slot.role === 'storage')?.index, firstShelf = slots.find(slot => slot.role === 'shelf')?.index
+      const kitchenEssentialsOrder = (slot: typeof slots[number]) => slot.role === 'hearth' ? 0 : slot.index === firstWork ? 1
+        : slot.role === 'storage' || slot.role === 'shelf' ? 2 : 3
+      const pantryOrder = (slot: typeof slots[number]) => slot.index === firstStorage || slot.index === firstShelf ? 0 : 1
       slots.sort((a, b) => input.algorithmVersion >= 11 && isBedroomPurpose(requirement.purpose) ? bedroomOrder(a) - bedroomOrder(b) || a.index - b.index
-        : input.algorithmVersion >= 18 && isKitchenPurpose(requirement.purpose) ? kitchenFunctionOrder(a) - kitchenFunctionOrder(b) || a.index - b.index
-        : input.algorithmVersion >= 15 && isKitchenPurpose(requirement.purpose) ? kitchenOrder(a) - kitchenOrder(b) || a.index - b.index
-        : input.algorithmVersion >= 9 && isKitchenPurpose(requirement.purpose) ? a.index - b.index
+        : input.algorithmVersion >= 22 && kitchen ? kitchenEssentialsOrder(a) - kitchenEssentialsOrder(b) || a.index - b.index
+        : pantry ? pantryOrder(a) - pantryOrder(b) || a.index - b.index
+        : input.algorithmVersion >= 18 && kitchen ? kitchenFunctionOrder(a) - kitchenFunctionOrder(b) || a.index - b.index
+        : input.algorithmVersion >= 15 && kitchen ? kitchenOrder(a) - kitchenOrder(b) || a.index - b.index
+        : input.algorithmVersion >= 9 && kitchen ? a.index - b.index
         : input.algorithmVersion >= 9 && isBedroomPurpose(requirement.purpose) ? unitOrder(a.role) - unitOrder(b.role) || a.index - b.index
           : order(a.role) - order(b.role) || a.index - b.index)
     }
     const useSpaces: FurnitureSeatReservation[] = [], reserveUseSpace = input.algorithmVersion >= 5
-    const functionalGroups = input.algorithmVersion >= 6, kitchen = functionalGroups && isKitchenPurpose(requirement.purpose)
+    const functionalGroups = input.algorithmVersion >= 6
     const bedroom = input.algorithmVersion >= 7 && isBedroomPurpose(requirement.purpose)
     const connectedUse = input.algorithmVersion >= 8
     const completeDining = input.algorithmVersion >= 18 && isDiningPurpose(requirement.purpose)
@@ -279,8 +302,8 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
       const retainedRotation = options.strategy === 'seating-v1' && pendingRepack.has(propId) ? undefined : existing?.rotationDeg
       if (existingId && (!existing || existingId !== propId)) throw new InteriorGenerationError('invalid-input', '局部家具槽位引用缺少对应存活物件。')
       const available = palette.filter(item => item.role === role && (!existing || item.ref.id === existing.definitionRef?.id && item.ref.version === existing.definitionRef.version))
-      if (input.algorithmVersion >= 4) available.sort((a, b) => purposePreference(requirement.purpose, role, next.propDefinitions[a.ref.id])
-        - purposePreference(requirement.purpose, role, next.propDefinitions[b.ref.id])
+      if (input.algorithmVersion >= 4) available.sort((a, b) => purposePreference(requirement, role, next.propDefinitions[a.ref.id])
+        - purposePreference(requirement, role, next.propDefinitions[b.ref.id])
         || compare(hashGenerationValue(['interior-furniture', input.seed, row.requirementId, role, index, a.ref]),
           hashGenerationValue(['interior-furniture', input.seed, row.requirementId, role, index, b.ref])))
       if (functionalGroups && role === 'seat') {
@@ -323,24 +346,24 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
         }
         const shape = existing ?? { visualBoundsMm: definition.defaultVisualBoundsMm,
           footprintMm: definition.defaultFootprintMm, footprintOffsetMm: definition.defaultFootprintOffsetMm }
-        const kitchenAnchors = kitchen ? spatialProps().filter(prop => prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId && prop.id !== existingId)
+        const utilityAnchors = kitchen || pantry ? spatialProps().filter(prop => prop.supportRef.kind === 'room' && prop.supportRef.id === row.roomId && prop.id !== existingId)
           .flatMap(prop => {
             const entry = palette.find(item => ['work', 'hearth', 'storage', 'shelf'].includes(item.role)
               && item.ref.id === prop.definitionRef?.id && item.ref.version === prop.definitionRef.version)
             return entry ? [{ ...prop, role: entry.role }] : []
           }) : []
-        const rowOptions = { bounds: row.boundsMm, shape, inset, role, anchors: kitchenAnchors, rank, retainedRotation,
+        const rowOptions = { bounds: row.boundsMm, shape, inset, role, anchors: utilityAnchors, rank, retainedRotation,
           checkCancelled: options.checkCancelled, charge: () => meter.charge({ fieldEvaluations: 1 }) }
         const kitchenShapes = input.algorithmVersion >= 15 && kitchen ? palette.filter(entry => ['work', 'hearth', 'storage', 'shelf'].includes(entry.role)).flatMap(entry => {
           const fixed = next.propDefinitions[entry.ref.id]
           return fixed?.version === entry.ref.version ? [{ visualBoundsMm: fixed.defaultVisualBoundsMm,
             footprintMm: fixed.defaultFootprintMm, footprintOffsetMm: fixed.defaultFootprintOffsetMm }] : []
         }) : []
-        const groupPoses = kitchen ? [...kitchenFurnitureGroupCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, retainedRotation),
-          ...(input.algorithmVersion >= 15 ? kitchenParallelRunCandidates({ ...rowOptions, shapes: kitchenShapes }) : []),
-          ...(input.algorithmVersion >= 15 ? kitchenWallRowCandidates(rowOptions) : []),
-          ...(input.algorithmVersion >= 12 ? kitchenOpposingCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, retainedRotation) : []),
-          ...(input.algorithmVersion >= 11 ? kitchenCornerCandidates(row.boundsMm, shape, inset, role, kitchenAnchors, rank, retainedRotation) : [])] : []
+        const groupPoses = kitchen || pantry ? [...kitchenFurnitureGroupCandidates(row.boundsMm, shape, inset, role, utilityAnchors, rank, retainedRotation, pantry),
+          ...(input.algorithmVersion >= 15 && kitchen ? kitchenParallelRunCandidates({ ...rowOptions, shapes: kitchenShapes }) : []),
+          ...(input.algorithmVersion >= 15 && kitchen ? kitchenWallRowCandidates(rowOptions) : []),
+          ...(input.algorithmVersion >= 12 && kitchen ? kitchenOpposingCandidates(row.boundsMm, shape, inset, role, utilityAnchors, rank, retainedRotation) : []),
+          ...(input.algorithmVersion >= 11 && kitchen ? kitchenCornerCandidates(row.boundsMm, shape, inset, role, utilityAnchors, rank, retainedRotation) : [])] : []
         const beds = bedroom && role === 'storage' ? roleProps('bed').map(bed => ({ ...bed, storageLoad: 0 })) : []
         for (const storage of beds.length ? roleProps('storage').filter(prop => prop.id !== existingId) : []) {
           const nearest = beds.map(bed => ({ bed, distance: polygonDistance(propFootprint(storage), propFootprint(bed)) }))
@@ -372,9 +395,9 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
             poses.sort((a, b) => parallel(b) - parallel(a))
           }
         }
-        if (input.algorithmVersion >= 12 && kitchen && kitchenAnchors.length) {
-          const primary = kitchenAnchors.filter(anchor => anchor.role === 'work' || anchor.role === 'hearth')
-          const references = primary.length ? primary : kitchenAnchors
+        if (input.algorithmVersion >= 12 && kitchen && utilityAnchors.length) {
+          const primary = utilityAnchors.filter(anchor => anchor.role === 'work' || anchor.role === 'hearth')
+          const references = primary.length ? primary : utilityAnchors
           const distances = new Map(poses.map(pose => {
             const polygon = furnitureBoundsPolygon(shape.visualBoundsMm, pose)
             const distance = Math.min(...references.map(anchor => {
@@ -559,7 +582,7 @@ export function furnishInterior(document: SceneDocument, input: InteriorGenerati
             const access = bedAccess.get(id)
             if (access) bedAccess.set(id, { ...access, pointsMm: route.pointsMm, routePolygon: route.polygon })
           }
-          if (kitchen && kitchenAnchors.length && ['work', 'hearth', 'storage', 'shelf'].includes(role)
+          if (kitchen && utilityAnchors.length && ['work', 'hearth', 'storage', 'shelf'].includes(role)
             && !groupPoses.some(pose => pose.rotationDeg === rotationDeg && pose.positionMm.x === positionMm.x && pose.positionMm.y === positionMm.y)) {
             roomReport.notes.push(`${roleName[role]}未找到可接续现有厨房工作组的合法位置，本次采用独立摆位。`)
           }

@@ -1,6 +1,6 @@
 import type { MaterialPaint, MaterialRef } from '../model/scene.js'
 
-export function defaultMaterialPaint(material: MaterialRef, kind?: 'path' | 'terrain'): MaterialPaint {
+export function defaultMaterialPaint(material: Pick<MaterialRef, 'id' | 'version' | 'defaultTileSizeMm' | 'defaultPathPaint'>, kind?: 'path' | 'terrain'): MaterialPaint {
   const route = kind === 'path' ? material.defaultPathPaint : undefined
   return {
     materialRef: { id: material.id, version: material.version },

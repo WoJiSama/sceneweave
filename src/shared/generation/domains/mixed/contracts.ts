@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { interiorLayoutParametersSchema } from '../interior/contracts.js'
-import { forestParametersSchema } from '../forest/contracts.js'
+import { interiorLayoutParametersSchema, interiorMaterialBindings, interiorMaterialRoleSchema } from '../interior/contracts.js'
+import { forestMaterialBindings, forestParametersSchema } from '../forest/contracts.js'
 import { volcanoParametersSchema } from '../volcano/contracts.js'
 import { canonicalJson, cloneJson } from '../../../validation/json.js'
 
@@ -20,16 +20,14 @@ export const mixedParametersSchema = z.object({
 export const mixedGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(15), z.literal(16), z.literal(17), z.literal(18), z.literal(19)]), seed: z.string().min(1).max(128), parameters: mixedParametersSchema }).strict()
 export type MixedGenerationInput = z.infer<typeof mixedGenerationInputSchema>
 export type MixedParameters = z.infer<typeof mixedParametersSchema>
-export const mixedMaterialRoleSchema = z.enum(['ground', 'path', 'mountain', 'crater', 'platform', 'flow', 'route', 'floor', 'wall', 'approach'])
+export const mixedMaterialRoleSchema = z.enum(['ground', 'path', 'mountain', 'crater', 'platform', 'flow', 'route', ...interiorMaterialRoleSchema.options, 'approach'])
 export const mixedPropRoleSchema = z.enum(['tree', 'shrub', 'grass', 'bed', 'seat', 'table', 'storage', 'work', 'hearth', 'shelf'])
 export function mixedFixedBindings(p: MixedParameters) {
-  const materials: { role: z.infer<typeof mixedMaterialRoleSchema>; ref: z.infer<typeof ref> }[] = []
+  const materials: { role: z.infer<typeof mixedMaterialRoleSchema>; ref: z.infer<typeof ref> }[] = interiorMaterialBindings(p.building.materials)
   const props: { role: z.infer<typeof mixedPropRoleSchema>; ref: z.infer<typeof ref> }[] = [...p.building.arrangement.palette]
-  for (const role of ['floor', 'wall'] as const) if (p.building.materials[role]) materials.push({ role, ref: p.building.materials[role]! })
   if (p.outdoor.kind === 'forest') {
     const f = p.outdoor.parameters
-    if (f.ground.kind === 'new' && f.ground.materialRef) materials.push({ role: 'ground', ref: f.ground.materialRef })
-    for (const route of f.routes) if (route.materialRef) materials.push({ role: 'path', ref: route.materialRef })
+    materials.push(...forestMaterialBindings(f))
     for (const zone of f.zones) for (const row of zone.vegetation) for (const item of row.palette) props.push({ role: row.role, ref: item.definitionRef })
   } else for (const role of ['ground', 'mountain', 'crater', 'platform', 'flow', 'route'] as const) materials.push({ role, ref: p.outdoor.parameters.materials[role] })
   if (p.approach.materialRef) materials.push({ role: 'approach', ref: p.approach.materialRef })

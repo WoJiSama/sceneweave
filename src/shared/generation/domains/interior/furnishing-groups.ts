@@ -19,7 +19,7 @@ const boundsOf = (shape: FurnishingShape) => ({
  * by the caller. Ordinary independent poses remain a reported fallback. */
 export function kitchenFurnitureGroupCandidates(bounds: InteriorRectangle, shape: FurnishingShape, inset: number,
   role: InteriorFurnitureRole, anchors: readonly KitchenFurnitureAnchor[], rank: (key: string) => string,
-  retainedRotation?: number): FurnishingPose[] {
+  retainedRotation?: number, pantry = false): FurnishingPose[] {
   if (!kitchenRoles.has(role)) return []
   const own = boundsOf(shape), candidates: { pose: FurnishingPose; key: string; priority: number }[] = []
   const ordered = anchors.filter(anchor => kitchenRoles.has(anchor.role))
@@ -28,7 +28,7 @@ export function kitchenFurnitureGroupCandidates(bounds: InteriorRectangle, shape
   // Start at a wall end so later full-size worktops can extend along its run.
   // The legacy independent wall positions often spend the middle first. No
   // wall is assumed usable: the caller still checks actual doors and use space.
-  if (!ordered.length && (role === 'work' || role === 'hearth')) {
+  if (!ordered.length && (role === 'work' || role === 'hearth' || pantry)) {
     for (const rotationDeg of retainedRotation === undefined ? [0, 90, 180, 270] : [retainedRotation]) {
       const rotation = ((rotationDeg % 360) + 360) % 360
       if (!Number.isInteger(rotation / 90)) continue
