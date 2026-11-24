@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { decorationClusterRecords, decorationRecords } from '../decorations/geometry.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
-import { polygonsOverlap, propFootprint, terrainPoints } from '../geometry/geometry.js'
+import { polygonsOverlap, propFootprint, roomPoints, terrainPoints } from '../geometry/geometry.js'
+import { createFurnitureRoomQuery, furnitureRoom, moveRoomFurnitureSchema, type MoveRoomFurniture } from '../geometry/furniture-room.js'
 import { buildScatterRegeneration, sha256Text } from '../geometry/scatter.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { pipePortsSchema, sightOccluderSchema, type PipePorts, type SightOccluder } from '../validation/primitives.js'
@@ -12,6 +13,7 @@ import type { Editable, MaterialPaint, PointMm, PrefabInstance, PropOverrideFiel
 
 type SurfaceKind = 'room' | 'terrainArea'
 export type BaseSceneCommand =
+  | MoveRoomFurniture
   | { type: 'moveVertex'; id: string; positionMm: PointMm }
   | { type: 'setWallThickness'; id: string; thicknessMm: number }
   | { type: 'setWallEdgeProfile'; id: string; profile: 'straight' | 'stone-blocks-v1' }
@@ -68,6 +70,7 @@ const commandSchema = z.array(z.discriminatedUnion('type', [
   z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
   z.object({ type: z.literal('setEditLock'), kind: z.enum(['prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainConnection']), id, locked: z.boolean() }).strict(),
   z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
+  moveRoomFurnitureSchema,
   z.object({ type: z.literal('unpackPrefab'), id }).strict(),
   z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
   z.object({ type: z.literal('setPropBlocking'), id, blocksMovement: z.boolean() }).strict(),
@@ -259,7 +262,10 @@ function buildAddedProp(scene: SceneDocument, command: Extract<BaseSceneCommand,
   if (hasId(scene, command.id)) throw new Error('新物件必须使用工程中未占用的独立 ID。')
   const definition = requireEntity(scene.propDefinitions, command.definitionRef.id, '物件定义')
   if (definition.version !== command.definitionRef.version) throw new Error('物件引用版本与已采用快照不同。')
-  const support = command.supportRef ?? { kind: 'floor' as const, id: command.floorId }
+  const support = command.supportRef ?? createFurnitureRoomQuery(scene, command.floorId)([propFootprint({
+    positionMm: command.positionMm, rotationDeg: command.rotationDeg ?? 0, footprintMm: definition.defaultFootprintMm,
+    footprintOffsetMm: definition.defaultFootprintOffsetMm,
+  })]).supportRef
   assertPlacementSupportUnlocked(scene, command.floorId, support)
   const renderOrder = nextPropRenderOrder(scene, command.floorId, definition.defaultRenderLayer)
   return {
@@ -350,18 +356,68 @@ function splitWall(scene: SceneDocument, command: Extract<BaseSceneCommand, { ty
   }
 }
 
+export function createPrefabTransform(group: PrefabInstance, anchor: PointMm, rotation: number) {
+  const radians = (rotation - group.rotationDeg) * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians)
+  return (prop: Prop, upright: boolean) => {
+    const x = prop.positionMm.x - group.anchorMm.x, y = prop.positionMm.y - group.anchorMm.y
+    return { positionMm: { x: roundMm(anchor.x + x * cos - y * sin), y: roundMm(anchor.y + x * sin + y * cos) },
+      rotationDeg: upright ? 0 : normalizeAngle(prop.rotationDeg + rotation - group.rotationDeg) }
+  }
+}
+
 function transformPrefab(scene: SceneDocument, command: Extract<BaseSceneCommand, { type: 'transformPrefab' }>, fixedUprightPropIds?: ReadonlySet<string>) {
   const group = requireEntity(scene.prefabInstances, command.id, '组合'), anchor = command.anchorMm ?? group.anchorMm, rotation = command.rotationDeg ?? group.rotationDeg
   if (equal(anchor, group.anchorMm) && rotation === group.rotationDeg) return
   const props = Object.values(group.members).flatMap(member => member.propId === null ? [] : [requireEntity(scene.props, member.propId, '组合成员')])
   assertUnlocked(scene, [group, ...props], true)
-  const radians = (rotation - group.rotationDeg) * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians)
+  const pose = createPrefabTransform(group, anchor, rotation)
   for (const prop of props) {
-    const x = prop.positionMm.x - group.anchorMm.x, y = prop.positionMm.y - group.anchorMm.y
-    prop.positionMm = { x: roundMm(anchor.x + x * cos - y * sin), y: roundMm(anchor.y + x * sin + y * cos) }
-    prop.rotationDeg = fixedUprightPropIds?.has(prop.id) ? 0 : normalizeAngle(prop.rotationDeg + rotation - group.rotationDeg)
+    Object.assign(prop, pose(prop, fixedUprightPropIds?.has(prop.id) ?? false))
   }
   group.anchorMm = cloneJson(anchor); group.rotationDeg = rotation
+}
+
+function moveRoomFurniture(scene: SceneDocument, command: MoveRoomFurniture, fixedUprightIds?: ReadonlySet<string>) {
+  const group = own(scene.prefabInstances, command.id)
+  const props = group ? Object.values(group.members).flatMap(member => member.propId ? [scene.props[member.propId]] : [])
+    : [requireEntity(scene.props, command.id, '物件')]
+  if (!props.length) throw new Error('组合没有可移动的家具。')
+  const ids = new Set(props.map(prop => prop.id))
+  if (!group && memberRecord(scene, command.id) || Object.values(decorationClusterRecords(scene)).some(cluster =>
+    Object.values(cluster.members).some(member => member.entityId && member.state !== 'detached' && ids.has(member.entityId)))) {
+    throw new Error('跨房间移动请选整套家具，或先让该物件退出原组合。')
+  }
+  for (const binding of Object.values(scene.attachments ?? {})) if (binding.mode !== 'embed' && ids.has(binding.child.id)
+    && !ids.has(scene.attachmentSurfaces?.[binding.surfaceId]?.owner.id ?? '')) throw new Error('请移动附着宿主，或先解除物件附着。')
+  const floorId = props[0].floorId, roomId = furnitureRoom(command)
+  assertPlacementSupportUnlocked(scene, floorId, command.supportRef)
+  if (command.roomId !== undefined && command.supportRef.kind === 'room' && command.supportRef.id !== command.roomId) throw new Error('房间归属与房间支撑不一致。')
+  if (roomId) assertPlacementSupportUnlocked(scene, floorId, { kind: 'room', id: roomId })
+  const visibility = createPublicVisibility(scene), privateIds = new Set(props.filter(prop => !visibility.prop(prop)).map(prop => prop.id))
+  for (const prop of props) {
+    assertPlacementSupportUnlocked(scene, floorId, prop.supportRef)
+    if (prop.roomId) assertPlacementSupportUnlocked(scene, floorId, { kind: 'room', id: prop.roomId })
+  }
+  assertUnlocked(scene, props, true)
+  if (group) transformPrefab(scene, { type: 'transformPrefab', id: group.id, anchorMm: command.positionMm, rotationDeg: command.rotationDeg }, fixedUprightIds)
+  else {
+    props[0].positionMm = cloneJson(command.positionMm)
+    if (command.rotationDeg && fixedUprightIds?.has(command.id)) throw new Error('近侧视物件须保持零旋转。')
+    if (command.rotationDeg !== undefined) props[0].rotationDeg = command.rotationDeg
+  }
+  if (roomId && command.supportRef.kind !== 'room') {
+    const room = scene.rooms[roomId]
+    if (room.supportRef.kind !== command.supportRef.kind || room.supportRef.id !== command.supportRef.id
+      || !props.some(prop => polygonsOverlap(propFootprint(prop), roomPoints(scene, room)))) throw new Error('门槛上的家具须与归属房间相交并落在同一地面。')
+  }
+  const privateDestination = !visibility.surface(command.supportRef) || !!roomId && !visibility.room(roomId)
+  if (group && privateDestination) group.visibility = 'gm'
+  for (const prop of props) {
+    prop.supportRef = cloneJson(command.supportRef)
+    if (roomId) prop.roomId = roomId
+    else delete prop.roomId
+    if (privateIds.has(prop.id) || privateDestination) prop.visibility = 'gm'
+  }
 }
 
 function unpackPrefab(scene: SceneDocument, group: PrefabInstance) {
@@ -541,6 +597,7 @@ export function applyCommandDraft(next: SceneDocument, commands: readonly BaseSc
         break
       }
       case 'transformPrefab': transformPrefab(next, command, fixedUprightPropIds); break
+      case 'moveRoomFurniture': moveRoomFurniture(next, command, fixedUprightPropIds); break
       case 'unpackPrefab': unpackPrefab(next, requireEntity(next.prefabInstances, command.id, '组合')); break
       case 'setPropBlocking': {
         const prop = requireEntity(next.props, command.id, '物件')

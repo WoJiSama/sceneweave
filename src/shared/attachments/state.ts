@@ -6,20 +6,21 @@ import { geometryIdentityIds } from '../commands/domain.js'
 import { captureCarvedRockHost, followCarvedStrip } from '../carved-rock/index.js'
 import { assertCommandBudget, MANUAL_TRANSACTION_BUDGET } from '../budget/command-budget.js'
 import { emptyBudgetUsage } from '../budget/task-budget.js'
-import type { EmbedAttachment, PropAttachment } from './contracts.js'
+import type { AttachmentSurface, EmbedAttachment, PropAttachment } from './contracts.js'
 import { attachmentHash, type AttachmentScene } from './topology.js'
 import { attachmentLocalPoint, normalizeAttachmentAngle, propAttachmentMaterialized, propContactGeometryHash, surfaceGeometry, wallAttachmentFrame } from './contact.js'
 import { attachmentDependencyIds, assertAttachmentLocks, followingAttachmentProps } from './dependencies.js'
 import { readAttachmentProofs, validateAttachmentProofs } from './identity.js'
-import { placePropAtAttachmentAnchor } from './commands.js'
+import { attachmentAnchorPose, placePropAtAttachmentAnchor } from './commands.js'
 import { embedMaterialized } from './validation.js'
+import { createPublicVisibility } from '../geometry/visibility.js'
 
 const same = (a: unknown, b: unknown) => attachmentHash(a ?? null) === attachmentHash(b ?? null)
 const failIssues = (issues: { message: string }[]) => { if (issues.length) throw new Error(issues.map(issue => issue.message).join('；')) }
 export interface AttachmentMutationResult { dependencyIds: string[]; affectedIds: string[]; commandCost: number }
 /** Internal native follow. Identity is checked against the pre-native state;
  * after-native topology is observed by its real owner before new-proof sync. */
-export function followAttachments(before: AttachmentScene, after: AttachmentScene, identity?: HistoryIdentity): AttachmentMutationResult {
+export function followAttachments(before: AttachmentScene, after: AttachmentScene, identity?: HistoryIdentity, movingFurniture = false): AttachmentMutationResult {
   if (identity) failIssues(validateAttachmentProofs(before, identity))
   const explicitlyChangedProps = new Set(Object.values(after.attachments ?? {}).flatMap(row => {
     if (row.mode === 'embed') return []
@@ -27,13 +28,16 @@ export function followAttachments(before: AttachmentScene, after: AttachmentScen
     return !previous || !current || propContactGeometryHash(previous) !== propContactGeometryHash(current) ? [row.child.id] : []
   }))
   const carriedPropIds = new Set<string>()
+  const previousVisibility = movingFurniture ? createPublicVisibility(before) : undefined
+  const roomChanged = (owner: AttachmentSurface['owner']) => movingFurniture && owner.kind === 'prop'
+    && before.props[owner.id]?.roomId !== after.props[owner.id]?.roomId
   const movedOwners = new Set<string>()
   for (const row of Object.values(after.attachments ?? {})) {
     if (row.mode === 'embed' || row.follow !== 'follow') continue
     const surface = after.attachmentSurfaces?.[row.surfaceId]
     const previous = before.attachmentSurfaces?.[row.surfaceId]
     if (!previous || !surface || movedOwners.has(surface.owner.id) || !same(previous, surface) || explicitlyChangedProps.has(row.child.id)) continue
-    if (!same(surfaceGeometry(before, previous), surfaceGeometry(after, surface))) {
+    if (roomChanged(surface.owner) || !same(surfaceGeometry(before, previous), surfaceGeometry(after, surface))) {
       movedOwners.add(surface.owner.id)
       for (const child of followingAttachmentProps(before, surface.owner.id)) {
         if (!explicitlyChangedProps.has(child)) carriedPropIds.add(child)
@@ -87,7 +91,7 @@ export function followAttachments(before: AttachmentScene, after: AttachmentScen
         if (!previousSurface || !surface || prior.mode === 'embed') throw new Error('附着面已删除，不能暗脱落。')
         const previousChild = before.props[prior.child.id], child = after.props[row.child.id]
         if (!previousChild || !child) throw new Error('删除附着child前须明确解除关系。')
-        const hostChanged = !same(surfaceGeometry(before, previousSurface), surfaceGeometry(after, surface))
+        const hostChanged = roomChanged(surface.owner) || !same(surfaceGeometry(before, previousSurface), surfaceGeometry(after, surface))
         const childChanged = propContactGeometryHash(previousChild) !== propContactGeometryHash(child)
         if (hostChanged || childChanged) {
           // A locked attached item's placement is local. Only a passive
@@ -95,6 +99,13 @@ export function followAttachments(before: AttachmentScene, after: AttachmentScen
           const carried = hostChanged && !childChanged ? carriedPropIds : undefined
           assertAttachmentLocks(before, deps, carried); assertAttachmentLocks(after, deps, carried)
           if (row.follow === 'fixed' && hostChanged) throw new Error('fixed附着依赖的宿主实际面已改变，须明确解绑或重绑。')
+          if (previousVisibility && hostChanged && surface.owner.kind === 'prop') {
+            const host = after.props[surface.owner.id]
+            child.supportRef = cloneJson(host.supportRef)
+            if (host.roomId === undefined) delete child.roomId
+            else child.roomId = host.roomId
+            if (!previousVisibility.prop(previousChild) || host.visibility === 'gm') child.visibility = 'gm'
+          }
           if (childChanged && !hostChanged) {
             // An explicit in-face child edit becomes a local manual anchor;
             // it never detaches implicitly and never changes root ownership.
@@ -109,8 +120,8 @@ export function followAttachments(before: AttachmentScene, after: AttachmentScen
             } else throw new Error('附着不支持该局部编辑。')
             row.anchorState = 'manual'
           } else if (hostChanged && childChanged) {
-            const actual = cloneJson(child); placePropAtAttachmentAnchor(after, row)
-            if (!same(actual.positionMm, child.positionMm) || actual.rotationDeg !== child.rotationDeg) throw new Error('宿主与child同时变化且不符合原局部锚点，不能猜测人工意图。')
+            const expected = attachmentAnchorPose(after, row)
+            if (!same(expected.positionMm, child.positionMm) || expected.rotationDeg !== child.rotationDeg) throw new Error('宿主与child同时变化且不符合原局部锚点，不能猜测人工意图。')
           } else placePropAtAttachmentAnchor(after, row)
           row.materialized = propAttachmentMaterialized(after, row)
           affected.add(row.id)

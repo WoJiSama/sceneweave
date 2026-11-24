@@ -3,6 +3,8 @@ import Dexie from 'dexie'
 import { afterEach, describe, expect, it } from 'vitest'
 import { prepareSceneTemplate, loadSceneTemplate, inspectSceneTemplate } from '../../shared/scene-templates/content.js'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
+import { applyCompositionDraftCommands } from '../../shared/appearance/commands.js'
+import { resolvePropContact } from '../../shared/attachments/contact.js'
 import { canonicalJson } from '../../shared/validation/json.js'
 import { projectScene } from '../../shared/projection/projection.js'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
@@ -33,6 +35,71 @@ function source() {
 const placement = { floorId: 'blank-floor', layerId: 'layer-default-0', supportRef: { kind: 'floor' as const, id: 'blank-floor' }, anchorMm: { x: 12000, y: 3000 }, quarterTurns: 1 as const }
 
 describe('cross-project complete room templates', () => {
+  it('copies tabletop support with fresh proofs through a rotated placement, cold storage and a subsequent move', async () => {
+    const original = source(), doc = original.project.document
+    Object.assign(doc.props.item, { footprintMm: { width: 1200, height: 1000 }, footprintOffsetMm: { x: 0, y: 0 }, rotationDeg: 0 })
+    Object.assign(doc.props.other, { positionMm: { x: 4700, y: 4500 }, footprintMm: { width: 240, height: 200 }, footprintOffsetMm: { x: 0, y: 0 },
+      blocksMovement: false, supportRef: { kind: 'room', id: 'room' }, roomId: 'room', visibility: 'gm' })
+    doc.regions.mask = { id: 'mask', floorId: 'blank-floor', editLocked: false, boundaryMm: [{ x: 3500, y: 3500 }, { x: 5500, y: 3500 }, { x: 5500, y: 5500 }, { x: 3500, y: 5500 }], kind: 'manualMask', blocksMovement: false, movementCostMultiplier: 1, visibility: 'gm' }
+    doc.entityLayers.mask = doc.entityLayers.room
+    Object.assign(original.project, applyCompositionDraftCommands(createCompositionContent(doc, runtime), [
+      { type: 'addAttachmentSurface', id: 'tabletop', owner: { kind: 'prop', id: 'item' }, capabilities: ['support'],
+        feature: { kind: 'propTop', heightLocalMm: 800, polygonLocalMm: [{ x: -500, y: -400 }, { x: 500, y: -400 }, { x: 500, y: 400 }, { x: -500, y: 400 }] } },
+      { type: 'bindPropAttachment', id: 'lamp-support', childId: 'other', surfaceId: 'tabletop', mode: 'support', follow: 'follow', anchorState: 'manual',
+        anchor: { kind: 'horizontal', localMm: { x: 200, y: 0 }, heightOffsetMm: 0, rotationOffsetDeg: 0 } },
+    ], runtime))
+    const request = { name: '带桌灯的书房', roomIds: ['room'], maskIds: ['mask'] }, before = canonicalJson(original.project)
+    expect(inspectSceneTemplate(original.project.document, request)).toMatchObject({ attachmentSurfaceIds: ['tabletop'], attachmentIds: ['lamp-support'] })
+    const entry = await prepareSceneTemplate(original, request, options), capsule = await loadSceneTemplate(entry.bytes, validation)
+    const capturedLink = Object.values(capsule.project.document.attachments!)[0]
+    expect(capturedLink.id).not.toBe('lamp-support')
+    expect(capturedLink.proofs.lineageId).toBe(capsule.project.historyIdentity.lineageId)
+    expect(canonicalJson(original.project)).toBe(before)
+
+    const repository = new ProjectRepository({ name: `scene-template-attachment-${crypto.randomUUID()}`, ...options }), workspace = new Workspace(repository, options)
+    opened.push({ repository, workspace }); await workspace.adoptNew(await fromBundle(fixture(), validation))
+    const baseline = workspace.getState().project!
+    const candidate = await workspace.previewSceneTemplate(entry.bytes, { ...placement, layerId: baseline.document.entityLayers.item })
+    await workspace.adoptPreview(candidate.preview)
+    const placed = workspace.getState().project!, link = Object.values(placed.document.attachments!)[0], surface = placed.document.attachmentSurfaces![link.mode === 'embed' ? '' : link.surfaceId]
+    const host = placed.document.props[surface.owner.id], child = placed.document.props[link.child.id]
+    expect(candidate.addedIds).toEqual(expect.arrayContaining([surface.id, link.id]))
+    expect(link.id).not.toBe(capturedLink.id)
+    expect(link.proofs.child.birthToken).toBe(placed.historyIdentity.propTokens[child.id])
+    expect(link.proofs.surfaces[0].birthToken).toBe(placed.historyIdentity.structureTokens![surface.id].token)
+    expect(surface.proofs.owner.birthToken).toBe(placed.historyIdentity.propTokens[host.id])
+    expect(child.positionMm).toEqual({ x: host.positionMm.x, y: host.positionMm.y + 200 })
+    expect(resolvePropContact(placed.document, child.id)).toMatchObject({ contactElevationMm: 800, actualSurfaceId: surface.id })
+    expect(canonicalJson(projectScene(placed.document, 'player'))).not.toContain(child.id)
+    workspace.undo(); expect(workspace.getState().project!.document.attachments).toBeUndefined()
+    workspace.redo(); await workspace.flush()
+    const cold = (await repository.load(placed.document.sceneId))!.project
+    expect(cold.document.attachments).toEqual(workspace.getState().project!.document.attachments)
+    expect(cold.document.attachments![link.id].proofs.surfaces[0].topologyToken).toBe(cold.historyIdentity.structureTokens![surface.id].topologyToken)
+    expect(cold.document.attachments![link.id].anchor).toEqual(link.anchor)
+
+    await workspace.execute([{ type: 'updateProp', id: host.id, changes: { positionMm: { x: host.positionMm.x - 350, y: host.positionMm.y }, rotationDeg: 180 } }])
+    const moved = workspace.getState().project!.document
+    expect(moved.props[child.id].positionMm).toEqual({ x: host.positionMm.x - 550, y: host.positionMm.y })
+    expect(resolvePropContact(moved, child.id).contactElevationMm).toBe(800)
+  })
+
+  it('extracts assigned room props, reserving footprint selection for floor props already stored in older templates', async () => {
+    const input = source(), scene = input.project.document
+    scene.props.other.positionMm = { x: 6000, y: 6000 }
+    const request = { name: 'Room contents', roomIds: ['room'] }
+    expect(inspectSceneTemplate(scene, request).propIds).toEqual(['item'])
+    const entry = await prepareSceneTemplate(input, request, options), stored = await loadSceneTemplate(entry.bytes, validation)
+    expect(Object.values(stored.project.document.props)).toHaveLength(1)
+    const legacy = structuredClone(stored.project), doc = legacy.document, prop = Object.values(doc.props)[0]
+    delete prop.roomId
+    prop.supportRef = { kind: 'floor', id: prop.floorId }
+    const reopen = async () => loadSceneTemplate(await exportProject({ project: legacy, resources: stored.resources }, validation), validation)
+    expect((await reopen()).project.document.props[prop.id]).toEqual(prop)
+    prop.positionMm = { x: 1000, y: 1000 }
+    await expect(reopen()).rejects.toThrow(/范围外/)
+  })
+
   it('keeps actual geometry/openings/current furniture, excludes unrelated metadata, and supports one cancel/adopt/undo/redo/save/cold-read transaction', async () => {
     const original = source(), before = canonicalJson(original.project)
     const entry = await prepareSceneTemplate(original, { name: '客房', roomIds: ['room'], noteIds: ['clue'] }, options)

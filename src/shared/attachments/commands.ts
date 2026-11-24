@@ -3,6 +3,8 @@ import { id } from '../validation/primitives.js'
 import type { HistoryIdentity } from '../model/history.js'
 import type { PreparationContext } from '../ports/runtime.js'
 import { geometryIdentityIds } from '../commands/domain.js'
+import { furnitureRoom } from '../geometry/furniture-room.js'
+import { createPublicVisibility } from '../geometry/visibility.js'
 import { attachmentAnchorSchema, attachmentSurfaceIntentSchema, type AttachmentSurface, type PropAttachment } from './contracts.js'
 import { attachmentOwnerProof, readAttachmentProofs, readAttachmentSurfaceProofs } from './identity.js'
 import { attachmentDependencyIds, assertAttachmentLocks } from './dependencies.js'
@@ -23,20 +25,24 @@ export const isAttachmentCommand = (command: { type: string }): command is Attac
 function fresh(scene: AttachmentScene, identity: HistoryIdentity, id: string): void {
   if (geometryIdentityIds(scene).has(id) || Object.hasOwn(scene.userLayers, id) || Object.values(identity).some(v => v && typeof v === 'object' && Object.hasOwn(v, id))) throw new Error('附着ID已占用或退休，不能复用。')
 }
-export function placePropAtAttachmentAnchor(scene: AttachmentScene, row: PropAttachment): void {
+export function attachmentAnchorPose(scene: AttachmentScene, row: PropAttachment) {
   const surface = scene.attachmentSurfaces?.[row.surfaceId], child = scene.props[row.child.id]
   if (!surface || !child) throw new Error('附着宿主面或child已删除，不能暗脱落。')
   if (row.anchor.kind === 'horizontal' && surface.owner.kind === 'prop') {
     const host = scene.props[surface.owner.id]
     if (!host) throw new Error('承托宿主已删除。')
     const expected = transformAttachmentPoint(row.anchor.localMm, host.positionMm, host.rotationDeg)
-    child.positionMm = { x: roundAttachmentMm(expected.x), y: roundAttachmentMm(expected.y) }
-    child.rotationDeg = normalizeAttachmentAngle(host.rotationDeg + row.anchor.rotationOffsetDeg)
+    return { positionMm: { x: roundAttachmentMm(expected.x), y: roundAttachmentMm(expected.y) },
+      rotationDeg: normalizeAttachmentAngle(host.rotationDeg + row.anchor.rotationOffsetDeg) }
   } else if (row.anchor.kind === 'vertical') {
     const frame = wallAttachmentFrame(scene, surface), anchor = row.anchor, n = frame.wall.thicknessMm / 2 + anchor.normalOffsetMm
-    child.positionMm = { x: roundAttachmentMm(frame.a.x + frame.u.x * anchor.alongMm + frame.n.x * n), y: roundAttachmentMm(frame.a.y + frame.u.y * anchor.alongMm + frame.n.y * n) }
-    child.rotationDeg = normalizeAttachmentAngle(frame.angleDeg + anchor.rotationOffsetDeg)
+    return { positionMm: { x: roundAttachmentMm(frame.a.x + frame.u.x * anchor.alongMm + frame.n.x * n), y: roundAttachmentMm(frame.a.y + frame.u.y * anchor.alongMm + frame.n.y * n) },
+      rotationDeg: normalizeAttachmentAngle(frame.angleDeg + anchor.rotationOffsetDeg) }
   } else throw new Error('附着模式与锚点种类不相容。')
+}
+
+export function placePropAtAttachmentAnchor(scene: AttachmentScene, row: PropAttachment): void {
+  Object.assign(scene.props[row.child.id], attachmentAnchorPose(scene, row))
 }
 
 /** The selected prop owns its surfaces. Other props survive and keep their
@@ -95,9 +101,21 @@ export function applyAttachmentCommand(scene: AttachmentScene, raw: AttachmentCo
   const row = { id: command.id, mode: command.mode, child: { kind: 'prop' as const, id: child.id }, surfaceId: surface.id, anchor: command.anchor,
     follow: command.follow, managedScope: 'placement' as const, anchorState: command.anchorState } as PropAttachment
   const dependencies = attachmentDependencyIds(scene, row); assertAttachmentLocks(scene, dependencies)
+  const host = row.mode === 'support' && row.follow === 'follow' && surface.owner.kind === 'prop' ? scene.props[surface.owner.id] : undefined
+  const changeRoom = host && furnitureRoom(host) !== furnitureRoom(child)
+  const keepPrivate = changeRoom && !createPublicVisibility(scene).prop(child)
   placePropAtAttachmentAnchor(scene, row)
   ;(scene.attachments ??= {})[row.id] = row
+  // Check the original child's audience and physical root before the new
+  // relationship can grant it the host's room (e.g. a table at a doorway).
   row.materialized = propAttachmentMaterialized(scene, row)
+  if (changeRoom) {
+    const roomId = furnitureRoom(host)
+    if (roomId) child.roomId = roomId
+    else delete child.roomId
+    if (keepPrivate) child.visibility = 'gm'
+    row.materialized = propAttachmentMaterialized(scene, row)
+  }
   row.proofs = readAttachmentProofs(scene, identity, row)
   return { commandCost: 2, dependencyIds: dependencies, affectedIds: [row.id, child.id] }
 }

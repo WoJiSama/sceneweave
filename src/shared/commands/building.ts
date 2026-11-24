@@ -4,6 +4,7 @@ import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { terrainCommandCost } from '../terrain-generation/cost.js'
 import { z } from 'zod'
 import { roomFurnishingPlanSchema } from '../furnishing/contracts.js'
+import { roomFurnitureIds } from '../furnishing/room-members.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { polygonsOverlap, roomPoints } from '../geometry/geometry.js'
 import type { Editable, GroundSurfaceRef, Opening, PointMm, Room, SurfaceStyle, VersionRef, Wall } from '../model/scene.js'
@@ -142,11 +143,13 @@ export const splitRoomWallId = (splitId: string, index: number) => `${splitId}:w
 export function buildingDependants(scene: SceneDocument, wallIds: readonly string[], additionalIds: readonly string[] = []): string[] {
   const primary = wallIds.flatMap(id => own(scene.walls, id) ?? []), endpoints = new Set(primary.flatMap(wall => [wall.startVertexId, wall.endVertexId]))
   const walls = Object.values(scene.walls).filter(wall => endpoints.has(wall.startVertexId) || endpoints.has(wall.endVertexId))
-  const relatedWallIds = new Set(walls.map(wall => wall.id)), rooms = Object.values(scene.rooms).filter(room => walls.some(wall => roomOwnsWall(room, wall)) || additionalIds.includes(room.id))
+  const relatedWallIds = new Set(walls.map(wall => wall.id)), relatedEdges = new Set(walls.map(wall => edgeKey(wall.startVertexId, wall.endVertexId)))
+  const seeds = new Set(additionalIds), rooms = Object.values(scene.rooms).filter(room => seeds.has(room.id) ||
+    room.boundaryVertexIds.some((id, i, ids) => relatedEdges.has(edgeKey(id, ids[(i + 1) % ids.length]))))
   const roomIds = new Set(rooms.map(room => room.id)), openings = Object.values(scene.openings).filter(opening => relatedWallIds.has(opening.wallId)), openingIds = new Set(openings.map(opening => opening.id))
   const ids = new Set([...additionalIds, ...endpoints, ...walls.map(wall => wall.id), ...rooms.map(room => room.id), ...openings.map(opening => opening.id)])
   for (const room of rooms) if (room.supportRef.kind === 'terrainArea') ids.add(room.supportRef.id)
-  for (const prop of Object.values(scene.props)) if (prop.supportRef.kind === 'room' && roomIds.has(prop.supportRef.id) || prop.roomId !== undefined && roomIds.has(prop.roomId)) ids.add(prop.id)
+  for (const id of roomFurnitureIds(scene, roomIds)) ids.add(id)
   for (const path of Object.values(scene.paths)) if (path.supportRefs.some(ref => ref.kind === 'room' && roomIds.has(ref.id))) ids.add(path.id)
   for (const connection of Object.values(scene.terrainConnections)) if ([connection.from, connection.to].some(end => end.surfaceRef.kind === 'room' && roomIds.has(end.surfaceRef.id)) || connection.openingId !== null && openingIds.has(connection.openingId)) ids.add(connection.id)
   for (const row of Object.values(decorationRecords(scene))) if (row.supportRef.kind === 'room' && roomIds.has(row.supportRef.id)) ids.add(row.id)
@@ -260,27 +263,44 @@ function buildingComponent(scene: SceneDocument, seedId: string): BuildingCompon
   if (!seedRoom && !seedWall) throw new Error(`建筑种子不存在：${seedId}。`)
   const wallIds = new Set<string>(seedRoom ? Object.values(scene.walls).filter(wall => roomOwnsWall(seedRoom, wall)).map(wall => wall.id) : [seedWall!.id])
   if (!wallIds.size) throw new Error(`房间 ${seedId} 没有可变换墙段。`)
+  const adjacentWalls = new Map<string, string[]>()
+  for (const wall of Object.values(scene.walls)) for (const id of [wall.startVertexId, wall.endVertexId]) {
+    const adjacent = adjacentWalls.get(id)
+    if (adjacent) adjacent.push(wall.id)
+    else adjacentWalls.set(id, [wall.id])
+  }
   const vertexIds = new Set<string>(), queue = [...wallIds]
   for (let index = 0; index < queue.length; index++) {
     const wall = requireEntity(scene.walls, queue[index], '墙')
     for (const vertexId of [wall.startVertexId, wall.endVertexId]) {
+      if (vertexIds.has(vertexId)) continue
       vertexIds.add(vertexId)
-      for (const adjacent of Object.values(scene.walls)) if (!wallIds.has(adjacent.id) && (adjacent.startVertexId === vertexId || adjacent.endVertexId === vertexId)) {
-        wallIds.add(adjacent.id); queue.push(adjacent.id)
+      for (const id of adjacentWalls.get(vertexId) ?? []) if (!wallIds.has(id)) {
+        wallIds.add(id); queue.push(id)
       }
     }
   }
-  const roomIds = new Set(Object.values(scene.rooms).filter(room => [...wallIds].some(id => roomOwnsWall(room, scene.walls[id]))).map(room => room.id))
+  const boundaries = new Set([...wallIds].map(id => edgeKey(scene.walls[id].startVertexId, scene.walls[id].endVertexId)))
+  const roomIds = new Set(Object.values(scene.rooms).filter(room => room.boundaryVertexIds.some((id, i, ids) =>
+    boundaries.has(edgeKey(id, ids[(i + 1) % ids.length])))).map(room => room.id))
   return { wallIds, vertexIds, roomIds }
 }
 
 /** Complete connected building and its moving dependants. Terrain/Floor support
  * stays external and is checked by the existing transform and full validator. */
-export function buildingAggregateMembers(scene: SceneDocument, seedId: string): AggregateEntityRef[] {
+function buildingMoveScope(scene: SceneDocument, seedId: string) {
   const component = buildingComponent(scene, seedId)
+  return { component, closure: buildingDependants(scene, [...component.wallIds], [...component.roomIds]) }
+}
+
+export function buildingAggregateMembers(scene: SceneDocument, seedId: string): AggregateEntityRef[] {
+  return movingMembers(scene, buildingMoveScope(scene, seedId))
+}
+
+function movingMembers(scene: SceneDocument, { component, closure }: ReturnType<typeof buildingMoveScope>): AggregateEntityRef[] {
   if (!component.roomIds.size) throw new Error('建筑组须包含完整房间，独立墙暂不支持整栋操作。')
   const ids = new Set([...component.vertexIds, ...component.wallIds, ...component.roomIds,
-    ...buildingDependants(scene, [...component.wallIds], [...component.roomIds])])
+    ...closure])
   const kinds = ['vertex', 'room', 'wall', 'opening', 'prop', 'path', 'terrainConnection', 'prefabInstance', 'scatterGroup', 'decoration', 'decorationCluster'] as const
   const members: AggregateEntityRef[] = kinds.flatMap(kind => [...ids].filter(id => Object.hasOwn(scene[AGGREGATE_ENTITY_COLLECTIONS[kind]] ?? {}, id))
     .sort().map(id => ({ kind, id })))
@@ -298,7 +318,7 @@ export function buildingAggregateMembers(scene: SceneDocument, seedId: string): 
 
 /** Re-evaluate ownership on every request; a selected group is not permission
  * to move shared geometry or silently absorb a new external dependant. */
-export function inspectAggregateBuilding(scene: SceneDocument, groupId: string): { seedId: string; members: AggregateEntityRef[]; groupIds: string[]; frame: AggregateFrame } {
+function aggregateBuildingScope(scene: SceneDocument, groupId: string) {
   const state = scene.aggregateCoordinates, root = state?.groups[groupId]
   if (!state || state.encoding !== 'world' || !root) throw new Error('请选择现存建筑组。')
   const frames = aggregateWorldFrames(state), groupIds = new Set([groupId])
@@ -311,24 +331,30 @@ export function inspectAggregateBuilding(scene: SceneDocument, groupId: string):
   const members = [...groupIds].flatMap(id => state.groups[id].members)
   const seedId = members.find(ref => ref.kind === 'room')?.id
   if (!seedId) throw new Error('所选组没有完整建筑房间。')
-  const expected = buildingAggregateMembers(scene, seedId), key = (ref: AggregateEntityRef) => `${ref.kind}:${ref.id}`
+  const move = buildingMoveScope(scene, seedId)
+  const expected = movingMembers(scene, move), key = (ref: AggregateEntityRef) => `${ref.kind}:${ref.id}`
   const owned = new Set(members.map(key)), needed = new Set(expected.map(key))
   if (owned.size !== members.length || owned.size !== needed.size || expected.some(ref => !owned.has(key(ref)))) {
     throw new Error('建筑组须完整拥有连通建筑、门窗及随动成员；存在跨组共享结构、新依赖或额外成员，请先核对归属。')
   }
-  return { seedId, members: cloneJson(expected), groupIds: [...groupIds].sort(), frame: frames.get(groupId)! }
+  return { move, seedId, members: expected, groupIds: [...groupIds].sort(), frame: frames.get(groupId)!, frames }
+}
+
+export function inspectAggregateBuilding(scene: SceneDocument, groupId: string) {
+  const { seedId, members, groupIds, frame } = aggregateBuildingScope(scene, groupId)
+  return { seedId, members, groupIds, frame }
 }
 
 function transformAggregateBuilding(scene: SceneDocument, command: Extract<BuildingCommand, { type: 'transformAggregateBuilding' }>, affected: Set<string>, ignoreLocks: boolean, fixedUprightIds: ReadonlySet<string>): void {
-  const scope = inspectAggregateBuilding(scene, command.id), state = scene.aggregateCoordinates!
+  const scope = aggregateBuildingScope(scene, command.id), state = scene.aggregateCoordinates!
   const lockIds = new Set(scope.groupIds)
   let ancestor = state.groups[command.id]
   while (ancestor.parentId !== null) { lockIds.add(ancestor.parentId); ancestor = state.groups[ancestor.parentId] }
   if ([...lockIds].some(id => state.groups[id].editLocked)) throw new OperationRejected('locked_dependency', '建筑组、子组或祖先组已锁定。')
   if (command.quarterTurns === 0 && command.offsetMm.x === 0 && command.offsetMm.y === 0) return
-  transformBuilding(scene, { ...command, type: 'transformBuilding', id: scope.seedId }, affected, ignoreLocks, fixedUprightIds)
+  transformBuilding(scene, { ...command, type: 'transformBuilding', id: scope.seedId }, affected, ignoreLocks, fixedUprightIds, scope.move)
   assertAggregateBuildingClearance(scene, scope.members)
-  const group = state.groups[command.id], frames = aggregateWorldFrames(state)
+  const group = state.groups[command.id], frames = scope.frames
   const worldFrame: AggregateFrame = { translationMm: transformPoint(scope.frame.translationMm, command.pivotMm, command.offsetMm, command.quarterTurns),
     quarterTurns: ((scope.frame.quarterTurns + command.quarterTurns) % 4) as AggregateFrame['quarterTurns'] }
   group.frame = reparentAggregateFrame(worldFrame, group.parentId === null ? WORLD_FRAME : frames.get(group.parentId)!)
@@ -341,7 +367,7 @@ function transformPoint(point: PointMm, pivot: PointMm, offset: PointMm, quarter
   if (!Number.isSafeInteger(result.x) || !Number.isSafeInteger(result.y)) throw new Error('整组变换超出安全整数毫米范围。')
   return result
 }
-const rotatedAngle = (angle: number, quarterTurns: number) => ((angle + quarterTurns * 90) % 360 + 360) % 360
+const rotatedAngle = (angle: number, quarterTurns: number) => quarterTurns === 0 ? angle : ((angle + quarterTurns * 90) % 360 + 360) % 360
 function transformBounds(bounds: { x: number; y: number; width: number; height: number }, pivot: PointMm, offset: PointMm, quarterTurns: number) {
   const points = [
     transformPoint({ x: bounds.x, y: bounds.y }, pivot, offset, quarterTurns),
@@ -366,7 +392,7 @@ function anchoredNotes(scene: SceneDocument, kind: 'room' | 'wall' | 'vertex', i
 }
 function roomSupportDependants(scene: SceneDocument, roomIds: ReadonlySet<string>): string[] {
   const result = new Set<string>()
-  for (const prop of Object.values(scene.props)) if (prop.supportRef.kind === 'room' && roomIds.has(prop.supportRef.id) || prop.roomId !== undefined && roomIds.has(prop.roomId)) result.add(prop.id)
+  for (const id of roomFurnitureIds(scene, roomIds)) result.add(id)
   for (const path of Object.values(scene.paths)) if (path.supportRefs.some(ref => ref.kind === 'room' && roomIds.has(ref.id))) result.add(path.id)
   for (const connection of Object.values(scene.terrainConnections)) if ([connection.from, connection.to].some(end => end.surfaceRef.kind === 'room' && roomIds.has(end.surfaceRef.id))) result.add(connection.id)
   for (const row of Object.values(decorationRecords(scene))) if (row.supportRef.kind === 'room' && roomIds.has(row.supportRef.id)) result.add(row.id)
@@ -383,10 +409,9 @@ export function buildingTransformSurfaceIds(scene: SceneDocument, seedId: string
   ])].sort()
 }
 
-function transformBuilding(scene: SceneDocument, command: Extract<BuildingCommand, { type: 'transformBuilding' }>, affected: Set<string>, ignoreLocks: boolean, fixedUprightIds: ReadonlySet<string>): void {
+function transformBuilding(scene: SceneDocument, command: Extract<BuildingCommand, { type: 'transformBuilding' }>, affected: Set<string>, ignoreLocks: boolean, fixedUprightIds: ReadonlySet<string>, scope?: ReturnType<typeof buildingMoveScope>): void {
   if (command.quarterTurns === 0 && command.offsetMm.x === 0 && command.offsetMm.y === 0) return
-  const component = buildingComponent(scene, command.id), roomIds = component.roomIds
-  const closure = buildingDependants(scene, [...component.wallIds], [...roomIds])
+  const { component, closure } = scope ?? buildingMoveScope(scene, command.id), roomIds = component.roomIds
   for (const id of closure) affected.add(id)
   const movedPaths = new Set(closure.filter(id => own(scene.paths, id))), supportIds = new Set<string>(), issues: string[] = []
   for (const id of closure) {
@@ -452,6 +477,10 @@ function transformBuilding(scene: SceneDocument, command: Extract<BuildingComman
     const path = own(scene.paths, id)
     if (path) {
       path.centerlineMm = path.centerlineMm.map(point => transformPoint(point, command.pivotMm, command.offsetMm, command.quarterTurns))
+      if (path.automaticRoute) path.automaticRoute.fixedPointsMm = path.automaticRoute.fixedPointsMm.map(point => transformPoint(point, command.pivotMm, command.offsetMm, command.quarterTurns))
+      if (path.automaticRoute?.algorithm === 'terrain-road3') for (const landing of path.automaticRoute.landings ?? []) {
+        landing.pointMm = transformPoint(landing.pointMm, command.pivotMm, command.offsetMm, command.quarterTurns)
+      }
       transformSurfaceStyle(path.surfaceStyle, command.pivotMm, command.offsetMm, command.quarterTurns)
     }
     const connection = own(scene.terrainConnections, id)
@@ -886,13 +915,15 @@ export function previewBuildingCommands(scene: SceneDocument, commands: readonly
       mutate(next, command, step, true, fixedUprightIds)
       disableLostVisualLights(before, next)
       refreshScene5TransitionsAfterPhysicalEdit(before, next)
-      if (translating) for (const id of followAttachments(before, next).dependencyIds) step.add(id)
+      const movesAttachments = translating || command.type === 'transformBuilding' || command.type === 'transformAggregateBuilding' || command.type === 'moveRoom'
+      const attachmentImpact = movesAttachments && Object.keys(before.attachments ?? {}).length ? followAttachments(before, next) : undefined
+      for (const id of attachmentImpact?.dependencyIds ?? []) step.add(id)
       const physicalCost = diffImpact(before, next, step).commandCost
       for (const id of step) affected.add(id)
       for (const id of buildingLockBlockers(before, step, carried)) lockedIds.add(id)
       detachChangedOutputs(before, next)
       const expanded = terrainCommandCost(before, next)
-      cost += physicalCost + expanded.total - expanded.items.physicalAndVisual
+      cost += physicalCost + expanded.total - expanded.items.physicalAndVisual + (attachmentImpact?.affectedIds.filter(id => before.attachments?.[id]).length ?? 0)
     }
     Object.assign(impact, diffImpact(source.document, next, affected), { commandCost: cost })
     const locked = [...lockedIds].sort()

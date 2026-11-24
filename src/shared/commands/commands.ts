@@ -1,4 +1,5 @@
 import { OperationRejected } from '../validation/operation-rejection.js'
+import { moveRoomFurnitureSchema } from '../geometry/furniture-room.js'
 import { floorCommandSchemas, isFloorCommand, applyFloorCommand, type FloorCommand } from '../floors/commands.js'
 import { waterCommandSchemas, isWaterCommand, applyWaterCommand, type WaterCommand } from '../ocean/commands.js'
 import { attachmentCommandSchemas, isAttachmentCommand, applyAttachmentCommand, followAttachments, type AttachmentCommand } from '../attachments/index.js'
@@ -15,6 +16,7 @@ import type { HistoryIdentity } from '../model/history.js'
 import { assertCommandBudget, commandSelectionLimit, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetMetadata, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { aggregateRepresentationCommandSchemas, applyAggregateRepresentationCommand, isAggregateRepresentationCommand, type AggregateRepresentationCommand } from '../aggregates/commands.js'
 import { reconcileAggregateMembers } from '../aggregates/state.js'
+import { syncAggregatePlacements } from '../aggregates/placement-members.js'
 import { applyNaturalAggregateCommand, isNaturalAggregateCommand, naturalAggregateCommandSchema, type NaturalAggregateCommand } from '../aggregates/natural-transform.js'
 import { detachChangedOutputs } from '../terrain-generation/integrity.js'
 import { pauseChangedCompositions } from '../terrain-generation/composition-lifecycle.js'
@@ -173,6 +175,7 @@ function sceneSchemaForBudget(budget?: CommandBudgetProfile): z.ZodType<SceneCom
     z.object({ type: z.literal('detachScatterMember'), groupId: id, propId: id }).strict(),
     z.object({ type: z.literal('setEditLock'), kind: z.enum(['vertex', 'room', 'wall', 'opening', 'note', 'region', 'prop', 'prefabInstance', 'scatterGroup', 'terrainArea', 'terrainEdge', 'terrainConnection', 'path', 'decoration', 'decorationCluster', 'surfaceRule', 'pathAttachment']), id, locked: z.boolean() }).strict(),
     z.object({ type: z.literal('transformPrefab'), id, anchorMm: point.optional(), rotationDeg: angle.optional() }).strict(),
+    moveRoomFurnitureSchema,
     z.object({ type: z.literal('unpackPrefab'), id }).strict(),
     z.object({ type: z.literal('updateProp'), id, changes: z.object({ positionMm: point.optional(), rotationDeg: angle.optional() }).strict() }).strict(),
     z.object({ type: z.literal('setPropBlocking'), id, blocksMovement: z.boolean() }).strict(),
@@ -443,7 +446,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
       scope = undefined
     }
     if (Object.keys(beforeTerrain.attachments ?? {}).length || Object.keys(next.attachments ?? {}).length) {
-      const impact = followAttachments(beforeTerrain, next, options?.historyIdentity)
+      const impact = followAttachments(beforeTerrain, next, options?.historyIdentity, command.type === 'moveRoomFurniture' || command.type === 'bindPropAttachment')
       commandCost += impact.commandCost
       // Every changed child and read dependency participates in receipt scope.
       scope = undefined
@@ -468,6 +471,8 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
       if (!derivedHandled) commandCost += refreshNativeDerivedTransitions(beforeTerrain, next)
       detachChangedOutputs(beforeTerrain, next)
       pauseChangedCompositions(beforeTerrain, next)
+      const membershipCost = syncAggregatePlacements(beforeTerrain, next, scope?.affectedIds)
+      if (membershipCost) { commandCost += membershipCost; scope = undefined }
       reconcileAggregateMembers(beforeTerrain, next)
       const expanded = terrainCommandCost(beforeTerrain, next)
       // Charge no-ops together with every real per-command expansion. Comparing

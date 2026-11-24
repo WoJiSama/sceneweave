@@ -25,6 +25,8 @@ export function templateResourceUsage(...projects: ProjectData[]) {
 export function assessSceneTemplatePlacement(current: ProjectData, source: ProjectData): { profile: ManualTransactionBudget; estimate: CommandBudgetUsage } {
   const empty = cloneJson(source)
   for (const key of ['vertices', 'rooms', 'walls', 'openings', 'props', 'notes', 'regions', 'prefabInstances', 'paths', 'terrainAreas', 'assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const) empty.document[key] = {}
+  delete empty.document.attachmentSurfaces
+  delete empty.document.attachments
   empty.document.entityLayers = {}
   for (const key of Object.keys(empty.historyIdentity)) if (key.endsWith('Tokens')) Object.assign(empty.historyIdentity, { [key]: {} })
   for (const key of ['sources', 'variants', 'prefabAppearanceTemplates', 'presentations', 'propSources', 'surfaceSources', 'instanceAdjustments'] as const) empty.appearance[key] = {}

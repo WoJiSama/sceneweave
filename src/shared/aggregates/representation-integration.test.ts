@@ -33,6 +33,30 @@ const withDocument = (project: ProjectData, document: SceneDocument): ProjectDat
 })
 
 describe('aggregate representation through normal consumers', () => {
+  it('round-trips fractional headings in rotated frames and preserves the original v1 local numeric encoding', () => {
+    const scene = fixture().project.document, members = [{ kind: 'prop' as const, id: 'item' }]
+    for (const turns of [0, 1, 2, 3] as const) {
+      scene.aggregateCoordinates = { encoding: 'world', groups: { g: group('g', null, members, 0, 0, turns) } }
+      for (const angle of [0, Number.MIN_VALUE, .001, 2.678, Math.PI, 89.99999999999999, 90, 174.035, 359.99999999999994]) {
+        scene.props.item.rotationDeg = angle
+        expect(decodeSceneCoordinates(encodeSceneCoordinates(scene)).props.item.rotationDeg).toBe(angle)
+      }
+    }
+    scene.aggregateCoordinates!.groups.g.frame.quarterTurns = 1
+    scene.props.item.rotationDeg = Math.PI
+    const rotated = encodeSceneCoordinates(scene)
+    rotated.aggregateCoordinates!.groups.g.frame.quarterTurns = 2
+    expect(decodeSceneCoordinates(rotated).props.item.rotationDeg).toBe(90 + Math.PI)
+    Object.assign(rotated.props.item, { localRotationQuadrant: 4 })
+    expect(() => decodeSceneCoordinates(rotated)).toThrow(/象限/)
+    scene.props.item.rotationDeg = 0
+    const stored = encodeSceneCoordinates(scene)
+    stored.props.item.rotationDeg = 270.001 // A normalized local number written by the original v1 encoder.
+    const reopened = decodeSceneCoordinates(stored)
+    expect(reopened.props.item.rotationDeg).toBe(((270.001 + 90) % 360 + 360) % 360)
+    expect(encodeSceneCoordinates(reopened)).toEqual(stored)
+  })
+
   it('canonicalizes the complete at-rest representation without invoking caller accessors', () => {
     const base = fixture().project, project = withDocument(base, grouped(base.document))
     expect(canonicalProjectCoordinates(project)).toBe(canonicalJson(encodeProjectCoordinates(project)))

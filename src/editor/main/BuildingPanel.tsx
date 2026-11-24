@@ -32,10 +32,14 @@ export default function BuildingPanel({ scene, layerId, disabled, sketch, onSket
   const chooseTask = (next: BuildingTask) => { if (onTaskChange) onTaskChange(next); else setLocalTask(next) }
   const [shape, setShape] = useState<'rectangle' | 'polygon' | 'orthogonal'>('rectangle'), [purpose, setPurpose] = useState('新房间'), [thickness, setThickness] = useState(100)
   const [rect, setRect] = useState({ x: 1000, y: 1000, width: 4000, height: 3000 }), [boundary, setBoundary] = useState('1000,1000\n5000,1000\n5500,4000\n1000,4000')
-  const [support, setSupport] = useState(`floor:${scene.userLayers[layerId]?.floorId ?? Object.keys(scene.floors)[0]}`), [material, setMaterial] = useState(''), [error, setError] = useState<string | null>(null)
+  const [support, setSupport] = useState(`floor:${scene.userLayers[layerId]?.floorId ?? Object.keys(scene.floors)[0]}`), [selectedMaterial, setMaterial] = useState<string>(), [error, setError] = useState<string | null>(null)
   const [mask, setMask] = useState({ x: 1000, y: 1000, width: 3000, height: 3000 })
   const [noteText, setNoteText] = useState(''), [noteVisibility, setNoteVisibility] = useState<'public' | 'gm'>('gm'), [notePoint, setNotePoint] = useState({ x: 3000, y: 3000 })
   const floorId = scene.userLayers[layerId]?.floorId ?? Object.keys(scene.floors)[0]
+  const roomMaterials = Object.values(scene.materials).filter(m => m.applicableSurfaces.includes('room'))
+  const autoPlanks = scene.artStyle?.version === 2 && scene.artStyle.materialDrawing && !scene.floors[floorId]?.artwork
+    ? roomMaterials.find(m => m.origin.kind === 'original' && /磨损木板|灰橡窄木板/.test(m.name)) : undefined
+  const material = selectedMaterial === '' || selectedMaterial && scene.materials[selectedMaterial] ? selectedMaterial : autoPlanks?.id ?? ''
   const layerLocked = !scene.userLayers[layerId] || scene.userLayers[layerId].editLocked
   const orphanWalls = split ? [] : Object.values(scene.walls).filter(wall => !Object.values(scene.rooms).some(room => room.boundaryVertexIds.some((id, index, ids) => id === wall.startVertexId && ids[(index + 1) % ids.length] === wall.endVertexId || id === wall.endVertexId && ids[(index + 1) % ids.length] === wall.startVertexId)))
   const run = (commands: SceneCommand[], description: string) => { setError(null); onPreview(commands, description) }
@@ -82,7 +86,7 @@ export default function BuildingPanel({ scene, layerId, disabled, sketch, onSket
         {shape === 'orthogonal' && <p className="asset-muted">逐点按水平或垂直方向吸附。闭合时先垂直转离末段，再接回起点；需要时补一个直角拐点，重复或自交则拒绝。虚线包含待补的闭合边。</p>}
         {shape === 'rectangle' && <div className="workspace-form-pair">{(['width', 'height'] as const).map((key, index) => <NumberInput displayUnit={scene.units.display} key={key} label={['房间宽度', '房间高度'][index]} value={rect[key]} onCommit={value => { onSketch(null); setRect(current => ({ ...current, [key]: value })) }}/>)}</div>}
         <div className="workspace-form-pair"><NumberInput displayUnit="cm" label="新房间墙厚" value={thickness} onCommit={setThickness}/>
-        <label className="building-field">地板材质<select aria-label="新房间地板材质" value={material} onChange={event => setMaterial(event.target.value)}><option value="">基础地板</option>{Object.values(scene.materials).filter(m => m.applicableSurfaces.includes('room')).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+        <label className="building-field">地板材质<select aria-label="新房间地板材质" value={material} onChange={event => setMaterial(event.target.value)}><option value="">基础地板</option>{roomMaterials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
         </div><label className="building-field">房间建在哪个地面<select aria-label="房间支撑表面" value={support} onChange={event => setSupport(event.target.value)}>{Object.values(scene.floors).filter(floor => floor.id === floorId).map(floor => <option key={floor.id} value={`floor:${floor.id}`}>基础地面 · {floor.name}</option>)}{Object.values(scene.terrainAreas).filter(area => area.floorId === floorId).map((area, index) => <option key={area.id} value={`terrainArea:${area.id}`}>地形 {index + 1} · 高度 {formatDistanceMm(area.groundElevationMm, scene.units.display)}</option>)}</select></label>
       </fieldset>
       <div className="building-tools"><button type="button" className="secondary" aria-pressed={sketch?.kind !== 'ruler' && !!sketch} disabled={disabled || layerLocked} onClick={() => onSketch({ kind: shape, points: [], cursor: null })}><MousePointer2 size={14}/>在图上画房间</button>{!split && <button type="button" className="secondary" aria-pressed={sketch?.kind === 'ruler'} disabled={disabled} onClick={() => onSketch({ kind: 'ruler', points: [], cursor: null })}><Ruler size={14}/>量尺</button>}</div>

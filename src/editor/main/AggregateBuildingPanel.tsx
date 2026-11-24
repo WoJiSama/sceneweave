@@ -62,9 +62,6 @@ export default function AggregateBuildingPanel({ scene, disabled, onPreview, onS
   const previewTransform = () => {
     if (disabled || !current?.info || offset.x === 0 && offset.y === 0 && quarterTurns === 0) return
     try {
-      // Recheck the exact current group before entering the normal candidate
-      // pipeline. Preview remains responsible for locks and complete geometry.
-      inspectAggregateBuilding(scene, current.id)
       setError(null)
       onPreview([{ type: 'transformAggregateBuilding', id: current.id, offsetMm: { ...offset }, pivotMm: { ...pivot }, quarterTurns }],
         `整栋建筑变换 · ${current.name}`)

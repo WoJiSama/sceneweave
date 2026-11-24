@@ -1,5 +1,6 @@
 import { commandSelectionLimit, type CommandBudgetProfile } from '../../shared/budget/command-budget.js'
 import { scenePresentation } from '../../shared/appearance/presentation.js'
+import { followingAttachmentProps } from '../../shared/attachments/dependencies.js'
 import { roundMm as roundMmV2 } from '../../shared/commands/base.js'
 import { terrainInlayHash } from '../../shared/terrain-inlay/scene.js'
 import { orderedPropsV2 } from './projection'
@@ -45,7 +46,12 @@ export function selectionCommandsV2(scene: SceneDocumentV2, ids: readonly string
   const center: PointMm = points.length ? { x: (Math.min(...points.map(p => p.x)) + Math.max(...points.map(p => p.x))) / 2, y: (Math.min(...points.map(p => p.y)) + Math.max(...points.map(p => p.y))) / 2 } : { x: 0, y: 0 }
   const rotate = (p: PointMm): PointMm => { const a = angle * Math.PI / 180, x = p.x - center.x, y = p.y - center.y; return { x: roundMmV2(center.x + x * Math.cos(a) - y * Math.sin(a)), y: roundMmV2(center.y + x * Math.sin(a) + y * Math.cos(a)) } }
   // Recreate bottom-to-top order so copies preserve their relative overlap.
-  const orderedIds = action === 'copy' ? orderedPropsV2(ids.map(id => scene.props[id])).map(prop => prop.id) : ids
+  let orderedIds = action === 'copy' ? orderedPropsV2(ids.map(id => scene.props[id])).map(prop => prop.id) : ids
+  if ((action === 'move' || action === 'rotate') && ids.length > 1 && Object.keys(scene.attachments ?? {}).length) {
+    const hosts = ids.flatMap(id => scene.prefabInstances[id] ? Object.values(scene.prefabInstances[id].members).flatMap(member => member.propId ?? []) : [id])
+    const carried = followingAttachmentProps(scene, hosts)
+    orderedIds = orderedIds.filter(id => !carried.has(id))
+  }
   return orderedIds.map(id => {
     const prop = scene.props[id], group = scene.prefabInstances[id], decoration = scene.decorations?.[id], cluster = scene.decorationClusters?.[id]
     if (action === 'lock' || action === 'unlock') return { type: 'setEditLock', kind: decoration ? 'decoration' : cluster ? 'decorationCluster' : prop ? 'prop' : group ? 'prefabInstance' : scene.scatterGroups[id] ? 'scatterGroup' : scene.terrainAreas[id] ? 'terrainArea' : 'terrainConnection', id, locked: action === 'lock' }

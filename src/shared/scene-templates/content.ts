@@ -16,10 +16,16 @@ import type { CatalogSelector } from '../library/types.js'
 import { effectiveEditLocked } from '../commands/layers.js'
 import { geometryIdentityIds } from '../commands/domain.js'
 import { pointInPolygon, roomPoints, propFootprint, polygonsOverlap, terrainPoints } from '../geometry/geometry.js'
+import { roomFurnitureIds } from '../furnishing/room-members.js'
+import { syncAggregatePlacements } from '../aggregates/placement-members.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import { propPresentation, effectivePropShadow } from '../appearance/presentation.js'
 import { addPropAppearanceSource, addSurfaceAppearanceSource, freezeEffectivePropAppearance, freezeEffectiveSurfaceAppearance, surfaceStyle } from '../appearance/graph.js'
-import { advanceHistoryIdentity, createHistoryIdentity } from '../history/identity.js'
+import { createHistoryIdentity, createHistoryIdentityTrace } from '../history/identity.js'
+import { placePropAtAttachmentAnchor } from '../attachments/commands.js'
+import { propAttachmentMaterialized } from '../attachments/contact.js'
+import type { PropAttachment } from '../attachments/contracts.js'
+import { syncNewAttachmentProofs } from '../attachments/identity.js'
 import { assertAllFloorPlayerProjections } from '../projection/projection.js'
 import { wallEnvelopePolygons } from '../geometry/doorway-clearance.js'
 import { assertCommandBudget, measureCommandBudget, type CommandBudgetUsage, type ManualTransactionBudget } from '../budget/command-budget.js'
@@ -28,29 +34,10 @@ import { assessSceneTemplatePlacement, templateMetadata, templateResourceUsage }
 import { bridgeDeckGeometry } from '../path-assembly/layout.js'
 import { bridgeTemplateKeySchema } from '../path-assembly/contracts.js'
 import { assemblyMemberFingerprint, assemblyRouteFingerprint } from '../path-assembly/validation.js'
+import { SCENE_TEMPLATE_LIMITS, type SceneTemplateEntry } from './entry.js'
 
-export const SCENE_TEMPLATE_LIMITS = { bytes: 32 * 1024 * 1024, entries: 32, storedBytes: 128 * 1024 * 1024 } as const
-export interface SceneTemplateEntry { key: string; name: string; bytes: Uint8Array }
-/** Capture all caller metadata and native bytes before the first await. */
-export function captureSceneTemplateEntries(input: readonly SceneTemplateEntry[]): SceneTemplateEntry[] {
-  if (!Array.isArray(input) || Object.getPrototypeOf(input) !== Array.prototype || input.length > SCENE_TEMPLATE_LIMITS.entries || Reflect.ownKeys(input).length !== input.length + 1) throw new Error('场景模板数组超过保护值或含额外字段。')
-  const captured: SceneTemplateEntry[] = []; let total = 0
-  for (let index = 0; index < input.length; index++) {
-    const field = Object.getOwnPropertyDescriptor(input, String(index))
-    if (!field?.enumerable || !('value' in field)) throw new Error('场景模板数组含空洞或访问器。')
-    const row: unknown = field.value
-    if (!row || typeof row !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(row))) throw new Error('场景模板条目必须是普通数据。')
-    const fields = Object.getOwnPropertyDescriptors(row)
-    if (Reflect.ownKeys(row).length !== 3 || !['key', 'name', 'bytes'].every(key => fields[key]?.enumerable && 'value' in fields[key])) throw new Error('场景模板条目含未知或访问器字段。')
-    const key = z.string().regex(/^[a-f0-9]{64}$/).parse(fields.key.value), name = z.string().trim().min(1).max(80).parse(fields.name.value)
-    const bytes = captureBytes(fields.bytes.value, SCENE_TEMPLATE_LIMITS.bytes)
-    if ((total += bytes.length) > SCENE_TEMPLATE_LIMITS.storedBytes || sha256Bytes(bytes) !== key) throw new Error('场景模板实际字节、摘要或累计预算不符。')
-    captured.push({ key, name, bytes })
-  }
-  if (new Set(captured.map(row => row.key)).size !== captured.length) throw new Error('场景模板身份重复。')
-  return captured
-}
-export interface SceneTemplateScope { roomIds: string[]; propIds: string[]; wallIds: string[]; openingIds: string[]; vertexIds: string[]; noteIds: string[]; maskIds: string[]; prefabIds: string[]; pathIds: string[]; terrainAreaIds: string[]; layerIds: string[] }
+export { captureSceneTemplateEntries, SCENE_TEMPLATE_LIMITS, type SceneTemplateEntry } from './entry.js'
+export interface SceneTemplateScope { roomIds: string[]; propIds: string[]; wallIds: string[]; openingIds: string[]; vertexIds: string[]; noteIds: string[]; maskIds: string[]; prefabIds: string[]; pathIds: string[]; terrainAreaIds: string[]; layerIds: string[]; attachmentSurfaceIds: string[]; attachmentIds: string[] }
 const requestSchema = z.object({ name: z.string().trim().min(1).max(80), roomIds: z.array(id).max(32).default([]), bridgeId: id.optional(), revisesBridgeTemplate: bridgeTemplateKeySchema.optional(),
   noteIds: z.array(id).max(128).default([]), maskIds: z.array(id).max(32).default([]) }).strict()
   .refine(request => request.bridgeId ? !request.roomIds.length : !!request.roomIds.length && !request.revisesBridgeTemplate, '请选择一座桥或同一楼层的房间。')
@@ -58,13 +45,48 @@ const placementSchema = z.object({ floorId: id, layerId: id, supportRef: z.discr
 export type SceneTemplatePlacement = z.infer<typeof placementSchema>
 const stamp = '1970-01-01T00:00:00.000Z'
 const geometryCollections = ['vertices', 'rooms', 'walls', 'openings', 'props', 'notes', 'regions', 'prefabInstances', 'paths', 'terrainAreas'] as const
+const attachmentCollections = ['attachmentSurfaces', 'attachments'] as const
 const fixedCollections = ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const
 const fixedGraphCollections = ['sources', 'variants', 'prefabAppearanceTemplates', 'presentations'] as const
 const edge = (a: string, b: string) => canonicalJson([a, b].sort())
 const unique = (ids: string[]) => { if (new Set(ids).size !== ids.length) throw new Error('模板范围不能重复。'); return ids }
 
+function roomTemplateAttachments(scene: SceneDocument, propIds: Set<string>, wallIds: ReadonlySet<string>) {
+  const byOwner = new Map<string, string[]>(), bySurface = new Map<string, PropAttachment[]>()
+  const attachmentSurfaceIds: string[] = [], included = new Set<string>()
+  for (const surface of Object.values(scene.attachmentSurfaces ?? {})) {
+    if (surface.owner.kind === 'wall' && wallIds.has(surface.owner.id)) throw new Error('房间模板暂不支持墙面挂接。')
+    if (surface.owner.kind !== 'prop' || surface.feature.kind !== 'propTop') continue
+    const owned = byOwner.get(surface.owner.id)
+    if (owned) owned.push(surface.id)
+    else byOwner.set(surface.owner.id, [surface.id])
+  }
+  const attachments = Object.values(scene.attachments ?? {})
+  for (const row of attachments) {
+    if (row.mode !== 'support') continue
+    const children = bySurface.get(row.surfaceId)
+    if (children) children.push(row)
+    else bySurface.set(row.surfaceId, [row])
+  }
+  // A selected supporting prop brings its children, including an unassigned
+  // floor prop whose physical root and position already match that host.
+  for (const id of propIds) for (const surfaceId of byOwner.get(id) ?? []) {
+    attachmentSurfaceIds.push(surfaceId)
+    for (const row of bySurface.get(surfaceId) ?? []) {
+      included.add(row.id)
+      propIds.add(row.child.id)
+    }
+  }
+  if (attachments.some(row => propIds.has(row.child.id) && !included.has(row.id))) throw new Error('模板物件仍有范围外或未支持的附着宿主。')
+  return { attachmentSurfaceIds, attachmentIds: [...included] }
+}
+
 /** Review actual ownership before preparing bytes; never infer missing external dependencies. */
 export function inspectSceneTemplate(scene: SceneDocument, raw: unknown): SceneTemplateScope {
+  return inspectTemplateScope(scene, raw, false)
+}
+
+function inspectTemplateScope(scene: SceneDocument, raw: unknown, readingStoredTemplate: boolean): SceneTemplateScope {
   const request = requestSchema.parse(captureJson(raw))
   if (request.bridgeId) return inspectBridgeTemplate(scene, request.bridgeId, unique(request.noteIds), unique(request.maskIds))
   const roomIds = unique(request.roomIds), rooms = roomIds.map(id => {
@@ -78,16 +100,24 @@ export function inspectSceneTemplate(scene: SceneDocument, raw: unknown): SceneT
   if (wallIds.length !== edges.size) throw new Error('模板边界缺少完整实际墙段。')
   const openingIds = Object.values(scene.openings).filter(opening => wallIds.includes(opening.wallId)).map(opening => opening.id)
   const vertexIds = [...new Set(rooms.flatMap(room => room.boundaryVertexIds))]
-  const propIds = Object.values(scene.props).filter(prop => prop.floorId === floorId && (prop.roomId && roomIds.includes(prop.roomId) || prop.supportRef.kind === 'room' && roomIds.includes(prop.supportRef.id) || rooms.some(room => pointInPolygon(prop.positionMm, roomPoints(scene, room)) || polygonsOverlap(propFootprint(prop), roomPoints(scene, room))))).map(prop => prop.id)
+  const roomSet = new Set(roomIds), propSet = new Set(roomFurnitureIds(scene, roomSet))
+  // Earlier v1 templates could explicitly store independent floor props inside
+  // the room outline. Retain their original spatial check only on capsule reads.
+  if (readingStoredTemplate) {
+    const outlines = rooms.map(room => roomPoints(scene, room))
+    for (const prop of Object.values(scene.props)) if (prop.floorId === floorId && prop.roomId === undefined && prop.supportRef.kind === 'floor'
+      && outlines.some(polygon => pointInPolygon(prop.positionMm, polygon) || polygonsOverlap(propFootprint(prop), polygon))) propSet.add(prop.id)
+  }
+  const attachments = roomTemplateAttachments(scene, propSet, new Set(wallIds)), propIds = [...propSet]
   for (const propId of propIds) {
     const prop = scene.props[propId]
-    if (prop.roomId && !roomIds.includes(prop.roomId) || prop.supportRef.kind !== 'floor' && (prop.supportRef.kind !== 'room' || !roomIds.includes(prop.supportRef.id))) throw new Error(`物件${propId}依赖范围外支撑或房间，不能改挂。`)
+    if (prop.floorId !== floorId || prop.roomId && !roomSet.has(prop.roomId) || prop.supportRef.kind !== 'floor' && (prop.supportRef.kind !== 'room' || !roomSet.has(prop.supportRef.id))) throw new Error(`物件${propId}依赖范围外支撑或房间，不能改挂。`)
   }
   const prefabIds: string[] = []
   for (const group of Object.values(scene.prefabInstances)) {
     const members = Object.values(group.members).flatMap(member => member.propId ?? [])
-    if (members.some(id => propIds.includes(id))) {
-      if (!members.every(id => propIds.includes(id))) throw new Error(`组合${group.id}跨越模板边界，请选择完整范围。`)
+    if (members.some(id => propSet.has(id))) {
+      if (!members.every(id => propSet.has(id))) throw new Error(`组合${group.id}跨越模板边界，请选择完整范围。`)
       prefabIds.push(group.id)
     }
   }
@@ -107,9 +137,7 @@ export function inspectSceneTemplate(scene: SceneDocument, raw: unknown): SceneT
   }
   for (const connection of Object.values(scene.terrainConnections)) if (ids.has(connection.from.surfaceRef.id) || ids.has(connection.to.surfaceRef.id) || connection.openingId && ids.has(connection.openingId)) throw new Error('建筑仍与室外连接关联，请先处理完整连接范围。')
   for (const row of Object.values(scene.pathAttachments ?? {})) if (canonicalJson(row).split('"').some(value => ids.has(value))) throw new Error('建筑仍有外门道路附着关系。')
-  for (const row of Object.values(scene.attachmentSurfaces ?? {})) if (ids.has(row.owner.id)) throw new Error('模板暂不提取附着宿主。')
-  for (const row of Object.values(scene.attachments ?? {})) if (ids.has(row.child.id)) throw new Error('模板暂不提取附着关系。')
-  return { roomIds, propIds, wallIds, openingIds, vertexIds, noteIds, maskIds, prefabIds, pathIds: [], terrainAreaIds: [],
+  return { roomIds, propIds, wallIds, openingIds, vertexIds, noteIds, maskIds, prefabIds, pathIds: [], terrainAreaIds: [], ...attachments,
     layerIds: [...new Set([...ids].map(id => scene.entityLayers[id]).filter(Boolean))] }
 }
 
@@ -139,7 +167,7 @@ function inspectBridgeTemplate(scene: SceneDocument, bridgeId: string, noteIds: 
     || Object.values(scene.decorationClusters ?? {}).some(group => Object.values(group.members).some(member => member.entityId && ids.has(member.entityId)))) {
     throw new Error('桥上布置仍引用附着、层级组或散布。请先处理这些关系，再保存整桥。')
   }
-  return { roomIds: [], propIds: [...propIds], wallIds: [], openingIds: [], vertexIds: [], noteIds, maskIds, prefabIds,
+  return { roomIds: [], propIds: [...propIds], wallIds: [], openingIds: [], vertexIds: [], noteIds, maskIds, prefabIds, attachmentSurfaceIds: [], attachmentIds: [],
     pathIds: [path.id], terrainAreaIds: [deck.id], layerIds: [...new Set([...ids].map(id => scene.entityLayers[id]).filter(Boolean))] }
 }
 
@@ -228,6 +256,34 @@ function* transformContentSteps(source: ProjectData, target: ProjectData, mappin
     if (adjustments) target.appearance.instanceAdjustments[copy.id] = cloneJson(adjustments)
     yield
   }
+  const doc = target.document, byChild = new Map<string, PropAttachment>()
+  for (const surface of Object.values(source.document.attachmentSurfaces ?? {})) {
+    const copy = cloneJson(surface)
+    copy.id = mapping[surface.id]; copy.owner.id = mapping[surface.owner.id]
+    ;(doc.attachmentSurfaces ??= {})[copy.id] = copy
+    yield
+  }
+  for (const row of Object.values(source.document.attachments ?? {})) {
+    if (row.mode !== 'support') throw new Error('房间模板只支持物件顶面承托。')
+    const surface = source.document.attachmentSurfaces![row.surfaceId]
+    if (quarterTurns && [surface.owner.id, row.child.id].some(id => propPresentation(source.appearance, id)?.mode === 'nearSide')) throw new Error('含近侧视承托物件的模板须保持原朝向。')
+    const copy = cloneJson(row)
+    copy.id = mapping[row.id]; copy.child.id = mapping[row.child.id]; copy.surfaceId = mapping[row.surfaceId]
+    ;(doc.attachments ??= {})[copy.id] = copy
+    byChild.set(copy.child.id, copy)
+  }
+  // Recompute in host order to keep exact integer positions at round-off
+  // boundaries and preserve the original local anchor even after rotation.
+  const positioned = new Set<string>()
+  const position = (row: PropAttachment) => {
+    if (positioned.has(row.id)) return
+    const upstream = byChild.get(doc.attachmentSurfaces![row.surfaceId].owner.id)
+    if (upstream) position(upstream)
+    placePropAtAttachmentAnchor(doc, row)
+    row.materialized = propAttachmentMaterialized(doc, row)
+    positioned.add(row.id)
+  }
+  for (const row of byChild.values()) { position(row); yield }
 }
 function transformContent(...args: Parameters<typeof transformContentSteps>) { for (const _ of transformContentSteps(...args)) { /* synchronous extraction, no scene commit */ } }
 
@@ -235,11 +291,17 @@ function templateGeometryIds(scene: SceneDocument): string[] {
   const ids = geometryCollections.flatMap(key => Object.keys(scene[key]))
   for (const area of Object.values(scene.terrainAreas)) for (const vertex of area.boundaryMm) ids.push(vertex.id, vertex.segmentId)
   for (const id of [...ids]) for (const overlay of surfaceStyle(scene, id)?.overlays ?? []) ids.push(overlay.id)
-  return ids
+  return [...ids, ...attachmentCollections.flatMap(key => Object.keys(scene[key] ?? {}))]
 }
 
 function freshMapping(project: ProjectData, context: PreparationContext): Record<string, string> {
   return Object.fromEntries(templateGeometryIds(project.document).map(id => [id, context.ids.nextId()]))
+}
+
+function templatePlacementIdentity(before: SceneDocument, after: SceneDocument, identity: ProjectData['historyIdentity'], runtime: PreparationContext, hasAttachments: boolean) {
+  const trace = createHistoryIdentityTrace(identity, before, runtime, { initializeStructures: true })
+  if (hasAttachments) syncNewAttachmentProofs(before, after, trace.capture(after))
+  return trace.finish(after)
 }
 
 /** Complete-v1 capsule with neutral metadata; no source history or migration originals. */
@@ -262,6 +324,11 @@ export async function prepareSceneTemplate(input: ProjectBundle, raw: unknown, o
   }
   const scopes = [scope.vertexIds, scope.roomIds, scope.wallIds, scope.openingIds, scope.propIds, scope.noteIds, scope.maskIds, scope.prefabIds, scope.pathIds, scope.terrainAreaIds]
   geometryCollections.forEach((collection, i) => { Object.assign(scene, { [collection]: Object.fromEntries(scopes[i].map(id => [id, scene[collection][id]])) }) })
+  const attachmentScopes = [scope.attachmentSurfaceIds, scope.attachmentIds]
+  attachmentCollections.forEach((collection, i) => {
+    if (attachmentScopes[i].length) Object.assign(scene, { [collection]: Object.fromEntries(attachmentScopes[i].map(id => [id, scene[collection]![id]])) })
+    else delete scene[collection]
+  })
   let frozen = { document: scene, historyIdentity: selected.historyIdentity, appearance: selected.appearance }
   for (const id of scope.propIds) frozen = freezeEffectivePropAppearance(frozen, id, scene.props[id])
   const surfaces = [...scope.roomIds, ...scope.wallIds, ...scope.pathIds, ...scope.terrainAreaIds]
@@ -283,8 +350,10 @@ export async function prepareSceneTemplate(input: ProjectBundle, raw: unknown, o
   const margin = 5000, bounds = { x: 0, y: 0, width: max.x - min.x + margin * 2, height: max.y - min.y + margin * 2 }
   doc.exportBoundsMm = bounds; doc.floors[floorId].boundsMm = cloneJson(bounds)
   doc.title = request.name; doc.presetSnapshot = { ...doc.presetSnapshot, presetId: 'scene-template-v1', source: 'Sceneweave 场景模板' }
+  const beforeAttachments = scope.attachmentSurfaceIds.length ? cloneJson(doc) : undefined
+  const identity = beforeAttachments && createHistoryIdentity(beforeAttachments, options.runtime)
   transformContent(selected, target, freshMapping(selected, options.runtime), floorId, layerId, { kind: 'floor', id: floorId }, min, { x: margin, y: margin }, 0, 0, request.revisesBridgeTemplate)
-  target.historyIdentity = createHistoryIdentity(doc, options.runtime)
+  target.historyIdentity = beforeAttachments && identity ? templatePlacementIdentity(beforeAttachments, doc, identity, options.runtime, true) : createHistoryIdentity(doc, options.runtime)
   assertAllFloorPlayerProjections(doc, target.appearance)
   const bytes = await exportProject({ project: target, resources: source.resources }, options.validation)
   if (bytes.length > SCENE_TEMPLATE_LIMITS.bytes) throw new Error('场景模板超过32MiB。')
@@ -299,12 +368,13 @@ export async function loadSceneTemplate(input: Uint8Array, validation: CompleteV
   const bridgeId = Object.keys(doc.paths)[0]
   if (Object.values(doc.rooms).some(room => room.furnishingPlan)) throw new Error('模板不能携带源房间的布置或删除记忆。')
   if (Object.keys(doc.floors).length !== 1 || Object.keys(doc.userLayers).length !== 1 || doc.presetSnapshot.presetId !== 'scene-template-v1' || doc.revision !== 0 || doc.createdAt !== stamp || doc.updatedAt !== stamp || project.appearance.layerAdjustments && Object.keys(project.appearance.layerAdjustments).length) throw new Error('文件不是中性完整场景模板。')
-  for (const key of ['terrainEdges', 'terrainConnections', 'scatterGroups', 'decorations', 'decorationClusters', 'surfaceRules', 'attachments', 'attachmentSurfaces', 'pathAttachments'] as const) if (Object.keys(doc[key] ?? {}).length) throw new Error('场景模板包含未支持依赖。')
+  for (const key of ['terrainEdges', 'terrainConnections', 'scatterGroups', 'decorations', 'decorationClusters', 'surfaceRules', 'pathAttachments'] as const) if (Object.keys(doc[key] ?? {}).length) throw new Error('场景模板包含未支持依赖。')
   if (doc.aggregateCoordinates || doc.regional || doc.mapMode !== 'scene' || doc.generationMetadata || doc.activeStyleThemeRef || doc.constraints.pathChecks.length || doc.constraints.entranceOpeningIds.length) throw new Error('场景模板含范围外工程状态。')
-  const scope = inspectSceneTemplate(doc, { name: doc.title, roomIds: Object.keys(doc.rooms), ...(bridgeId ? { bridgeId } : {}), noteIds: Object.keys(doc.notes), maskIds: Object.keys(doc.regions) })
+  const scope = inspectTemplateScope(doc, { name: doc.title, roomIds: Object.keys(doc.rooms), ...(bridgeId ? { bridgeId } : {}), noteIds: Object.keys(doc.notes), maskIds: Object.keys(doc.regions) }, true)
   if (scope.pathIds.length !== Object.keys(doc.paths).length || scope.terrainAreaIds.length !== Object.keys(doc.terrainAreas).length
     || scope.wallIds.length !== Object.keys(doc.walls).length || scope.vertexIds.length !== Object.keys(doc.vertices).length
     || scope.openingIds.length !== Object.keys(doc.openings).length || scope.prefabIds.length !== Object.keys(doc.prefabInstances).length
+    || scope.attachmentSurfaceIds.length !== Object.keys(doc.attachmentSurfaces ?? {}).length || scope.attachmentIds.length !== Object.keys(doc.attachments ?? {}).length
     || bridgeId && doc.paths[bridgeId].assembly?.bridge?.roadLinks) throw new Error('模板包含范围外结构或源地图链接。')
   if (scope.propIds.length !== Object.keys(doc.props).length || Object.values(doc.entityLayers).some(id => id !== layerId) || Object.values(doc.rooms).some(room => room.supportRef.kind !== 'floor' || room.supportRef.id !== floorId || room.groundElevationMm !== 0)) throw new Error('场景模板包含范围外对象或支撑。')
   const closure = roots(project)
@@ -312,6 +382,7 @@ export async function loadSceneTemplate(input: Uint8Array, validation: CompleteV
   neutral.title = doc.title; neutral.exportBoundsMm = cloneJson(doc.exportBoundsMm); neutral.floors[floorId].boundsMm = cloneJson(doc.floors[floorId].boundsMm)
   neutral.presetSnapshot = { ...neutral.presetSnapshot, presetId: 'scene-template-v1', source: 'Sceneweave 场景模板' }
   for (const key of geometryCollections) Object.assign(neutral, { [key]: cloneJson(doc[key]) })
+  for (const key of attachmentCollections) if (doc[key] && Object.keys(doc[key]).length) Object.assign(neutral, { [key]: cloneJson(doc[key]) })
   neutral.entityLayers = cloneJson(doc.entityLayers)
   if (canonicalJson(neutral) !== canonicalJson(doc)) throw new Error('模板含范围外工程元数据、视觉效果或环境。')
   const live = new Set([floorId, ...templateGeometryIds(doc)])
@@ -392,6 +463,7 @@ export async function prepareSceneTemplatePlacement(input: ProjectBundle, templa
     if (++placed % 32 === 0) await checkpoint('placing', placed, addedIds.length)
   }
   await checkpoint('placing', placed, placed)
+  syncAggregatePlacements(current.project.document, doc, addedIds)
   const added = new Set(addedIds), existingProps = Object.values(current.project.document.props).filter(prop => prop.floorId === request.floorId && prop.blocksMovement)
   // The shared wall envelope inspects all wall pairs to form real miter/bevel joins.
   const wallCount = Object.keys(doc.walls).length
@@ -417,7 +489,7 @@ export async function prepareSceneTemplatePlacement(input: ProjectBundle, templa
     }
   }
   await checkpoint('collisions', comparisons, comparisons)
-  project.historyIdentity = advanceHistoryIdentity(current.project.historyIdentity, current.project.document, doc, options.runtime, { initializeStructures: true })
+  project.historyIdentity = templatePlacementIdentity(current.project.document, doc, current.project.historyIdentity, options.runtime, !!Object.keys(template.project.document.attachmentSurfaces ?? {}).length)
   const beforeMetadata = templateMetadata(current.project), afterMetadata = templateMetadata(project)
   const measure = () => {
     const usage = measureCommandBudget(current.project.document, doc, { before: current.project, after: project }, execution, profile)

@@ -21,7 +21,7 @@ import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../../../
 import { projectResourceRecords, projectSourceRecords } from '../../../shared/project/source-resources.js'
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
 import { parseBoundedJson } from '../../../shared/project/json.js'
-import { canonicalJson, captureJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
+import { canonicalJson, captureJson, cloneJson, encodeUtf8, equalOwnedJson } from '../../../shared/validation/json.js'
 import { assertBackupReceipt } from '../../../shared/migration/set.js'
 import { CONVERTER_VERSION, TARGET_FORMAT, type ConversionJob, type ConversionStage, type ConvertedFamily, type LegacySource } from '../../../shared/migration/types.js'
 import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT_TABLES, type BindingKind, type StoredAutomatic,
@@ -320,8 +320,11 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
   }
   async open(): Promise<void> {
     if (this.invalidated) throw new Error('工程数据库结构已变化，请更新应用后重新打开。')
+    // Dexie exposes the native handle during upgradeneeded. Ordinary reads and
+    // imports must wait until the shared open has finished that transaction.
+    if (this.opening) return this.opening
     if (this.database.isOpen()) return
-    this.opening ??= (async () => {
+    this.opening = (async () => {
       await inspectProjectDatabase(this.database.name)
       if (this.invalidated) throw new Error('工程数据库连接已失效。')
       await this.database.open()
@@ -951,7 +954,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
         assertMetadata(await this.database.historyMetadata.get(owner), owner)
         assertBinding(await this.database.resourceBindings.get([owner, 'current', 'current']), previous.project, owner, 'current', 'current')
         assertFixedProjectCompatible(previous.project, project)
-        if (canonicalJson(mergeIdentityRecords(project.historyIdentity, [previous.project.historyIdentity])) !== canonicalJson(project.historyIdentity)) throw new Error('后续保存不能丢失既有出生身份/墓碑。')
+        if (!equalOwnedJson(mergeIdentityRecords(project.historyIdentity, [previous.project.historyIdentity]), project.historyIdentity)) throw new Error('后续保存不能丢失既有出生身份/墓碑。')
       } else {
         if (await this.database.historyMetadata.get(owner) || await this.database.automaticSnapshots.where('ownerSceneId').equals(owner).count()
           || await this.database.snapshots.where('ownerSceneId').equals(owner).count() || await this.database.importedSnapshots.where('ownerSceneId').equals(owner).count()) throw new Error('此工程身份已有历史记录，不能覆盖。')

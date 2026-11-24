@@ -3,7 +3,8 @@ import Dexie from 'dexie'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
-import { buildingAggregateMembers } from '../../shared/commands/building.js'
+import { buildingAggregateMembers, roomOwnsWall } from '../../shared/commands/building.js'
+import { placedObjectIds } from '../../shared/aggregates/placement-relations.js'
 import type { SceneCommand } from '../../shared/commands/commands.js'
 import { projectScene } from '../../shared/projection/projection.js'
 import { exportProject, importProject } from '../../shared/project/file.js'
@@ -40,6 +41,84 @@ async function setup() {
 const move: SceneCommand = { type: 'transformAggregateBuilding', id: 'building', offsetMm: { x: 1000, y: 0 }, pivotMm: { x: 6500, y: 6500 }, quarterTurns: 1 }
 
 describe('normal workspace complete building aggregate lifecycle', () => {
+  it('keeps a shared-wall extension and its split window wall in one complete building through movement and undo', async () => {
+    const { workspace, create } = await setup()
+    await workspace.execute([create, { type: 'addOpening', id: 'window', wallId: 'wall-1', offsetReferenceVertexId: 'vertex-1',
+      offsetMm: 2500, widthMm: 800, kind: 'window' }, { type: 'updateProp', id: 'item', changes: { rotationDeg: 2.678 } }])
+    const original = workspace.getDocument()!
+    await workspace.execute([{ type: 'createRoom', id: 'wing', floorId: 'blank-floor', thicknessMm: 200,
+      boundaryMm: [{ x: 10000, y: 4000 }, { x: 13000, y: 4000 }, { x: 13000, y: 8000 }, { x: 10000, y: 8000 }] }])
+    const extended = workspace.getDocument()!, shared = extended.walls[extended.openings.window.wallId]
+    expect(roomOwnsWall(extended.rooms.room, shared) && roomOwnsWall(extended.rooms.wing, shared)).toBe(true)
+    expect(new Set(extended.aggregateCoordinates!.groups.building.members.map(ref => ref.id)))
+      .toEqual(new Set(buildingAggregateMembers(extended, 'wing').map(ref => ref.id)))
+    await workspace.execute([{ ...move, quarterTurns: 0 }])
+    expect(workspace.getDocument()!.props.item.rotationDeg).toBe(2.678)
+    expect(workspace.getDocument()!.openings.window.wallId).toBe(shared.id)
+    expect(workspace.getDocument()!.vertices[shared.startVertexId]).not.toEqual(extended.vertices[shared.startVertexId])
+    workspace.undo()
+    workspace.undo()
+    expect(workspace.getDocument()!.aggregateCoordinates).toEqual(original.aggregateCoordinates)
+    expect(workspace.getDocument()!.openings.window).toEqual(original.openings.window)
+  })
+
+  it('places a window and anchored clues into an existing building, and releases a whole note chain when its anchor changes', async () => {
+    const { workspace, repository, create } = await setup()
+    await workspace.execute([create])
+    const before = workspace.getDocument()!
+    await workspace.execute([
+      { type: 'addOpening', id: 'window', wallId: 'wall-1', offsetReferenceVertexId: 'vertex-1', offsetMm: 2000, widthMm: 900, kind: 'window' },
+      { type: 'createNote', id: 'latch', floorId: 'blank-floor', kind: 'clue', text: 'secret latch', visibility: 'gm',
+        anchor: { type: 'entity', entityKind: 'opening', entityId: 'window' } },
+      { type: 'createNote', id: 'reply', floorId: 'blank-floor', kind: 'note', text: 'follow-up', visibility: 'gm',
+        anchor: { type: 'entity', entityKind: 'note', entityId: 'latch' } },
+    ])
+    const withWindow = workspace.getDocument()!
+    const hosts = ['room', 'wall-0', 'wall-1', 'wall-2', 'wall-3']
+    expect(placedObjectIds(withWindow, hosts)).toEqual(expect.arrayContaining(['window', 'latch', 'reply', 'road', 'item']))
+    expect(placedObjectIds(withWindow, hosts)).not.toContain('other')
+    expect(withWindow.aggregateCoordinates!.groups.building.members.map(ref => ref.id)).toEqual(expect.arrayContaining(['window', 'latch', 'reply']))
+    expect(canonicalJson(projectScene(withWindow, 'player'))).not.toContain('secret latch')
+    workspace.undo()
+    expect(workspace.getDocument()!.aggregateCoordinates).toEqual(before.aggregateCoordinates)
+    expect(workspace.getDocument()!.openings.window).toBeUndefined()
+    workspace.redo()
+    await workspace.execute([{ type: 'updateNote', id: 'latch', changes: { anchor: { type: 'point', positionMm: { x: 5500, y: 7500 } } } }])
+    await workspace.execute([move])
+    await workspace.flush()
+    const cold = (await repository.load(before.sceneId))!.project.document
+    expect(cold.openings.window).toEqual(withWindow.openings.window)
+    expect(cold.vertices['vertex-1']).not.toEqual(withWindow.vertices['vertex-1'])
+    expect(cold.notes.latch.anchor).toEqual({ type: 'point', positionMm: { x: 5500, y: 7500 } })
+    expect(cold.notes.reply.anchor).toEqual(withWindow.notes.reply.anchor)
+    expect(cold.aggregateCoordinates!.groups.building.members.map(ref => ref.id)).toContain('window')
+    expect(placedObjectIds(cold, hosts)).not.toContain('reply')
+    expect(cold.aggregateCoordinates!.groups.building.members.filter(ref => ['latch', 'reply'].includes(ref.id))).toEqual([])
+  })
+
+  it('adopts position and room ownership together and retains the new member in undo, cold storage and backup', async () => {
+    const { workspace, repository, create } = await setup()
+    await workspace.execute([create])
+    const before = workspace.getState().project!
+    const change: SceneCommand = { type: 'moveRoomFurniture', id: 'other', positionMm: { x: 6000, y: 6000 },
+      supportRef: { kind: 'room', id: 'room' }, roomId: 'room' }
+    const candidate = await workspace.preview([change])
+    expect(workspace.getState().project).toBe(before)
+    await workspace.adoptPreview(candidate)
+    expect(workspace.getDocument()!.aggregateCoordinates!.groups.building.members).toContainEqual({ kind: 'prop', id: 'other' })
+    workspace.undo()
+    expect(workspace.getDocument()!.props.other).toEqual(before.document.props.other)
+    expect(workspace.getDocument()!.aggregateCoordinates).toEqual(before.document.aggregateCoordinates)
+    workspace.redo()
+    await workspace.flush()
+    const cold = (await repository.load(before.document.sceneId))!
+    const imported = await importProject(await exportProject(cold, validation), validation)
+    expect(imported.project.document.props.other).toMatchObject({ roomId: 'room', positionMm: { x: 6000, y: 6000 } })
+    expect(imported.project.document.aggregateCoordinates).toEqual(workspace.getDocument()!.aggregateCoordinates)
+    await workspace.execute([move])
+    expect(workspace.getDocument()!.props.other.positionMm).toEqual({ x: 8000, y: 6000 })
+  })
+
   it('creates explicit ownership and moves one candidate through cancel/adopt/undo/redo, cold storage and complete package', async () => {
     const { workspace, repository, create } = await setup(), original = workspace.getState().project!
     const grouping = await workspace.preview([create])

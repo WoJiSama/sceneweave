@@ -27,11 +27,17 @@ export default function AggregateNaturalPanel({ scene, disabled, onPreview, onSe
       return { members, reason: null }
     } catch (cause) { return { members: null, reason: message(cause) } }
   }, [scene, seeds.join('\0')])
-  const groups = useMemo(() => Object.values(scene.aggregateCoordinates?.groups ?? {}).flatMap(group => {
-    try { return [{ id: group.id, info: inspectAggregateDomain(scene, group.id, 'natural') }] }
-    catch { return [] }
-  }), [scene])
-  const current = groups.find(group => group.id === groupId) ?? groups[0], frame = current?.info.frame
+  const groups = useMemo(() => {
+    const records = scene.aggregateCoordinates?.groups ?? {}, ids = new Set<string>()
+    for (const group of Object.values(records)) if (group.members.some(ref => ref.kind === 'terrainArea')) {
+      for (let id: string | null = group.id; id !== null && !ids.has(id); id = records[id].parentId) ids.add(id)
+    }
+    return [...ids].map(id => {
+      try { return { id, info: inspectAggregateDomain(scene, id, 'natural'), reason: null } }
+      catch (cause) { return { id, info: null, reason: message(cause) } }
+    })
+  }, [scene])
+  const current = groups.find(group => group.id === groupId) ?? groups[0], frame = current?.info?.frame
   useEffect(() => {
     setOffset({ x: 0, y: 0 }); setQuarterTurns(0); setError(null)
     setPivot({ x: frame?.translationMm.x ?? 0, y: frame?.translationMm.y ?? 0 })
@@ -43,7 +49,7 @@ export default function AggregateNaturalPanel({ scene, disabled, onPreview, onSe
       frame: { translationMm: { ...point }, quarterTurns: 0 }, members: creation.members, editLocked: false } }], `创建自然组 · ${seeds.length} 块地形`)
   }
   const transform = () => {
-    if (disabled || !current) return
+    if (disabled || !current?.info) return
     try {
       inspectAggregateDomain(scene, current.id, 'natural'); setError(null)
       onPreview([{ type: 'transformAggregateNatural', id: current.id, offsetMm: { ...offset }, pivotMm: { ...pivot }, quarterTurns }], '自然组整体变换')
@@ -58,10 +64,11 @@ export default function AggregateNaturalPanel({ scene, disabled, onPreview, onSe
         <button className="secondary asset-wide" type="button" aria-label="创建自然组" disabled={!creation.members} onClick={create}>创建自然组</button>
         {creation.reason && <p className="history-limit">{creation.reason}</p>}
       </> : <p className="asset-muted">先创建或生成地形，再把相关内容组成自然组。</p>}
-      {current && <>
-        <label className="building-field">当前自然组<select data-aggregate-session-control aria-label="自然组" value={current.id} onChange={event => setGroupId(event.target.value)}>{groups.map((group, index) => <option key={group.id} value={group.id}>自然组 {index + 1} · {group.info.seedRefs.length} 块地形</option>)}</select></label>
+      {current && <label className="building-field">当前自然组<select data-aggregate-session-control aria-label="自然组" value={current.id} onChange={event => setGroupId(event.target.value)}>{groups.map((group, index) => <option key={group.id} value={group.id}>自然组 {index + 1} · {group.info ? `${group.info.seedRefs.length} 块地形` : '检查组归属'}</option>)}</select></label>}
+      {current?.reason && <p role="status" className="history-limit">{current.reason}</p>}
+      {current?.info && <>
         <p className="asset-muted">包含 {current.info.members.length} 个对象，{current.info.readDependencies.length} 项外部支撑。</p>
-        <button className="secondary asset-wide" type="button" disabled={!onSelectMany} onClick={() => onSelectMany?.(normalizeSelection(scene, current.info.members.map(member => member.id), true))}>选择自然组</button>
+        <button className="secondary asset-wide" type="button" disabled={!onSelectMany} onClick={() => onSelectMany?.(normalizeSelection(scene, current.info!.members.map(member => member.id), true))}>选择自然组</button>
         <details className="building-details"><summary>进入内部</summary><div className="building-entity-list" aria-label="自然组内部对象">{current.info.members.map(member => <button type="button" key={`${member.kind}:${member.id}`} onClick={() => onSelect(member.id)}>{label(member.id)}</button>)}</div></details>
         <div className="building-coordinate-grid"><NumberInput displayUnit={scene.units.display} label="自然组偏移 X" value={offset.x} onCommit={x => setOffset(value => ({ ...value, x }))}/><NumberInput displayUnit={scene.units.display} label="自然组偏移 Y" value={offset.y} onCommit={y => setOffset(value => ({ ...value, y }))}/></div>
         <label className="building-field">自然组旋转<select aria-label="自然组旋转" value={quarterTurns} onChange={event => setQuarterTurns(Number(event.target.value) as typeof quarterTurns)}><option value="0">不旋转</option><option value="1">顺时针 90°</option><option value="2">180°</option><option value="3">逆时针 90°</option></select></label>

@@ -18,17 +18,22 @@ export function attachmentOwnerDependencyIds(scene: AttachmentScene, ownerId: st
   return expandDependencyIds(scene, new Set([ownerId]))
 }
 
-export function followingAttachmentProps(scene: AttachmentScene, ownerId: string): Set<string> {
+export function followingAttachmentProps(scene: AttachmentScene, owners: string | readonly string[]): Set<string> {
   const children = new Map<string, string[]>()
   for (const row of Object.values(scene.attachments ?? {})) {
     if (row.mode === 'embed' || row.follow !== 'follow') continue
     const owner = scene.attachmentSurfaces?.[row.surfaceId]?.owner.id
-    if (owner) children.set(owner, [...(children.get(owner) ?? []), row.child.id])
+    if (owner) {
+      const siblings = children.get(owner)
+      if (siblings) siblings.push(row.child.id)
+      else children.set(owner, [row.child.id])
+    }
   }
-  const result = new Set<string>(), queue = [ownerId]
-  for (const owner of queue) for (const child of children.get(owner) ?? []) if (!result.has(child) && child !== ownerId) {
+  const result = new Set<string>(), queue = typeof owners === 'string' ? [owners] : [...owners]
+  const visited = new Set(queue)
+  for (const owner of queue) for (const child of children.get(owner) ?? []) {
     result.add(child)
-    queue.push(child)
+    if (!visited.has(child)) { visited.add(child); queue.push(child) }
   }
   return result
 }

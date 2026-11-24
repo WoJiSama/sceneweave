@@ -9,10 +9,34 @@ import { summarizeSelection } from './selection-summary'
 import { selectionActionReason, selectionCommands } from './selection-actions'
 import { manualTransactionBudget } from '../../shared/budget/command-budget'
 import { taskBudgetProfile } from '../../shared/budget/task-budget'
+import { fixture, runtime } from '../../application/workspace/test-fixtures'
+import { createCompositionContent } from '../../shared/appearance/graph'
+import { applyCompositionCommands } from '../../shared/appearance/commands'
+import { createFurnitureRoomQuery } from '../../shared/geometry/furniture-room'
+import { planFurnitureMove } from '../../shared/furnishing/room-move'
 
 const native = (scene = layerSceneV3()): SceneDocument => toCurrentSceneDocument({ ...structuredClone(scene), format: 'sceneweave-scene', schemaVersion: 1 })
 
 describe('native complete-v1 member and batch selection', () => {
+  it('moves a selected host and child across a room boundary once in either selection order', () => {
+    const scene = fixture({ building: true }).project.document
+    Object.assign(scene.props.item, { positionMm: { x: 1500, y: 5000 }, footprintMm: { width: 1500, height: 1000 } })
+    scene.props.other.positionMm = { x: 1700, y: 5000 }
+    const content = applyCompositionCommands(createCompositionContent(scene, runtime), [
+      { type: 'addAttachmentSurface', id: 'top', owner: { kind: 'prop', id: 'item' }, capabilities: ['support'],
+        feature: { kind: 'propTop', heightLocalMm: 800, polygonLocalMm: [{ x: -700, y: -400 }, { x: 700, y: -400 }, { x: 700, y: 400 }, { x: -700, y: 400 }] } },
+      { type: 'bindPropAttachment', id: 'lamp', childId: 'other', surfaceId: 'top', mode: 'support', follow: 'follow', anchorState: 'manual',
+        anchor: { kind: 'horizontal', localMm: { x: 200, y: 0 }, heightOffsetMm: 0, rotationOffsetDeg: 0 } },
+    ], runtime)
+    const query = createFurnitureRoomQuery(content.document, 'blank-floor')
+    for (const ids of [['item', 'other'], ['other', 'item']]) {
+      const commands = selectionCommands(content.document, ids, 'move', { dx: 5000 })
+        .map(command => command.type === 'updateProp' ? planFurnitureMove(content.document, command, query) : command)
+      expect(commands).toHaveLength(1)
+      const moved = applyCompositionCommands(content, commands, runtime)
+      expect(moved.document.props.other).toMatchObject({ roomId: 'room', positionMm: { x: 6700, y: 5000 } })
+    }
+  })
   it('hits actual member outlines and never a gap, collapses group/member duplicates and preserves explicit member mode', () => {
     const scene = native(groupLayerSceneV3())
     expect(hitTestAll(scene, { x: 7000, y: 4000 }, 3000)).not.toContain('group')

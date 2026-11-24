@@ -5,6 +5,8 @@ import { Layers3, LockKeyhole, Move, PencilRuler, Sprout } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { SceneCommand } from '../../shared/commands/commands'
 import { partitionAt } from '../../shared/geometry/partitions'
+import { furnitureRoom } from '../../shared/geometry/furniture-room'
+import { polygonInside, polygonsOverlap, propFootprint, roomPoints } from '../../shared/geometry/geometry'
 import { createPublicVisibility } from '../../shared/geometry/visibility'
 import type { EditableProject } from '../../application/workspace/project'
 import { NumberInput } from '../native-canvas/controls'
@@ -29,6 +31,7 @@ export const propName = (project: EditableProject, id: string) => {
 export const groupName = (project: EditableProject, id: string) => project.document.prefabDefinitions[project.document.prefabInstances[id].definitionRef.id].name
 
 type Props = {
+  appearanceDefinitions?: SceneDocument['propDefinitions']
   project: EditableProject; selected: string; busy: boolean; workspace: { execute: (commands: readonly SceneCommand[]) => void | Promise<void>; updateProp: (id: string, changes: { positionMm?: { x: number; y: number }; rotationDeg?: number }) => void | Promise<void>; rotateRoomMaterial: (id: string, rotationDeg: number) => void | Promise<void> }
   onSelect: (id: string | null) => void
   onCommit: (run: () => void | Promise<void>) => void
@@ -79,14 +82,14 @@ export default function SceneInspector(props: Props) {
   </>
 }
 
-function SceneInspectorContent({ project, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey, appearanceAction, showObjectName = true, onFillCopy, onFillCopyNumeric, fillCopyBusy = false }: Props) {
+function SceneInspectorContent({ project, appearanceDefinitions = project.document.propDefinitions, selected, busy, workspace, onSelect, onCommit, onPreview, onPropCommand, onAppearanceDraftChange, appearanceResetKey, appearanceAction, showObjectName = true, onFillCopy, onFillCopyNumeric, fillCopyBusy = false }: Props) {
   const [appearanceChoice, setAppearanceChoice] = useState<{ propId: string; definitionId: string } | null>(null)
   const [waterDirty, setWaterDirty] = useState(false)
   const appearanceDraftCallback = useRef(onAppearanceDraftChange)
   appearanceDraftCallback.current = onAppearanceDraftChange
   const scene = project.document, prop = scene.props[selected], vertex = scene.vertices[selected], wall = scene.walls[selected]
   const appearanceDirty = !!onAppearanceDraftChange && appearanceChoice?.propId === selected
-    && !!scene.propDefinitions[appearanceChoice.definitionId] && appearanceChoice.definitionId !== prop?.definitionRef?.id
+    && !!appearanceDefinitions[appearanceChoice.definitionId] && appearanceChoice.definitionId !== prop?.definitionRef?.id
   useEffect(() => { setAppearanceChoice(null); setWaterDirty(false) }, [appearanceResetKey, selected])
   useEffect(() => { appearanceDraftCallback.current?.(appearanceDirty || waterDirty) }, [appearanceDirty, waterDirty])
   useEffect(() => () => { appearanceDraftCallback.current?.(false) }, [])
@@ -111,13 +114,18 @@ function SceneInspectorContent({ project, selected, busy, workspace, onSelect, o
   if (scene.terrainEdges[selected] || scene.terrainConnections[selected] || area && area.id !== 'terrace-area' || terrain && terrain.id !== 'terrace-area') return <TerrainInspector {...{ project, selected, busy, onSelect, onPreview }} onCommit={commands => onCommit(() => workspace.execute(commands))}/>
   if (prop) {
     const partition = partitionAt(scene, prop.floorId, prop.positionMm)
+    const roomId = furnitureRoom(prop), footprint = propFootprint(prop)
+    const ground = prop.supportRef.kind === 'room' ? scene.rooms[prop.supportRef.id].supportRef : prop.supportRef
+    const roomChoices = Object.values(scene.rooms).filter(room => room.floorId === prop.floorId && (room.id === roomId ||
+      room.supportRef.kind === ground.kind && room.supportRef.id === ground.id && polygonsOverlap(footprint, roomPoints(scene, room))))
+    const attached = Object.values(scene.attachments ?? {}).some(binding => binding.child.id === prop.id)
     const effectivelyLocked = effectiveEditLocked(scene, selected)
     let lockChangeReason: string | null = effectiveLayerLocked(scene, selected) ? '请先在图层中解除所属图层锁。'
       : [owner, scatterOwner].some(parent => parent && (parent.editLocked || effectiveLayerLocked(scene, parent.id))) ? '请先解除所属组合或散布的编辑锁。' : null
     if (!lockChangeReason) { try { assertDecorationMemberUnlocked(scene, selected) } catch { lockChangeReason = '请先解除所属布景或地表规则的编辑锁。' } }
-    const variants = Object.values(scene.propDefinitions).filter(definition => !(definition.id.startsWith('composition-retained-prop-') && definition.tags.includes('sceneweave:retained-appearance')))
-    const chosenId = appearanceChoice?.propId === selected && scene.propDefinitions[appearanceChoice.definitionId] ? appearanceChoice.definitionId : prop.definitionRef?.id ?? variants[0]?.id
-    const chosen = chosenId ? scene.propDefinitions[chosenId] : null
+    const variants = Object.values(appearanceDefinitions).filter(definition => !(definition.id.startsWith('composition-retained-prop-') && definition.tags.includes('sceneweave:retained-appearance')))
+    const chosenId = appearanceChoice?.propId === selected && appearanceDefinitions[appearanceChoice.definitionId] ? appearanceChoice.definitionId : prop.definitionRef?.id ?? variants[0]?.id
+    const chosen = chosenId ? appearanceDefinitions[chosenId] : null
     const swap = chosen ? appearanceSwapInfo(prop, chosen) : null
     const lockLabel = scatterOwner ? prop.editLocked ? '解除物件固定' : '固定此物件' : prop.editLocked ? '解除物件编辑锁' : '锁定物件编辑'
     return <>
@@ -132,6 +140,11 @@ function SceneInspectorContent({ project, selected, busy, workspace, onSelect, o
         <div className="workspace-field-pair" role="group" aria-label="物件位置"><NumberInput displayUnit={scene.units.display} label="物件 X" value={prop.positionMm.x} onCommit={x => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, x } } }], scatterOwner ? '移动散布成员' : '移动物件')}/>
         <NumberInput displayUnit={scene.units.display} label="物件 Y" value={prop.positionMm.y} onCommit={y => editProp([{ type: 'updateProp', id: selected, changes: { positionMm: { ...prop.positionMm, y } } }], scatterOwner ? '移动散布成员' : '移动物件')}/></div>
         {propPresentation(project.appearance, prop.id)?.mode === 'nearSide' ? <p className="asset-muted">近侧视素材保持直立，位置为树根；选择固定变体改变树形。</p> : <NumberInput label="物件旋转" value={prop.rotationDeg} unit="°" onCommit={rotationDeg => editProp([{ type: 'updateProp', id: selected, changes: { rotationDeg } }], scatterOwner ? '旋转散布成员' : '旋转物件')}/>}
+        {roomChoices.length > 0 && <label className="asset-select">归属房间<select aria-label="物件归属房间" value={roomId ?? ''} disabled={!!owner || !!scatterOwner || clusteredProp || attached} onChange={event => {
+          const room = scene.rooms[event.target.value]
+          const supportRef = room && polygonInside(footprint, roomPoints(scene, room)) ? { kind: 'room' as const, id: room.id } : ground
+          onPreview([{ type: 'moveRoomFurniture', id: prop.id, positionMm: prop.positionMm, supportRef, ...(room ? { roomId: room.id } : {}) }], '调整家具归属')
+        }}><option value="">独立摆放</option>{roomChoices.map(room => <option key={room.id} value={room.id}>{room.purpose || room.id}</option>)}</select></label>}
       </fieldset>
       </section>
       {(variants.length > 1 || appearanceAction) && <section className="workspace-inspector-section">
@@ -141,7 +154,7 @@ function SceneInspectorContent({ project, selected, busy, workspace, onSelect, o
           const definitionId = event.target.value
           if (onAppearanceDraftChange) setAppearanceChoice({ propId: selected, definitionId })
           else {
-            const definition = scene.propDefinitions[definitionId], info = appearanceSwapInfo(prop, definition)
+            const definition = appearanceDefinitions[definitionId], info = appearanceSwapInfo(prop, definition)
             onPreview([{ type: 'replacePropAppearance', id: selected, definitionRef: { id: definitionId, version: definition.version } }], `替换物件外观，保留占地。${info.message}`)
           }
         }}>{variants.map(variant => <option key={variant.id} value={variant.id}>{variant.name}</option>)}</select><small>{onAppearanceDraftChange ? '选择后先检查图像差异，再预览采用' : '选择后准备可取消的外观候选，保留当前图像映射与物理占地'}</small></label>

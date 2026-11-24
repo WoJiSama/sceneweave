@@ -30,8 +30,9 @@ const validation: CompleteValidationOptions = { images: {
   async encodePng() { throw new Error('Coordinate fixture must not encode images') },
 } }
 
-function fixture(aggregate = true): ProjectBundle {
+function fixture(aggregate = true, rotationDeg?: number): ProjectBundle {
   const document = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
+  if (rotationDeg !== undefined) document.props.item.rotationDeg = rotationDeg
   document.sceneId = 'aggregate-io-owner'; document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   if (aggregate) document.aggregateCoordinates = { encoding: 'world', groups: {
     root: { id: 'root', floorId: 'blank-floor', parentId: null, frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, members: [{ kind: 'prop', id: 'item' }], editLocked: false },
@@ -76,12 +77,13 @@ afterEach(async () => {
 })
 
 describe('aggregate coordinates at package and native storage boundaries', () => {
-  it('writes the sole package scene as local geometry and fully imports a world view', async () => {
-    const source = fixture(), original = cloneJson(source.project), bytes = await exportProject(source, validation)
+  it.each([0, Math.PI])('writes the sole package scene as local geometry and fully imports a world view at heading %s', async angle => {
+    const source = fixture(true, angle), original = cloneJson(source.project), bytes = await exportProject(source, validation)
     const files = unzipSync(bytes), stored = JSON.parse(new TextDecoder().decode(files['scene.json']))
     expect(stored.aggregateCoordinates.encoding).toBe('local')
     expect(stored.props.item.positionMm).toEqual({ x: 2000, y: -3000 })
-    expect(stored.props.item.rotationDeg).toBe((original.document.props.item.rotationDeg + 270) % 360)
+    if (angle === 0) expect(stored.props.item.rotationDeg).toBe(270)
+    else expect(stored.props.item).toMatchObject({ localRotationQuadrant: 3, rotationDeg: Math.PI })
     expect(Object.hasOwn(stored, 'worldDocument')).toBe(false)
     expect(decodeSceneCoordinates(stored)).toEqual(original.document)
     expect((await importProject(bytes, validation)).project).toEqual(original)
@@ -99,7 +101,7 @@ describe('aggregate coordinates at package and native storage boundaries', () =>
   })
 
   it('stores actual local IDB records in every complete-project table while all API reads return world geometry', async () => {
-    const db = database(), project = fixture().project, stored = row(project), original = cloneJson(project)
+    const db = database(), project = fixture(true, .001).project, stored = row(project), original = cloneJson(project)
     await db.open()
     await db.projects.add(stored)
     await db.automaticSnapshots.add({ ownerSceneId: stored.sceneId, revision: stored.revision, savedAt: NOW, contentHash: stored.contentHash, project })

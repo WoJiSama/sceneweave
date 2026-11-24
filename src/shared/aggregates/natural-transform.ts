@@ -50,7 +50,8 @@ export function applyNaturalAggregateCommand(scene: SceneDocument, input: Natura
   while (parentId !== null) { groupIds.add(parentId); parentId = state.groups[parentId].parentId }
   if ([...groupIds].some(id => state.groups[id].editLocked)) throw new Error('自然组、子组或祖先组已锁定。')
   if (command.quarterTurns === 0 && command.offsetMm.x === 0 && command.offsetMm.y === 0) return { commandCost: 0, affectedIds: [] }
-  if (scope.readDependencies.some(ref => ref.kind !== 'floor')) throw new Error('自然组仍引用未随动的地形、房间或附着对象；请显式合并完整支撑范围。')
+  const external = scope.readDependencies.find(ref => ref.kind !== 'floor')
+  if (external) throw new Error(`「${external.id}」涉及未随动的支撑或跨组关系。请调整该对象的支撑，或一并选择完整地形范围。`)
   const affected = new Set([...scope.members.map(ref => ref.id), ...scope.readDependencies.map(ref => ref.id)])
   // The original scene is unchanged until the final atomic assignment below.
   // Share this command's effective-layer view across every dependency query;

@@ -3,6 +3,7 @@ import type { AggregateGroup } from '../model/aggregate.js'
 import type { SceneDocument } from '../model/scene.js'
 import { layerMoveClosure } from '../commands/layers.js'
 import { buildingAggregateMembers } from '../commands/building.js'
+import { followingAttachmentProps } from '../attachments/dependencies.js'
 import { captureJson, freezeJson } from '../validation/json.js'
 import { visualBase } from '../visual/base.js'
 import { visualBindingEntityIds } from '../visual/diagnostics.js'
@@ -107,6 +108,12 @@ export function planManualCommandWork(document: SceneDocument, input: readonly C
       case 'instantiatePrefab': targets.add(command.id); add(Object.values(command.memberIds)); break
       case 'duplicatePrefab': targets.add(command.newId); add(Object.values(command.memberIds)); break
       case 'deletePrefab': targets.add(command.id); add(command.memberIds); break
+      case 'moveRoomFurniture': {
+        const members = prefabMembers(command.id)
+        targets.add(command.id); add(members)
+        if (Object.keys(document.attachments ?? {}).length) add([...followingAttachmentProps(document, members.length ? members : [command.id])])
+        break
+      }
       case 'transformPrefab': case 'unpackPrefab': targets.add(command.id); add(prefabMembers(command.id)); break
       case 'detachPrefabMember': case 'detachScatterMember': targets.add(command.propId); break
       case 'resetPrefabMember': {

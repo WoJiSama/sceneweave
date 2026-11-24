@@ -8,6 +8,7 @@ import { createCompositionContent } from '../../shared/appearance/graph.js'
 import type { SceneCommand } from '../../shared/commands/commands.js'
 import { projectScene } from '../../shared/projection/projection.js'
 import { exportProject, importProject } from '../../shared/project/file.js'
+import { prepareSceneTemplate } from '../../shared/scene-templates/content.js'
 import { canonicalJson } from '../../shared/validation/json.js'
 import { fromBundle } from './project.js'
 import { fixture, runtime, validation } from './test-fixtures.js'
@@ -41,6 +42,59 @@ async function setup(natural = true) {
 const move: SceneCommand = { type: 'transformAggregateNatural', id: 'group', offsetMm: { x: 1000, y: 500 }, pivotMm: { x: 8000, y: 8000 }, quarterTurns: 1 }
 
 describe('aggregate domains and group editing through the normal workspace', () => {
+  it('keeps a later cabin, its new walls and window on a grouped terrain through normal editing and template placement', async () => {
+    const { workspace } = await setup(), floorId = 'blank-floor', supportRef = { kind: 'terrainArea' as const, id: 'ground' }
+    const initial = workspace.getDocument()!, layerId = initial.entityLayers.ground
+    const template = await prepareSceneTemplate(fixture({ building: true }), { name: 'Cabin', roomIds: ['room'] }, { validation, runtime })
+    const preview = await workspace.previewSceneTemplate(template.bytes, { floorId, layerId, supportRef, anchorMm: { x: 4000, y: 4000 }, quarterTurns: 0 })
+    await workspace.adoptPreview(preview.preview)
+    const templated = workspace.getDocument()!
+    expect(templated.aggregateCoordinates!.groups.group.members).toContainEqual({ kind: 'room', id: Object.keys(templated.rooms)[0] })
+    await workspace.execute([move])
+    workspace.undo()
+    workspace.undo()
+    expect(workspace.getDocument()!.aggregateCoordinates).toEqual(initial.aggregateCoordinates)
+
+    await workspace.execute([{ type: 'createRoom', id: 'hut', floorId, layerId, thicknessMm: 160, supportRef,
+      boundaryMm: [{ x: 8000, y: 4000 }, { x: 11000, y: 4000 }, { x: 11000, y: 7000 }, { x: 8000, y: 7000 }] }])
+    const built = workspace.getDocument()!, wall = Object.values(built.walls)[0]
+    await workspace.execute([{ type: 'addOpening', id: 'hut-window', wallId: wall.id, offsetReferenceVertexId: wall.startVertexId,
+      offsetMm: 800, widthMm: 700, kind: 'window' }])
+    const cabinIds = ['hut', 'hut-window', ...Object.keys(built.vertices), ...Object.keys(built.walls)]
+    expect(workspace.getDocument()!.aggregateCoordinates!.groups.group.members.map(ref => ref.id)).toEqual(expect.arrayContaining(cabinIds))
+    await workspace.execute([move])
+    const moved = workspace.getDocument()!
+    expect(moved.vertices[wall.startVertexId]).not.toEqual(built.vertices[wall.startVertexId])
+    expect(moved.openings['hut-window'].wallId).toBe(wall.id)
+    expect(moved.props.other).toEqual(initial.props.other)
+  })
+
+  it('moves a later trail and its anchored clue with their terrain while a point label and a neighboring path stay in place', async () => {
+    const { workspace } = await setup(), floorId = 'blank-floor'
+    const trail: Extract<SceneCommand, { type: 'createPath' }> = { type: 'createPath', id: 'trail', floorId, widthMm: 400,
+      centerlineMm: [{ x: 5000, y: 6000 }, { x: 9000, y: 6000 }], supportRefs: [{ kind: 'terrainArea', id: 'ground' }] }
+    const exposedFloor = [{ x: 15500, y: 15500 }, { x: 18000, y: 15500 }]
+    await workspace.execute([trail, { ...trail, id: 'floor-trail', centerlineMm: exposedFloor, supportRefs: [{ kind: 'floor', id: floorId }] },
+      { type: 'createNote', id: 'pin', floorId, kind: 'label', text: 'Survey point', visibility: 'public',
+        anchor: { type: 'point', positionMm: trail.centerlineMm[0] } },
+      { type: 'createNote', id: 'sign', floorId, kind: 'label', text: 'Trail sign', visibility: 'public',
+        anchor: { type: 'entity', entityKind: 'path', entityId: 'trail' } }])
+    const placed = workspace.getDocument()!, members = placed.aggregateCoordinates!.groups.group.members.map(ref => ref.id)
+    expect(members).toContain('trail')
+    expect(members).toContain('sign')
+    expect(members).not.toContain('floor-trail')
+    expect(members).not.toContain('pin')
+    await workspace.execute([move])
+    expect(workspace.getDocument()!.paths.trail.centerlineMm[0]).toEqual({ x: 11000, y: 5500 })
+    expect(workspace.getDocument()!.paths['floor-trail']).toEqual(placed.paths['floor-trail'])
+    expect(workspace.getDocument()!.notes.pin).toEqual(placed.notes.pin)
+    workspace.undo()
+    await workspace.execute([{ type: 'updatePath', id: 'trail', changes: { centerlineMm: exposedFloor, supportRefs: [{ kind: 'floor', id: floorId }] } }])
+    expect(workspace.getDocument()!.aggregateCoordinates!.groups.group.members.filter(ref => ['trail', 'sign'].includes(ref.id))).toEqual([])
+    await workspace.execute([move])
+    expect(workspace.getDocument()!.paths.trail.centerlineMm).toEqual(exposedFloor)
+  })
+
   it('adopts natural movement, edits an inner member, splits/merges ownership, and saves one complete offline closure', async () => {
     const { workspace, repository } = await setup(), initial = workspace.getState().project!, tokens = initial.historyIdentity
     const cancelled = await workspace.preview([move]); workspace.cancelPreview(cancelled)

@@ -44,7 +44,7 @@ export type CompositionCommand = SceneCommand | PublishPathStyleCommand
   | { type: 'removeAppearanceAdjustment'; scope: AppearanceScope; adjustmentId: string }
   | { type: 'setAppearanceSource'; ids: string[]; sourceId: string }
   | { type: 'createPrefab'; id: string; definitionId: string; name: string; ids: string[]; anchorMm: PointMm; licenseRef?: string; tags?: string[] }
-  | { type: 'instantiatePrefab'; id: string; definitionRef: VersionRef; memberIds: Record<string, string>; anchorMm: PointMm; rotationDeg?: number; layerId: string; supportRef: SurfaceRef }
+  | { type: 'instantiatePrefab'; id: string; definitionRef: VersionRef; memberIds: Record<string, string>; anchorMm: PointMm; rotationDeg?: number; layerId: string; supportRef?: SurfaceRef }
   | { type: 'duplicatePrefab'; id: string; newId: string; memberIds: Record<string, string>; offsetMm: PointMm }
   | { type: 'deletePrefab'; id: string; memberIds: string[] }
   | { type: 'detachPrefabMember'; groupId: string; propId: string }

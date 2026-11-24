@@ -7,6 +7,41 @@ import { aggregateCoordinatesSchema } from './schema.js'
 import { aggregateWorldFrames, validateAggregateCoordinates } from './state.js'
 import { localToWorldBounds, localToWorldPoint, worldToLocalBounds, worldToLocalPoint } from './coordinates.js'
 
+const wrappedDegrees = (n: number) => ((n % 360) + 360) % 360
+
+/** The optional local quadrant exists only on the wire. It keeps the exact
+ * offset within a right angle when a single local degree value would round it
+ * away. Existing v1 numeric headings keep their original decoding and bytes. */
+function convertHeading(row: { rotationDeg: number; localRotationQuadrant?: number }, frame: AggregateFrame, to: 'world' | 'local') {
+  const turns = frame.quarterTurns, degrees = turns * 90, angle = row.rotationDeg
+  if (!Number.isFinite(angle) || angle < 0 || angle >= 360) throw new Error('聚合坐标朝向须位于 [0, 360) 度。')
+  if (Object.hasOwn(row, 'localRotationQuadrant')) {
+    const quadrant = row.localRotationQuadrant
+    if (to !== 'world' || quadrant === undefined || !Number.isInteger(quadrant) || quadrant < 0 || quadrant > 3 || angle >= 90) {
+      throw new Error('局部朝向须使用有效象限和 [0, 90) 度的象限内偏角。')
+    }
+    const world = ((quadrant + turns) % 4) * 90 + angle
+    row.rotationDeg = world === 360 ? 0 : world
+    delete row.localRotationQuadrant
+    return
+  }
+  if (!turns) return
+  if (to === 'world') {
+    row.rotationDeg = wrappedDegrees(angle + degrees)
+    return
+  }
+  const local = wrappedDegrees(angle - degrees)
+  if (wrappedDegrees(local + degrees) === angle) {
+    row.rotationDeg = local
+    return
+  }
+  // Subtracting the start of the containing quadrant is exact for binary64:
+  // either the start is zero or the two operands are within a factor of two.
+  const quadrant = Math.floor(angle / 90)
+  row.localRotationQuadrant = (quadrant - turns + 4) % 4
+  row.rotationDeg = angle - quadrant * 90
+}
+
 /** Reversible storage representation, not an edit operation or a validation certificate.
  * Owned coordinates and headings become frame-relative. World-aligned paint,
  * physical extents, immutable sources and generation provenance keep their
@@ -25,16 +60,11 @@ function convert(scene: SceneDocument, to: 'world' | 'local'): SceneDocument {
   const frames = aggregateWorldFrames(inputState)
   const transform = to === 'world' ? localToWorldPoint : worldToLocalPoint
   const transformBounds = to === 'world' ? localToWorldBounds : worldToLocalBounds
-  const rotation = (value: number, frame: AggregateFrame) => {
-    const degrees = frame.quarterTurns * 90
-    const transformed = to === 'world' ? value + degrees : value - degrees
-    return ((transformed % 360) + 360) % 360
-  }
   const points = (frame: AggregateFrame, values: PointMm[]) => values.map(point => transform(frame, point))
   const paint = (frame: AggregateFrame, value: MaterialPaint) => {
     if (value.alignment === 'surface') {
       value.originMm = transform(frame, value.originMm)
-      value.rotationDeg = rotation(value.rotationDeg, frame)
+      convertHeading(value, frame, to)
     }
   }
   const style = (frame: AggregateFrame, value: SurfaceStyle | null) => {
@@ -50,7 +80,7 @@ function convert(scene: SceneDocument, to: 'world' | 'local'): SceneDocument {
           const row = scene.vertices[ref.id], point = transform(frame, { x: row.xMm, y: row.yMm })
           row.xMm = point.x; row.yMm = point.y; break
         }
-        case 'prop': { const row = scene.props[ref.id]; row.positionMm = transform(frame, row.positionMm); row.rotationDeg = rotation(row.rotationDeg, frame); break }
+        case 'prop': { const row = scene.props[ref.id]; row.positionMm = transform(frame, row.positionMm); convertHeading(row, frame, to); break }
         case 'region': { const row = scene.regions[ref.id]; row.boundaryMm = points(frame, row.boundaryMm); break }
         case 'note': { const row = scene.notes[ref.id]; if (row.anchor.type === 'point') row.anchor.positionMm = transform(frame, row.anchor.positionMm); break }
         case 'room': style(frame, scene.rooms[ref.id].floorStyle); break
@@ -91,13 +121,13 @@ function convert(scene: SceneDocument, to: 'world' | 'local'): SceneDocument {
           style(frame, row.surfaceStyle); break
         }
         case 'path': { const row = scene.paths[ref.id]; row.centerlineMm = points(frame, row.centerlineMm); style(frame, row.surfaceStyle); break }
-        case 'prefabInstance': { const row = scene.prefabInstances[ref.id]; row.anchorMm = transform(frame, row.anchorMm); row.rotationDeg = rotation(row.rotationDeg, frame); break }
+        case 'prefabInstance': { const row = scene.prefabInstances[ref.id]; row.anchorMm = transform(frame, row.anchorMm); convertHeading(row, frame, to); break }
         case 'scatterGroup': {
           const row = scene.scatterGroups[ref.id]; row.gridOriginMm = transform(frame, row.gridOriginMm)
           for (const exclusion of row.exclusions) exclusion.boundaryMm = points(frame, exclusion.boundaryMm)
           break
         }
-        case 'decoration': { const row = scene.decorations[ref.id]; row.positionMm = transform(frame, row.positionMm); row.rotationDeg = rotation(row.rotationDeg, frame); break }
+        case 'decoration': { const row = scene.decorations[ref.id]; row.positionMm = transform(frame, row.positionMm); convertHeading(row, frame, to); break }
         case 'decorationCluster': {
           const row = scene.decorationClusters[ref.id]; row.boundsMm = transformBounds(frame, row.boundsMm)
           if (row.canopyRule) row.canopyRule.regionsMm = row.canopyRule.regionsMm.map(ring => points(frame, ring))

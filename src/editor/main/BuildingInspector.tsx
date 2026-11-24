@@ -1,5 +1,5 @@
 import { supportsWallReliefStyle } from '../../shared/appearance/wall-edge-profile.js'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { LockKeyhole, PencilRuler, Plus } from 'lucide-react'
 import { newId } from './runtime'
 import type { SceneCommand } from '../../shared/commands/commands'
@@ -19,10 +19,20 @@ import { planMaskRefit } from './privacy-mask-plan.js'
 import RoomPrivacyControls from './RoomPrivacyControls.js'
 import PrivacyCoverageNotice from './PrivacyCoverageNotice.js'
 import { roomMoveParts } from '../../shared/commands/building'
+import { placedObjectIds } from '../../shared/aggregates/placement-relations'
+import { createEntityLabeler } from './entity-label'
 
-type Props = { scene: SceneDocument; appearance?: AppearanceGraph; selected: string; layerId: string; disabled: boolean; onPreview: BuildingPreviewRequest; onSelect: (id: string | null) => void; onLock: (kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region', id: string, locked: boolean) => void; onOpenLayers?: () => void; onRoadDoorStart?: (request: RoadDoorStartRequest) => void }
-export default function BuildingInspector({ scene, appearance, selected, layerId, disabled, onPreview: requestPreview, onSelect, onLock, onOpenLayers, onRoadDoorStart }: Props) {
+type Props = { scene: SceneDocument; materialChoices?: SceneDocument['materials']; appearance?: AppearanceGraph; selected: string; layerId: string; disabled: boolean; onPreview: BuildingPreviewRequest; onSelect: (id: string | null) => void; onLock: (kind: 'vertex' | 'room' | 'wall' | 'opening' | 'note' | 'region', id: string, locked: boolean) => void; onOpenLayers?: () => void; onRoadDoorStart?: (request: RoadDoorStartRequest) => void }
+export default function BuildingInspector({ scene, materialChoices = scene.materials, appearance, selected, layerId, disabled, onPreview: requestPreview, onSelect, onLock, onOpenLayers, onRoadDoorStart }: Props) {
   const room = scene.rooms[selected], wall = scene.walls[selected], vertex = scene.vertices[selected], opening = scene.openings[selected], note = scene.notes[selected], region = scene.regions[selected]
+  const [contentsOpen, setContentsOpen] = useState(false)
+  const moveParts = useMemo(() => room && roomMoveParts(scene, room.id), [scene, room])
+  const contents = useMemo(() => {
+    if (!room || !moveParts || !contentsOpen) return []
+    const label = createEntityLabeler(scene)
+    const hosts = [room.id, ...room.boundaryVertexIds, ...moveParts.walls.map(wall => wall.id)]
+    return placedObjectIds(scene, hosts).map(id => ({ id, name: label(id) }))
+  }, [scene, room, moveParts, contentsOpen])
   const entity = room ?? wall ?? vertex ?? opening ?? note ?? region
   const kind = room ? 'room' : wall ? 'wall' : vertex ? 'vertex' : opening ? 'opening' : note ? 'note' : 'region'
   const [purpose, setPurpose] = useState(room?.purpose ?? ''), [visibility, setVisibility] = useState(room?.visibility ?? note?.visibility ?? 'public')
@@ -62,7 +72,6 @@ export default function BuildingInspector({ scene, appearance, selected, layerId
     } catch (error) { setCoverageRepairError(error instanceof Error ? error.message : String(error)) }
   }
   const existingEntityAnchor = note?.anchor.type === 'entity' ? note.anchor : null
-  const moveParts = room ? roomMoveParts(scene, room.id) : undefined
   if (!entity) return null
   const locked = effectiveEditLocked(scene, selected), ownLayerLocked = scene.userLayers[scene.entityLayers[selected]]?.editLocked
   const choices = [...Object.values(scene.rooms).map(item => ({ ...item, kind: 'room' as const, name: item.purpose || item.id })), ...Object.values(scene.walls).map(item => ({ ...item, kind: 'wall' as const, name: `墙 · ${item.id}` })), ...Object.values(scene.openings).map(item => ({ ...item, kind: 'opening' as const, name: `${item.kind === 'door' ? '门' : '窗'} · ${item.id}` })), ...Object.values(scene.vertices).map(item => ({ ...item, kind: 'vertex' as const, name: `顶点 · ${item.id}` })), ...Object.values(scene.notes).filter(item => item.id !== selected).map(item => ({ ...item, kind: 'note' as const, name: `注记 · ${item.title || item.id}` }))]
@@ -105,6 +114,11 @@ export default function BuildingInspector({ scene, appearance, selected, layerId
         {visibility === 'gm' ? <RoomPrivacyControls scene={scene} appearance={appearance} roomId={selected} purpose={purpose} accessExpectation={access} layerId={layerId} onPreview={onPreview}/>
           : <button className="primary asset-wide" onClick={() => onPreview([{ type: 'updateRoom', id: selected, changes: { purpose, visibility, accessExpectation: access } }], '修改房间属性')}>预览房间属性</button>}
         <details className="workspace-detail-disclosure"><summary>边界顶点 · {room.boundaryVertexIds.length} 个</summary><div className="workspace-room-vertices">{room.boundaryVertexIds.map((id, index) => <button type="button" className="asset-group-link" key={id} onClick={() => onSelect(id)}>顶点 {index + 1} · {formatDistanceMm(scene.vertices[id].xMm, scene.units.display)}, {formatDistanceMm(scene.vertices[id].yMm, scene.units.display)}</button>)}</div></details>
+        <details className="workspace-detail-disclosure" onToggle={event => setContentsOpen(event.currentTarget.open)}><summary>房间关联对象</summary>
+          {contentsOpen && (contents.length ? <select data-aggregate-session-control aria-label="选择房间关联对象" value="" onChange={event => onSelect(event.target.value)}>
+            <option value="" disabled>选择对象（{contents.length} 个）</option>{contents.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select> : <p>尚无关联对象。</p>)}
+        </details>
         <details className="workspace-detail-disclosure"><summary>移动这一间房</summary>
           <NumberInput displayUnit={scene.units.display} label="房间平移 X" value={roomOffset.x} onCommit={x => setRoomOffset(current => ({ ...current, x }))}/>
           <NumberInput displayUnit={scene.units.display} label="房间平移 Y" value={roomOffset.y} onCommit={y => setRoomOffset(current => ({ ...current, y }))}/>
@@ -120,8 +134,8 @@ export default function BuildingInspector({ scene, appearance, selected, layerId
           ], '移动单间房及其墙面')}>预览移动这间房</button>
         </details>
       </>}
-      {room && <><h3>地面材质</h3><label className="building-field">固定材质<select aria-label="编辑房间地面材质" value={material} onChange={event => setMaterial(event.target.value)}><option value="">选择已入库材质</option>{Object.values(scene.materials).filter(item => item.applicableSurfaces.includes('room')).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><button className="secondary asset-wide" disabled={!scene.materials[material]} onClick={() => onPreview([{ type: 'setSurfaceMaterial', kind: 'room', id: room.id, materialRef: { id: material, version: scene.materials[material].version } }], '修改房间地面材质，保留支撑、高程和占地')}>预览房间地面材质</button><small>地面高程 {room.groundElevationMm} mm · 支撑 {room.supportRef.id}。换材质保留几何与通行。</small></>}
-      {wall && <><h3>墙面材质</h3><label className="building-field">固定材质<select aria-label="编辑墙面材质" value={material} onChange={event => setMaterial(event.target.value)}><option value="">选择已入库材质</option>{Object.values(scene.materials).filter(item => item.applicableSurfaces.includes('wall')).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><button className="secondary asset-wide" disabled={!scene.materials[material]} onClick={() => onPreview([{ type: 'setSurfaceMaterial', kind: 'wall', id: wall.id, materialRef: { id: material, version: scene.materials[material].version } }], '修改墙面材质，保留墙厚、开口与通行')}>预览墙面材质</button>
+      {room && <><h3>地面材质</h3><label className="building-field">固定材质<select aria-label="编辑房间地面材质" value={material} onChange={event => setMaterial(event.target.value)}><option value="">选择固定材质</option>{Object.values(materialChoices).filter(item => item.applicableSurfaces.includes('room')).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><button className="secondary asset-wide" disabled={!materialChoices[material]} onClick={() => onPreview([{ type: 'setSurfaceMaterial', kind: 'room', id: room.id, materialRef: { id: material, version: materialChoices[material].version } }], '修改房间地面材质，保留支撑、高程和占地')}>预览房间地面材质</button><small>地面高程 {room.groundElevationMm} mm · 支撑 {room.supportRef.id}。换材质保留几何与通行。</small></>}
+      {wall && <><h3>墙面材质</h3><label className="building-field">固定材质<select aria-label="编辑墙面材质" value={material} onChange={event => setMaterial(event.target.value)}><option value="">选择固定材质</option>{Object.values(materialChoices).filter(item => item.applicableSurfaces.includes('wall')).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><button className="secondary asset-wide" disabled={!materialChoices[material]} onClick={() => onPreview([{ type: 'setSurfaceMaterial', kind: 'wall', id: wall.id, materialRef: { id: material, version: materialChoices[material].version } }], '修改墙面材质，保留墙厚、开口与通行')}>预览墙面材质</button>
         {wall.topStyle && <details className="building-details"><summary>墙顶纹理方向与尺寸</summary><p className="asset-muted">尺寸表示整张纹理的一次平铺周期。修改只作用于墙顶外观，保留墙厚与门窗净宽。</p>
           <NumberInput label="墙顶纹理方向" unit="°" value={wallPaint.rotationDeg} onCommit={rotationDeg => setWallPaint(value => ({ ...value, rotationDeg }))}/>
           <NumberInput displayUnit={scene.units.display} label="墙顶平铺宽度" value={wallPaint.tileSizeMm.width} onCommit={width => setWallPaint(value => ({ ...value, tileSizeMm: { ...value.tileSizeMm, width } }))}/>

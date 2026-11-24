@@ -68,8 +68,8 @@ export function validateAggregateCoordinates(scene: SceneDocument): Issue[] {
   return errors
 }
 
-/** Called by owned editing paths, never by raw input validation. Deletion ends
- * only that member binding; fresh creations are not automatically regrouped. */
+/** Prune retired identities on command and history paths. Placement changes
+ * are resolved separately, in the command that changed the host. */
 export function reconcileAggregateMembers(before: SceneDocument, after: SceneDocument): void {
   if (!before.aggregateCoordinates || !after.aggregateCoordinates) return
   for (const group of Object.values(after.aggregateCoordinates.groups)) group.members = group.members.filter(ref => {

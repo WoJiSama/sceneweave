@@ -96,6 +96,18 @@ afterEach(async () => {
 })
 
 describe('native complete-v1 project repository and two-phase conversion', () => {
+  it('waits for an in-progress schema upgrade when a second opener sees the native handle', async () => {
+    const repo = repository()
+    let second: Promise<boolean> | undefined
+    repo.database.on('populate', transaction => {
+      let committed = false
+      transaction.idbtrans.addEventListener('complete', () => { committed = true })
+      second = repo.open().then(() => committed)
+    })
+    await repo.open()
+    expect(await second).toBe(true)
+  })
+
   it('composes a verified file import with one pixel check, but fully checks public and forged/replaced-capability inputs', async () => {
     const repo = repository(), raw = await imageFixture(), decode = vi.spyOn(validation.images, 'decode')
     const verified = await validateProjectBundle(raw, validation), count = decode.mock.calls.length

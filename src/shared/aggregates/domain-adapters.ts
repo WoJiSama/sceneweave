@@ -2,9 +2,9 @@ import { buildingAggregateMembers, inspectAggregateBuilding } from '../commands/
 import { AGGREGATE_ENTITY_COLLECTIONS, type AggregateEntityRef, type AggregateFrame, type AggregateRelationRef } from '../model/aggregate.js'
 import type { SceneDocument } from '../model/scene.js'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
-import { cloneJson } from '../validation/json.js'
 import { aggregateAffectedClosure, aggregateEntityRelations } from './relations.js'
 import { aggregateWorldFrames } from './state.js'
+import { placedObjectIds, visitSharedSupportTypes } from './placement-relations.js'
 
 export type AggregateDomainId = 'building' | 'natural'
 export interface AggregateDomainScope {
@@ -20,7 +20,7 @@ export interface AggregateDomainAdapter {
   domain: AggregateDomainId
   seedKinds: readonly AggregateEntityRef['kind'][]
   capabilities: { translation: true; quarterTurns: true; completeGeometryValidation: true; arbitraryRotation: false; crossFloor: false }
-  members(scene: SceneDocument, seeds: readonly AggregateEntityRef[]): AggregateEntityRef[]
+  members(scene: SceneDocument, seeds: readonly AggregateEntityRef[], existingMembers?: readonly AggregateEntityRef[]): AggregateEntityRef[]
   inspect(scene: SceneDocument, groupId: string): AggregateDomainScope
 }
 const key = (ref: AggregateRelationRef) => JSON.stringify([ref.kind, ref.id])
@@ -72,7 +72,7 @@ function ownedRegions(scene: SceneDocument, terrainAreaIds: ReadonlySet<string>)
 
 /** Follow actual reverse support/attachment relations and live container
  * membership. Read-only Floor/other terrain are not silently absorbed. */
-export function naturalAggregateMembers(scene: SceneDocument, terrainAreaIds: readonly string[]): AggregateEntityRef[] {
+function naturalPlacementScope(scene: SceneDocument, terrainAreaIds: readonly string[], recorded?: ReadonlySet<string>) {
   if (!terrainAreaIds.length || new Set(terrainAreaIds).size !== terrainAreaIds.length) throw new Error('自然组须明确选择不重复的现存地形面。')
   const areas = terrainAreaIds.map(id => {
     if (!Object.hasOwn(scene.terrainAreas, id)) throw new Error(`自然组地形面不存在：${id}。`)
@@ -82,36 +82,72 @@ export function naturalAggregateMembers(scene: SceneDocument, terrainAreaIds: re
   const seeds: AggregateEntityRef[] = [...areas.map(area => ({ kind: 'terrainArea' as const, id: area.id })), ...ownedRegions(scene, new Set(terrainAreaIds))]
   const closure = aggregateAffectedClosure(scene, seeds)
   if (closure.unknownTargets.length || closure.unresolvedReferences.length) throw new Error('自然组存在缺失或跨Floor依赖，不能推断完整移动范围。')
-  return sorted(closure.affected.filter((ref): ref is AggregateEntityRef => ref.kind !== 'floor'))
+  const affected = sorted(closure.affected.filter((ref): ref is AggregateEntityRef => ref.kind !== 'floor'))
+  const included = new Set(affected.map(ref => ref.id)), crossing: string[] = []
+  visitSharedSupportTypes((kind, rows, hosts) => {
+    const entities = rows(scene)
+    for (const ref of affected) {
+      if (ref.kind !== kind || recorded?.has(key(ref))) continue
+      const supports = hosts(entities[ref.id])
+      if (supports.some(id => !included.has(id)) && supports.some(id => included.has(id))) crossing.push(ref.id)
+    }
+  })
+  if (!crossing.length) return { members: affected, external: [] }
+  // An object across independent supports stays a read dependency of each.
+  // Pre-existing explicit ownership is still inspected in its original group.
+  const externalIds = new Set([...crossing, ...placedObjectIds(scene, crossing)])
+  const members: AggregateEntityRef[] = [], external: AggregateEntityRef[] = []
+  for (const ref of affected) {
+    if (externalIds.has(ref.id) && !recorded?.has(key(ref))) external.push(ref)
+    else members.push(ref)
+  }
+  return { members, external }
 }
-function inspectNatural(scene: SceneDocument, groupId: string): AggregateDomainScope {
-  const tree = subtree(scene, groupId), terrainAreaIds = tree.members.filter(ref => ref.kind === 'terrainArea').map(ref => ref.id)
-  const members = naturalAggregateMembers(scene, terrainAreaIds), actual = new Set(tree.members.map(key))
+export function naturalAggregateMembers(scene: SceneDocument, terrainAreaIds: readonly string[]): AggregateEntityRef[] {
+  return naturalPlacementScope(scene, terrainAreaIds).members
+}
+function naturalMembership(scene: SceneDocument, tree: ReturnType<typeof subtree>): AggregateMembership {
+  const terrainAreaIds = tree.members.filter(ref => ref.kind === 'terrainArea').map(ref => ref.id)
+  const actual = new Set(tree.members.map(key)), { members, external } = naturalPlacementScope(scene, terrainAreaIds, actual)
   if (actual.size !== tree.members.length || members.length !== actual.size || members.some(ref => !actual.has(key(ref)))) {
-    throw new Error('自然组须完整拥有地形支撑、随动道路/连接/容器/规则与注记；缺少、额外或后增依赖不能自动收编。')
+    const needed = new Set(members.map(key))
+    const outside = members.find(ref => !actual.has(key(ref))) ?? tree.members.find(ref => !needed.has(key(ref)))
+    throw new Error(`自然组须完整拥有随动对象。请检查${outside ? `「${outside.id}」的` : ''}支撑或组归属，再整体移动。`)
   }
   return { domain: 'natural', seedRefs: sorted(terrainAreaIds.map(id => ({ kind: 'terrainArea', id }))),
-    members: cloneJson(members), groupIds: tree.groupIds, frame: tree.frame, readDependencies: readDependencies(scene, members) }
+    members, groupIds: tree.groupIds, frame: tree.frame, external }
 }
-function inspectBuilding(scene: SceneDocument, groupId: string): AggregateDomainScope {
+type AggregateMembership = Omit<AggregateDomainScope, 'readDependencies'> & { external?: AggregateEntityRef[] }
+
+/** Check the exact coordinate owners without constructing the external read set. */
+export function inspectAggregateMembership(scene: SceneDocument, groupId: string, domain?: AggregateDomainId): AggregateMembership {
+  if (domain !== 'building') {
+    const tree = subtree(scene, groupId)
+    if (domain === 'natural' || tree.members.some(ref => ref.kind === 'terrainArea')) return naturalMembership(scene, tree)
+  }
   const scope = inspectAggregateBuilding(scene, groupId)
-  return { domain: 'building', seedRefs: [{ kind: 'room', id: scope.seedId }], ...scope, readDependencies: readDependencies(scene, scope.members) }
+  return { domain: 'building', seedRefs: [{ kind: 'room', id: scope.seedId }], ...scope }
 }
 export const AGGREGATE_DOMAIN_ADAPTERS: Readonly<Record<AggregateDomainId, AggregateDomainAdapter>> = Object.freeze({
   building: Object.freeze({ domain: 'building', seedKinds: ['room', 'wall'] as const, capabilities,
     members: (scene: SceneDocument, seeds: readonly AggregateEntityRef[]) => {
       if (seeds.length !== 1 || !['room', 'wall'].includes(seeds[0].kind)) throw new Error('建筑适配器须明确选择一个房间或墙种子。')
       return buildingAggregateMembers(scene, seeds[0].id)
-    }, inspect: inspectBuilding }),
+    }, inspect: (scene: SceneDocument, groupId: string) => inspectAggregateDomain(scene, groupId, 'building') }),
   natural: Object.freeze({ domain: 'natural', seedKinds: ['terrainArea'] as const, capabilities,
-    members: (scene: SceneDocument, seeds: readonly AggregateEntityRef[]) => {
+    members: (scene: SceneDocument, seeds: readonly AggregateEntityRef[], existingMembers?: readonly AggregateEntityRef[]) => {
       if (seeds.some(seed => seed.kind !== 'terrainArea')) throw new Error('自然适配器只接受明确地形面种子。')
-      return naturalAggregateMembers(scene, seeds.map(seed => seed.id))
-    }, inspect: inspectNatural }),
+      return naturalPlacementScope(scene, seeds.map(seed => seed.id), existingMembers && new Set(existingMembers.map(key))).members
+    }, inspect: (scene: SceneDocument, groupId: string) => inspectAggregateDomain(scene, groupId, 'natural') }),
 })
 export function inspectAggregateDomain(scene: SceneDocument, groupId: string, domain?: AggregateDomainId): AggregateDomainScope {
-  const resolved = domain ?? (subtree(scene, groupId).members.some(ref => ref.kind === 'terrainArea') ? 'natural' : 'building')
-  return AGGREGATE_DOMAIN_ADAPTERS[resolved].inspect(scene, groupId)
+  const { external, ...scope } = inspectAggregateMembership(scene, groupId, domain)
+  const reads = readDependencies(scene, scope.members)
+  if (external?.length) {
+    const dependencies = new Map([...reads, ...external].map(ref => [key(ref), ref]))
+    return { ...scope, readDependencies: sorted([...dependencies.values()]) }
+  }
+  return { ...scope, readDependencies: reads }
 }
 /** Exact surfaces whose fixed appearance sources follow this world transform. */
 export function naturalTransformSurfaceIds(scope: AggregateDomainScope): string[] {

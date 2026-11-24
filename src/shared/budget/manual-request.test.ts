@@ -39,6 +39,8 @@ describe('manual request admission planning', () => {
       members: Object.fromEntries(Object.keys(document.props).map(id => [id, { propId: id, overrideFields: [] }])) }
     expect(planManualCommandWork(document, [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['pack'] }, adjustment }]).semanticTargets).toBe(800)
     expect(selectManualCommandBudget(document, [{ type: 'moveEntitiesToLayer', ids: ['pack'], layerId: 'target' }]).semanticTargets).toBe(1024)
+    expect(planManualCommandWork(document, [{ type: 'moveRoomFurniture', id: 'pack', positionMm: { x: 3000, y: 3000 },
+      supportRef: { kind: 'room', id: 'hall' } }]).semanticTargets).toBe(801)
   })
 
   it('does not charge unpainted structure or internal vertices as layer appearance targets', () => {

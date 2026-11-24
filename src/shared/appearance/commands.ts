@@ -6,6 +6,9 @@ import { publishPathStyle } from '../path-assembly/publish-style.js'
 import { retainPathMemberAppearance } from '../path-assembly/commands.js'
 import { publishPrefabRevision, publishPrefabRevisionSchema, syncPrefabRevision, syncPrefabRevisionSchema } from './prefab-revisions.js'
 import { reconcileAggregateMembers } from '../aggregates/state.js'
+import { syncAggregatePlacements } from '../aggregates/placement-members.js'
+import { createFurnitureRoomQuery } from '../geometry/furniture-room.js'
+import { propFootprint } from '../geometry/geometry.js'
 import { assertCommandBudget, commandSelectionLimit, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { definitionPresentation, propPresentation } from './presentation.js'
 import { z } from 'zod'
@@ -115,7 +118,7 @@ function compositionSchemasForLimit(limit: number, budget?: CommandBudgetProfile
     publishPrefabRevisionSchema,
     syncPrefabRevisionSchema,
     z.object({ type: z.literal('createPrefab'), id, definitionId: id, name: z.string().trim().min(1).max(80), ids: ids.max(128), anchorMm: point, licenseRef: id.optional(), tags: z.array(z.string().min(1).max(256)).max(64).optional() }).strict(),
-    z.object({ type: z.literal('instantiatePrefab'), id, definitionRef: version, memberIds: z.record(id, id), anchorMm: point, rotationDeg: z.number().finite().min(0).lt(360).optional(), layerId: id, supportRef: surfaceRef }).strict(),
+    z.object({ type: z.literal('instantiatePrefab'), id, definitionRef: version, memberIds: z.record(id, id), anchorMm: point, rotationDeg: z.number().finite().min(0).lt(360).optional(), layerId: id, supportRef: surfaceRef.optional() }).strict(),
     z.object({ type: z.literal('duplicatePrefab'), id, newId: id, memberIds: z.record(id, id), offsetMm: point }).strict(),
     z.object({ type: z.literal('deletePrefab'), id, memberIds: z.array(id).max(128).refine(values => new Set(values).size === values.length) }).strict(),
     z.object({ type: z.literal('detachPrefabMember'), groupId: id, propId: id }).strict(),
@@ -216,19 +219,30 @@ function createPrefab(content: CompositionContent, command: Extract<CompositionC
   return props.length + 2
 }
 
+export function prefabPlacementMembers(content: Pick<CompositionContent, 'document' | 'appearance'>, definitionId: string, anchor: PointMm, rotation: number) {
+  const template = content.appearance.prefabAppearanceTemplates[definitionId]
+  return content.document.prefabDefinitions[definitionId].members.map(({ key, propTemplate }) => ({
+    key, propTemplate, positionMm: transformed(propTemplate.positionMm, anchor, rotation),
+    rotationDeg: content.appearance.presentations?.[template.members[key].sourceId]?.mode === 'nearSide' ? 0 : angle(propTemplate.rotationDeg + rotation),
+  }))
+}
+
 function instantiate(content: CompositionContent, command: Extract<CompositionCommand, { type: 'instantiatePrefab' }>): number {
   const document = content.document, graph = content.appearance, definition = required(document.prefabDefinitions, command.definitionRef.id, '固定组合定义')
   if (definition.version !== command.definitionRef.version) throw new Error('组合固定定义版本不匹配。')
   const template = required(graph.prefabAppearanceTemplates, definition.id, '组合外观模板'), layer = required(document.userLayers, command.layerId, '用户图层')
   if (layer.editLocked) throw new OperationRejected('locked_dependency', '目标图层已锁定。')
-  assertFresh(content, command.id); assertSupport(document, layer.floorId, command.supportRef)
+  const rotation = command.rotationDeg ?? 0, members = prefabPlacementMembers(content, definition.id, command.anchorMm, rotation)
+  const support = command.supportRef ?? createFurnitureRoomQuery(document, layer.floorId)(members.map(member =>
+    propFootprint({ ...member.propTemplate, positionMm: member.positionMm, rotationDeg: member.rotationDeg }))).supportRef
+  assertFresh(content, command.id); assertSupport(document, layer.floorId, support)
   if (!memberIdsMatch(definition.members.map(member => member.key), command.memberIds) || Object.values(command.memberIds).includes(command.id)) throw new Error('组合放置须为每个固定成员明确给出不同新ID。')
-  const rotation = command.rotationDeg ?? 0, privatePlacement = template.visibility === 'gm' || !createPublicVisibility(document).surface(command.supportRef)
+  const privatePlacement = template.visibility === 'gm' || !createPublicVisibility(document).surface(support)
   document.prefabInstances[command.id] = { id: command.id, floorId: layer.floorId, editLocked: false, visibility: privatePlacement ? 'gm' : 'public', definitionRef: cloneJson(command.definitionRef), anchorMm: cloneJson(command.anchorMm), rotationDeg: rotation, members: {} }
   document.entityLayers[command.id] = layer.id
-  for (const member of definition.members) {
+  for (const member of members) {
     const id = command.memberIds[member.key]; assertFresh(content, id)
-    const prop: Prop = { ...cloneJson(member.propTemplate), id, floorId: layer.floorId, editLocked: false, visibility: privatePlacement ? 'gm' : 'public', supportRef: cloneJson(command.supportRef), ...(command.supportRef.kind === 'room' ? { roomId: command.supportRef.id } : {}), positionMm: transformed(member.propTemplate.positionMm, command.anchorMm, rotation), rotationDeg: graph.presentations?.[template.members[member.key].sourceId]?.mode === 'nearSide' ? 0 : angle(member.propTemplate.rotationDeg + rotation) }
+    const prop: Prop = { ...cloneJson(member.propTemplate), id, floorId: layer.floorId, editLocked: false, visibility: privatePlacement ? 'gm' : 'public', supportRef: cloneJson(support), ...(support.kind === 'room' ? { roomId: support.id } : {}), positionMm: member.positionMm, rotationDeg: member.rotationDeg }
     prop.renderOrder = topOrder(document, prop); document.props[id] = prop; document.entityLayers[id] = layer.id
     document.prefabInstances[command.id].members[member.key] = { propId: id, overrideFields: [] }
     graph.propSources[id] = template.members[member.key].sourceId; graph.instanceAdjustments[id] = cloneJson(template.members[member.key].adjustments)
@@ -489,6 +503,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
         default: throw new Error('不支持的组合操作。')
       }
       if (beforeTerrain) {
+        consume(syncAggregatePlacements(beforeTerrain.document, content.document))
         reconcileDecorationMembers(beforeTerrain.document, content.document)
         consume(refreshNativeDerivedTransitions(beforeTerrain.document, content.document))
         detachChangedAppearance(beforeTerrain, content)
