@@ -1,7 +1,9 @@
 import { expect, type Page } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { unzipSync } from 'fflate'
+import { build } from 'vite'
 
 type Bounds = { x: number; y: number; width: number; height: number }
 type Environment = { ambientOpacity: number; exposure: number; contactShadowOpacity: number }
@@ -15,6 +17,7 @@ type JourneyVisual = {
   lights: Record<string, unknown>; fogs: Record<string, unknown>; filters: Record<string, unknown>
 }
 type JourneyDocument = {
+  artStyle?: { version: number; active: string; materialDrawing?: number }
   exportBoundsMm: Bounds
   floors: Record<string, { id: string; outputBoundsMm?: Bounds; environment?: Environment }>
   props: Record<string, JourneyProp>
@@ -30,10 +33,22 @@ type ArchiveAppearance = {
   layerAdjustments: Record<string, { enabled: boolean }[]>
 }
 
+const journeyTableAsset = 'refined-art-interior-table-long'
+let materialModule: Promise<string> | undefined
+function materialModuleSource() {
+  return materialModule ??= build({ configFile: false, publicDir: false, logLevel: 'silent', build: {
+    lib: { entry: fileURLToPath(new URL('../src/platform/browser/render/material-drawing.ts', import.meta.url)), formats: ['es'] },
+    write: false,
+  } }).then(result => {
+    const output = Array.isArray(result) ? result[0] : result
+    if (!output || !('output' in output) || output.output.length !== 1 || output.output[0].type !== 'chunk') throw new Error('The material reference needs one browser module')
+    return output.output[0].code
+  })
+}
+
 /**
- * Read the downloaded files with browser decoders, independently of the product
- * renderer. The generated journey deliberately has neutral lighting, allowing a
- * public furniture bitmap's opaque interior to be checked against its ZIP bytes.
+ * Paint the archived table bitmap with its wood brush under neutral light, then
+ * position and compare it independently of the map renderer and projection.
  */
 export async function verifyJourneyPng(page: Page, pngPath: string, archivePath: string, document: JourneyDocument) {
   const [pngBytes, archiveBytes] = await Promise.all([readFile(pngPath), readFile(archivePath)])
@@ -59,12 +74,11 @@ export async function verifyJourneyPng(page: Page, pngPath: string, archivePath:
   expect(Object.keys(visual.filters), 'Texture proof requires no scene filters').toEqual([])
   expect(floor.environment ?? visual.environment, 'Texture proof requires neutral output lighting').toMatchObject({ ambientOpacity: 0, exposure: 1, contactShadowOpacity: 0 })
 
-  const candidates = Object.values(document.props).filter(prop => prop.floorId === floor.id && prop.visibility === 'public'
-    && prop.appearance.kind === 'image' && prop.appearance.opacity === 1)
-  candidates.sort((a, b) => Number(/bed-indigo/.test(b.appearance.assetId ?? '')) - Number(/bed-indigo/.test(a.appearance.assetId ?? ''))
-    || b.visualBoundsMm.width * b.visualBoundsMm.height - a.visualBoundsMm.width * a.visualBoundsMm.height || a.id.localeCompare(b.id))
-  expect(candidates.length, 'Generated scene has a public opaque furniture bitmap').toBeGreaterThan(0)
-  const prop = candidates[0], sourceId = appearance.propSources[prop.id], source = appearance.sources[sourceId]
+  expect(document.artStyle, 'The new scene retains its original palette and default material brush').toMatchObject({ version: 2, active: 'original', materialDrawing: 1 })
+  const prop = Object.values(document.props).find(prop => prop.floorId === floor.id && prop.visibility === 'public'
+    && prop.appearance.kind === 'image' && prop.appearance.opacity === 1 && prop.appearance.assetId === journeyTableAsset)
+  if (!prop) throw new Error('The generated scene needs a public opaque wooden table for its texture proof')
+  const sourceId = appearance.propSources[prop.id], source = appearance.sources[sourceId]
   expect(source?.kind, 'Selected bitmap has its archived appearance source').toBe('prop')
   expect(source.snapshot.appearance, 'Archived source appearance is the rendered appearance').toEqual(prop.appearance)
   expect(source.snapshot.visualBoundsMm).toEqual(prop.visualBoundsMm)
@@ -80,16 +94,20 @@ export async function verifyJourneyPng(page: Page, pngPath: string, archivePath:
   expect(sourceBytes, `Selected furniture bytes exist at ${assetPath}`).toBeTruthy()
   expect(createHash('sha256').update(sourceBytes).digest('hex'), 'Reference image bytes match the scene hash').toBe(asset.sha256)
 
-  const proof = await page.evaluate(async ({ pngBase64, sourceBase64, bounds, prop }) => {
+  const proof = await page.evaluate(async ({ pngBase64, sourceBase64, bounds, prop, materialCode, seed }) => {
     const decode = async (base64: string) => {
       const binary = atob(base64), bytes = Uint8Array.from(binary, value => value.charCodeAt(0))
       return createImageBitmap(new Blob([bytes], { type: 'image/png' }))
     }
     const image = await decode(pngBase64)
     let source: ImageBitmap | undefined
+    let painted: HTMLCanvasElement | undefined
+    const script = URL.createObjectURL(new Blob([materialCode], { type: 'text/javascript' }))
     const target = globalThis.document.createElement('canvas'), reference = globalThis.document.createElement('canvas')
     try {
       source = await decode(sourceBase64)
+      const { drawMaterialImage } = await import(script) as typeof import('../src/platform/browser/render/material-drawing')
+      painted = drawMaterialImage(source, 'wood', seed)
       target.width = image.width; target.height = image.height
       const output = target.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true })
       if (!output) throw new Error('Browser could not allocate the downloaded PNG readback canvas')
@@ -118,7 +136,7 @@ export async function verifyJourneyPng(page: Page, pngPath: string, archivePath:
       expected.setTransform(sx, 0, 0, sy, -bounds.x * sx - left, -bounds.y * sy - top)
       expected.translate(prop.positionMm.x, prop.positionMm.y)
       expected.rotate(angle)
-      expected.drawImage(source, v.x, v.y, v.width, v.height)
+      expected.drawImage(painted, v.x, v.y, v.width, v.height)
       const pixels = expected.getImageData(0, 0, reference.width, reference.height).data
       let sampleCount = 0, matchedPixels = 0, maxChannelError = 0
       const textureColors = new Set<number>(), matchedTextureColors = new Set<number>()
@@ -139,8 +157,14 @@ export async function verifyJourneyPng(page: Page, pngPath: string, archivePath:
         resource: { sourceWidth: source.width, sourceHeight: source.height, cropPx: { x: left, y: top, width: reference.width, height: reference.height },
           sampleCount, matchedPixels, matchingRatio: sampleCount ? matchedPixels / sampleCount : 0,
           textureColors: textureColors.size, matchedTextureColors: matchedTextureColors.size, maxChannelError, channelTolerance: 2 } }
-    } finally { image.close(); source?.close(); target.width = 0; target.height = 0; reference.width = 0; reference.height = 0 }
-  }, { pngBase64: pngBytes.toString('base64'), sourceBase64: Buffer.from(sourceBytes).toString('base64'), bounds, prop })
+    } finally {
+      URL.revokeObjectURL(script)
+      image.close(); source?.close()
+      if (painted) painted.width = painted.height = 0
+      target.width = target.height = reference.width = reference.height = 0
+    }
+  }, { pngBase64: pngBytes.toString('base64'), sourceBase64: Buffer.from(sourceBytes).toString('base64'), bounds, prop,
+    materialCode: await materialModuleSource(), seed: Number.parseInt(asset.sha256.slice(0, 8), 16) })
 
   const ratio = 4096 / Math.max(bounds.width, bounds.height)
   expect({ width: proof.width, height: proof.height }, 'Actual browser-decoded PNG uses the fixed 4K output geometry').toEqual({ width: Math.max(1, Math.round(bounds.width * ratio)), height: Math.max(1, Math.round(bounds.height * ratio)) })
@@ -149,7 +173,7 @@ export async function verifyJourneyPng(page: Page, pngPath: string, archivePath:
   expect({ width: proof.resource.sourceWidth, height: proof.resource.sourceHeight }, 'Browser decodes the exact archived source image dimensions').toEqual({ width: asset.pixelWidth, height: asset.pixelHeight })
   expect(proof.resource.sampleCount, 'Resource proof has at least 256 opaque interior pixels').toBeGreaterThanOrEqual(256)
   expect(proof.resource.textureColors, 'Resource proof includes varied texture rather than a flat patch').toBeGreaterThanOrEqual(16)
-  expect(proof.resource.matchingRatio, `Archived bitmap texture appears at the actual furniture position: ${JSON.stringify(proof.resource)}`).toBeGreaterThanOrEqual(.9)
+  expect(proof.resource.matchingRatio, `Painted archive texture appears at the actual furniture position: ${JSON.stringify(proof.resource)}`).toBeGreaterThanOrEqual(.9)
   expect(proof.resource.matchedTextureColors, 'Matching output contains the varied source texture').toBeGreaterThanOrEqual(16)
   return { ...proof, resource: { propId: prop.id, assetId, sha256: asset.sha256, archivePath: assetPath, ...proof.resource } }
 }

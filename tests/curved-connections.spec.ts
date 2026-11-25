@@ -25,7 +25,7 @@ async function adopt(page: Page, kind: '室外' | '视觉') {
 async function state(page: Page) {
   return page.evaluate(async () => {
     const p = '/src/editor/main/Workbench.tsx', h = '/src/shared/project/validate.ts', b = '/src/application/workspace/project.ts'
-    const { nativeWorkspace } = await import(p), { projectContentHash } = await import(h), { toBundle } = await import(b)
+    const { nativeWorkspace } = await import(p) as typeof import('../src/editor/main/Workbench'), { projectContentHash } = await import(h), { toBundle } = await import(b)
     const project = nativeWorkspace.getState().project!
     return { document: structuredClone(project.document), hash: projectContentHash(toBundle(project).project), checkpoint: nativeWorkspace.checkpoint() }
   })
@@ -33,6 +33,7 @@ async function state(page: Page) {
 
 test('complete-v1 UI edits a routed stair with canvas handles and cold-reopens its complete geometry', async ({ page }, info) => {
   test.setTimeout(300000)
+  page.setDefaultTimeout(15_000)
   const pageErrors: string[] = []; page.on('pageerror', error => pageErrors.push(error.message))
   await blankProject(page, '曲线连接UI')
   let tools = await openOutdoorTask(page, '地形与高程')
@@ -43,7 +44,7 @@ test('complete-v1 UI edits a routed stair with canvas handles and cold-reopens i
   await openDetailsBySummary(tools, /^重叠地形的显示顺序$/)
   await tools.getByLabel('地形覆盖优先级', { exact: true }).fill('1')
   await tools.getByRole('button', { name: '预览室外修改', exact: true }).click(); await adopt(page, '室外')
-  const high = Object.keys((await state(page)).document.terrainAreas)[0]
+  const high = Object.values((await state(page)).document.terrainAreas).find(area => area.groundElevationMm === 1200)!.id
   tools = await openOutdoorTask(page, '台阶 / 坡道')
   await openDetailsBySummary(tools, /^路线形态与踏面$/)
   await tools.getByLabel('连接路线形态', { exact: true }).selectOption('polyline')
@@ -65,7 +66,7 @@ test('complete-v1 UI edits a routed stair with canvas handles and cold-reopens i
   await objects.locator(`[data-entity-id="${id}"]`).click()
   const inspector = page.getByRole('region', { name: '室外对象属性', exact: true })
   await openDetailsBySummary(inspector, /^路线形态与踏面$/)
-  await inspector.getByLabel('连接路线形态', { exact: true }).selectOption('cubic')
+  await inspector.getByRole('combobox', { name: '连接路线形态', exact: true }).selectOption('cubic')
   await inspector.getByRole('button', { name: '从路线节点生成曲线控制点', exact: true }).click()
   await inspector.getByLabel('在画布编辑连接控制点', { exact: true }).check()
   const controls = await inspector.getByLabel('连接曲线控制点', { exact: true }).inputValue()

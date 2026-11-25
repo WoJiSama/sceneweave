@@ -21,6 +21,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:production": "playwright test --config tests/production-playwright.config.ts",
     "ai:build": "tsc -p tsconfig.ai.json",
     "ai:start": "node --env-file-if-exists=.env.ai dist-ai/services/ai/server.js",
     "ai:test": "vitest run --config vitest.ai.config.ts"

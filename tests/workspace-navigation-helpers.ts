@@ -30,6 +30,12 @@ export async function openGenerationTask(page: Page, task: GenerationTask): Prom
   await expect(choice).toHaveAttribute('aria-pressed', 'true')
 }
 
+export async function setGenerationDimensions(page: Page, widthMeters: number, heightMeters: number): Promise<void> {
+  const range = page.getByRole('region', { name: '当前画布生成范围', exact: true })
+  await range.getByLabel('占地宽（米）', { exact: true }).fill(String(widthMeters))
+  await range.getByLabel('占地高（米）', { exact: true }).fill(String(heightMeters))
+}
+
 export async function openGenerationSettings(page: Page): Promise<void> {
   await openDetails(page.getByTestId('workspace-resources').locator('details.workspace-generation-settings'))
 }
@@ -78,11 +84,12 @@ export async function openBuildingTask(page: Page, task: BuildingTask = '绘制�
 
 export async function openOutdoorTask(page: Page, task: OutdoorTask = '地形与高程'): Promise<Locator> {
   await openTerrainTask(page, '绘制地形')
+  const label = task === '台阶 / 坡道' ? '高差连接 / 坡道' : task
   if (task !== '地形与高程') {
     const panel = await openWorkspaceModule(page, '地形')
-    await panel.getByRole('group', { name: '室外任务', exact: true }).getByRole('button', { name: new RegExp(`^${task}`) }).click()
+    await panel.getByRole('group', { name: '室外任务', exact: true }).getByRole('button', { name: new RegExp(`^${label}`) }).click()
   }
-  const parameters = page.getByTestId('workspace-resources').getByRole('region', { name: `${task}参数`, exact: true })
+  const parameters = page.getByTestId('workspace-resources').getByRole('region', { name: `${label}参数`, exact: true })
   await expect(parameters).toBeVisible()
   return parameters
 }

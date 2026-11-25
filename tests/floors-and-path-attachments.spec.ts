@@ -192,9 +192,9 @@ test('ordinary multi-Floor UI keeps independent room/environment data, real audi
 async function doorFixture(sourcePath: string, plain: Backup, outputPath: string) {
   const files = unzipSync(new Uint8Array(await readFile(sourcePath))), floorId = Object.keys(plain.document.floors)[0]
   const layerId = Object.values(plain.document.userLayers).find(layer => layer.floorId === floorId)!.id
-  const material = Object.values(plain.document.materials).find(value => value.applicableSurfaces.includes('terrain'))!
-  const roadMaterial = Object.values(plain.document.materials).find(value => value.id !== material.id && value.applicableSurfaces.includes('path'))!
-  const roomMaterial = Object.values(plain.document.materials).find(value => value.applicableSurfaces.includes('room'))!
+  const material = plain.document.materials['m1d-m-01']
+  const roadMaterial = plain.document.materials['b2-m-03']
+  const roomMaterial = plain.document.materials['b2-m-02']
   expect(material).toBeDefined(); expect(roadMaterial).toBeDefined(); expect(roomMaterial).toBeDefined()
   const runtime = { ids: { nextId: () => randomUUID() }, clock: { now: () => plain.document.updatedAt } }
   let content = applyCompositionCommands({ document: plain.document, historyIdentity: plain.identity, appearance: plain.appearance }, [
@@ -229,6 +229,16 @@ test('closed locked doorway binds through ordinary UI and preserves real road ta
   await creating.getByLabel('画布高度', { exact: true }).fill('18')
   await creating.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(creating).toHaveCount(0); await keyboardWorkspaceSaved(page)
+
+  const library = (await openWorkspaceModule(page, '素材')).getByRole('region', { name: '组件素材库', exact: true })
+  await library.getByLabel('搜索组件素材', { exact: true }).fill('露台石板')
+  await library.getByLabel('选择素材 露台石板', { exact: true }).check()
+  await library.getByRole('button', { name: /^导入\/管理/ }).click()
+  await openDetailsBySummary(library, /^批量添加与个人素材管理/)
+  await library.getByRole('button', { name: '预览采用到本工程', exact: true }).click()
+  await review(page).getByRole('button', { name: '采用组件修改', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+
   const sourcePath = info.outputPath('attachment-source.sceneweave'), plain = await keyboardProjectBackup(page, sourcePath)
   const fixturePath = info.outputPath('attachment-fixture.sceneweave')
   await doorFixture(sourcePath, plain, fixturePath)

@@ -30,6 +30,8 @@ test('home search failures discard old cursors and late pages cannot replace a n
   await expect(home(page).getByRole('button', { name: '刷新工程列表', exact: true })).toBeEnabled()
   await page.evaluate(async () => {
     const path = '/src/platform/browser/runtime.ts', { projectRepository } = await import(path) as typeof import('../src/platform/browser/runtime')
+    // Exercise the existing-storage directory path, including at zero entries.
+    await projectRepository.open()
     type Query = Parameters<typeof projectRepository.projectDirectory>[0]
     type Result = Awaited<ReturnType<typeof projectRepository.projectDirectory>>
     const requests: { query: Query; resolve: (value: Result) => void; reject: (error: Error) => void }[] = []

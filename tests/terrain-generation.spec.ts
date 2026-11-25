@@ -270,6 +270,7 @@ test('T1 manual preview cancellation, independent adoption, tree and coast edits
   await expect(page.getByRole('article',{name:'当前地形候选'})).toBeVisible({timeout:60000})
   await page.getByRole('button',{name:'取消当前地形候选',exact:true}).click()
   await expect(page.getByRole('article',{name:'当前地形候选'})).toHaveCount(0)
+  await openGenerationTask(page, '自然地形')
   await page.getByRole('button',{name:'生成地形预览',exact:true}).click()
   await expect(page.getByRole('button',{name:'采用当前地形方案',exact:true})).toBeEnabled({timeout:60000})
   await page.getByRole('button',{name:'采用当前地形方案',exact:true}).click()

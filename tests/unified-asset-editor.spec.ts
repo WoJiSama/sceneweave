@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { imageEditCapabilities } from '../src/shared/asset-refinement/model-protocol'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, openKeyboardPanel } from './keyboard-ux-helpers'
 import { openWorkspaceModule } from './workspace-navigation-helpers'
+import { acknowledgeAssetQuality } from './asset-quality-helpers'
 
 const { PNG } = createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js')
 const sourceWidth = 400, sourceHeight = 240
@@ -37,7 +38,7 @@ function fact(details: Locator, label: string) {
   return details.locator('dt').filter({ hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]')
 }
 
-async function viewCatalogItem(page: Page, scope: 'builtin' | 'mine', name: string) {
+async function viewCatalogItem(page: Page, scope: 'builtin' | 'mine' | 'project', name: string) {
   await openWorkspaceModule(page, '素材')
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
   await library.getByLabel('素材来源', { exact: true }).selectOption(scope)
@@ -136,6 +137,104 @@ test('catalog image editing preserves one draft across pages and saves a new per
   expect(after.appearance).toEqual(before.appearance)
   expect(keyboardResourceHashes(after.hashes)).toEqual(keyboardResourceHashes(before.hashes))
   expect(errors).toEqual([])
+})
+
+test('a personal material copy retains its default volume and licensed side image', async ({ page }) => {
+  test.setTimeout(120_000)
+  await createKeyboardProject(page, '带侧面图的素材副本')
+  const details = await viewCatalogItem(page, 'builtin', '铜色桌灯')
+  const name = '侧面图测试桌灯'
+  const editor = page.locator('dialog.asset-item-editor-dialog')
+  await details.getByRole('button', { name: '编辑素材副本', exact: true }).click()
+  await editor.getByLabel('素材副本名称', { exact: true }).fill(name)
+  await editor.getByText('默认立体形状', { exact: true }).click()
+  await editor.getByRole('combobox', { name: '立体结构', exact: true }).selectOption('lamp')
+  await editor.getByLabel('立体高度（毫米）', { exact: true }).fill('620')
+  await editor.getByLabel('载入侧面图片', { exact: true }).setInputFiles({ name: 'side.png', mimeType: 'image/png', buffer: sourcePng() })
+  await editor.getByLabel('侧面图署名', { exact: true }).fill('Sceneweave 测试原图')
+  await editor.getByLabel('侧面图许可', { exact: true }).fill('原图作者允许嵌入 Sceneweave 工程及素材备份。')
+  await editor.getByLabel('许可允许把侧面图嵌入工程', { exact: true }).check()
+  await editor.getByRole('button', { name: '预览立体外观', exact: true }).click()
+  const canvas = editor.getByLabel('可旋转的物件预览', { exact: true })
+  await expect(canvas).toHaveAttribute('data-ready', 'true', { timeout: 30_000 })
+  const pixels = () => canvas.evaluate(node => (node as HTMLCanvasElement).toDataURL())
+  const initial = await pixels()
+  await canvas.press('ArrowRight')
+  await expect.poll(pixels).not.toBe(initial)
+  await editor.getByRole('button', { name: '保存编辑副本到我的素材', exact: true }).click()
+  await expect(editor).toHaveCount(0, { timeout: 60_000 })
+  const library = page.getByRole('region', { name: '组件素材库', exact: true })
+  await expect(library.getByLabel('素材来源', { exact: true })).toHaveValue('mine')
+  await library.getByLabel('搜索组件素材', { exact: true }).fill(name)
+  const saved = page.getByRole('region', { name: '素材详情面板', exact: true })
+  await expect(saved.getByRole('heading', { name, exact: true })).toBeVisible()
+  await saved.getByRole('button', { name: '编辑素材副本', exact: true }).click()
+  await editor.getByText('默认立体形状', { exact: true }).click()
+  await expect(editor.getByRole('combobox', { name: '立体结构', exact: true })).toHaveValue('lamp')
+  await expect(editor.getByLabel('立体高度（毫米）', { exact: true })).toHaveValue('620')
+  await expect(editor.getByRole('combobox', { name: '侧面图片', exact: true })).toHaveValue(/^import-image-/)
+})
+
+test('a custom image stays flat by default and safely falls back to flat after a side image fails', async ({ page }) => {
+  test.setTimeout(120_000)
+  await createKeyboardProject(page, '自定义平面素材')
+  await openWorkspaceModule(page, '素材')
+  const library = page.getByRole('region', { name: '组件素材库', exact: true })
+  await library.getByRole('button', { name: '导入/管理', exact: true }).click()
+  const form = library.locator('details.composition-import:not(.asset-batch-import)')
+  await form.locator(':scope > summary').click()
+  const name = '原创木箱自定义物件'
+  await form.getByLabel('素材图片', { exact: true }).setInputFiles({ name: name + '.png', mimeType: 'image/png', buffer: sourcePng() })
+  await form.getByLabel('素材标签', { exact: true }).fill('木箱')
+  await form.getByRole('checkbox', { name: '阻挡移动', exact: true }).check()
+  await form.getByLabel('素材署名与来源', { exact: true }).fill('Sceneweave 测试原图')
+  await form.getByLabel('素材完整许可', { exact: true }).fill('原图作者允许嵌入 Sceneweave 工程及素材备份。')
+  await form.getByLabel('确认素材可嵌入工程', { exact: true }).check()
+  await form.getByRole('button', { name: '预览素材导入', exact: true }).click()
+  const adopt = page.getByRole('button', { name: '采用组件修改', exact: true })
+  await expect(adopt).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('region', { name: '素材质量初筛', exact: true })).toBeVisible()
+  await acknowledgeAssetQuality(page)
+  await adopt.click()
+  await keyboardWorkspaceSaved(page)
+  const workbench = page.getByTestId('outdoor-workbench')
+  const revision = await workbench.getAttribute('data-revision')
+  await library.getByRole('button', { name: '浏览素材', exact: true }).click()
+  const details = await viewCatalogItem(page, 'project', name)
+  const editor = page.locator('dialog.asset-item-editor-dialog')
+  await details.getByRole('button', { name: '编辑素材副本', exact: true }).click()
+  const copyName = '原图保留的木箱副本'
+  await editor.getByLabel('素材副本名称', { exact: true }).fill(copyName)
+  await editor.getByLabel('占地宽度毫米', { exact: true }).fill('730')
+  await editor.getByText('默认立体形状', { exact: true }).click()
+  const shape = editor.getByRole('combobox', { name: '立体结构', exact: true })
+  const preview = editor.getByRole('button', { name: '预览立体外观', exact: true })
+  await expect(shape).toHaveValue('flat')
+  await expect(preview).toHaveCount(0)
+  await shape.selectOption('box')
+  await editor.getByLabel('载入侧面图片', { exact: true }).setInputFiles({
+    name: 'damaged-side.png', mimeType: 'image/png', buffer: Buffer.from('invalid fixture image'),
+  })
+  await editor.getByLabel('侧面图署名', { exact: true }).fill('Sceneweave 测试侧图')
+  await editor.getByLabel('侧面图许可', { exact: true }).fill('测试侧图许可允许嵌入工程。')
+  await editor.getByLabel('许可允许把侧面图嵌入工程', { exact: true }).check()
+  await preview.click()
+  const view = editor.getByRole('region', { name: '物件斜俯视预览', exact: true })
+  await expect(view.getByRole('alert')).toContainText('侧面图处理失败')
+  await view.getByRole('button', { name: '使用平面外观', exact: true }).click()
+  await expect(view).toHaveCount(0)
+  await expect(shape).toHaveValue('flat')
+  await expect(editor.getByLabel('素材副本名称', { exact: true })).toHaveValue(copyName)
+  await expect(editor.getByLabel('占地宽度毫米', { exact: true })).toHaveValue('730')
+  await editor.getByRole('button', { name: '保存编辑副本到我的素材', exact: true }).click()
+  await expect(editor).toHaveCount(0, { timeout: 60_000 })
+  await expect(workbench).toHaveAttribute('data-revision', revision!)
+  await library.getByLabel('搜索组件素材', { exact: true }).fill(copyName)
+  const saved = page.getByRole('region', { name: '素材详情面板', exact: true })
+  await expect(saved.getByRole('heading', { name: copyName, exact: true })).toBeVisible()
+  await saved.getByRole('button', { name: '编辑素材副本', exact: true }).click()
+  await editor.getByText('默认立体形状', { exact: true }).click()
+  await expect(shape).toHaveValue('flat')
 })
 
 test('catalog candidate adoption confirms clearing other image drafts and cancellation preserves all routes and item fields', async ({ page }) => {

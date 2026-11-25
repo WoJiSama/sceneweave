@@ -36,7 +36,8 @@ async function commitNumber(scope: Locator, name: string, value: string) {
 }
 
 async function itemCoordinates(page: Page, x: string, y: string, rotation: string) {
-  if (!await page.getByRole('heading', { name: '物件属性', exact: true }).isVisible()) await page.getByRole('button', { name: '返回所选对象', exact: true }).click()
+  const back = page.getByRole('button', { name: '返回所选对象', exact: true })
+  if (await back.isVisible()) await back.click()
   await expect(page.getByRole('heading', { name: '物件属性', exact: true })).toBeVisible()
   await expect(page.getByRole('spinbutton', { name: '物件 X', exact: true })).toHaveValue(x)
   await expect(page.getByRole('spinbutton', { name: '物件 Y', exact: true })).toHaveValue(y)

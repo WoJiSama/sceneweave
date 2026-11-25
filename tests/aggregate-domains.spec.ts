@@ -55,7 +55,8 @@ async function number(scope: Locator, name: string, value: string) {
 }
 
 async function itemCoordinates(page: Page, x: string, y: string, rotation = '0') {
-  if (!await page.getByRole('heading', { name: '物件属性', exact: true }).isVisible()) await page.getByRole('button', { name: '返回所选对象', exact: true }).click()
+  const back = page.getByRole('button', { name: '返回所选对象', exact: true })
+  if (await back.isVisible()) await back.click()
   await expect(page.getByRole('heading', { name: '物件属性', exact: true })).toBeVisible()
   await expect(page.getByRole('spinbutton', { name: '物件 X', exact: true })).toHaveValue(x)
   await expect(page.getByRole('spinbutton', { name: '物件 Y', exact: true })).toHaveValue(y)
@@ -151,6 +152,7 @@ test('create and transform a natural group through production preview, undo and 
   await page.screenshot({ path: info.outputPath('aggregate-natural-create-preview.png'), fullPage: true })
   await adopt(page)
   await expect(workbench).toHaveAttribute('data-revision', '1')
+  await expect(page.getByLabel('自然组内部对象', { exact: true })).toHaveCount(0)
   const members = await naturalMembers(page)
   await expect(members.getByRole('button', { name: '木箱', exact: true })).toHaveCount(0)
   await members.getByRole('button', { name: '桌子', exact: true }).click()

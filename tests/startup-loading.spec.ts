@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page } from '@playwright/test'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
-import { openGenerationTask, openOutdoorTask, openSamples, openTerrainTask, openWorkspaceModule } from './workspace-navigation-helpers'
+import { openGenerationTask, openOutdoorTask, openSamples, openSceneObjects, openTerrainTask, openWorkspaceModule } from './workspace-navigation-helpers'
 import { openDetailsBySummary } from './workspace-ux-helpers'
 
-const deferredTools = /^(CatalogLibrary|HistoryPanel|VisualPanel|ArtStylePanel|OutdoorToolsPanel|OutdoorInspector|InteriorGenerationPanel|ForestGenerationPanel|MixedGenerationPanel|TerrainGenerationPanel|TerrainCompositionPanel|RegionalPanel)-/
-const deferredActions = /^(AuthoringGuide|atomic|authoring|forest-loop|island-dressing|bridge-template-revisions|generation-local|terrain-local|base-map-client|regional)-[\w-]{8}\.js$/
+const deferredTools = /^(CatalogLibrary|HistoryPanel|VisualPanel|ArtStylePanel|OutdoorToolsPanel|OutdoorInspector|BuildingInspector|SceneInspector|AggregateBuildingPanel|AggregateStructurePanel|AggregateNaturalPanel|InteriorGenerationPanel|ForestGenerationPanel|MixedGenerationPanel|TerrainGenerationPanel|TerrainCompositionPanel|RegionalPanel|UserLayerPanel|FloorArtworkPanel|SceneDisplayPanel|PathChecksPanel|CompositionChangesPanel|TerrainElevationTools|TerrainSculptTools|ReliefBrushTools)-/
+const advancedCode = /^(svg-worker-client|svg-raster-legacy|automatic-road(?:-planner)?|road-grading|rock-step-paint|composition-materialize|terrain-dressing)-[\w-]{8}\.js$/
+const deferredActions = /^(AuthoringGuide|atomic|authoring(?:-profile|-protocol(?:-v[1-4])?)?|forest-loop|island-dressing|bridge-template-revisions|generation-local|terrain-local|base-map-client|regional|algorithms|structure-plan|local-model-patch|source-pixels|image-enhancement)-[\w-]{8}\.js$/
 
 async function startupScripts(page: Page, since = 0) {
   return page.evaluate(start => (performance.getEntriesByType('resource') as PerformanceResourceTiming[])
@@ -23,7 +24,7 @@ async function openProductionPage(page: Page, route: 'tutorial' | 'home') {
   await skipDevelopmentPage(page)
 }
 
-async function holdScript(page: Page, pattern: string) {
+async function holdResource(page: Page, pattern: string) {
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
   await page.route(pattern, async route => {
@@ -46,8 +47,8 @@ async function expectCenteredLogo(page: Page, label: string, animated: boolean) 
 }
 
 test('the native logo is centered during bootstrap and page loading and follows reduced motion', async ({ page }) => {
-  const [releaseEntry, releaseTutorial, releaseForm, releaseWorkbench] = await Promise.all(
-    ['index', 'TutorialPage', 'StartupSceneDialog', 'Workbench'].map(name => holdScript(page, `**/assets/${name}-*.js`)),
+  const [releaseEntry, releaseTutorial, releaseWorkbench] = await Promise.all(
+    ['index', 'TutorialPage', 'Workbench'].map(name => holdResource(page, `**/assets/${name}-*.js`)),
   )
   try {
     await page.emulateMedia({ reducedMotion: 'no-preference' })
@@ -64,9 +65,8 @@ test('the native logo is centered during bootstrap and page loading and follows 
     await page.getByRole('link', { name: '织境首页', exact: true }).click()
     const newScene = page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true })
     await newScene.click()
-    await expectCenteredLogo(page, '正在打开新建场景表单…', true)
-    releaseForm()
     const dialog = page.getByRole('dialog', { name: '新建空白场景' })
+    await expect(dialog.getByRole('textbox', { name: '场景名称' })).toBeEditable()
     await dialog.getByRole('button', { name: '取消', exact: true }).click()
     await expect(newScene).toBeFocused()
 
@@ -80,7 +80,6 @@ test('the native logo is centered during bootstrap and page loading and follows 
   } finally {
     releaseEntry()
     releaseTutorial()
-    releaseForm()
     releaseWorkbench()
   }
 })
@@ -95,6 +94,9 @@ test('production tutorial and blank workspace stay within their first-load scrip
 
   await page.goto('./#home')
   await expect(page.getByTestId('workspace-home').getByText('共 0 个工程', { exact: false })).toBeVisible()
+  const unloaded = /^(Workbench|workspace-session|runtime|repository|resources|task-queue|canvas-renderer)-/
+  expect((await startupScripts(page)).filter(script => unloaded.test(script.name))).toEqual([])
+  expect(await page.evaluate(async () => (await indexedDB.databases()).some(database => database.name?.startsWith('sceneweave-projects-dev-v1')))).toBe(false)
   const since = await page.evaluate(() => performance.now())
   await page.evaluate(() => { window.location.hash = '#workspace' })
   await expect(page.getByRole('heading', { level: 1, name: '织境场景' })).toBeVisible()
@@ -102,7 +104,7 @@ test('production tutorial and blank workspace stay within their first-load scrip
   expect(workspace).not.toHaveLength(0)
   expect(workspace.reduce((bytes, script) => bytes + script.bytes, 0)).toBeLessThan(3 * 1024 * 1024)
   const deferred = /^(scenes-data|builtin-data|scene-collection|ImageImportTool|AiConversationPanel|ThemePacksPanel|WorkspaceSampleTools|canvas-renderer|generation)-/
-  expect(workspace.filter(script => deferred.test(script.name) || deferredTools.test(script.name) || deferredActions.test(script.name))).toEqual([])
+  expect(workspace.filter(script => deferred.test(script.name) || deferredTools.test(script.name) || deferredActions.test(script.name) || advancedCode.test(script.name))).toEqual([])
 })
 
 test('only visible homepage artwork downloads until the user visits the samples', async ({ page }) => {
@@ -129,10 +131,45 @@ test('only visible homepage artwork downloads until the user visits the samples'
   expect(artwork).toContain('volcano-stage1.png')
 })
 
+test('opening the new scene form pauses unfinished home previews and cancelling resumes them', async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 })
+  const imageUrl = '**/assets/home-scenes/wilderness-stage1.png*'
+  const releaseImage = await holdResource(page, imageUrl)
+  const pending = page.waitForRequest(imageUrl)
+  const obliqueRequests: string[] = []
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.endsWith('/wilderness-3d.webp')) obliqueRequests.push(request.url())
+  })
+  try {
+    await page.goto('./#home', { waitUntil: 'domcontentloaded' })
+    await skipDevelopmentPage(page)
+    await pending
+    const home = page.getByTestId('workspace-home')
+    const images = home.locator('.home-featured-views img')
+    const oblique = images.nth(1)
+    await expect.poll(() => oblique.evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+
+    const trigger = home.getByRole('button', { name: '新建场景', exact: true })
+    await trigger.click()
+    const dialog = page.getByRole('dialog', { name: '新建空白场景' })
+    await expect(dialog).toBeVisible()
+    await expect(images.first()).not.toHaveAttribute('src', /.+/)
+    releaseImage()
+    await expect(oblique).toHaveAttribute('src', /wilderness-3d\.webp/)
+    await dialog.getByRole('button', { name: '取消', exact: true }).click()
+    await expect(trigger).toBeFocused()
+    await expect(images.first()).toHaveAttribute('src', /wilderness-stage1\.png/)
+    await expect.poll(() => images.first().evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+    expect(obliqueRequests).toHaveLength(1)
+  } finally {
+    releaseImage()
+  }
+})
+
 test('homepage creation opens before the editor finishes downloading and saves the exact starter assets', async ({ page }, info) => {
   await openProductionPage(page, 'home')
   await page.setViewportSize({ width: 390, height: 844 })
-  const releaseRenderer = await holdScript(page, '**/canvas-renderer-*.js')
+  const releaseRenderer = await holdResource(page, '**/canvas-renderer-*.js')
   let releaseEditor!: () => void
   const editorGate = new Promise<void>(resolve => { releaseEditor = resolve })
   let editorRequested = false
@@ -322,6 +359,12 @@ test('composing a new woodland loads the selected tree and adopts it together wi
 
 test('the first canvas can be edited and optional tools download on their first use', async ({ page }) => {
   await openProductionPage(page, 'home')
+  const blocked: string[] = []
+  const blockedTools = (url: URL) => advancedCode.test(url.pathname.split('/').at(-1)!)
+  await page.route(blockedTools, route => {
+    blocked.push(route.request().url())
+    return route.abort('failed')
+  })
   const optional: string[] = []
   page.on('request', request => {
     const name = new URL(request.url()).pathname.split('/').at(-1)!
@@ -341,9 +384,22 @@ test('the first canvas can be edited and optional tools download on their first 
   await page.mouse.click(box.x + box.width * .35, box.y + box.height * .4)
   await page.getByRole('button', { name: '完成房间', exact: true }).click()
   await keyboardWorkspaceSaved(page)
+  const shell = page.getByTestId('outdoor-workbench')
+  await expect(shell).toHaveAttribute('data-revision', '1')
+  await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  await expect(shell).toHaveAttribute('data-revision', '2')
+  await page.getByRole('button', { name: '重做编辑', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
+  await expect(shell).toHaveAttribute('data-revision', '3')
+  expect(blocked).toEqual([])
+  await page.unroute(blockedTools)
+
+  const rooms = await openSceneObjects(page, '结构')
+  await rooms.getByRole('button', { name: '新房间', exact: false }).first().click()
   await page.getByRole('button', { name: '材质与铺装', exact: true }).click()
   await expect(page.getByRole('region', { name: '外观与氛围参数' })).toBeVisible()
-  expect(optional).toEqual([expect.stringMatching(/^VisualPanel-/)])
+  expect(optional).toEqual(expect.arrayContaining([expect.stringMatching(/^BuildingInspector-/), expect.stringMatching(/^VisualPanel-/)]))
   await page.getByRole('button', { name: '返回所选对象', exact: true }).click()
 
   await page.getByRole('button', { name: '按用途布置房间', exact: true }).click()
@@ -358,6 +414,13 @@ test('the first canvas can be edited and optional tools download on their first 
   await expect(history.getByRole('region', { name: '命名历史', exact: true })).toBeVisible()
   const terrain = await openWorkspaceModule(page, '地形')
   await expect(terrain.getByRole('group', { name: '室外任务', exact: true })).toBeVisible()
+  const road = await openOutdoorTask(page, '道路')
+  await expect(road.getByRole('button', { name: '在画布自动选路', exact: true })).toBeEnabled()
+  const plannerRequest = page.waitForRequest(request => /\/automatic-road-planner-[^/]+\.js$/.test(new URL(request.url()).pathname))
+  await road.getByRole('button', { name: '在画布自动选路', exact: true }).click()
+  await plannerRequest
+  await expect(page.getByTestId('automatic-road-overlay')).toBeVisible()
+  await page.getByRole('button', { name: '退出自动选路', exact: true }).click()
   await openGenerationTask(page, '室内布局')
   const form = page.getByRole('dialog', { name: '室内布局', exact: true })
   await expect(form.getByRole('region', { name: '室内布局生成' })).toBeVisible()
@@ -370,6 +433,18 @@ test('the first canvas can be edited and optional tools download on their first 
     expect.stringMatching(/^HistoryPanel-/), expect.stringMatching(/^OutdoorToolsPanel-/), expect.stringMatching(/^InteriorGenerationPanel-/),
   ]))
   expect(optional.some(name => /^(ForestGenerationPanel|MixedGenerationPanel|TerrainGenerationPanel)-/.test(name))).toBe(false)
+})
+
+test('the homepage falls back to the full directory when database enumeration fails', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(IDBFactory.prototype, 'databases', {
+      configurable: true,
+      value: () => Promise.reject(new Error('Controlled database enumeration failure')),
+    })
+  })
+  await openProductionPage(page, 'home')
+  await expect(page.getByTestId('workspace-home').getByText('共 0 个工程', { exact: false })).toBeVisible()
+  expect((await startupScripts(page)).filter(script => /^repository-/.test(script.name))).not.toHaveLength(0)
 })
 
 test('a damaged starter download keeps the form draft and leaves the project directory empty', async ({ page }) => {
@@ -388,6 +463,24 @@ test('a damaged starter download keeps the form draft and leaves the project dir
   await expect(dialog).toHaveCount(0)
   await expect(trigger).toBeFocused()
   await expect(home.getByText('共 0 个工程', { exact: false })).toBeVisible()
+})
+
+test('a failed workbench download keeps the new scene draft without publishing a project', async ({ page }) => {
+  await openProductionPage(page, 'home')
+  await page.route('**/Workbench-*.js', route => route.abort('failed'))
+  const home = page.getByTestId('workspace-home')
+  const trigger = home.getByRole('button', { name: '新建场景', exact: true })
+  await trigger.click()
+  const dialog = page.getByRole('dialog', { name: '新建空白场景' })
+  const name = dialog.getByRole('textbox', { name: '场景名称' })
+  await name.fill('工作台下载失败时保留名称')
+  await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('工作区加载失败')
+  await expect(name).toHaveValue('工作台下载失败时保留名称')
+  await dialog.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(trigger).toBeFocused()
+  await expect(home.getByText('共 0 个工程', { exact: false })).toBeVisible()
+  expect(await page.evaluate(async () => (await indexedDB.databases()).some(database => database.name?.startsWith('sceneweave-projects-dev-v1')))).toBe(false)
 })
 
 test('a failed image tool download keeps the active project and navigation available', async ({ page }) => {

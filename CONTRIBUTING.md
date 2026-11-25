@@ -21,7 +21,7 @@ npx playwright install chromium
 npx playwright test tests/<相关文件>.spec.ts
 ```
 
-全量入口为`npm test`、`npm run ai:test`和`npm run test:e2e`。日常选择受改动影响的检查，生产旅程及环境变量见[检查方法](docs/testing.md)和[测试导航](tests/README.md)。共享层检查使用`npm run check:architecture`和`npm run check:shared`。
+全量入口为`npm test`、`npm run ai:test`和开发浏览器回归`npm run test:e2e`。生产浏览器回归在构建后运行`npm run test:e2e:production`。日常选择受改动影响的检查，具体用法见[检查方法](docs/testing.md)和[测试导航](tests/README.md)。共享层检查使用`npm run check:architecture`和`npm run check:shared`。
 
 <a id="shared-workflows"></a>
 ## 共享工作流

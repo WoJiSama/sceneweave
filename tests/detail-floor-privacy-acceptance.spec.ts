@@ -13,7 +13,9 @@ import type { ProjectManifest } from '../src/shared/project/file'
 import { canonicalJson } from '../src/shared/validation/json'
 import { validateSceneDocument } from '../src/shared/validation/scene'
 import { visualBase } from '../src/shared/visual/base'
+import { acknowledgeAssetQuality } from './asset-quality-helpers'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
+import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { mapExportButton } from './workspace-ux-helpers'
 
 const { PNG } = createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js')
@@ -80,6 +82,18 @@ test('paired secret mutations and same-XY other-Floor effects cannot change Floo
   const artifact = JSON.parse(await readFile(process.env.SCENEWEAVE_DETAIL_ARTIFACT ?? 'work/detail-acceptance-20261110/frozen-artifact.json', 'utf8'))
   await createKeyboardProject(page, '楼层配对保密验收')
   expect(page.url().startsWith(artifact.baseUrl)).toBe(true)
+  await openWorkspaceModule(page, '素材')
+  const library = page.getByRole('region', { name: '组件素材库', exact: true })
+  await library.getByLabel('搜索组件素材', { exact: true }).fill('深橡木书桌')
+  await library.getByRole('checkbox', { name: '选择素材 深橡木书桌', exact: true }).check()
+  await library.getByRole('button', { name: /^导入\/管理/ }).click()
+  await library.locator('details.catalog-management > summary').click()
+  await library.getByRole('button', { name: '预览采用到本工程', exact: true }).click()
+  const review = page.getByRole('region', { name: '候选审阅', exact: true })
+  await expect(review).toBeVisible()
+  await acknowledgeAssetQuality(page)
+  await review.getByRole('button', { name: '采用组件修改', exact: true }).click()
+  await keyboardWorkspaceSaved(page)
   const sourcePath = info.outputPath('source.sceneweave'), source = await keyboardProjectBackup(page, sourcePath)
   const a = Object.keys(source.document.floors)[0], aLayer = Object.keys(source.document.userLayers)[0]
   const b = 'acceptance-overlapping-floor', bLayer = 'acceptance-overlapping-layer'
@@ -132,8 +146,8 @@ test('paired secret mutations and same-XY other-Floor effects cannot change Floo
     await load(page, beforePath); await load(other, afterPath)
     const before = await keyboardProjectBackup(page, info.outputPath('imported-before.sceneweave'))
     const after = await keyboardProjectBackup(other, info.outputPath('imported-after.sceneweave'))
-    expect(importedContent(before.document)).toEqual(importedContent(withDoor.document))
-    expect(importedContent(after.document)).toEqual(importedContent(changed.document))
+    expect(importedContent(before.document)).toEqual({ ...importedContent(withDoor.document), revision: 0 })
+    expect(importedContent(after.document)).toEqual({ ...importedContent(changed.document), revision: 0 })
     expect(keyboardResourceHashes(before.hashes)).toEqual(keyboardResourceHashes(source.hashes))
     expect(keyboardResourceHashes(after.hashes)).toEqual(keyboardResourceHashes(source.hashes))
     const aPlayer = await exportImage(page, a, 'player', info.outputPath('a-before-player.png'))

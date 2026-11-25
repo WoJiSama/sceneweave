@@ -125,6 +125,18 @@ for (const scenario of scenarios) test(`production ${scenario.domain} running Es
   await page.setViewportSize(scenario.size)
   await closeDrawers(page)
   await installDomainGate(page)
+  if (scenario.domain === 'interior') {
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await page.evaluate(() => {
+      const phases: string[] = []
+      Reflect.set(window, '__generationDrawingPhases', phases)
+      new MutationObserver(() => {
+        const sketch = document.querySelector<HTMLCanvasElement>('[data-testid="generation-sketch"]')
+        const phase = sketch?.dataset.drawingPhase
+        if (phase && phases.at(-1) !== phase) phases.push(phase)
+      }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-drawing-phase'] })
+    })
+  }
   await openGenerationTask(page, scenario.task)
   const settings = page.getByRole('dialog', { name: scenario.task, exact: true })
   await settings.getByLabel('左上 X（米）').fill('8')
@@ -144,10 +156,16 @@ for (const scenario of scenarios) test(`production ${scenario.domain} running Es
     expect(calculated.posts).toHaveLength(1)
     expect(calculated.posts[0].domain).toBe(scenario.domain)
     expect(calculated.pending[0]).toMatchObject({ domain: scenario.domain, hasResult: true, type: null, trusted: true, delivered: 0 })
+    if (scenario.domain === 'interior') {
+      // The terminal result is still withheld. Only the live worker geometry can paint these stages.
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, '__generationDrawingPhases'))).toEqual(['lines', 'spaces', 'details'])
+      await expect(page.getByTestId('generation-sketch')).toBeVisible()
+    }
     await page.screenshot({ path: info.outputPath('domain-running.png') })
     await page.keyboard.press('Escape')
     await expect(settings).toHaveCount(0)
     await expect(status).toHaveCount(0)
+    await expect(page.getByTestId('generation-sketch')).toHaveCount(0)
     await expect(candidate).toHaveCount(0)
     await expect(revision).toHaveAttribute('data-revision', String(original.document.revision))
     await expect(page.getByRole('heading', { name: original.document.title, level: 1, exact: true })).toBeVisible()
@@ -178,9 +196,14 @@ for (const scenario of scenarios) test(`production ${scenario.domain} running Es
     await expect(candidate).toHaveCount(0)
     await expect(revision).toHaveAttribute('data-revision', String(original.document.revision))
     expect((await gateFacts(page)).terminations).toBe(1)
+    if (scenario.domain === 'interior') {
+      await page.getByRole('button', { name: '跳到完整预览', exact: true }).click()
+      await expect(page.getByTestId('generation-sketch')).toHaveCount(0)
+    }
     await deliver(page, 1)
     const preview = page.getByRole('group', { name: '当前画布生成预览' })
     await expect(preview).toBeVisible({ timeout: 90_000 })
+    if (scenario.domain === 'interior') await expect(page.getByTestId('generation-sketch')).toHaveCount(0)
     await preview.getByRole('button', { name: '候选详情', exact: true }).click()
     await expect(candidate).toBeVisible({ timeout: 90_000 })
     await expect(inspector).toHaveAttribute('data-open', 'true')

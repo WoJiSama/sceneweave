@@ -1,10 +1,17 @@
 import { defineConfig } from '@playwright/test'
 
+export const productionOnlySpecs = [
+  '**/complete-journey-ux.spec.ts',
+  '**/core-convergence-journey.spec.ts',
+  '**/startup-loading.spec.ts',
+]
+
 export default defineConfig({
   testDir: './tests',
   // Frozen-input production checks have their own explicit configurations.
   // The seven-kind/five-seed terrain matrix is also an explicit acceptance run.
-  testIgnore: ['**/formal-visual.spec.ts', '**/svg-determinism.spec.ts', '**/fixed-sample-privacy*.spec.ts', '**/complete-project-history.spec.ts', '**/complete-project-import-safety.spec.ts', '**/complete-project-cas.spec.ts', '**/complete-project-save-abort.spec.ts', '**/current-library-journey.spec.ts', '**/current-terrain-matrix.spec.ts', '**/forest-layout-production.spec.ts'],
+  testIgnore: ['**/formal-visual.spec.ts', '**/svg-determinism.spec.ts', '**/fixed-sample-privacy*.spec.ts', '**/complete-project-history.spec.ts', '**/complete-project-import-safety.spec.ts', '**/complete-project-cas.spec.ts', '**/complete-project-save-abort.spec.ts', '**/current-library-journey.spec.ts', '**/current-terrain-matrix.spec.ts', '**/forest-layout-production.spec.ts', '**/detail-floor-privacy-acceptance.spec.ts', '**/note-privacy-notice.spec.ts', ...productionOnlySpecs],
+  grepInvert: /@production\b/,
   timeout: 45_000,
   expect: { timeout: 8000 },
   fullyParallel: false,

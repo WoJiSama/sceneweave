@@ -11,16 +11,17 @@ npm run typecheck
 npm run build
 npx playwright install chromium
 npm run test:e2e
+npm run test:e2e:production
 ```
 
-定向运行使用`npx vitest run <文件>`或`npx playwright test tests/<文件>.spec.ts`。Playwright默认用独立浏览器上下文和开发服务；生产验证先构建/preview，再设置`SCENEWEAVE_TEST_BASE_URL`。系统浏览器用`SCENEWEAVE_BROWSER_CHANNEL=chrome`或`msedge`，无设置时使用Playwright Chromium。
+定向运行使用`npx vitest run <文件>`、`npm run test:e2e -- tests/<文件>.spec.ts`或`npm run test:e2e:production -- tests/<文件>.spec.ts`。生产回归先运行`npm run build`，该入口会启动生产预览。两个入口都支持通过`SCENEWEAVE_TEST_BASE_URL`指定已启动的对应服务。系统浏览器用`SCENEWEAVE_BROWSER_CHANNEL=chrome`或`msedge`，默认使用Playwright Chromium。
 
 ## 按能力定位
 
 | 要检查的能力 | 入口 |
 |---|---|
-| 编辑→保存→重开→PNG | [complete-journey-ux.spec.ts](complete-journey-ux.spec.ts) |
-| 完整工程、历史、冲突、失败保全 | `complete-project-*.spec.ts`；`src/platform/browser/storage`及`src/shared/project`相关单测 |
+| 编辑→保存→重开→PNG | 生产配置中的[complete-journey-ux.spec.ts](complete-journey-ux.spec.ts)和[core-convergence-journey.spec.ts](core-convergence-journey.spec.ts) |
+| 完整工程、历史、冲突、失败保全 | `complete-project-*.spec.ts`、`backup-delivery-ux.spec.ts`；`src/platform/browser/storage`及`src/shared/project`相关单测 |
 | 导航、键盘、窄屏和导出菜单 | `workspace-*.spec.ts`、`keyboard-narrow-acceptance.spec.ts`、`clipboard-ux.spec.ts` |
 | 玩家保密和实际PNG | `fixed-sample-privacy*.spec.ts`、`prop-contact-privacy.spec.ts`、`src/shared/projection`相关单测 |
 | 建筑、门墙、通路 | `building-*.spec.ts`、`path-checks.spec.ts`和共享geometry/commands单测 |
@@ -34,6 +35,8 @@ npm run test:e2e
 ## 专项和本机输入
 
 部分历史、CAS、真实作品、秘密配对及多seed地形用例依赖显式环境变量和本机完整包。默认配置排除或未给输入时跳过；需要执行时先读对应文件和配置。不能把发现的用例数、skip或只加载成功写成通过。
+
+生产回归在设置`SCENEWEAVE_DETAIL_ARTIFACT`后可运行`detail-floor-privacy-acceptance.spec.ts`，设置`SCENEWEAVE_NOTE_PRIVACY_INPUTS`后可运行`note-privacy-notice.spec.ts`。布置及加载相关生产回归也可通过同一入口按文件选择。混合文件中专查生产构建的用例使用`@production`标记。
 
 测试夹具保留在`tests/fixtures`，其中旧格式文件用于兼容/重放测试，不代表普通产品入口接受旧工程。严格几何拒绝例和真实资源校验继续保留，不为通过而缩小原断言。
 

@@ -2,8 +2,8 @@ import { test, expect, type Page } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, selectKeyboardProp } from './keyboard-ux-helpers'
-import { openGenerationTask, openSamples, openWorkspaceModule } from './workspace-navigation-helpers'
+import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved, selectKeyboardProp } from './keyboard-ux-helpers'
+import { openGenerationTask, openSamples, openWorkspaceModule, setGenerationDimensions } from './workspace-navigation-helpers'
 import { mapExportButton, openDetailsBySummary } from './workspace-ux-helpers'
 
 const delivery = process.env.SCENEWEAVE_OCEAN_DELIVERY_DIR ? join(process.env.SCENEWEAVE_OCEAN_DELIVERY_DIR, 'continuation') : join(process.cwd(), 'work', 'ocean-continuation', 'delivery')
@@ -27,11 +27,11 @@ for (const [kind, name, ocean] of [['coast', '海岸', true], ['island', '岩岛
   test(`ordinary ${kind} generation, shared terrain rendering and complete cold delivery`, async ({ page, browser }, info) => {
     test.setTimeout(test.info().project.name === 'chrome' ? 300000 : 900000)
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
-    await createKeyboardProject(page, `海洋接续前-${kind}`)
+    await createKeyboardProject(page, `海洋接续前-${kind}`, { widthMeters: 36, heightMeters: 20 })
     const preserved = kind === 'coast' ? await keyboardProjectBackup(page, info.outputPath('preserved.sceneweave')) : null
     await openGenerationTask(page, '自然地形')
     await page.getByRole('button', { name: `选择${name}地形`, exact: true }).click()
-    await page.getByLabel('地形画布尺寸', { exact: true }).selectOption('36000x20000')
+    await setGenerationDimensions(page, 36, 20)
     if (ocean) await page.getByLabel('生成海洋水面与布景', { exact: true }).check()
     await page.getByRole('button', { name: '生成地形预览', exact: true }).click()
     const candidate = page.getByLabel('当前地形候选', { exact: true })
@@ -42,12 +42,14 @@ for (const [kind, name, ocean] of [['coast', '海岸', true], ['island', '岩岛
     if (preserved) {
       await page.getByRole('button', { name: '取消当前地形候选', exact: true }).click(); await keyboardWorkspaceSaved(page)
       expect((await keyboardProjectBackup(page, info.outputPath('cancelled.sceneweave'))).hashes).toEqual(preserved.hashes)
+      await openGenerationTask(page, '自然地形')
       await page.getByRole('button', { name: '生成地形预览', exact: true }).click()
       await expect(candidate).toBeVisible({ timeout: 150000 })
     }
     if (ocean) {
-      await expect(page.getByText(/海洋步骤：/)).toBeVisible()
-      await writeFile(info.outputPath('ocean-report.txt'), await page.getByText(/海洋步骤：/).locator('..').innerText())
+      const oceanReport = candidate.getByText(/海洋步骤：/)
+      await expect(oceanReport).toBeVisible()
+      await writeFile(info.outputPath('ocean-report.txt'), await oceanReport.locator('..').innerText())
     }
     await page.getByRole('button', { name: '采用当前地形方案', exact: true }).click()
     await expect(candidate).toHaveCount(0, { timeout: 90000 }); await keyboardWorkspaceSaved(page)
@@ -77,7 +79,8 @@ for (const [kind, name, ocean] of [['coast', '海岸', true], ['island', '岩岛
       try {
         await imported.goto('./#home'); await imported.getByTestId('native-project-file').setInputFiles(file); await keyboardWorkspaceSaved(imported)
         const parsed = await keyboardProjectBackup(imported, info.outputPath(`${kind}-imported.sceneweave`))
-        expect({ ...parsed.document, sceneId: initial.document.sceneId, createdAt: initial.document.createdAt, updatedAt: initial.document.updatedAt }).toEqual(initial.document)
+        expect(parsed.document).toEqual({ ...initial.document, sceneId: parsed.document.sceneId, revision: 0, createdAt: parsed.document.createdAt, updatedAt: parsed.document.updatedAt })
+        expect(keyboardResourceHashes(parsed.hashes)).toEqual(keyboardResourceHashes(initial.hashes))
         expect(await png(imported, 'player', info.outputPath(`${kind}-imported-player.png`))).toBe(playerHash)
       } finally { await fresh.close() }
     }

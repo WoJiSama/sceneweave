@@ -10,7 +10,7 @@ import { mapExportButton } from './workspace-ux-helpers'
 const kinds = { island: '岩岛', coast: '海岸', river: '河谷', lake: '内湖', forest: '森林', hill: '丘陵', mixed: '混合' } as const
 
 // Explicit forest8 production journey: five released seeds, an independent
-// seed at two sizes, and two unchanged-kind controls. No page-module injection.
+// seed at two sizes and controls through the ordinary natural-terrain entry.
 const cases = [...TERRAIN_FIXED_SEEDS.map(seed => ({kind:'forest' as const,seed,widthMm:24000,heightMm:18000})),
   ...[[36000,20000],[120000,90000]].map(([widthMm,heightMm]) => ({kind:'forest' as const,seed:'forest-independent-20261114',widthMm,heightMm})),
   ...(['island','mixed'] as const).map(kind => ({kind,seed:TERRAIN_FIXED_SEEDS[0],widthMm:24000,heightMm:18000}))]
@@ -48,7 +48,8 @@ for (const {kind,seed,widthMm,heightMm} of cases) {
     }
     const generation = getLegacyGeneration(warm.document)
     expect(generation).toBeDefined()
-    expect(Object.values(generation!.recipes).some(recipe => recipe.seed === seed && recipe.algorithmVersion === (kind==='forest'?8:5))).toBe(true)
+    const algorithmVersion = kind === 'forest' ? 8 : kind === 'island' ? 10 : 5
+    expect(Object.values(generation!.recipes).some(recipe => recipe.seed === seed && recipe.algorithmVersion === algorithmVersion)).toBe(true)
     for (const audience of ['gm', 'player'] as const) {
       const pending = page.waitForEvent('download', { timeout: 60000 })
       await (await mapExportButton(page, audience)).click(); await (await pending).saveAs(info.outputPath(`warm-${audience}.png`))

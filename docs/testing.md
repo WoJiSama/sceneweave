@@ -7,12 +7,11 @@
 
 使用现有[完整页面旅程](../tests/complete-journey-ux.spec.ts)，覆盖桌面和390px页面上的生成、编辑、撤销重做、保存重开、完整备份、空存储导入及双受众4K PNG。用普通生产构建执行，测试创建独立浏览器存储，不读写用户个人库。
 
-1. `npm run build`，再用`npm run preview -- --port 4173 --strictPort`启动同版产物。
-2. PowerShell中设置`$env:SCENEWEAVE_TEST_BASE_URL='http://127.0.0.1:4173/sceneweave/'`。
-3. 运行`npx playwright test tests/complete-journey-ux.spec.ts --workers=1 --retries=0`。
-4. 查看实际下载的完整工程、重开结果和PNG。若失败，修复相关原因并重跑受影响用例，保留失败输出用于定位。
+1. 运行`npm run build`。
+2. 运行`npm run test:e2e:production -- tests/complete-journey-ux.spec.ts --workers=1 --retries=0`。Playwright自行在`http://127.0.0.1:4173/sceneweave/`启停生产预览。
+3. 查看实际下载的完整工程、重开结果和PNG。若失败，修复相关原因并重跑受影响用例，保留失败输出用于定位。
 
-通过条件：编辑实际生效；撤销重做正确；重开后的完整内容与资源保持；备份导入可继续编辑；PNG尺寸正确、能够解码。上述旅程并不穷举秘密几何；涉及受众或渲染修改时，另运行对应保密像素用例。当前文档整理没有重新执行这条完整旅程。
+通过条件包括编辑实际生效、撤销重做正确、重开后内容与资源完整、备份导入后可以继续编辑，以及PNG尺寸正确且能够解码。Pages上传前运行这条旅程和两组保密像素回归。
 
 <a id="checks"></a>
 ## 按改动选择
@@ -22,13 +21,13 @@
 | 纯逻辑/领域命令 | `npx vitest run <相关文件>` |
 | 共享边界 | `npm run check:architecture`、`npm run check:shared` |
 | 类型或生产接线 | `npm run typecheck`、`npm run build` |
-| 页面操作 | `npx playwright test tests/<相关文件>.spec.ts` |
+| 页面操作 | 开发回归用`npm run test:e2e -- tests/<相关文件>.spec.ts`，生产旅程用`npm run test:e2e:production -- tests/<相关文件>.spec.ts` |
 | 工作流正文/元数据 | `npm run workflows:sync`、`npm run check:workflows`，以及`src/shared/ai/workflows/catalog.test.ts` |
 | MCP 制作与接续 | `node --test --test-concurrency=1 tools/harness/forest-server.test.mjs tools/image-import/workflow-host.test.mjs` |
 | AI服务 | `npm run ai:test -- <相关文件>`；受控响应与真实付费模型分开 |
-| 全量回归 | `npm test`、`npm run ai:test`、`npm run test:e2e`；在整合或发布需要时执行 |
+| 全量回归 | 整合或发布时按需运行`npm test`、`npm run ai:test`、`npm run test:e2e`和`npm run test:e2e:production` |
 
-默认Playwright配置启动开发服务；设置`SCENEWEAVE_TEST_BASE_URL`后使用指定服务。系统Chrome/Edge可用`SCENEWEAVE_BROWSER_CHANNEL`选择。依赖本机作品或环境变量的专项未提供输入时保持未运行，不算通过；具体条件见相应用例和[测试导航](../tests/README.md)。
+默认Playwright配置启动开发服务，生产配置启动同版构建的预览。已有匹配服务时可通过`SCENEWEAVE_TEST_BASE_URL`指定地址。系统Chrome/Edge可用`SCENEWEAVE_BROWSER_CHANNEL`选择。依赖本机作品的专项需要提供用例指定的输入，具体条件见[测试导航](../tests/README.md)。
 
 Playwright升级后用`npx playwright install`安装匹配引擎；不要用旧浏览器目录替代新版本。海洋素材的固定WASM逐像素校验在Windows旧WebKit 26.0曾间歇性失败，旧失败与新引擎结果分别保留，不能据此推定真实Safari已测。
 

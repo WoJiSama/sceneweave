@@ -28,8 +28,7 @@ async function number(page: Page, name: string, value: number) {
 }
 
 async function adopt(page: Page) {
-  await closeDrawers(page)
-  await openKeyboardPanel(page, 'inspector')
+  await expect(review(page)).toBeVisible()
   await review(page).getByLabel('确认完整影响范围', { exact: true }).check()
   await review(page).getByRole('button', { name: '采用结构修改', exact: true }).click()
   await expect(review(page)).toHaveCount(0); await keyboardWorkspaceSaved(page)
@@ -66,7 +65,7 @@ async function note(page: Page, text: string, visibility: 'public' | 'gm', x: nu
   await building(page)
   await closeDrawers(page)
   await page.getByRole('button', { name: '工具：注记', exact: true }).click()
-  await openKeyboardPanel(page, 'inspector')
+  await expect(page.getByTestId('workspace-inspector')).toHaveAttribute('data-open', 'true')
   await page.getByLabel('新注记内容', { exact: true }).fill(text)
   await page.getByLabel('新注记可见性', { exact: true }).selectOption(visibility)
   await number(page, '新注记 X', x); await number(page, '新注记 Y', y)
@@ -133,7 +132,7 @@ for (const width of [1512, 390]) test(`complete export journey and actual secret
   await building(page)
   await closeDrawers(page)
   await page.getByRole('button', { name: '工具：遮罩', exact: true }).click()
-  await openKeyboardPanel(page, 'inspector')
+  await expect(page.getByTestId('workspace-inspector')).toHaveAttribute('data-open', 'true')
   for (const [label, value] of [['遮罩 X', 9], ['遮罩 Y', 1], ['遮罩宽度', 8], ['遮罩高度', 8]] as const) await number(page, label, value)
   await page.getByRole('button', { name: '预览新增遮罩', exact: true }).click(); await adopt(page)
   await closeDrawers(page)

@@ -195,7 +195,7 @@ test('six fixed vegetation variants use ordinary catalog review, real raster byt
   expect(keyboardResourceHashes(redone.hashes)).toEqual(keyboardResourceHashes(added.hashes)); expect(errors).toEqual([])
 })
 
-test('production mixed v3 persists a full-width normal door approach through the Worker and cold read', async ({ page }, info) => {
+test('production mixed v3 persists a full-width normal door approach through the Worker and cold read', { tag: '@production' }, async ({ page }, info) => {
   test.setTimeout(300000)
   const { openGenerationTask } = await import('./workspace-navigation-helpers')
   const { resolveBuildingEntrancePort } = await import('../src/shared/generation/building-port')
