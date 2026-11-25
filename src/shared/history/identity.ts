@@ -151,38 +151,34 @@ export function validateHistoryIdentity(input: unknown, document: SceneDocument)
     const record = identity.surfaceRuleTokens?.[id]
     if (!record || record.kind !== descriptor.kind || record.topologyHash !== descriptor.topologyHash) throw new Error(`地表规则缺少出生及拓扑证据：${id}。`)
   }
-  const occupiedBirths = geometryIdentityIds(checked.document)
-  for (const layerId of Object.keys(checked.document.userLayers)) occupiedBirths.add(layerId)
+  const scene = checked.document, occupied = geometryIdentityIds(scene)
+  for (const layerId of Object.keys(scene.userLayers)) occupied.add(layerId)
   for (const [collection, field] of [['props', 'propTokens'], ['prefabInstances', 'prefabTokens']] as const) {
-    for (const liveId of Object.keys(checked.document[collection])) {
+    for (const liveId of Object.keys(scene[collection])) {
       if (!Object.hasOwn(identity[field], liveId)) throw new Error(`当前物件/组合缺少身份 token：${liveId}。`)
-      occupiedBirths.delete(liveId)
     }
   }
   for (const allocatedId of [...Object.keys(identity.propTokens), ...Object.keys(identity.prefabTokens)]) {
-    if (occupiedBirths.has(allocatedId)) throw new Error(`已分配历史 ID 与其他场景身份冲突：${allocatedId}。`)
+    if (occupied.has(allocatedId) && !Object.hasOwn(scene.props, allocatedId) && !Object.hasOwn(scene.prefabInstances, allocatedId)) {
+      throw new Error(`已分配历史 ID 与其他场景身份冲突：${allocatedId}。`)
+    }
   }
-  const aggregateOccupied = geometryIdentityIds(checked.document)
-  for (const layerId of Object.keys(checked.document.userLayers)) aggregateOccupied.add(layerId)
-  for (const groupId of Object.keys(checked.document.aggregateCoordinates?.groups ?? {})) {
+  const groups = scene.aggregateCoordinates?.groups ?? {}
+  for (const groupId of Object.keys(groups)) {
     if (!Object.hasOwn(identity.aggregateTokens ?? {}, groupId)) throw new Error(`当前聚合容器缺少出生身份：${groupId}。`)
-    aggregateOccupied.delete(groupId)
   }
   for (const allocatedId of Object.keys(identity.aggregateTokens ?? {})) {
-    if (aggregateOccupied.has(allocatedId)) throw new Error(`已分配聚合容器ID与其他场景身份冲突：${allocatedId}。`)
+    if (occupied.has(allocatedId) && !Object.hasOwn(groups, allocatedId)) throw new Error(`已分配聚合容器ID与其他场景身份冲突：${allocatedId}。`)
   }
-  const descriptors = outdoorIdentityDescriptors(checked.document), occupied = geometryIdentityIds(checked.document)
-  for (const layerId of Object.keys(checked.document.userLayers)) occupied.add(layerId)
+  const descriptors = outdoorIdentityDescriptors(scene)
   for (const [id, descriptor] of Object.entries(descriptors)) {
     const record = Object.hasOwn(identity.outdoorTokens, id) ? identity.outdoorTokens[id] : undefined
     if (!record || record.kind !== descriptor.kind || record.topologyHash !== descriptor.topologyHash) throw new Error(`室外对象缺少有效出生/拓扑身份：${id}。`)
-    occupied.delete(id)
   }
-  for (const id of Object.keys(identity.outdoorTokens)) if (occupied.has(id)) throw new Error(`已分配室外ID与其他身份冲突：${id}。`)
-  const newIds = new Set([...Object.keys(descriptors3), ...Object.keys(terrainDescriptors), ...Object.keys(decorationDescriptors), ...Object.keys(surfaceRuleDescriptors)]), newOccupied = geometryIdentityIds(checked.document)
-  for (const layerId of Object.keys(checked.document.userLayers)) newOccupied.add(layerId)
+  for (const id of Object.keys(identity.outdoorTokens)) if (occupied.has(id) && !Object.hasOwn(descriptors, id)) throw new Error(`已分配室外ID与其他身份冲突：${id}。`)
+  const newIds = new Set([...Object.keys(descriptors3), ...Object.keys(terrainDescriptors), ...Object.keys(decorationDescriptors), ...Object.keys(surfaceRuleDescriptors)])
   for (const [id] of ALL_EXTENDED_IDENTITY_FIELDS.flatMap(field => Object.entries(identity[field] ?? {}))) {
-    if (!newIds.has(id) && newOccupied.has(id)) throw new Error(`已分配地形ID与其他身份冲突：${id}。`)
+    if (!newIds.has(id) && occupied.has(id)) throw new Error(`已分配地形ID与其他身份冲突：${id}。`)
   }
   return identity
 }

@@ -6,9 +6,9 @@ import { extendedIdentityDescriptors } from './identities.js'
 import type { SceneDocument } from '../model/scene.js'
 import type { CompositionContent } from '../model/appearance.js'
 import { visualCommandCost } from '../visual/commands.js'
-import { canonicalJson } from '../validation/json.js'
+import { equalCheckedJson } from '../validation/json.js'
 import type { GenerationSystem3, GenerationSystem4 } from './contracts.js'
-const recordDiff = (a:Record<string,unknown>,b:Record<string,unknown>, extra:(v:unknown)=>number=()=>0) => [...new Set([...Object.keys(a),...Object.keys(b)])].reduce((sum,id)=>canonicalJson(a[id]??null)===canonicalJson(b[id]??null)?sum:sum+1+Math.max(extra(a[id]),extra(b[id])),0)
+const recordDiff = (a:Record<string,unknown>,b:Record<string,unknown>, extra:(v:unknown)=>number=()=>0) => [...new Set([...Object.keys(a),...Object.keys(b)])].reduce((sum,id)=>equalCheckedJson(a[id]??null,b[id]??null)?sum:sum+1+Math.max(extra(a[id]),extra(b[id])),0)
 const geometry = (value:unknown):number => {
   if(!value||typeof value!=='object') return 0
   const row=value as Record<string,unknown>
@@ -38,7 +38,7 @@ function decorationRecordCost(before: SceneDocument, after: SceneDocument): numb
   for (const id of new Set([...Object.keys(before.decorationClusters ?? {}), ...Object.keys(after.decorationClusters ?? {})])) {
     const a = before.decorationClusters?.[id], b = after.decorationClusters?.[id]
     const { members: _am, ...ap } = a ?? { members: {} }, { members: _bm, ...bp } = b ?? { members: {} }
-    const propertiesChanged = canonicalJson(ap) !== canonicalJson(bp), members = recordDiff(a?.members ?? {}, b?.members ?? {})
+    const propertiesChanged = !equalCheckedJson(ap, bp), members = recordDiff(a?.members ?? {}, b?.members ?? {})
     cost += (propertiesChanged ? 1 + Math.max(a?.palette.length ?? 0, b?.palette.length ?? 0) + 4 : members ? 1 : 0) + members
   }
   return cost
@@ -66,7 +66,7 @@ export function terrainCommandCost(before:SceneDocument,after:SceneDocument,meta
   items['generation.topology']=recordDiff(beforeLegacy.generation?.version===4?beforeLegacy.generation.topology:{},afterLegacy.generation?.version===4?afterLegacy.generation.topology:{},value=>{const row=value as {outputAreaIds?:unknown[];inputs?:{boundaryMm:unknown[]}[];request?:{clip:unknown[][];rebindings:unknown[]}}|undefined;return (row?.outputAreaIds?.length??0)+(row?.inputs?.reduce((sum,input)=>sum+1+input.boundaryMm.length*2,0)??0)+(row?.request?.clip.reduce((sum,ring)=>sum+ring.length*2,0)??0)+(row?.request?.rebindings.length??0)})
   if(beforeLegacy.visual?.version===2 || afterLegacy.visual?.version===2) items.materializedEdges=recordDiff(beforeLegacy.visual?.version===2?beforeLegacy.visual.materializedEdges:{},afterLegacy.visual?.version===2?afterLegacy.visual.materializedEdges:{},geometry)
   for(const key of ['areas','lines','landmarks','symbols','symbolDefinitions'] as const) items[`regional.${key}`]=recordDiff(beforeLegacy.regional?.[key]??{},afterLegacy.regional?.[key]??{},geometry)
-  if(canonicalJson(beforeLegacy.regional?.profile??null)!==canonicalJson(afterLegacy.regional?.profile??null))items.regionalProfile=1
+  if(!equalCheckedJson(beforeLegacy.regional?.profile??null,afterLegacy.regional?.profile??null))items.regionalProfile=1
   if(originalBefore.generation?.version===5||originalAfter.generation?.version===5){
     const a=originalBefore.generation?.version===5?originalBefore.generation:undefined,b=originalAfter.generation?.version===5?originalAfter.generation:undefined
     for(const key of ['features','compositions','requirements','checks','thresholds','dependencies'] as const)items[`composition.${key}`]=recordDiff(a?.[key]??{},b?.[key]??{},compositionRecordExpansion)

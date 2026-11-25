@@ -121,6 +121,28 @@ describe('owned save content and native transaction context', () => {
     expect((await repo.database.projects.get(project.document.sceneId))!.revision).toBe(0)
   })
 
+  it('retains the committed archive encoding for the first edit and still rejects altered blocks', async () => {
+    const repo = repository()
+    const { project: imported } = await repo.importSnapshotArchive({ current: fixture(), snapshots: [] })
+    const baseline = ownedEncodedSnapshot(imported.project)
+    expect(baseline).toBeDefined()
+    const project = cloneJson(imported.project), owner = project.document.sceneId
+    project.document.revision++
+    project.document.title = 'first edit after import'
+    const next = await validateProjectBundle({ project, resources: imported.resources }, validation)
+    const block = snapshotContentPartition(baseline!).blocks[0], corrupted = block.bytes.slice()
+    corrupted[0] ^= 1
+    await repo.database.projectContentBlocks.put({ ...block, bytes: corrupted })
+    await expect(repo.saveSnapshot(next, 0)).rejects.toThrow(/hash|字节|块/)
+    expect(ownedEncodedSnapshot(imported.project)).toBe(baseline)
+    await repo.database.projectContentBlocks.put(block)
+    expect((await repo.database.projects.get(owner))!.revision).toBe(0)
+    const materialize = vi.spyOn(blocks, 'materializeProjectContent')
+    await repo.saveSnapshot(next, 0)
+    expect(materialize).not.toHaveBeenCalled()
+    expect((await repo.load(owner))!.project).toEqual(project)
+  })
+
   it('freshly reads every warm baseline block while reusing its exact immutable parse and domain proof', async () => {
     const repo = repository(), workspace = new Workspace(repo, { runtime, validation })
     try {

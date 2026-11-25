@@ -612,7 +612,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     if (rows.length > 1) throw new Error('自动历史修订存在重复版本。')
     return rows[0] ? this.loadHistoryVersion(ownerSceneId, rows[0].id, options) : null
   }
-  private async putResources(bundles: readonly ProjectBundle[], options: ResourceOptions): Promise<void> {
+  private async putResources(bundles: readonly ProjectBundle[], options: ResourceOptions, verifiedSnapshot?: VerifiedProjectBundle): Promise<void> {
     // Bundles have owned immutable byte ports; DB transactions never perform native image decoding.
     for (const bundle of bundles) {
       const records = [...projectResourceRecords(bundle.project)]
@@ -630,9 +630,14 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
         const captured = await waitForStorageTransaction(Promise.all(batch.map(([hash]) => bundle.resources.read(hash))))
         for (const [i, [hash, size]] of batch.entries()) {
           const bytes = captured[i], existing = existingRows[i]
-          if (bytes.length !== size || sha256Bytes(bytes) !== hash) throw new Error('准备后的资源字节发生改变。')
+          const exactSnapshotMatch = !!existing && bundle === verifiedSnapshot
+          if (bytes.length !== size || !exactSnapshotMatch && sha256Bytes(bytes) !== hash) throw new Error('准备后的资源字节发生改变。')
           if (existing) {
-            const before = bytesOf(existing)
+            // An exact immutable input already owns the checked digest. Still
+            // read the retained row in this transaction and compare every byte.
+            exact(existing, ['sha256', 'bytes'])
+            if (existing.sha256 !== hash) throw new Error('相同资源hash的已有字节冲突。')
+            const before = exactSnapshotMatch ? captureBytes(existing.bytes, size) : bytesOf(existing)
             if (before.length !== bytes.length || !before.every((value, index) => value === bytes[index])) throw new Error('相同资源hash的已有字节冲突。')
           } else await this.database.resources.add({ sha256: hash, bytes })
           checkCancelled(options.signal)
@@ -880,6 +885,13 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
   async saveSnapshot(input: ProjectBundle, expectedRevision: number | null, options: SaveProjectOptions = {}): Promise<void> {
     return this.saveWithValidation(input, expectedRevision, options, true)
   }
+  private retainSavedEncoding(snapshot: EncodedSnapshot, epoch: number): boolean {
+    if (epoch !== this.saveEpoch) return false
+    const previous = this.savedEncoding
+    this.savedEncoding = canRetainEncodedSnapshot(snapshot) ? snapshot : undefined
+    if (previous && previous !== snapshot) releaseEncodedSnapshot(previous)
+    return this.savedEncoding === snapshot
+  }
   private async saveWithValidation(input: ProjectBundle, expectedRevision: number | null, options: SaveProjectOptions, snapshotInput: boolean): Promise<void> {
     if (expectedRevision !== null && !integer(expectedRevision)) throw new Error('保存基线须为非负revision或无记录。')
     const saveEpoch = this.saveEpoch
@@ -960,18 +972,13 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
           || await this.database.snapshots.where('ownerSceneId').equals(owner).count() || await this.database.importedSnapshots.where('ownerSceneId').equals(owner).count()) throw new Error('此工程身份已有历史记录，不能覆盖。')
         await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
       }
-      await this.putResources([bundle], options)
+      await this.putResources([bundle], options, snapshotInput ? bundle : undefined)
       await this.addCurrent(bundle, hash, savedAt, previous?.conversionJobId ?? null, previous ?? null, historyParentId, localSource, preparedDelta)
       await this.assertBudgets(owner)
     }, true)
     // Publish optional reuse only after native commit. A failed save keeps the
     // last committed lease; concurrent saves own their separate endpoint slots.
-    if (this.saveEpoch === saveEpoch) {
-      const previousEncoding = this.savedEncoding
-      this.savedEncoding = canRetainEncodedSnapshot(encodedSnapshot) ? encodedSnapshot : undefined
-      retained = this.savedEncoding === encodedSnapshot
-      if (previousEncoding && previousEncoding !== encodedSnapshot) releaseEncodedSnapshot(previousEncoding)
-    }
+    retained = this.retainSavedEncoding(encodedSnapshot, saveEpoch)
     if (localSource) { releaseProjectLocalTransaction(localSource); releaseProjectTransactionReceipt(localSource) }
     } finally { if (!retained) releaseEncodedSnapshot(encodedSnapshot) }
   }
@@ -1006,6 +1013,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     return this.installArchive(consumeHistoryArchive(input, this.validation(options)), options)
   }
   private async installArchive(pending: Promise<HistoryArchive>, options: ResourceOptions): Promise<{ project: ProjectBundle; snapshots: SnapshotSummary[] }> {
+    const saveEpoch = this.saveEpoch
     const owner = this.options.runtime.ids.nextId(), savedAt = this.options.runtime.clock.now()
     id(owner); time(savedAt)
     const archive = await pending
@@ -1023,18 +1031,24 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
       usedIds.add(snapshotId)
       return { ...source, id: snapshotId, ownerSceneId: owner }
     })
-    await this.atomic(options, async () => {
-      if (await this.database.projects.get(owner) || await this.database.historyMetadata.get(owner)
-        || await this.database.automaticSnapshots.where('ownerSceneId').equals(owner).count()
-        || await this.database.snapshots.where('ownerSceneId').equals(owner).count()
-        || await this.database.importedSnapshots.where('ownerSceneId').equals(owner).count()
-        || await this.database.resourceBindings.where('ownerSceneId').equals(owner).count()
-        || await this.database.legacySources.where('ownerSceneId').equals(owner).count()) throw new Error('导入的新工程身份已占用，未覆盖任何成果。')
-      await this.putResources([project, ...snapshots.map(snapshot => snapshot.bundle)], options)
-      await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
-      await this.installFamily(project, projectContentHash(project.project), savedAt, 'ready', null, snapshots)
-      await this.assertBudgets(owner)
-    })
+    const encodedSnapshot = prepareEncodedSnapshot(project)
+    let retained = false
+    try {
+      await this.atomic(options, async () => {
+        if (await this.database.projects.get(owner) || await this.database.historyMetadata.get(owner)
+          || await this.database.automaticSnapshots.where('ownerSceneId').equals(owner).count()
+          || await this.database.snapshots.where('ownerSceneId').equals(owner).count()
+          || await this.database.importedSnapshots.where('ownerSceneId').equals(owner).count()
+          || await this.database.resourceBindings.where('ownerSceneId').equals(owner).count()
+          || await this.database.legacySources.where('ownerSceneId').equals(owner).count()) throw new Error('导入的新工程身份已占用，未覆盖任何成果。')
+        pinEncodedSnapshot(Dexie.currentTransaction!.idbtrans, 'result', encodedSnapshot)
+        await this.putResources([project, ...snapshots.map(snapshot => snapshot.bundle)], options)
+        await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
+        await this.installFamily(project, encodedSnapshot.encoded.contentHash, savedAt, 'ready', null, snapshots)
+        await this.assertBudgets(owner)
+      })
+      retained = this.retainSavedEncoding(encodedSnapshot, saveEpoch)
+    } finally { if (!retained) releaseEncodedSnapshot(encodedSnapshot) }
     return { project, snapshots: snapshots.map(summaryOf) }
   }
   private async readLegacyOriginals(ownerSceneId: string): Promise<{ sources: LegacySource[]; blobs: Map<string, Uint8Array> }> {

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { fixture, runtime, validation } from '../../../application/workspace/test-fixtures.js'
 import { cloneJson } from '../../../shared/validation/json.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
+import { validateProjectBundle } from '../../../shared/project/resources.js'
 import { ProjectConflictError, ProjectRepository } from './repository.js'
 
 const repositories: ProjectRepository[] = []
@@ -44,5 +45,21 @@ describe('save complete-content proof reuse', () => {
     await repo.database.resources.put({ ...resource, bytes: new Uint8Array([1, 2, 3]) })
     await expect(repo.save(next, 0)).rejects.toThrow(/字节|长度|hash/)
     expect((await repo.database.projects.get(owner))!.revision).toBe(0)
+  })
+
+  it('compares retained database resource bytes against the verified snapshot inside the save', async () => {
+    const repo = repository(), input = fixture({ image: true }), owner = input.project.document.sceneId
+    await repo.save(input, null)
+    const next = { project: cloneJson(input.project), resources: input.resources }
+    next.project.document.revision = 1
+    const snapshot = await validateProjectBundle(next, validation)
+    const stored = (await repo.database.resources.toArray())[0], corrupt = stored.bytes.slice()
+    corrupt[corrupt.length - 1] ^= 1
+    await repo.database.resources.put({ ...stored, bytes: corrupt })
+    await expect(repo.saveSnapshot(snapshot, 0)).rejects.toThrow(/字节/)
+    expect((await repo.database.projects.get(owner))!.revision).toBe(0)
+    await repo.database.resources.put(stored)
+    await repo.saveSnapshot(snapshot, 0)
+    expect((await repo.load(owner))!.project.document.revision).toBe(1)
   })
 })

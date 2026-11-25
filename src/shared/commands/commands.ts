@@ -13,7 +13,7 @@ import { followPathAttachments } from '../path-attachments/state.js'
 import { createPathAttachmentTransactionBudget, pathAttachmentRowsChanged, mayMutatePathAttachments, type PathAttachmentTransactionBudget } from '../path-attachments/transaction-budget.js'
 import { withAdditionalExecutionWorkObserver } from '../budget/task-budget.js'
 import type { HistoryIdentity } from '../model/history.js'
-import { assertCommandBudget, commandSelectionLimit, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetMetadata, type CommandBudgetProfile } from '../budget/command-budget.js'
+import { assertCommandBudget, commandSelectionLimit, isManualTransactionBudget, measureCommandBudget, parseCommandBudgetProfile, type CommandBudgetProfile } from '../budget/command-budget.js'
 import { aggregateRepresentationCommandSchemas, applyAggregateRepresentationCommand, isAggregateRepresentationCommand, type AggregateRepresentationCommand } from '../aggregates/commands.js'
 import { reconcileAggregateMembers } from '../aggregates/state.js'
 import { syncAggregatePlacements } from '../aggregates/placement-members.js'
@@ -600,11 +600,18 @@ function pathAttachmentBudgetScope(scene: SceneDocument, commands: readonly Scen
 }
 const canonicalDraft = (draft: Readonly<SceneDocument>): SceneDocument => cloneJson(draft)
 /** A full strict accounting pair must describe the exact materialized delta. */
-function manualBudgetMetadata(before: SceneDocument, after: SceneDocument, options: ApplyCommandsOptions | undefined): CommandBudgetMetadata | undefined {
-  if (!isManualTransactionBudget(options?.budget) || !options.budgetContent) return undefined
-  const first = certifyCompositionDraft(options.budgetContent.before), second = certifyCompositionDraft(options.budgetContent.after())
-  if (!equal(first.document, before) || !equal(second.document, after)) throw new Error('普通事务的完整内容计量与实际场景变化不一致；事务未采用。')
-  return { before: first, after: second }
+function assertSceneCommandBudget(before: SceneDocument, after: SceneDocument, options: ApplyCommandsOptions | undefined) {
+  const budget = options?.budget
+  if (!budget) return
+  if (isManualTransactionBudget(budget) && options.budgetContent) {
+    const first = certifyCompositionDraft(options.budgetContent.before), second = certifyCompositionDraft(options.budgetContent.after())
+    if (!equal(first.document, before) || !equal(second.document, after)) throw new Error('普通事务的完整内容计量与实际场景变化不一致；事务未采用。')
+    // The strict comparison above binds the measured endpoints to these exact
+    // immutable snapshots. Their validators already inspected the JSON.
+    assertCommandBudget(budget, measureCommandBudget(first.document, second.document, { before: first, after: second }, undefined, budget))
+    return
+  }
+  assertCommandBudget(budget, measureCommandBudget(before, after, undefined, undefined, budget))
 }
 /** Detached mutable candidate; all-or-nothing native scene validation. Revision is committed by Workspace. */
 export function applyCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {
@@ -620,7 +627,7 @@ export function applyCommands(scene: SceneDocument, commands: readonly SceneComm
   const result = validateSceneDocument(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
   assertBridgeRoadContinuity(source.document, next)
-  if (options?.budget) assertCommandBudget(options.budget, measureCommandBudget(source.document, next, manualBudgetMetadata(source.document, next, options), undefined, options.budget))
+  assertSceneCommandBudget(source.document, next, options)
   return next
 }
 /** Certified immutable editor path; no-op batches preserve identity and consume no history. */
@@ -636,7 +643,7 @@ export function applySnapshotCommands(scene: SceneDocument, commands: readonly S
   if (propTransaction && (propTransaction.result !== source.document || options.preserveNoopIdentity !== false)) {
     for (const step of propTransaction.steps) observedOptions.onSceneDraft?.(step.after, step.command, 1)
     relationScope?.finish(propTransaction.result)
-    if (options.budget) assertCommandBudget(options.budget, measureCommandBudget(source.document, propTransaction.result, manualBudgetMetadata(source.document, propTransaction.result, options), undefined, options.budget))
+    assertSceneCommandBudget(source.document, propTransaction.result, options)
     return propTransaction.result
   }
   const next = relationScope ? relationScope.run(() => candidate(source.document, checked, context, observedOptions, relationScope.meter))
@@ -647,7 +654,7 @@ export function applySnapshotCommands(scene: SceneDocument, commands: readonly S
   const result = onlyPropUpdates ? validateSceneDerivationSnapshot(next, source.document) : validateSceneSnapshot(next)
   if (!result.ok) throw new Error(`事务未采用：${result.errors.map(issue => `${issue.entityId ? `${issue.entityId}：` : ''}${issue.message}`).join('；')}`)
   if (!onlyPropUpdates) assertBridgeRoadContinuity(source.document, result.document)
-  if (options.budget) assertCommandBudget(options.budget, measureCommandBudget(source.document, result.document, manualBudgetMetadata(source.document, result.document, options), undefined, options.budget))
+  assertSceneCommandBudget(source.document, result.document, options)
   return result.document
 }
 
