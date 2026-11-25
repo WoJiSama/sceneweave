@@ -628,6 +628,7 @@ export async function prepareAssetBatchImport(input: EditableProject, requests: 
         const definition = { ...base, defaultAppearance: { kind: 'image' as const, assetId, tint: null, opacity: 1 },
           defaultVisualBoundsMm: { x: -root.x, y: -root.y, width: request.widthMm, height: request.heightMm },
           defaultFootprintMm: { width: request.footprintWidthMm!, height: request.footprintHeightMm! }, defaultFootprintOffsetMm: request.footprintOffsetMm ?? { x: 0, y: 0 },
+          defaultVolume: { kind: 'flat' as const, heightMm: 0 },
           defaultBlocksMovement: request.blocksMovement ?? false, defaultBlocksSight: request.blocksSight ?? false, defaultRenderLayer: request.renderLayer ?? 'object' as const, defaultShadowClass: request.shadowClass ?? 'furniture' as const }
         project.document.propDefinitions[definitionId] = definition
         project.licenseBindings.push(binding('propDefinition', definitionId))

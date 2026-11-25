@@ -1,5 +1,4 @@
 import { ProjectRepository } from './storage/index.js'
-import { LibraryRepository } from './library/index.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
 import { browserProjectValidation } from './project-validation.js'
 
@@ -7,4 +6,8 @@ export const runtime: PreparationContext = { ids: { nextId: () => crypto.randomU
 export const validation = browserProjectValidation
 // Constructors do not open IndexedDB. Home and the editor share the same native repositories.
 export const projectRepository = new ProjectRepository({ runtime, validation })
-export const libraryRepository = new LibraryRepository({ runtime, validation })
+
+let library: Promise<import('./library/index.js').LibraryRepository> | undefined
+export function loadLibraryRepository() {
+  return library ??= import('./library/index.js').then(({ LibraryRepository }) => new LibraryRepository({ runtime, validation }))
+}

@@ -167,6 +167,7 @@ describe('generic image import project preparation', () => {
     expect(prop.footprintMm).toEqual({ width: 800, height: 400 })
     expect(prop.footprintOffsetMm).toEqual({ x: -200, y: 0 })
     expect(scene.propDefinitions[prop.definitionRef!.id].defaultFootprintOffsetMm).toEqual({ x: -200, y: 0 })
+    expect(scene.propDefinitions[prop.definitionRef!.id].defaultVolume).toEqual({ kind: 'flat', heightMm: 0 })
     options.layers[0].footprintPx = { x: 999, y: 240, width: 80, height: 40 }
     expect(() => createImageImportDocument(options)).toThrow('范围')
     options.layers[0].footprintPx = { x: 0, y: 0, width: 10, height: 10 }

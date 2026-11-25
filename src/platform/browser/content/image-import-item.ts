@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import type { EditableProject } from '../../../application/workspace/project.js'
 import { toBundle } from '../../../application/workspace/project.js'
+import { applyCompositionDraftCommands } from '../../../shared/appearance/commands.js'
 import { addPropAppearanceSource } from '../../../shared/appearance/graph.js'
 import { definitionPresentation } from '../../../shared/appearance/presentation.js'
-import { prepareLibraryEntry } from '../../../shared/library/content.js'
+import { extractTemplateFixedContent, prepareLibraryEntry } from '../../../shared/library/content.js'
 import type { PreparedLibraryEntry } from '../../../shared/library/types.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
 import type { LicenseBinding, ProjectBundle, ProjectData, ResourceBytePort } from '../../../shared/model/project.js'
@@ -14,7 +15,8 @@ import { createMemoryResources } from '../../../shared/project/resources.js'
 import { canonicalJson, captureJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { positive } from '../../../shared/validation/primitives.js'
 import { sha256Bytes } from '../../../shared/validation/hash.js'
-import { validation } from '../runtime.js'
+import { propVolumeSchema, type PropVolume } from '../../../shared/model/prop-volume.js'
+import { runtime, validation } from '../runtime.js'
 import { materializeImageImportSvg } from './image-import-vector.js'
 
 export interface ImageImportSvgChanges {
@@ -31,13 +33,14 @@ export interface ImageImportItemChanges extends ImageImportSvgChanges {
   footprintOffsetXmm?: number
   footprintOffsetYmm?: number
   blocksSight?: boolean
+  defaultVolume?: PropVolume | null
 }
 export interface ImageImportMaterialChanges extends ImageImportSvgChanges { name: string; widthMm: number; heightMm: number }
 export interface AssetPrefabChanges { name: string }
 const svgChanges = { sourceSvg: z.string().min(1).optional(), targetLongEdgePx: z.number().int().min(1).max(STATIC_SVG_LIMITS.rasterSide).optional() }
 const changesSchema = z.object({ name: z.string().trim().min(1).max(120), widthMm: positive, heightMm: positive,
   footprintWidthMm: positive, footprintHeightMm: positive, blocksMovement: z.boolean(), blocksSight: z.boolean().optional(),
-  footprintOffsetXmm: z.number().int().optional(), footprintOffsetYmm: z.number().int().optional(), ...svgChanges }).strict()
+  footprintOffsetXmm: z.number().int().optional(), footprintOffsetYmm: z.number().int().optional(), defaultVolume: propVolumeSchema.nullable().optional(), ...svgChanges }).strict()
 const materialChangesSchema = z.object({ name: z.string().trim().min(1).max(120), widthMm: positive, heightMm: positive, ...svgChanges }).strict()
 const prefabChangesSchema = z.strictObject({ name: z.string().trim().min(1).max(120) })
 
@@ -114,9 +117,7 @@ function scopeLegacyRasterCopy(project: ProjectData, definitionBinding: LicenseB
   return { assetId: id, licenseRef }
 }
 
-/** Fixed source and licence closure are retained. Editing creates a fresh immutable definition. */
-export async function prepareImageImportItemVariant(source: EditableProject, definitionId: string, input: ImageImportItemChanges,
-  signal?: AbortSignal, capabilities: CompleteValidationOptions = validation): Promise<PreparedLibraryEntry> {
+async function createImageImportItemVariant(source: EditableProject, definitionId: string, input: ImageImportItemChanges, signal?: AbortSignal) {
   signal?.throwIfAborted()
   const changes = changesSchema.parse(captureJson(input)), bundle = toBundle(source), project = cloneJson(bundle.project)
   const original = project.document.propDefinitions[definitionId]
@@ -140,13 +141,47 @@ export async function prepareImageImportItemVariant(source: EditableProject, def
     defaultFootprintMm: { width: changes.footprintWidthMm, height: changes.footprintHeightMm },
     defaultFootprintOffsetMm: { x: changes.footprintOffsetXmm ?? original.defaultFootprintOffsetMm.x, y: changes.footprintOffsetYmm ?? original.defaultFootprintOffsetMm.y },
     defaultBlocksMovement: changes.blocksMovement, defaultBlocksSight: changes.blocksSight ?? original.defaultBlocksSight }
+  if (changes.defaultVolume === null) delete definition.defaultVolume
+  else if (changes.defaultVolume) definition.defaultVolume = cloneJson(changes.defaultVolume)
   project.document.propDefinitions[id] = definition
   if (!project.licenseBindings.some(binding => binding.subjectKind === 'propDefinition' && binding.subjectId === id)) project.licenseBindings.push({ ...binding, subjectId: id })
   if (presentation) addPropAppearanceSource(project.appearance, { definitionRef: { id, version: 1 }, appearance: definition.defaultAppearance,
     visualBoundsMm: definition.defaultVisualBoundsMm, shadowClass: definition.defaultShadowClass, shadowOverride: null }, null,
   { ...cloneJson(presentation), rootAnchorMm: { x: Math.round(presentation.rootAnchorMm.x * changes.widthMm / original.defaultVisualBoundsMm.width),
     y: Math.round(presentation.rootAnchorMm.y * changes.heightMm / original.defaultVisualBoundsMm.height) } })
-  return prepareLibraryEntry({ project, resources: edited.resources }, { kind: 'prop', definitionId: id }, { ...capabilities, signal })
+  return { bundle: { project, resources: edited.resources }, selector: { kind: 'prop' as const, definitionId: id } }
+}
+
+/** Fixed source and licence closure are retained. Editing creates a fresh immutable definition. */
+export async function prepareImageImportItemVariant(source: EditableProject, definitionId: string, input: ImageImportItemChanges,
+  signal?: AbortSignal, capabilities: CompleteValidationOptions = validation): Promise<PreparedLibraryEntry> {
+  const { bundle, selector } = await createImageImportItemVariant(source, definitionId, input, signal)
+  return prepareLibraryEntry(bundle, selector, { ...capabilities, signal })
+}
+
+/** Stage the same variant on its own floor for the workbench's oblique renderer. */
+export async function prepareImageImportItemPreview(source: EditableProject, definitionId: string, input: ImageImportItemChanges,
+  signal?: AbortSignal): Promise<ProjectBundle> {
+  const { bundle, selector } = await createImageImportItemVariant(source, definitionId, input, signal)
+  signal?.throwIfAborted()
+  const project = extractTemplateFixedContent(bundle.project, [selector])
+  const { document, appearance, historyIdentity } = project
+  const [floor] = Object.values(document.floors)
+  const definition = document.propDefinitions[selector.definitionId]
+  const { defaultVisualBoundsMm: image, defaultFootprintMm: footprint, defaultFootprintOffsetMm: offset } = definition
+  const left = Math.floor(Math.min(0, image.x, offset.x - footprint.width / 2))
+  const top = Math.floor(Math.min(0, image.y, offset.y - footprint.height / 2))
+  const right = Math.ceil(Math.max(0, image.x + image.width, offset.x + footprint.width / 2))
+  const bottom = Math.ceil(Math.max(0, image.y + image.height, offset.y + footprint.height / 2))
+  const padding = Math.max(64, Math.ceil(Math.max(right - left, bottom - top) * .18))
+  const bounds = { x: left - padding, y: top - padding, width: right - left + padding * 2, height: bottom - top + padding * 2 }
+  floor.boundsMm = bounds
+  document.exportBoundsMm = { ...bounds }
+  const content = applyCompositionDraftCommands({ document, appearance, historyIdentity }, [{
+    type: 'addProp', id: 'asset-preview-prop', floorId: floor.id, definitionRef: { id: definition.id, version: definition.version },
+    positionMm: { x: 0, y: 0 }, supportRef: { kind: 'floor', id: floor.id },
+  }], runtime)
+  return { project: { ...project, ...content }, resources: bundle.resources }
 }
 
 /** Material source edits create a new fixed material and preserve its exact source licence. */

@@ -52,6 +52,7 @@ describe('selected batch import is one complete resource candidate', () => {
     const definition=result.project.document.propDefinitions[result.items[0].definitionId]
     expect(definition.defaultVisualBoundsMm).toEqual({x:-600,y:-1700,width:1200,height:1800})
     expect(definition.defaultFootprintMm).toEqual({width:300,height:200});expect(definition.defaultBlocksSight).toBe(true)
+    expect(definition.defaultVolume).toEqual({ kind: 'flat', heightMm: 0 })
     const fixed = Object.values(result.project.appearance.sources).find(source => source.kind === 'prop' && source.snapshot.definitionRef?.id === definition.id)!
     expect(result.project.appearance.presentations?.[fixed.id]).toEqual(topDownPresentation())
     expect(Object.isFrozen(result.items)).toBe(true)

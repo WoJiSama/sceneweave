@@ -98,8 +98,8 @@ test('U2 two real pages retain a stale personal-organization draft across catalo
     await expect(library(page).getByRole('form', { name: '个人素材整理草稿', exact: true })).toHaveCount(0)
     const catalog = await page.evaluate(async () => {
       const path = '/src/platform/browser/runtime.ts'
-      const { libraryRepository } = await import(path) as typeof import('../src/platform/browser/runtime')
-      return libraryRepository.read()
+      const { loadLibraryRepository } = await import(path) as typeof import('../src/platform/browser/runtime')
+      return (await loadLibraryRepository()).read()
     })
     expect(catalog.revision).toBe(2); expect(catalog.entries).toHaveLength(0)
     expect(Object.values(catalog.organizations).map(value => value.tags)).toEqual(expect.arrayContaining([['甲页未保存草稿'], ['乙页已保存记录']]))

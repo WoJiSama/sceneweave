@@ -263,8 +263,8 @@ test('M2-0f native personal organization-only backup roundtrip keeps installatio
   await draft.getByLabel('收藏所选素材', { exact: true }).check()
   await draft.getByRole('button', { name: '保存这1项整理', exact: true }).click(); await expect(draft).toHaveCount(0)
   const read = () => page.evaluate(async () => {
-    const path = '/src/platform/browser/runtime.ts', { libraryRepository } = await import(path) as typeof import('../src/platform/browser/runtime')
-    return libraryRepository.read()
+    const path = '/src/platform/browser/runtime.ts', { loadLibraryRepository } = await import(path) as typeof import('../src/platform/browser/runtime')
+    return (await loadLibraryRepository()).read()
   })
   const organized = await read(), keys = Object.keys(organized.organizations)
   expect(organized.entries).toEqual([]); expect(keys).toHaveLength(1)

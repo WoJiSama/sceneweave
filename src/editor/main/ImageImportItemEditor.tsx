@@ -2,7 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { EditableProject } from '../../application/workspace/project'
 import type { CatalogSelector, PreparedLibraryEntry } from '../../shared/library/types'
-import { prepareAssetPrefabVariant, prepareImageImportItemVariant, prepareImageImportMaterialVariant, readImageImportItemSvg, type ImageImportItemChanges } from '../../platform/browser/content/image-import-item'
+import { propSideKinds, propVolumeKinds, type PropVolume } from '../../shared/model/prop-volume'
+import { prepareAssetPrefabVariant, prepareImageImportItemPreview, prepareImageImportItemVariant, prepareImageImportMaterialVariant, readImageImportItemSvg, type ImageImportItemChanges } from '../../platform/browser/content/image-import-item'
 import { prepareImageEnhancementCandidate, inspectImageEnhancementTarget, type ImageEnhancementSource } from '../../platform/browser/content/image-enhancement'
 import type { ImageEnhancementRecipe } from '../../shared/image-enhancement'
 import { materializeImageImportSvg } from '../../platform/browser/content/image-import-vector'
@@ -10,10 +11,13 @@ import AssetEditorLayout from './AssetEditorLayout'
 import ImageEnhancementPanel from './ImageEnhancementPanel'
 import ImageRefinementPanel, { type ImageRefinementUnknownRequest } from './ImageRefinementPanel'
 import { prepareImageRefinementCandidate, type ImageRefinementCandidate } from '../../platform/browser/content/image-refinement'
+import { useObliqueView } from '../native-canvas/useObliqueView'
+import { propVolumeLabels } from './PropVolumeTools'
 import './asset-item-editor.css'
 
 type Section = 'appearance' | 'image' | 'source' | 'members'
 type ImageAdoptionWait = { accept: () => void; cancel: () => void }
+type PrepareObliqueView = Parameters<typeof useObliqueView>[0]
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 /** One session draft; only the final save writes a new immutable personal entry. */
@@ -36,8 +40,12 @@ export default function ImageImportItemEditor({ project, definitionId, kind = 'p
     heightMm: definition?.defaultVisualBoundsMm.height ?? material?.defaultTileSizeMm.height ?? 1,
     footprintWidthMm: definition?.defaultFootprintMm.width ?? 1, footprintHeightMm: definition?.defaultFootprintMm.height ?? 1,
     footprintOffsetXmm: definition?.defaultFootprintOffsetMm.x ?? 0, footprintOffsetYmm: definition?.defaultFootprintOffsetMm.y ?? 0,
-    blocksMovement: definition?.defaultBlocksMovement ?? false, blocksSight: definition?.defaultBlocksSight ?? false })
+    blocksMovement: definition?.defaultBlocksMovement ?? false, blocksSight: definition?.defaultBlocksSight ?? false,
+    ...(definition?.defaultVolume ? { defaultVolume: definition.defaultVolume } : {}) })
   const [fields, setFields] = useState(initial.current), [draftProject, setDraftProject] = useState(project)
+  const [sideFile, setSideFile] = useState<File | null>(null)
+  const [sideRights, setSideRights] = useState({ attribution: '', license: '', allowed: false })
+  const [obliquePreview, setObliquePreview] = useState<{ prepare: PrepareObliqueView } | null>(null)
   const [selector, setSelector] = useState<CatalogSelector>({ kind, definitionId })
   const [section, setSection] = useState<Section>('appearance'), [busy, setBusy] = useState(false), [error, setError] = useState('')
   const [discard, setDiscard] = useState<{ member?: CatalogSelector } | null>(null)
@@ -54,10 +62,11 @@ export default function ImageImportItemEditor({ project, definitionId, kind = 'p
   const previewObjectUrl = useRef<string | null>(null), sourceGeneration = useRef(0), dialog = useRef<HTMLDialogElement>(null)
   const heading = useId(), pending = useRef(onPendingChange); pending.current = onPendingChange
   const occupied = disabled || busy || imagePending
-  const dirty = JSON.stringify(fields) !== JSON.stringify(initial.current) || draftProject !== project || sourceDirty || imageDirty || refinementDirty || unknownRequests.length > 0
+  const dirty = JSON.stringify(fields) !== JSON.stringify(initial.current) || draftProject !== project || sourceDirty || imageDirty || refinementDirty || !!sideFile || unknownRequests.length > 0
   const target = selector.kind === 'prop' ? { kind: 'propDefinition' as const, id: selector.definitionId }
     : selector.kind === 'material' ? { kind: 'material' as const, id: selector.definitionId } : null
   const imageInfo = target ? inspectImageEnhancementTarget(draftProject, target) : null
+  const editedSvg = sourceDirty ? sourceSvg : null
   const clearPreview = () => {
     if (previewObjectUrl.current) URL.revokeObjectURL(previewObjectUrl.current)
     previewObjectUrl.current = null; setPreviewUrl(null)
@@ -67,6 +76,7 @@ export default function ImageImportItemEditor({ project, definitionId, kind = 'p
     return () => { mounted.current = false; imageAdoptionWait.current?.cancel(); sourceGeneration.current++; abort.current?.abort(); imageAbort.current?.abort(); if (previewObjectUrl.current) URL.revokeObjectURL(previewObjectUrl.current); pending.current(null) }
   }, [])
   useEffect(() => { if (imageAdoption) imageAdoptionCancel.current?.focus() }, [imageAdoption])
+  useEffect(() => { setObliquePreview(null) }, [fields, draftProject, selector, sideFile, sideRights, editedSvg, longEdge, section])
   useEffect(() => {
     const controller = new AbortController(), generation = ++sourceGeneration.current
     setSourceLoaded(false); setSourceSvg(null); setSourceDirty(false); clearPreview()
@@ -161,17 +171,56 @@ export default function ImageImportItemEditor({ project, definitionId, kind = 'p
       return index < 0 ? [...current, request] : current.map((value, at) => at === index ? request : value)
     })
   }
+  async function preparePropDraft(signal: AbortSignal) {
+    const changes = editedSvg === null ? { ...fields } : { ...fields, sourceSvg: editedSvg, targetLongEdgePx: longEdge }
+    const volume = changes.defaultVolume
+    if (!sideFile || !volume || !propSideKinds.has(volume.kind)) return { source: draftProject, changes }
+    if (!sideRights.allowed || !sideRights.attribution.trim() || !sideRights.license.trim()) throw new Error('请确认侧面图的嵌入权利并填写署名和许可。')
+    try {
+      const { prepareAssetBatchImport } = await import('../../application/workspace/asset-batch')
+      const { runtime, validation } = await import('../../platform/browser/runtime')
+      const prepared = await prepareAssetBatchImport(draftProject, [{ file: sideFile, name: fields.name,
+        kind: 'prop', widthMm: fields.widthMm, heightMm: volume.heightMm,
+        footprintWidthMm: fields.footprintWidthMm, footprintHeightMm: fields.footprintHeightMm,
+        licenseText: sideRights.license.trim(), attribution: sideRights.attribution.trim(), canEmbed: true }], { runtime, validation, signal })
+      return { source: prepared.project, changes: { ...changes, defaultVolume: { ...volume, sideAssetId: prepared.items[0].assetId } } }
+    } catch (reason) {
+      signal.throwIfAborted()
+      throw new Error(`侧面图处理失败。${message(reason)}`)
+    }
+  }
+  function openObliquePreview() {
+    setObliquePreview({ prepare: async (canvas, signal) => {
+      const { source, changes } = await preparePropDraft(signal)
+      const bundle = await prepareImageImportItemPreview(source, selector.definitionId, changes, signal)
+      const { prepareObliquePreview } = await import('../../platform/browser/render/oblique-renderer')
+      return prepareObliquePreview(canvas, bundle, { audience: 'gm', signal })
+    } })
+  }
+  function keepFlatAppearance() {
+    setObliquePreview(null)
+    setSideFile(null)
+    setFields({ ...fields, defaultVolume: { kind: 'flat', heightMm: 0 } })
+    setError('')
+  }
   async function save() {
     if (occupied) return
     if (imageDirty || refinementDirty) { setError('请先将图像候选加入草稿，或明确丢弃图像处理草稿。'); return }
+    setObliquePreview(null)
     const controller = new AbortController(); abort.current = controller; setBusy(true); setError(''); pending.current(controller)
     try {
-      const svg = sourceDirty && sourceSvg !== null ? { sourceSvg, targetLongEdgePx: longEdge } : {}
-      const entry = kind === 'material'
-        ? await prepareImageImportMaterialVariant(draftProject, selector.definitionId, { name: fields.name, widthMm: fields.widthMm, heightMm: fields.heightMm, ...svg }, controller.signal)
-        : kind === 'prefab' ? await prepareAssetPrefabVariant(draftProject, selector.definitionId, { name: fields.name }, controller.signal)
-          : await prepareImageImportItemVariant(draftProject, selector.definitionId, { ...fields, ...svg }, controller.signal)
-      await onSave(entry, controller.signal)
+      const signal = controller.signal
+      let entry: PreparedLibraryEntry
+      if (kind === 'prop') {
+        const { source, changes } = await preparePropDraft(signal)
+        entry = await prepareImageImportItemVariant(source, selector.definitionId, changes, signal)
+      } else if (kind === 'material') {
+        const svg = editedSvg === null ? {} : { sourceSvg: editedSvg, targetLongEdgePx: longEdge }
+        entry = await prepareImageImportMaterialVariant(draftProject, selector.definitionId, { name: fields.name, widthMm: fields.widthMm, heightMm: fields.heightMm, ...svg }, signal)
+      } else {
+        entry = await prepareAssetPrefabVariant(draftProject, selector.definitionId, { name: fields.name }, signal)
+      }
+      await onSave(entry, signal)
     } catch (reason) { if (mounted.current && !controller.signal.aborted) setError(message(reason)) }
     finally { if (abort.current === controller) abort.current = null; if (mounted.current) { setBusy(false); pending.current(null) } }
   }
@@ -183,6 +232,40 @@ export default function ImageImportItemEditor({ project, definitionId, kind = 'p
     <fieldset disabled={occupied}><legend>固定素材副本</legend><label>名称<input aria-label="素材副本名称" maxLength={120} required value={fields.name} onChange={event => setFields({ ...fields, name: event.target.value })}/></label>
       {kind !== 'prefab' && <>{kind === 'material' && <p>尺寸表示一轮材质平铺的世界大小。</p>}{numericFields.map(([key, label]) => <label key={key}>{label}（毫米）<input aria-label={`${label}毫米`} type="number" min={1} step={1} required value={fields[key]} onChange={event => setFields({ ...fields, [key]: Number(event.target.value) })}/></label>)}</>}
       {kind === 'prop' && <><label><input aria-label="素材阻挡移动" type="checkbox" checked={fields.blocksMovement} onChange={event => setFields({ ...fields, blocksMovement: event.target.checked })}/>阻挡移动</label><label><input aria-label="素材阻挡视线" type="checkbox" checked={fields.blocksSight} onChange={event => setFields({ ...fields, blocksSight: event.target.checked })}/>阻挡视线</label><details><summary>占地偏移</summary>{([['footprintOffsetXmm', 'X'], ['footprintOffsetYmm', 'Y']] as const).map(([key, label]) => <label key={key}>偏移 {label}（毫米）<input aria-label={`占地偏移${label}毫米`} type="number" step={1} value={fields[key]} onChange={event => setFields({ ...fields, [key]: Number(event.target.value) })}/></label>)}</details></>}
+      {kind === 'prop' && <details onToggle={event => { if (!event.currentTarget.open) setObliquePreview(null) }}><summary>默认立体形状</summary>
+        <label>立体结构<select value={fields.defaultVolume?.kind ?? ''} onChange={event => {
+          const kind = event.target.value as PropVolume['kind'] | ''
+          if (!propSideKinds.has(kind)) setSideFile(null)
+          setFields({ ...fields, defaultVolume: kind ? { kind, heightMm: kind === 'flat' ? 0 : fields.defaultVolume?.heightMm || 800,
+            ...(propSideKinds.has(kind) && fields.defaultVolume?.sideAssetId ? { sideAssetId: fields.defaultVolume.sideAssetId } : {}) } : null })
+        }}><option value="">自动</option>{propVolumeKinds.map(kind => <option key={kind} value={kind}>{propVolumeLabels[kind]}</option>)}</select></label>
+        {fields.defaultVolume && fields.defaultVolume.kind !== 'flat' && <label>立体高度（毫米）
+          <input type="number" min={1} max={20_000} step={1} required value={fields.defaultVolume.heightMm}
+            onChange={event => setFields({ ...fields, defaultVolume: { ...fields.defaultVolume!, heightMm: Number(event.target.value) } })}/>
+        </label>}
+        {fields.defaultVolume && propSideKinds.has(fields.defaultVolume.kind) && <>
+          <label>侧面图片<select value={fields.defaultVolume.sideAssetId ?? ''} onChange={event => {
+            const { sideAssetId: _previous, ...volume } = fields.defaultVolume!
+            setSideFile(null)
+            setFields({ ...fields, defaultVolume: event.target.value ? { ...volume, sideAssetId: event.target.value } : volume })
+          }}><option value="">自动侧面</option>{Object.values(draftProject.document.assets).map(asset =>
+            <option key={asset.id} value={asset.id}>{asset.id}</option>)}</select></label>
+          <label>载入侧面图片<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => {
+            setSideFile(event.target.files?.[0] ?? null)
+            event.target.value = ''
+          }}/></label>
+          {sideFile && <><p>{sideFile.name} <button type="button" onClick={() => setSideFile(null)}>移除待导入侧面图</button></p>
+            <label>侧面图署名<input value={sideRights.attribution} onChange={event => setSideRights({ ...sideRights, attribution: event.target.value })}/></label>
+            <label>侧面图许可<textarea value={sideRights.license} onChange={event => setSideRights({ ...sideRights, license: event.target.value })}/></label>
+            <label><input type="checkbox" checked={sideRights.allowed} onChange={event => setSideRights({ ...sideRights, allowed: event.target.checked })}/>许可允许把侧面图嵌入工程</label>
+          </>}
+        </>}
+        {fields.defaultVolume && fields.defaultVolume.kind !== 'flat' && (obliquePreview
+          ? <ItemObliquePreview prepare={obliquePreview.prepare} onClose={() => setObliquePreview(null)} onKeepFlat={keepFlatAppearance}/>
+          : <button type="button" className="secondary" onClick={event => {
+            if (event.currentTarget.form?.reportValidity()) openObliquePreview()
+          }}>预览立体外观</button>)}
+      </details>}
     </fieldset><h3>来源与许可</h3><dl className="asset-facts"><dt>原素材</dt><dd>{original.name}</dd><dt>署名</dt><dd>{original.origin.attribution}</dd><dt>固定版本</dt><dd>{original.catalogId} · v{original.version}</dd><dt>嵌入许可</dt><dd>{original.origin.canEmbed ? '源许可允许嵌入' : '不允许嵌入'}</dd></dl>{licenses.map(license => <details key={license.sha256}><summary>完整许可文本</summary><pre>{license.text}</pre></details>)}<p>来源和原许可随副本完整保留。</p>
   </form>
   const unknownRequestSummary = !!unknownRequests.length && <section className="asset-editor-note" aria-label="素材编辑中的补画请求记录" style={{ flexBasis: '100%', overflowWrap: 'anywhere' }}><p>补画请求记录。加入候选或清理图像草稿会保留这些记录；结果未确认时请先核对服务处理与费用。</p><ul>{unknownRequests.map(request => <li key={`${request.service}:${request.id}`}>{request.state === 'finished' ? '服务已返回' : request.state === 'not_sent' ? '服务拒绝，未发送到模型' : '结果未确认'} · {request.service} · <code>{request.id}</code></li>)}</ul></section>
@@ -196,6 +279,20 @@ export default function ImageImportItemEditor({ project, definitionId, kind = 'p
   return createPortal(<dialog ref={dialog} className="asset-editor-dialog asset-item-editor-dialog" aria-labelledby={heading} onCancel={event => { event.preventDefault(); requestClose() }} onKeyDown={event => { if (event.key === 'Escape') event.stopPropagation() }}>
     <AssetEditorLayout title={fields.name || original.name} headingId={heading} subtitle="编辑固定素材，保存为我的素材中的新副本" scopeLabel="素材编辑" navigation={navigation} canvas={canvas} inspector={inspector} onClose={() => requestClose()} closeLabel="取消编辑副本" actions={<button type="submit" form={`${heading}-form`} disabled={occupied || imageDirty || refinementDirty}>保存编辑副本到我的素材</button>} overview={<><p><strong>{kind === 'prop' ? '物件' : kind === 'material' ? '材质' : '组合'}</strong> · {dirty ? '有未保存的草稿' : '查看固定原件'}</p>{unknownRequestSummary}{(busy || imagePending) && <p role="status">正在处理素材…<button type="button" onClick={() => { if (imageAdoptionWait.current) imageAdoptionWait.current.cancel(); else { abort.current?.abort(); imageAbort.current?.abort() } }}>取消当前处理</button></p>}{error && <p role="alert" className="asset-form-error">{error}</p>}{discard && <div className="asset-item-discard" role="group" aria-label="确认丢弃素材编辑草稿"><p>此页有未保存的更改。{discard.member ? '前往成员编辑会丢弃当前草稿。' : '关闭会丢弃当前草稿。'}</p><button type="button" onClick={() => { if (discard.member) onEditMember?.(discard.member); else onCancel() }}>丢弃草稿并{discard.member ? '前往成员' : '关闭'}</button><button type="button" onClick={() => setDiscard(null)}>继续编辑</button></div>}</>}/>
   </dialog>, document.body)
+}
+
+function ItemObliquePreview({ prepare, onClose, onKeepFlat }: { prepare: PrepareObliqueView; onClose: () => void; onKeepFlat: () => void }) {
+  const { canvas, ready, error, handlers } = useObliqueView(prepare, { wheelZoom: false })
+  return <section className="asset-item-oblique" aria-label="物件斜俯视预览">
+    <canvas ref={canvas} width={640} height={500} hidden={!!error} aria-label="可旋转的物件预览"
+      tabIndex={ready ? 0 : -1} data-ready={ready} {...handlers}/>
+    {error ? <p className="asset-form-error" role="alert">立体预览失败。{error}</p>
+      : ready ? <p>拖动或按方向键旋转。</p> : <p role="status">正在准备立体外观…</p>}
+    <div className="asset-item-oblique-actions">
+      {error && <button type="button" className="secondary" onClick={onKeepFlat}>使用平面外观</button>}
+      <button type="button" className="secondary" onClick={onClose}>{ready || error ? '关闭立体预览' : '取消立体预览'}</button>
+    </div>
+  </section>
 }
 
 function AssetVisual({ project, selector, fields, overrideUrl }: { project: EditableProject; selector: CatalogSelector; fields: ImageImportItemChanges; overrideUrl: string | null }) {

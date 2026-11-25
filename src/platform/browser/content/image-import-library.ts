@@ -5,7 +5,7 @@ import { prepareLibraryEntries } from '../../../shared/library/content.js'
 import { LIBRARY_LIMITS, type CatalogSelector, type LibraryMutation, type LibrarySnapshot, type PreparedLibraryEntry } from '../../../shared/library/types.js'
 import { canonicalJson } from '../../../shared/validation/json.js'
 import { id as idSchema } from '../../../shared/validation/primitives.js'
-import { libraryRepository, projectRepository, validation } from '../runtime.js'
+import { loadLibraryRepository, projectRepository, validation } from '../runtime.js'
 
 export interface ImageImportLibraryResult {
   savedCount: number
@@ -21,15 +21,13 @@ export interface ImageImportLibraryStores {
   }
   validation: CompleteValidationOptions
 }
-const defaultStores: ImageImportLibraryStores = { projects: projectRepository, library: libraryRepository, validation }
-
 /** Read a successfully persisted project first. Preview preparation never calls this function. */
 export async function installSavedImageImportItems(sceneId: string, propIds: readonly string[], signal?: AbortSignal,
-  stores: ImageImportLibraryStores = defaultStores): Promise<ImageImportLibraryResult> {
+  stores?: ImageImportLibraryStores): Promise<ImageImportLibraryResult> {
   idSchema.parse(sceneId); checkCancelled(signal)
   if (!Array.isArray(propIds) || propIds.length > LIBRARY_LIMITS.batch || new Set(propIds).size !== propIds.length) throw new Error('自动入库需要最多64个不同物件。')
   const ids = propIds.map(value => idSchema.parse(value)), options = { signal }
-  const saved = await stores.projects.load(sceneId, options)
+  const saved = await (stores?.projects ?? projectRepository).load(sceneId, options)
   checkCancelled(signal)
   if (!saved || saved.project.document.sceneId !== sceneId || saved.project.document.presetSnapshot.presetId !== 'image-import-manual') throw new Error('请先采用并保存图片工程，再将物件加入我的素材。')
   const selectors = new Map<string, CatalogSelector>()
@@ -46,24 +44,26 @@ export async function installSavedImageImportItems(sceneId: string, propIds: rea
   }
   if (selectors.size > LIBRARY_LIMITS.batch) throw new Error('自动入库的物件与矢量地板合计超过64项，请收窄采用范围。')
   const entries = new Map<string, PreparedLibraryEntry>()
-  const prepared = selectors.size ? await prepareLibraryEntries(saved, [...selectors.values()], { ...stores.validation, signal }) : []
+  const prepared = selectors.size ? await prepareLibraryEntries(saved, [...selectors.values()], { ...(stores?.validation ?? validation), signal }) : []
   for (const entry of prepared) {
     entries.set(entry.item.identity.key, entry)
   }
-  const before = await stores.library.read(options), missing: PreparedLibraryEntry[] = []
+  const library = stores?.library ?? await loadLibraryRepository()
+  checkCancelled(signal)
+  const before = await library.read(options), missing: PreparedLibraryEntry[] = []
   let existingCount = 0
   for (const [key, entry] of entries) {
     checkCancelled(signal)
     if (!before.entries.some(row => row.item.identity.key === key)) { missing.push(entry); continue }
-    const installed = await stores.library.load(key, options)
+    const installed = await library.load(key, options)
     if (canonicalJson(installed.item) !== canonicalJson(entry.item)) throw new Error('已安装图片素材的固定内容与工程不一致。')
     existingCount++
   }
   checkCancelled(signal)
-  if (missing.length) await stores.library.commit(before.revision, { put: missing }, options)
+  if (missing.length) await library.commit(before.revision, { put: missing }, options)
   // Cold read also covers a previously completed write retried after interruption.
   for (const key of entries.keys()) {
-    const installed = await stores.library.load(key, options)
+    const installed = await library.load(key, options)
     if (canonicalJson(installed.item) !== canonicalJson(entries.get(key)!.item)) throw new Error('图片素材入库后的冷读不一致。')
   }
   checkCancelled(signal)

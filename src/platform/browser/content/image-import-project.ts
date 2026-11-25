@@ -215,7 +215,8 @@ function buildDocument(input: ImageImportProjectInput, source: ReturnType<typeof
     }
     const appearance = { kind: 'image' as const, assetId, tint: null, opacity: 1 }
     const defaultFields = { name: layer.name, tags: ['图片拆解', ...(buildingArt ? ['source-building-art'] : [])], defaultAppearance: appearance, defaultVisualBoundsMm: visualBoundsMm, defaultFootprintMm: footprintMm,
-      defaultFootprintOffsetMm: footprintOffsetMm, defaultBlocksMovement: layer.blocksMovement, defaultBlocksSight: false, defaultRenderLayer: layer.renderLayer, defaultShadowClass: 'none' as const }
+      defaultFootprintOffsetMm: footprintOffsetMm, defaultVolume: { kind: 'flat' as const, heightMm: 0 },
+      defaultBlocksMovement: layer.blocksMovement, defaultBlocksSight: false, defaultRenderLayer: layer.renderLayer, defaultShadowClass: 'none' as const }
     const definitionHash = hashJson({ ...defaultFields, origin, licenseRef }), definitionId = `image-import-definition-${definitionHash}`
     scene.propDefinitions[definitionId] = { id: definitionId, catalogId: `prop.image-import.${definitionHash}`,
       version: 1, licenseRef, origin: { ...origin }, ...defaultFields }
