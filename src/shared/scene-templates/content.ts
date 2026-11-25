@@ -184,7 +184,8 @@ function roots(project: ProjectData) {
       return result
     }),
   ]
-  return extractTemplateFixedContent(project, selectors, [...Object.values(project.appearance.propSources), ...Object.values(project.appearance.surfaceSources)])
+  const sideAssets = Object.values(project.document.props).flatMap(prop => prop.volume?.sideAssetId ?? [])
+  return extractTemplateFixedContent(project, selectors, [...Object.values(project.appearance.propSources), ...Object.values(project.appearance.surfaceSources)], sideAssets)
 }
 
 function* transformContentSteps(source: ProjectData, target: ProjectData, mapping: Record<string, string>, floorId: string, layerId: string, support: GroundSurfaceRef, origin: PointMm, anchor: PointMm, quarterTurns: number, elevation: number, bridgeTemplateKey?: string) {

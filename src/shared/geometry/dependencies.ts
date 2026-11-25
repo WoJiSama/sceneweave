@@ -99,12 +99,16 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
   for (const definition of Object.values(scene.propDefinitions)) {
     adopted('propDefinition', definition)
     if (definition.defaultAppearance.kind === 'image') useAsset(definition.defaultAppearance.assetId, definition.id)
+    if (definition.defaultVolume?.sideAssetId) useAsset(definition.defaultVolume.sideAssetId, definition.id)
   }
   for (const material of Object.values(scene.materials)) { adopted('material', material); useAsset(material.textureAssetId, material.id) }
   for (const definition of Object.values(scene.prefabDefinitions)) {
     adopted('prefabDefinition', definition)
     if (new Set(definition.members.map(item => item.key)).size !== definition.members.length) error('DUPLICATE_TEMPLATE_KEY', '组合模板的子项 key 必须唯一。', definition.id)
-    for (const member of definition.members) checkAppearance(member.propTemplate.appearance, member.propTemplate.definitionRef, definition.id)
+    for (const { propTemplate } of definition.members) {
+      checkAppearance(propTemplate.appearance, propTemplate.definitionRef, definition.id)
+      if (propTemplate.volume?.sideAssetId) useAsset(propTemplate.volume.sideAssetId, definition.id)
+    }
   }
   if(true && scene.regional) for(const definition of Object.values(scene.regional.symbolDefinitions)) { adopted('regionalSymbolDefinition',definition); useAsset(definition.assetId,definition.id) }
   for (const theme of Object.values(scene.styleThemes)) {
@@ -122,6 +126,7 @@ export function inspectDependencies(scene: SceneDocument): { errors: DependencyI
   for (const connection of Object.values(scene.terrainConnections)) { surface(connection.from.surfaceRef, connection); surface(connection.to.surfaceRef, connection); checkStyle(connection.surfaceStyle, 'path', connection.id) }
   for (const prop of Object.values(scene.props)) {
     checkAppearance(prop.appearance, prop.definitionRef, prop.id); surface(prop.supportRef, prop)
+    if (prop.volume?.sideAssetId) useAsset(prop.volume.sideAssetId, prop.id)
     if (prop.roomId !== undefined) {
       const room = own(scene.rooms, prop.roomId)
       if (!room) error('MISSING_ROOM', '物件归属的 Room 不存在。', prop.id)

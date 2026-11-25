@@ -143,6 +143,8 @@ function fixedAssetRoots(document: SceneDocument): Set<string> {
     ...Object.values(document.propDefinitions).flatMap(definition => definition.defaultAppearance.kind === 'image' ? [definition.defaultAppearance.assetId] : []),
     ...Object.values(document.materials).map(material => material.textureAssetId),
     ...Object.values(document.prefabDefinitions).flatMap(definition => definition.members.flatMap(member => member.propTemplate.appearance.kind === 'image' ? [member.propTemplate.appearance.assetId] : [])),
+    ...Object.values(document.propDefinitions).flatMap(definition => definition.defaultVolume?.sideAssetId ?? []),
+    ...Object.values(document.prefabDefinitions).flatMap(definition => definition.members.flatMap(member => member.propTemplate.volume?.sideAssetId ?? [])),
   ])
 }
 function retainSourceAssets(content: CompositionContent): Set<string> {

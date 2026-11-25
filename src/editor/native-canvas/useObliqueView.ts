@@ -15,7 +15,6 @@ export function useObliqueView(prepare: PrepareView, { enabled = true, activate,
   const canvas = useRef<HTMLCanvasElement>(null)
   const view = useRef<ObliqueView>(null)
   const pointer = useRef<{ id: number; x: number; y: number } | null>(null)
-  const lifetime = useRef<AbortController>(null)
   const [camera, setCamera] = useState(DEFAULT_OBLIQUE_CAMERA)
   const latestCamera = useRef(camera)
   latestCamera.current = camera
@@ -34,7 +33,6 @@ export function useObliqueView(prepare: PrepareView, { enabled = true, activate,
       return
     }
     const controller = new AbortController()
-    lifetime.current = controller
     const element = canvas.current!
     let frame = 0
     const fail = (failure: unknown) => {
@@ -166,6 +164,6 @@ export function useObliqueView(prepare: PrepareView, { enabled = true, activate,
       })
     },
   }
-  return { canvas, camera, setCamera, lifetime, phase, ready, error, handlers,
+  return { canvas, view, camera, setCamera, phase, ready, error, handlers,
     setZoom: (value: number) => setCamera(current => zoom(current, value)) }
 }

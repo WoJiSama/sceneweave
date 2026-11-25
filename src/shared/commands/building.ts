@@ -8,6 +8,7 @@ import { roomFurnitureIds } from '../furnishing/room-members.js'
 import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { polygonsOverlap, roomPoints } from '../geometry/geometry.js'
 import type { Editable, GroundSurfaceRef, Opening, PointMm, Room, SurfaceStyle, VersionRef, Wall } from '../model/scene.js'
+import { openingHeightSchema, wallHeightSchema } from '../model/building-height.js'
 import { geometryIdentityIds } from './domain.js'
 import { orderedLayers } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
@@ -34,13 +35,14 @@ export type BuildingCommand =
   | { type: 'deleteRoom'; id: string; removeOrphanWalls?: boolean }
   | { type: 'deleteWall'; id: string }
   | { type: 'setWallBlocking'; id: string; blocksMovement: boolean; blocksSight: boolean }
+  | { type: 'setWallHeight'; id: string; heightMm: number | null }
   | { type: 'translateWall'; id: string; offsetMm: PointMm }
   | { type: 'moveRoom'; id: string; offsetMm: PointMm; splitId: string; openingsToMove: string[] }
   | { type: 'transformBuilding'; id: string; offsetMm: PointMm; pivotMm: PointMm; quarterTurns: 0 | 1 | 2 | 3 }
   | { type: 'transformAggregateBuilding'; id: string; offsetMm: PointMm; pivotMm: PointMm; quarterTurns: 0 | 1 | 2 | 3 }
   | { type: 'repairBuildingTopology'; id: string; operation: 'mergeCollinear' | 'splitJunctions' }
-  | { type: 'addOpening'; id: string; wallId: string; offsetReferenceVertexId: string; offsetMm: number; widthMm: number; kind: Opening['kind']; state?: Opening['state']; locked?: boolean; secret?: boolean; revealed?: boolean; layerId?: string }
-  | { type: 'updateOpening'; id: string; changes: Partial<Pick<Opening, 'wallId' | 'offsetReferenceVertexId' | 'offsetMm' | 'widthMm' | 'kind' | 'state' | 'locked' | 'secret' | 'revealed'>> }
+  | { type: 'addOpening'; id: string; wallId: string; offsetReferenceVertexId: string; offsetMm: number; widthMm: number; kind: Opening['kind']; state?: Opening['state']; locked?: boolean; secret?: boolean; revealed?: boolean; layerId?: string; vertical?: Opening['vertical'] }
+  | { type: 'updateOpening'; id: string; changes: Partial<Pick<Opening, 'wallId' | 'offsetReferenceVertexId' | 'offsetMm' | 'widthMm' | 'kind' | 'state' | 'locked' | 'secret' | 'revealed'>> & { vertical?: Opening['vertical'] | null } }
   | { type: 'deleteOpening'; id: string }
   | { type: 'setEntranceOpenings'; ids: string[] }
 
@@ -60,14 +62,15 @@ export const buildingCommandSchemas = [
   z.object({ type: z.literal('deleteRoom'), id, removeOrphanWalls: z.boolean().optional() }).strict(),
   z.object({ type: z.literal('deleteWall'), id }).strict(),
   z.object({ type: z.literal('setWallBlocking'), id, blocksMovement: z.boolean(), blocksSight: z.boolean() }).strict(),
+  z.object({ type: z.literal('setWallHeight'), id, heightMm: wallHeightSchema.nullable() }).strict(),
   z.object({ type: z.literal('translateWall'), id, offsetMm: point }).strict(),
   z.object({ type: z.literal('moveRoom'), id, offsetMm: point, splitId: id.max(200),
     openingsToMove: z.array(id).max(256).refine(values => new Set(values).size === values.length) }).strict(),
   z.object({ type: z.literal('transformBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: quarterTurnsSchema }).strict(),
   z.object({ type: z.literal('transformAggregateBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: quarterTurnsSchema }).strict(),
   z.object({ type: z.literal('repairBuildingTopology'), id, operation: z.enum(['mergeCollinear', 'splitJunctions']) }).strict(),
-  z.object({ type: z.literal('addOpening'), id, ...openingFields, state: openingFields.state.optional(), locked: z.boolean().optional(), secret: z.boolean().optional(), revealed: z.boolean().optional(), layerId: id.optional() }).strict(),
-  z.object({ type: z.literal('updateOpening'), id, changes: z.object(openingFields).partial().strict() }).strict(),
+  z.object({ type: z.literal('addOpening'), id, ...openingFields, state: openingFields.state.optional(), locked: z.boolean().optional(), secret: z.boolean().optional(), revealed: z.boolean().optional(), layerId: id.optional(), vertical: openingHeightSchema.optional() }).strict(),
+  z.object({ type: z.literal('updateOpening'), id, changes: z.object({ ...openingFields, vertical: openingHeightSchema.nullable() }).partial().strict() }).strict(),
   z.object({ type: z.literal('deleteOpening'), id }).strict(),
   z.object({ type: z.literal('setEntranceOpenings'), ids: z.array(id).max(COMMAND_LIMIT).refine(values => new Set(values).size === values.length, '入口 ID 不能重复') }).strict(),
 ] as const
@@ -667,7 +670,7 @@ function mergeCollinearWalls(scene: SceneDocument, seedId: string, affected: Set
     if (incident.length !== 2) continue
     const [left, right] = [...incident].sort((a, b) => a.id.localeCompare(b.id)), otherLeft = left.startVertexId === vertexId ? left.endVertexId : left.startVertexId, otherRight = right.startVertexId === vertexId ? right.endVertexId : right.startVertexId
     const p = position(scene, vertexId), a = position(scene, otherLeft), b = position(scene, otherRight)
-    if (cross(a, p, b) !== 0n || projection(p, a, b) >= 0n || left.floorId !== right.floorId || left.thicknessMm !== right.thicknessMm || left.blocksMovement !== right.blocksMovement || left.blocksSight !== right.blocksSight || left.edgeProfile !== right.edgeProfile || scene.entityLayers[left.id] !== scene.entityLayers[right.id] || !equal(left.topStyle, right.topStyle)) continue
+    if (cross(a, p, b) !== 0n || projection(p, a, b) >= 0n || left.floorId !== right.floorId || left.thicknessMm !== right.thicknessMm || left.heightMm !== right.heightMm || left.blocksMovement !== right.blocksMovement || left.blocksSight !== right.blocksSight || left.edgeProfile !== right.edgeProfile || scene.entityLayers[left.id] !== scene.entityLayers[right.id] || !equal(left.topStyle, right.topStyle)) continue
     const leftRooms = Object.values(scene.rooms).filter(room => roomOwnsWall(room, left)).map(room => room.id).sort(), rightRooms = Object.values(scene.rooms).filter(room => roomOwnsWall(room, right)).map(room => room.id).sort()
     if (!equal(leftRooms, rightRooms) || leftRooms.some(roomId => !scene.rooms[roomId].boundaryVertexIds.includes(vertexId))) continue
     const wallNotes = [...anchoredNotes(scene, 'wall', left.id), ...anchoredNotes(scene, 'wall', right.id)]
@@ -838,6 +841,14 @@ function mutate(scene: SceneDocument, command: BuildingCommand, affected: Set<st
       wall.blocksSight = command.blocksSight
       break
     }
+    case 'setWallHeight': {
+      const wall = requireEntity(scene.walls, command.id, '墙')
+      if ((wall.heightMm ?? null) === command.heightMm) break
+      assertUnlocked(scene, buildingDependants(scene, [wall.id]), affected, ignoreLocks)
+      if (command.heightMm === null) delete wall.heightMm
+      else wall.heightMm = command.heightMm
+      break
+    }
     case 'translateWall': {
       const wall = requireEntity(scene.walls, command.id, '墙')
       if (!command.offsetMm.x && !command.offsetMm.y) break
@@ -862,15 +873,20 @@ function mutate(scene: SceneDocument, command: BuildingCommand, affected: Set<st
       const wall = requireEntity(scene.walls, command.wallId, '附着墙'), layerId = targetLayer(scene, wall.floorId, command.layerId ?? scene.entityLayers[wall.id], ignoreLocks)
       assertUnlocked(scene, buildingDependants(scene, [wall.id]), affected, ignoreLocks)
       scene.openings[command.id] = { id: command.id, floorId: wall.floorId, editLocked: false, wallId: wall.id, offsetReferenceVertexId: command.offsetReferenceVertexId, offsetMm: command.offsetMm, widthMm: command.widthMm, kind: command.kind, state: command.state ?? 'closed', locked: command.locked ?? false, secret: command.secret ?? false, revealed: command.revealed ?? false }
+      if (command.vertical) scene.openings[command.id].vertical = cloneJson(command.vertical)
       scene.entityLayers[command.id] = layerId; break
     }
     case 'updateOpening': {
       const opening = requireEntity(scene.openings, command.id, '门窗')
-      if (Object.entries(command.changes).every(([key, value]) => equal(opening[key as keyof Opening], value))) break
+      if (Object.entries(command.changes).every(([key, value]) => equal(opening[key as keyof Opening], value === null ? undefined : value))) break
       const wall = requireEntity(scene.walls, command.changes.wallId ?? opening.wallId, '附着墙')
       if (wall.floorId !== opening.floorId) throw new Error('门窗重新附着须保持同Floor。')
       assertUnlocked(scene, buildingDependants(scene, [opening.wallId, wall.id], [opening.id]), affected, ignoreLocks)
-      Object.assign(opening, cloneJson(command.changes)); break
+      const { vertical, ...changes } = cloneJson(command.changes)
+      Object.assign(opening, changes)
+      if (vertical === null) delete opening.vertical
+      else if (vertical) opening.vertical = vertical
+      break
     }
     case 'deleteOpening': {
       const opening = requireEntity(scene.openings, command.id, '门窗')

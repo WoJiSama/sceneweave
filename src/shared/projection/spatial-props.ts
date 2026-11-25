@@ -26,17 +26,25 @@ export function projectPropVolumes(scene: SceneDocument, projection: Projection)
     const surface = levels.get(prop.supportRef.id)
     const offset = surface?.relief ? sampleTerrainRelief(surface.relief, boxes.get(surface.id)!, prop.positionMm).offsetMm : 0
     const baseMm = attached.has(prop.id) ? resolvePropContact(scene, prop.id).contactElevationMm : (surface?.elevationMm ?? 0) + offset
-    const tags = prop.definitionRef && scene.propDefinitions[prop.definitionRef.id]?.tags || []
-    const shape = defaultVolume(prop, tags)
+    const definition = prop.definitionRef ? scene.propDefinitions[prop.definitionRef.id] : undefined
+    const tags = definition?.tags ?? []
+    const shape = prop.volume ?? definition?.defaultVolume ?? defaultVolume(prop, tags)
     const brush = prop.appearance.kind === 'image' ? projection.materialBrushes?.[prop.appearance.assetId] : undefined
     let kind = shape.kind
-    if (!prop.volume && kind === 'box' && (brush === 'wood' || brush === 'cloth')) {
+    if (!prop.volume && !definition?.defaultVolume && kind === 'box' && (brush === 'wood' || brush === 'cloth')) {
       if (has(tags, ['table', 'desk', '小桌', '圆桌', '书桌'])) kind = 'table'
       else if (has(tags, ['chair', 'seat', 'stool', '椅', '木椅'])) kind = 'seat'
     }
     const supportTop = tops.get(prop.id)
-    return [prop.id, { baseMm, kind: supportTop && kind === 'flat' ? 'box' : kind, heightMm: supportTop ?? shape.heightMm }]
+    return [prop.id, { ...shape, baseMm, kind: supportTop && kind === 'flat' ? 'box' : kind, heightMm: supportTop ?? shape.heightMm }]
   }))
+}
+
+export function projectSpatialProps(scene: SceneDocument, projection: Projection): void {
+  const propVolumes = projectPropVolumes(scene, projection)
+  projection.propVolumes = propVolumes
+  const sideAssets = Object.values(propVolumes).flatMap(volume => volume.sideAssetId ?? [])
+  if (sideAssets.length) projection.assetIds = [...new Set([...projection.assetIds, ...sideAssets])].sort()
 }
 
 export function defaultVolume(prop: Prop, tags: readonly string[]): PropVolume {

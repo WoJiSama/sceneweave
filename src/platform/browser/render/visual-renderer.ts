@@ -18,7 +18,7 @@ import { edgeLookPaintPadding } from '../../../shared/visual/paint-envelopes.js'
 import { boundaryConnections, clipConnectionOpenings, drawConnectionCheeks } from './connection-geometry'
 import type { ProjectedConnection } from '../../../shared/projection/types.js'
 import { cliffHighGround, type CliffHighGround } from './cliff-high-ground.js'
-import { planTerrainCliffs } from '../../../shared/visual/terrain-cliff-plan.js'
+import { isHeightCliffProfile, isWeatheredCliffProfile, planTerrainCliffs, STRATIFIED_CLIFF_PROFILE } from '../../../shared/visual/terrain-cliff-plan.js'
 import { drawTerrainCliffFace } from './terrain-cliff-renderer.js'
 import { cliffRibbon, cliffRibbonPaints, type CliffRibbon } from '../../../shared/visual/cliff-ribbon.js'
 
@@ -339,7 +339,7 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
 }
 
 /** Surface pass: continuous bands precede furniture and walls. */
-export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: Projection, signal?: AbortSignal, readFrequently = false): void {
+export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: Projection, signal?: AbortSignal, readFrequently = false, spatialTexture = false): void {
   const visual = projection.visual
   if (!visual) return
   const byId = new Map(visual.boundaries.map(boundary => [boundary.id, boundary]))
@@ -362,7 +362,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     }
     return high
   }
-  const cliffs = visual.edgeLooks.filter(look => look.kind === 'cliff' && look.opacity > 0 && look.renderProfile !== 'rockRelief5' && look.renderProfile !== 'rockRelief6' && look.renderProfile !== 'rockRelief7' && look.renderProfile !== 'rockRelief8' && look.renderProfile !== 'rockRelief9')
+  const cliffs = visual.edgeLooks.filter(look => look.kind === 'cliff' && look.opacity > 0 && look.renderProfile !== 'rockRelief5' && !isHeightCliffProfile(look.renderProfile))
   if (cliffs.length) {
     const allPoints = cliffs.flatMap(look => byId.get(look.boundaryId)?.points ?? []), padding = Math.max(...cliffs.map(edgeLookPaintPadding))
     const buffer = allPoints.length ? localBuffer(ctx, projection, minMaxBounds(allPoints, padding), readFrequently) : null
@@ -393,9 +393,11 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
   }
   // The height-aware profile resolves all face intersections together before
   // any face is painted; subsequent shore/grass records retain their order.
-  const terrainCliffs = planTerrainCliffs(projection)
+  const terrainCliffs = planTerrainCliffs(spatialTexture
+    ? { ...projection, visual: { ...visual, edgeLooks: visual.edgeLooks.filter(look => look.renderProfile !== STRATIFIED_CLIFF_PROFILE) } }
+    : projection)
   for (const face of terrainCliffs) {
-    if (!face.shadowRings.length) continue
+    if (!face.shadowRings.length || spatialTexture && isWeatheredCliffProfile(face.look.renderProfile)) continue
     const boundary = byId.get(face.look.boundaryId)
     ctx.save()
     try {
@@ -411,7 +413,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     try {
       clipInlayPaint(ctx, projection, face.look.id)
       if (boundary) clipConnectionOpenings(ctx, projection.bounds, connectionsFor(projection, boundary))
-      drawTerrainCliffFace(ctx, face, visual.environment.lightDirectionDeg)
+      drawTerrainCliffFace(ctx, face, visual.environment.lightDirectionDeg, spatialTexture)
     } finally { ctx.restore() }
   }
   const looksById = new Map(visual.edgeLooks.map(look => [look.id, look]))
@@ -432,7 +434,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       continue
     }
     const look = looksById.get(entry.id)
-    if (!look || look.renderProfile === 'rockRelief6' || look.renderProfile === 'rockRelief7' || look.renderProfile === 'rockRelief8' || look.renderProfile === 'rockRelief9') continue
+    if (!look || isHeightCliffProfile(look.renderProfile)) continue
     const boundary = byId.get(look.boundaryId)
     if (!boundary || !intersectsVisualBounds(minMaxBounds(boundary.points, edgeLookPaintPadding(look)), projection.bounds)) continue
     const connections = connectionsFor(projection, boundary)

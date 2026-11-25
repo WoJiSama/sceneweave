@@ -1,6 +1,6 @@
 import polygonClipping, { type MultiPolygon, type Polygon } from 'polygon-clipping'
-import { connectionBand, corridor, pointInPolygon, polygonDistance, polygonsOverlap, segmentCuts } from '../../../shared/geometry/geometry.js'
-import { reliefBounds, reliefGridPoint } from '../../../shared/geometry/terrain-relief.js'
+import { connectionBand, corridor, distanceToSegment, pointInPolygon, polygonDistance, polygonsOverlap, segmentCuts } from '../../../shared/geometry/geometry.js'
+import { reliefBounds, reliefGridPoint, reliefSegmentCuts } from '../../../shared/geometry/terrain-relief.js'
 import { roadSpanTriangles, type RoadVertex } from '../../../shared/geometry/road-surface.js'
 import { connectionArcFrame } from '../../../shared/geometry/connection-route.js'
 import { playerMaskRings } from '../../../shared/projection/player-mask.js'
@@ -8,7 +8,8 @@ import { planStaircase, staircasePatch, staircasePointAt } from '../../../shared
 import { defaultStaircase } from '../../../shared/stairs/contracts.js'
 import { staircaseMaterial } from '../../../shared/stairs/catalog.js'
 import type { BoundsMm, PointMm, SurfaceStyle } from '../../../shared/model/scene.js'
-import type { ProjectedPath, ProjectedSurface, Projection } from '../../../shared/projection/types.js'
+import { spatialWallHeight } from '../../../shared/model/building-height.js'
+import type { ProjectedConnection, ProjectedPath, ProjectedSurface, ProjectedTerrainEdge, Projection } from '../../../shared/projection/types.js'
 import type { StaircaseGeometry } from '../../../shared/stairs/geometry.js'
 import { exposedEdgeSegments } from '../../../shared/projection/bridge-entrances.js'
 import { atHeight, rectangle, type MeshMask, type MeshMaterial, type ObliqueMesh, type SpatialColor } from './oblique-mesh'
@@ -16,6 +17,12 @@ import { wallGeometry } from '../../../shared/geometry/wall-paint-geometry.js'
 import { projectGround } from './projected-ground.js'
 import { earthenRoad, planEarthenRoad } from './earthen-road.js'
 import { gradedRiserPalette } from './graded-road-paint.js'
+import { ERODED_CLIFF_PROFILE, isWeatheredCliffProfile, STRATIFIED_CLIFF_PROFILE, weatheredCliffWidth } from '../../../shared/visual/terrain-cliff-plan.js'
+import type { VisualEdgeLook } from '../../../shared/visual/types.js'
+import { cliffStrata, strataColor } from './stratified-cliff.js'
+import { planWeatheredRockSteps, usesWeatheredRockSteps } from './weathered-rock-steps.js'
+import { paintWeatheredCliffTexture, weatheredCliffPeriod, WEATHERED_CLIFF_TEXTURE_SIZE } from './weathered-cliff.js'
+import { terrainValueNoise } from '../../../shared/terrain-generation/field.js'
 
 const rings = (polygon: Polygon) => polygon.map(ring => {
   const closed = ring.length > 1 && ring[0][0] === ring.at(-1)![0] && ring[0][1] === ring.at(-1)![1]
@@ -23,6 +30,7 @@ const rings = (polygon: Polygon) => polygon.map(ring => {
 })
 const ring = (points: PointMm[]) => points.map(({ x, y }): [number, number] => [x, y])
 const shape = (area: ProjectedSurface): MultiPolygon => area.regionsMm?.map(row => [ring(row.outerMm), ...row.holesMm.map(ring)]) ?? [[ring(area.points)]]
+const polygonEdges = (points: PointMm[]): [PointMm, PointMm][] => points.map((point, i) => [point, points[(i + 1) % points.length]])
 const mix = (a: number, b: number, t: number) => a + (b - a) * t
 const midpoint = (a: PointMm, b: PointMm) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
 export const colorRgb = (color: string): SpatialColor => [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16) / 255) as SpatialColor
@@ -70,6 +78,186 @@ function paintStyle(input: SurfaceMeshes, style: SurfaceStyle | null | undefined
   const paint = style?.base, textureId = paint && input.projection.materials[paint.materialRef.id]?.textureAssetId
   const image = textureId ? input.images.get(textureId) : undefined
   return { image, color: colorRgb(paint?.tint ?? (image ? '#ffffff' : fallback)), repeat: !!image, privacy: input.privacy }
+}
+
+const edgeKey = (a: PointMm, b: PointMm) => a.x < b.x || a.x === b.x && a.y < b.y
+  ? `${a.x},${a.y}/${b.x},${b.y}` : `${b.x},${b.y}/${a.x},${a.y}`
+
+const cliffCarrierKey = (edge: ProjectedTerrainEdge) => edgeKey(edge.sourceSpanMm?.[0] ?? edge.start, edge.sourceSpanMm?.[1] ?? edge.end)
+
+function stratifiedEdges(projection: Projection) {
+  const looks = new Map<string, VisualEdgeLook>()
+  const boundaries = new Map(projection.visual?.boundaries.map(boundary => [boundary.id, boundary]))
+  for (const look of projection.visual?.edgeLooks ?? []) {
+    if (look.kind !== 'cliff' || look.renderProfile !== STRATIFIED_CLIFF_PROFILE || !look.opacity) continue
+    const boundary = boundaries.get(look.boundaryId)
+    if (!boundary?.terrainAreaIds.length) continue
+    const { points, closed } = boundary
+    for (let i = 0; i < points.length - Number(!closed); i++) looks.set(edgeKey(points[i], points[(i + 1) % points.length]), look)
+  }
+  return looks
+}
+
+interface WeatheredCourse {
+  look: VisualEdgeLook
+  material: MeshMaterial
+  u: (p: PointMm) => number
+}
+
+function weatheredEdges(input: SurfaceMeshes) {
+  const { projection, privacy, temporaryCanvas } = input
+  const looks = projection.visual?.edgeLooks.filter(look => look.kind === 'cliff' && isWeatheredCliffProfile(look.renderProfile) && look.opacity) ?? []
+  const courses = new Map<string, WeatheredCourse>()
+  const boundaries = new Map(projection.visual?.boundaries.map(boundary => [boundary.id, boundary]))
+  for (const look of looks) {
+    const boundary = boundaries.get(look.boundaryId)
+    if (!boundary?.terrainAreaIds.length) continue
+    const edges = boundary.points.slice(0, boundary.points.length - Number(!boundary.closed)).map((a, i) => {
+      const b = boundary.points[(i + 1) % boundary.points.length]
+      return { a, b, length: Math.hypot(b.x - a.x, b.y - a.y) }
+    })
+    const period = weatheredCliffPeriod(look, edges.reduce((sum, { length }) => sum + length, 0))
+    const image = temporaryCanvas(...WEATHERED_CLIFF_TEXTURE_SIZE)
+    paintWeatheredCliffTexture(image, look)
+    const material = { image, repeat: true, privacy, opacity: look.opacity }
+    let distance = 0
+    for (const { a, b, length } of edges) {
+      if (!length) continue
+      const start = distance, dx = b.x - a.x, dy = b.y - a.y
+      courses.set(edgeKey(a, b), { material, look, u: p => (start + ((p.x - a.x) * dx + (p.y - a.y) * dy) / length) / period })
+      distance += length
+    }
+  }
+  const normals = new Map<string, PointMm>()
+  const vertexKey = (edge: ProjectedTerrainEdge, p: PointMm) => `${edge.sourceAreaId}/${p.x},${p.y}`
+  for (const edge of [...projection.edges, ...projection.spatialReliefEdges ?? []]) {
+    const { start, end } = edge
+    if (!courses.has(cliffCarrierKey(edge))) continue
+    const dx = end.x - start.x, dy = end.y - start.y, length = Math.hypot(dx, dy)
+    if (length <= .001) continue
+    for (const point of [start, end]) {
+      const key = vertexKey(edge, point), current = normals.get(key) ?? { x: 0, y: 0 }
+      normals.set(key, { x: current.x + dy / length, y: current.y - dx / length })
+    }
+  }
+  return { courses, normals, vertexKey }
+}
+
+function addWeatheredCliff(input: SurfaceMeshes, edge: ProjectedTerrainEdge, course: WeatheredCourse,
+  outward: (p: PointMm) => PointMm, a: PointMm, b: PointMm, pz: number, qz: number, pl: number, ql: number) {
+  const { projection, ground, mesh } = input
+  const openings = projection.connections.filter(connection => !connection.inlayFootprintMm && connection.surfaceIds?.includes(edge.sourceAreaId))
+    .flatMap(connection => {
+      const line = connection.route?.centerlineMm ?? [connection.start, connection.end]
+      return line.slice(1).map((b, i) => ({ a: line[i], b, radius: connection.widthMm / 2 }))
+    })
+  const scale = Math.max(1, course.look.repeatMm / 590)
+  const eroded = course.look.renderProfile === ERODED_CLIFF_PROFILE
+  const softFoot = eroded && Math.max(pz - pl, qz - ql) < Math.min(560, 380 * Math.sqrt(scale))
+  if (softFoot) {
+    mesh.quad({ image: input.texture, unlit: true, privacy: input.privacy }, [atHeight(a, pl), atHeight(b, ql), atHeight(b, qz), atHeight(a, pz)],
+      [textureUv(projection.bounds)(a), textureUv(projection.bounds)(b), textureUv(projection.bounds)(b), textureUv(projection.bounds)(a)])
+    return
+  }
+  const section = (p: PointMm, high: number, low: number) => {
+    const n = outward(p), rise = Math.max(0, high - low), width = weatheredCliffWidth(course.look, p, rise)
+    const setback = Math.min(Infinity, ...openings.map(({ a, b, radius }) => distanceToSegment(p, a, b) - radius))
+    const reach = Math.min(width.foot * .68, Math.max(0, setback * .82))
+    const shoulder = Math.max(0, .32 + .77 * terrainValueNoise(course.look.seed, 'eroded rock ledge', p.x / (1770 * scale), p.y / (1430 * scale)))
+    const at = (reach: number) => ({ x: p.x + reach * n.x, y: p.y + reach * n.y })
+    const toe = at(reach), neighbor = ground.levels.get(edge.neighborAreaId ?? '')
+    const base = Math.min(high, neighbor ? ground.elevation(neighbor, toe) : low)
+    const strata = eroded ? .19 + shoulder * .34 : .46
+    return [atHeight(p, high), atHeight(at(reach * .19), mix(high, base, strata)),
+      atHeight(at(reach * (.24 + .62 * shoulder)), mix(high, base, eroded ? strata + .29 : .51)), atHeight(toe, base)] as const
+  }
+  const left = section(a, pz, pl), right = section(b, qz, ql)
+  const u = course.u(a), v = course.u(b), down = [.006, .44, .53, .991]
+  for (let i = 1; i < left.length; i++) {
+    mesh.quad(course.material, [left[i], right[i], right[i - 1], left[i - 1]], [[u, down[i]], [v, down[i]], [v, down[i - 1]], [u, down[i - 1]]])
+  }
+}
+
+function addWeatheredRockStairs(input: SurfaceMeshes, connection: ProjectedConnection, painted: MeshMaterial) {
+  const { mesh, ground, projection, zOffset } = input
+  const [fromId, toId] = connection.surfaceIds ?? []
+  const from = fromId && ground.levels.get(fromId), to = toId && ground.levels.get(toId)
+  const plan = planWeatheredRockSteps(connection, from ? ground.elevation(from, connection.start) : zOffset + connection.fromElevationMm,
+    to ? ground.elevation(to, connection.end) : zOffset + connection.toElevationMm)
+  if (!plan) return false
+  const uv = textureUv(projection.bounds), stone = paintStyle(input, connection.style, '#AAA38E')
+  const tile = connection.style?.base.tileSizeMm.width ?? 1250
+  const rockUv = (p: PointMm): [number, number] => [p.x / tile, p.y / tile]
+  const shade = (factor: number): MeshMaterial => ({ ...stone, color: stone.color?.map(color => color * factor) as SpatialColor })
+  if (plan.bedding) addRockStairBedding(input, plan.bedding, plan.lowMm, plan.highMm, painted, [from || undefined, to || undefined])
+  for (const landing of plan.landings) mesh.cap(painted, [landing.polygonMm], () => landing.elevationMm + 7, uv)
+  for (const tread of plan.treads) {
+    const z = tread.upperMm + 7, variation = tread.colorVariation
+    const cap = shade(1.06 + variation), face = shade(.82 + variation)
+    mesh.cap(cap, [tread.polygonMm], () => z, rockUv)
+    for (let i = 1; i < tread.front.length; i++) {
+      const a = tread.front[i - 1], b = tread.front[i]
+      mesh.side(face, a, b, tread.lowerMm + 7, tread.lowerMm + 7, z, z, tile)
+    }
+    mesh.cap(shade(.90 + variation), [tread.facet], () => z + 2, rockUv)
+    const wear = shade(1.17 + variation)
+    for (const scuff of tread.scuffs) mesh.cap(wear, [scuff], () => z + 3, rockUv)
+    if (tread.split) mesh.cap(shade(.67 + variation), [tread.joint], () => z + 3, rockUv)
+    if (plan.bedding) continue
+    // The open slot exposes either the stair's flank or the cut into the adjacent bank.
+    for (const [index, side] of tread.sides.entries()) for (let i = 1; i < side.length; i++) {
+      const [a, b] = index ? [side[i], side[i - 1]] : [side[i - 1], side[i]]
+      const aZ = ground.groundAt(a), bZ = ground.groundAt(b)
+      mesh.side(face, a, b, Math.min(z, aZ), Math.min(z, bZ), Math.max(z, aZ), Math.max(z, bZ), tile)
+    }
+  }
+  return true
+}
+
+function addRockStairBedding(input: SurfaceMeshes, bedding: NonNullable<NonNullable<ReturnType<typeof planWeatheredRockSteps>>['bedding']>,
+  low: number, high: number, painted: MeshMaterial, supports: (ProjectedSurface | undefined)[]) {
+  const { ground, mesh, projection } = input, { lengthMm, startMm, endMm, pointAt } = bedding
+  const uv = textureUv(projection.bounds), material = { ...painted, privacy: input.privacy }
+  const count = Math.min(256, Math.max(2, Math.ceil(lengthMm / 150)))
+  const segments = [...new Set([0, ...bedding.stations, lengthMm])].sort((a, b) => a - b)
+  const rims = supports.flatMap(surface => surface ? polygonEdges(surface.points) : [])
+  // A narrow overlap covers the texture mask's edge pixels on each bank.
+  const lanes = [-.52, -.5, -.42, -.33, 0, .33, .42, .5, .52]
+  const contact = [-.5, .5].flatMap(lane => segments.slice(1).flatMap((end, i) => {
+    const start = segments[i], a = pointAt(start, lane), b = pointAt(end, lane)
+    const cuts = segmentCuts(a, b, rims).slice(1, -1)
+    for (const support of supports) if (support?.relief) {
+      cuts.push(...reliefSegmentCuts(support.relief, ground.boxes.get(support.id)!, a, b).slice(1, -1))
+    }
+    return cuts.map(t => mix(start, end, t))
+  }))
+  const stations = [startMm, endMm, ...segments, ...contact, ...Array.from({ length: count - 1 }, (_, i) => lengthMm * (i + 1) / count)]
+    .sort((a, b) => a - b).filter((station, i, all) => !i || station - all[i - 1] > .001)
+  const profile = (distance: number, lane: number, surfaceStation: number) => {
+    const point = pointAt(distance, lane), bank = ground.elevation(ground.surfaceAt(pointAt(surfaceStation, lane)), point)
+    const progress = Math.max(0, Math.min(1, (distance - startMm) / (endMm - startMm)))
+    const center = mix(low, high, progress) - Math.min(345, (high - low) * .24) * Math.sin(Math.PI * progress) - 16
+    const taper = Math.min(1, distance / startMm, (lengthMm - distance) / (lengthMm - endMm))
+    const weight = Math.min(1, Math.max(0, (.5 - Math.abs(lane)) / .14)) * taper
+    return atHeight(point, mix(bank + 1, center, weight))
+  }
+  const mapUv = ([x, y]: ReturnType<typeof atHeight>) => uv({ x, y })
+  const strip = (prior: ReturnType<typeof atHeight>[], current: ReturnType<typeof atHeight>[], seam = false) => {
+    for (let i = 1; i < current.length; i++) {
+      const a = prior[i - 1], b = current[i - 1], c = current[i], d = prior[i]
+      if (seam && Math.max(Math.abs(a[2] - b[2]), Math.abs(d[2] - c[2])) < .01) continue
+      mesh.quad(material, [a, b, c, d], [mapUv(a), mapUv(b), mapUv(c), mapUv(d)])
+    }
+  }
+  let last: ReturnType<typeof atHeight>[] | undefined
+  for (let station = 1; station < stations.length; station++) {
+    const start = stations[station - 1], end = stations[station], mid = (start + end) / 2
+    const prior = lanes.map(lane => profile(start, lane, mid)), current = lanes.map(lane => profile(end, lane, mid))
+    // Close the change of actual support where the flight cuts through the rim.
+    if (last) strip(last, prior, true)
+    strip(prior, current)
+    last = current
+  }
 }
 
 function addGroundTreads(input: SurfaceMeshes, stair: StaircaseGeometry, style: SurfaceStyle | null, soilColor?: string) {
@@ -148,6 +336,28 @@ export function planSpatialEarthenRoads(projection: Pick<Projection, 'bounds' | 
 
 function boxesMeet(a: BoundsMm, b: BoundsMm) {
   return a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height
+}
+
+function reliefEdgeSections(ground: SurfaceMeshes['ground'], source: ProjectedSurface, neighbor: ProjectedSurface | undefined,
+  a: PointMm, b: PointMm, detailCount: number) {
+  const cuts = [0, 1, ...Array.from({ length: detailCount - 1 }, (_, i) => (i + 1) / detailCount)]
+  for (const area of [source, neighbor]) {
+    if (area?.relief) cuts.push(...reliefSegmentCuts(area.relief, ground.boxes.get(area.id)!, a, b))
+  }
+  const end = cuts.sort((x, y) => x - y).filter((t, i) => !i || t - cuts[i - 1] > 1e-10)
+  const sample = (t: number) => {
+    const p = { x: mix(a.x, b.x, t), y: mix(a.y, b.y, t) }
+    return { p, sourceZ: ground.elevation(source, p), neighborZ: ground.elevation(neighbor, p) }
+  }
+  const values = end.map(sample)
+  return values.slice(1).flatMap((q, i) => {
+    const p = values[i], start = p.sourceZ - p.neighborZ, finish = q.sourceZ - q.neighborZ
+    if (Math.max(Math.abs(start), Math.abs(finish)) < 1e-6) return []
+    if (start * finish >= 0) return [{ p, q, reversed: start + finish < 0 }]
+    const t = start / (start - finish), s = sample(mix(end[i], end[i + 1], t))
+    s.sourceZ = s.neighborZ = (s.sourceZ + s.neighborZ) / 2
+    return [{ p, q: s, reversed: start < 0 }, { p: s, q, reversed: finish < 0 }]
+  })
 }
 
 function visibleGradedRoads(projection: Projection) {
@@ -295,30 +505,78 @@ export function addWorldSurfaces(input: SurfaceMeshes) {
   if (blankGround) for (const face of polygonClipping.difference(extent, ...seen.concat(patchCut, roadCuts).map(polygon => [polygon]))) {
     mesh.cap(painted, rings(face), () => zOffset, uv)
   }
-  for (const edge of projection.edges) {
+  for (const rock of projection.rocks ?? []) {
+    if (!rock.spatial) continue
+    const style = ground.levels.get(rock.id)?.style
+    const material = paintStyle(input, style, '#827561'), tile = style?.base.tileSizeMm.width ?? 1000
+    for (const wall of rock.spatial.walls) {
+      const { a, b, normal, highMm, lowMm } = wall
+      const at = (direction: 0 | 1) => zOffset + lowMm[direction]
+      const top = (direction: 0 | 1) => zOffset + highMm[direction]
+      const reverse = (b.y - a.y) * normal.x - (b.x - a.x) * normal.y < 0
+      if (reverse) mesh.side(material, b, a, at(1), at(0), top(1), top(0), tile)
+      else mesh.side(material, a, b, at(0), at(1), top(0), top(1), tile)
+    }
+    for (const [a, b, c] of rock.spatial.shellFaces) {
+      mesh.triangle(material, [atHeight(a, zOffset + a.z), atHeight(b, zOffset + b.z), atHeight(c, zOffset + c.z)],
+        [[a.x / tile, (a.y - a.z) / tile], [b.x / tile, (b.y - b.z) / tile], [c.x / tile, (c.y - c.z) / tile]])
+    }
+  }
+  const strata = stratifiedEdges(projection), strataColors = new Map<string, MeshMaterial>()
+  const { courses, normals, vertexKey } = weatheredEdges(input)
+  for (const edge of [...projection.edges, ...projection.spatialReliefEdges ?? []]) {
     const source = ground.levels.get(edge.sourceAreaId), neighbor = edge.neighborAreaId ? ground.levels.get(edge.neighborAreaId) : undefined
     if (!source || edge.elevationMm === edge.neighborElevationMm && !source.relief && !neighbor?.relief) continue
-    const material = paintStyle(input, edge.surfaceStyle ?? source.style, '#776b5a')
+    const sourcePaint = edge.surfaceStyle ?? source.style, neighborPaint = edge.surfaceStyle ?? neighbor?.style ?? source.style
+    const material = paintStyle(input, sourcePaint, '#776b5a'), reverseMaterial = paintStyle(input, neighborPaint, '#776b5a')
     const connected = crossings.concat(projection.bridgeEntrances?.flatMap(entry => entry.platform?.id === source.id ? entry.platform.edgeOpening : []) ?? [])
+    const key = cliffCarrierKey(edge), look = strata.get(key), course = courses.get(key)
+    const startNormal = normals.get(vertexKey(edge, edge.start)), endNormal = normals.get(vertexKey(edge, edge.end))
+    const dx = edge.end.x - edge.start.x, dy = edge.end.y - edge.start.y, length = Math.hypot(dx, dy)
+    const outward = (p: PointMm) => {
+      const t = ((p.x - edge.start.x) * dx + (p.y - edge.start.y) * dy) / (length * length)
+      const n = startNormal && endNormal ? { x: mix(startNormal.x, endNormal.x, t), y: mix(startNormal.y, endNormal.y, t) } : { x: dy, y: -dx }
+      const magnitude = Math.hypot(n.x, n.y)
+      return magnitude > .001 ? { x: n.x / magnitude, y: n.y / magnitude } : { x: dy / length, y: -dx / length }
+    }
     for (const [a, b] of exposedEdgeSegments([[edge.start, edge.end]], connected)) {
-      const count = source.relief || neighbor?.relief ? Math.min(32, Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 480))) : 1
-      const at = (i: number): PointMm => ({ x: mix(a.x, b.x, i / count), y: mix(a.y, b.y, i / count) })
-      const da = ground.elevation(source, a) - ground.elevation(neighbor, a)
-      const db = ground.elevation(source, b) - ground.elevation(neighbor, b)
-      if (!da && !db && count === 1) continue
-      for (let i = 0; i < count; i++) {
-        const p = at(i), q = at(i + 1), pz = ground.elevation(source, p), qz = ground.elevation(source, q),
-          pl = ground.elevation(neighbor, p), ql = ground.elevation(neighbor, q)
-        if (Math.max(Math.abs(pz - pl), Math.abs(qz - ql)) < 32) continue
-        mesh.side(material, p, q, pl, ql, pz, qz, source.style?.base.tileSizeMm.width ?? 1200)
+      const count = course ? Math.min(32, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 480)) : 1
+      for (const { p: first, q: last, reversed } of reliefEdgeSections(ground, source, neighbor, a, b, Math.max(1, count))) {
+        const p = reversed ? last.p : first.p, q = reversed ? first.p : last.p
+        const pz = reversed ? last.neighborZ : first.sourceZ, qz = reversed ? first.neighborZ : last.sourceZ
+        const pl = reversed ? last.sourceZ : first.neighborZ, ql = reversed ? first.sourceZ : last.neighborZ
+        const sidePaint = reversed ? reverseMaterial : material
+        const tile = (reversed ? neighborPaint : sourcePaint)?.base.tileSizeMm.width ?? 1200
+        if (course && !reversed) {
+          if (course.look.opacity < 1) mesh.side(sidePaint, p, q, pl, ql, pz, qz, tile)
+          addWeatheredCliff(input, edge, course, outward, p, q, pz, qz, pl, ql)
+          continue
+        }
+        if (!look || look.opacity < 1) {
+          mesh.side(sidePaint, p, q, pl, ql, pz, qz, tile)
+          if (!look) continue
+        }
+        // Same beds as the map view, here projected onto the exact vertical wall.
+        const rise = (Math.abs(pz - pl) + Math.abs(qz - ql)) / 2
+        for (const piece of cliffStrata(look, p, q, rise)) {
+          const color = strataColor(look, piece.tone + .09, piece.seam ? 1.01 : .94)
+          const key = `${color}/${look.opacity}`
+          if (!strataColors.has(key)) strataColors.set(key, { color: colorRgb(color), opacity: look.opacity, privacy: input.privacy })
+          const [a, b, c, d] = piece.corners.map(({ x, y }) => atHeight({ x: mix(p.x, q.x, x), y: mix(p.y, q.y, x) },
+            mix(mix(pz, qz, x), mix(pl, ql, x), y)))
+          mesh.quad(strataColors.get(key)!, [d, c, b, a])
+        }
       }
     }
   }
   for (const inlay of projection.inlays ?? []) for (const wall of inlay.walls) {
     const material = paintStyle(input, wall.lowSourceAreaId ? ground.levels.get(wall.lowSourceAreaId)?.style : null, '#776a5a')
-    mesh.side(material, wall.a, wall.b, zOffset + wall.lowMm[0], zOffset + wall.lowMm[1], zOffset + wall.highMm[0], zOffset + wall.highMm[1])
+    const { a, b, normal, highMm, lowMm } = wall
+    if ((b.y - a.y) * normal.x - (b.x - a.x) * normal.y < 0) mesh.side(material, b, a, zOffset + lowMm[1], zOffset + lowMm[0], zOffset + highMm[1], zOffset + highMm[0])
+    else mesh.side(material, a, b, zOffset + lowMm[0], zOffset + lowMm[1], zOffset + highMm[0], zOffset + highMm[1])
   }
   for (const row of risers) {
+    if (row.kind === 'stairs' && !row.staircase && usesWeatheredRockSteps(row.route?.renderProfile) && addWeatheredRockStairs(input, row, painted)) continue
     const line = row.staircaseCenterlineMm ?? row.route?.centerlineMm ?? [row.start, row.end]
     const difference = row.toElevationMm - row.fromElevationMm
     const material = paintStyle(input, row.style, '#9e9580'), tile = row.style?.base.tileSizeMm.width ?? 720
@@ -389,12 +647,24 @@ export function addWorldWalls(input: SurfaceMeshes) {
     const tile = wall.style?.base.tileSizeMm.width ?? 650
     const room = neighbours[0] ?? neighbours[1]
     const floor = room ? ground.elevation(room, center) : ground.groundAt(center)
-    const height = Math.max(1050, Math.min(2000, wall.thicknessMm * 5.5))
+    const height = spatialWallHeight(wall)
     for (const polygon of polygons) mesh.solid(style, polygon, floor, floor + height, tile)
     for (const opening of wall.openings) {
       const width = wall.thicknessMm
       const frame: MeshMaterial = { color: colorRgb('#776049'), privacy, wall: fade }
-      if (opening.kind === 'window') {
+      if (opening.vertical || wall.heightMm !== undefined) {
+        const bottom = opening.vertical?.sillMm ?? (opening.kind === 'window' ? height * .54 : 0)
+        const top = opening.vertical ? bottom + opening.vertical.heightMm : height * (opening.kind === 'window' ? .93 : .95)
+        const band = corridor(opening.start, opening.end, width)
+        mesh.solid(style, band, floor, floor + bottom, tile)
+        mesh.solid(style, band, floor + top, floor + height, tile)
+        if (opening.kind === 'window' && opening.state === 'closed') {
+          mesh.solid({ color: colorRgb('#567779'), privacy, wall: fade }, corridor(opening.start, opening.end, Math.min(45, width)),
+            floor + bottom, floor + top)
+        } else if (opening.kind === 'door' && opening.state === 'closed') {
+          mesh.solid(frame, corridor(opening.start, opening.end, Math.min(65, width)), floor + bottom, floor + top)
+        }
+      } else if (opening.kind === 'window') {
         mesh.solid(style, corridor(opening.start, opening.end, width).reverse(), floor, floor + height * .54, tile)
         mesh.solid(frame, corridor(opening.start, opening.end, width * .8).reverse(), floor + height * .54, floor + height * .60)
         mesh.solid({ color: colorRgb('#567779'), privacy, wall: fade }, corridor(opening.start, opening.end, 45).reverse(),

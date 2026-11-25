@@ -5,6 +5,7 @@ import { newId } from './runtime'
 import type { SceneCommand } from '../../shared/commands/commands'
 import { effectiveEditLocked } from '../../shared/commands/layers'
 import type { SceneDocument } from '../../shared/model/scene'
+import { spatialWallHeight, wallHeightSchema } from '../../shared/model/building-height'
 import { NumberInput } from '../native-canvas/controls'
 import { formatDistanceMm } from '../native-canvas/building-session'
 import type { AnnotationCommand } from '../../shared/commands/annotations'
@@ -51,6 +52,14 @@ export default function BuildingInspector({ scene, materialChoices = scene.mater
   const [anchorId, setAnchorId] = useState(note?.anchor.type === 'entity' ? note.anchor.entityId : room?.id ?? wall?.id ?? opening?.id ?? vertex?.id ?? '')
   const [point, setPoint] = useState(note?.anchor.type === 'point' ? note.anchor.positionMm : { x: 3000, y: 3000 })
   const [wallThickness, setWallThickness] = useState(wall?.thicknessMm ?? 100)
+  const openingWall = opening ? scene.walls[opening.wallId] : wall
+  const shownWallHeight = openingWall ? spatialWallHeight(openingWall) : 1100
+  const [wallHeightMm, setWallHeightMm] = useState(Math.round(shownWallHeight))
+  const [customOpening, setCustomOpening] = useState(!!opening?.vertical)
+  const [sillMm, setSill] = useState(opening?.vertical?.sillMm ?? (opening?.kind === 'window' ? Math.floor(shownWallHeight * .54) : 0))
+  const [openingHeightMm, setOpeningHeightMm] = useState(opening?.vertical?.heightMm ?? Math.max(1, Math.floor(shownWallHeight * (opening?.kind === 'window' ? .39 : .95))))
+  const openingVertical = customOpening ? { sillMm, heightMm: openingHeightMm } : null
+  const openingFits = !openingVertical || sillMm >= 0 && openingHeightMm > 0 && sillMm + openingHeightMm <= shownWallHeight
   const [wallMove, setWallMove] = useState({ x: 0, y: 0 })
   const [roomOffset, setRoomOffset] = useState({ x: 0, y: 0 })
   const [openingsToMove, setOpeningsToMove] = useState<string[]>([])
@@ -145,6 +154,23 @@ export default function BuildingInspector({ scene, materialChoices = scene.mater
           <button className="secondary asset-wide" onClick={() => setWallPaint(value => ({ ...value, tileSizeMm: { ...scene.materials[wall.topStyle!.base.materialRef.id].defaultTileSizeMm } }))}>使用墙顶材质默认尺寸</button>
           <button className="secondary asset-wide" onClick={() => onPreview([{ type: 'setSurfacePaint', kind: 'wall', id: wall.id, changes: wallPaint }], '修改墙顶纹理方向、尺寸与锚点，保留墙厚和门窗净宽')}>预览墙顶铺装修改</button>
         </details>}</>}
+      {wall && <details className="building-details"><summary>斜俯视墙高</summary>
+        <NumberInput displayUnit={scene.units.display} label="墙高" value={wallHeightMm} onCommit={setWallHeightMm}/>
+        <button type="button" className="secondary asset-wide" disabled={!wallHeightSchema.safeParse(wallHeightMm).success || wallHeightMm === wall.heightMm}
+          onClick={() => onPreview([{ type: 'setWallHeight', id: wall.id, heightMm: wallHeightMm }], '调整斜俯视墙高')}>预览墙高</button>
+        {wall.heightMm !== undefined && <button type="button" className="secondary asset-wide"
+          onClick={() => onPreview([{ type: 'setWallHeight', id: wall.id, heightMm: null }], '恢复自动墙高')}>恢复自动墙高</button>}
+      </details>}
+      {opening && <details className="building-details"><summary>斜俯视洞口高度</summary>
+        <label className="building-check"><input type="checkbox" checked={customOpening} onChange={event => setCustomOpening(event.target.checked)}/>自定义门窗高度</label>
+        {customOpening && <>
+          <NumberInput displayUnit={scene.units.display} label="洞口底边离地" value={sillMm} onCommit={setSill}/>
+          <NumberInput displayUnit={scene.units.display} label="洞口高度" value={openingHeightMm} onCommit={setOpeningHeightMm}/>
+          {!openingFits && <small>洞口顶边须在墙高内。</small>}
+        </>}
+        <button type="button" className="secondary asset-wide" disabled={!openingFits}
+          onClick={() => onPreview([{ type: 'updateOpening', id: opening.id, changes: { vertical: openingVertical } }], '调整斜俯视门窗高度')}>预览洞口高度</button>
+      </details>}
       {vertex && <><div className="workspace-field-pair" role="group" aria-label="建筑顶点位置"><NumberInput displayUnit={scene.units.display} label="建筑顶点 X" value={position.x} onCommit={x => setPosition(p => ({ ...p, x }))}/><NumberInput displayUnit={scene.units.display} label="建筑顶点 Y" value={position.y} onCommit={y => setPosition(p => ({ ...p, y }))}/></div><button className="primary asset-wide" onClick={() => onPreview([{ type: 'moveVertex', id: selected, positionMm: position }], '移动建筑顶点')}>预览顶点修改</button></>}
       {wall && <><details className="building-details"><summary>墙体外缘</summary><p className="asset-muted">块石外缘用于遗迹石灰岩墙，最多外伸 4.5 厘米。通行尺寸仍按墙厚计算。</p><button className="secondary asset-wide" disabled={!wall.edgeProfile && !supportsWallReliefStyle(wall.topStyle)} onClick={() => onPreview([{ type: 'setWallEdgeProfile', id: wall.id, profile: wall.edgeProfile ? 'straight' : 'stone-blocks-v1' }], wall.edgeProfile ? '恢复平直墙体外缘' : '预览块石外缘和门洞收口')}>{wall.edgeProfile ? '预览恢复平直外缘' : '预览块石外缘'}</button></details><NumberInput displayUnit="cm" label="编辑墙厚" value={wallThickness} onCommit={setWallThickness}/><button className="primary asset-wide" onClick={() => onPreview([{ type: 'setWallThickness', id: selected, thicknessMm: wallThickness }], '调整墙厚')}>预览墙厚修改</button><div className="building-tools"><button className="secondary" onClick={() => onSelect(wall.startVertexId)}>起点</button><button className="secondary" onClick={() => onSelect(wall.endVertexId)}>终点</button><button className="secondary" onClick={() => onPreview([{ type: 'reverseWall', id: selected }], '反转墙方向，保持开口位置')}>反转方向</button></div><h3>在这面墙上添加门窗</h3><p className="asset-muted">先选从哪端量起，再设置门窗近边与该端的距离。预览后可在地图核对位置。</p>{portalFields}<button className="primary asset-wide" onClick={() => onPreview([{ type: 'addOpening', id: newId(), wallId: selected, offsetReferenceVertexId: reference, offsetMm: offset, widthMm: width, kind: openingKind, state, locked: doorLocked, secret, revealed, layerId }], '添加附着门窗')}><Plus size={14}/>预览新增门窗</button></>}
       {opening && <>{portalFields}<button className="primary asset-wide" onClick={() => onPreview([{ type: 'updateOpening', id: selected, changes: { offsetReferenceVertexId: reference, offsetMm: offset, widthMm: width, kind: openingKind, state, locked: doorLocked, secret, revealed } }], '修改附着门窗')}>预览门窗修改</button><label className="building-check"><input type="checkbox" aria-label="设为外部入口" checked={entrance} onChange={event => setEntrance(event.target.checked)}/>外部入口</label><button className="secondary asset-wide" onClick={() => onPreview([{ type: 'setEntranceOpenings', ids: entrance ? [...new Set([...scene.constraints.entranceOpeningIds, selected])] : scene.constraints.entranceOpeningIds.filter(id => id !== selected) }], '调整外部入口集合')}>预览入口修改</button><button className="secondary asset-wide" onClick={() => onSelect(opening.wallId)}>选择附着墙体</button><button className="history-danger asset-wide" onClick={() => onPreview([{ type: 'deleteOpening', id: selected }], '删除门窗')}>预览删除门窗</button></>}

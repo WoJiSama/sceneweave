@@ -1,5 +1,6 @@
 import type { PointMm } from '../../../shared/model/scene.js'
 import type { ProjectedTerrainEdge, Projection } from '../../../shared/projection/types.js'
+import { shadowDirection } from '../../../shared/visual/directional-light.js'
 
 interface DirectedEdge {
   edge: ProjectedTerrainEdge
@@ -96,8 +97,8 @@ export function terrainShadow(edge: ProjectedTerrainEdge, projection: Pick<Proje
   const cliff = projection.theme?.terrainCliff
   if (edge.kind !== 'cliff' || !cliff?.opacity) return []
   const delta = Math.abs(edge.elevationMm - edge.neighborElevationMm), offset = Math.round(Math.min(cliff.maxOffsetMm, cliff.offsetFactor * delta))
-  const direction = projection.visual?.environment.lightDirectionDeg ?? cliff.directionDeg
-  const dx = Math.cos(direction * Math.PI / 180) * offset, dy = Math.sin(direction * Math.PI / 180) * offset
+  const direction = shadowDirection(projection.visual?.environment.lightDirectionDeg ?? cliff.directionDeg)
+  const dx = direction.x * offset, dy = direction.y * offset
   return offset ? [edge.start, edge.end, { x: edge.end.x + dx, y: edge.end.y + dy }, { x: edge.start.x + dx, y: edge.start.y + dy }] : []
 }
 

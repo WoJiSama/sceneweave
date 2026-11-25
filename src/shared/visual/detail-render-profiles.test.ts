@@ -32,7 +32,7 @@ function fixture() {
 }
 
 describe('explicit saved rock rendering profiles', () => {
-  it.each(['rockRelief5', 'rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9'] as const)('keeps %s cliffs in ordinary transactions and both projections without changing terrain or fixed sources', profile => {
+  it.each(['rockRelief5', 'rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9', 'rockRelief11', 'rockRelief12'] as const)('keeps %s cliffs in ordinary transactions and both projections without changing terrain or fixed sources', profile => {
     const scene = fixture(), original = structuredClone(scene), edge = visualBase(scene)!.edgeLooks['q1-crown-cliff']
     let n = 0
     const runtime = { ids: { nextId: () => `ribbon-token-${++n}` }, clock: { now: () => scene.updatedAt } }
@@ -80,11 +80,11 @@ describe('explicit saved rock rendering profiles', () => {
     const grass = validateSceneDocument(scene)
     expect(!grass.ok && grass.errors.some(row => row.code === 'VISUAL_RENDER_PROFILE')).toBe(true)
   })
-  it.each(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4', 'naturalRockSteps5', 'naturalRockSteps6', 'naturalRockSteps7', 'naturalRockSteps8'] as const)('uses ordinary transactions and complete source identity for %s without mutating the original model or fixed assets', profile => {
+  it.each(['naturalRockSteps2', 'naturalRockSteps3', 'naturalRockSteps4', 'naturalRockSteps5', 'naturalRockSteps6', 'naturalRockSteps7', 'naturalRockSteps8', 'naturalRockSteps9', 'naturalRockSteps10'] as const)('uses ordinary transactions and complete source identity for %s without mutating the original model or fixed assets', profile => {
     const scene = fixture(), before = canonicalJson(scene); let n = 0
     const runtime = { ids: { nextId: () => `detail-profile-token-${++n}` }, clock: { now: () => scene.updatedAt } }
     const content = createCompositionContent(scene, runtime), edge = visualBase(scene)!.edgeLooks['q1-crown-cliff']
-    const cliffProfile = profile === 'naturalRockSteps8' ? 'rockRelief9' : profile === 'naturalRockSteps7' ? 'rockRelief8' : profile === 'naturalRockSteps6' ? 'rockRelief7' : profile === 'naturalRockSteps5' ? 'rockRelief6' : profile === 'naturalRockSteps4' ? 'rockRelief4' : profile === 'naturalRockSteps3' ? 'rockRelief3' : 'rockRelief2'
+    const cliffProfile = profile === 'naturalRockSteps10' ? 'rockRelief12' : profile === 'naturalRockSteps9' ? 'rockRelief11' : profile === 'naturalRockSteps8' ? 'rockRelief9' : profile === 'naturalRockSteps7' ? 'rockRelief8' : profile === 'naturalRockSteps6' ? 'rockRelief7' : profile === 'naturalRockSteps5' ? 'rockRelief6' : profile === 'naturalRockSteps4' ? 'rockRelief4' : profile === 'naturalRockSteps3' ? 'rockRelief3' : 'rockRelief2'
     const next = applyCompositionCommands(content, [{ type: 'updateTerrainConnection', id: 'q1-stairs', changes: { route: { ...scene.terrainConnections['q1-stairs'].route!, renderProfile: profile } } },
       { type: 'upsertVisualEdgeLook', edgeLook: { ...edge, renderProfile: cliffProfile } }], runtime)
     expect(next.historyIdentity).toEqual(content.historyIdentity)
@@ -104,7 +104,7 @@ describe('explicit saved rock rendering profiles', () => {
     }
     expect(canonicalJson(scene)).toBe(before)
   })
-  it.each(['rockRelief4', 'rockRelief5', 'rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9'] as const)('keeps private %s profile edits out of the player projection and does not expand the AI visual protocol', profile => {
+  it.each(['rockRelief4', 'rockRelief5', 'rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9', 'rockRelief11', 'rockRelief12'] as const)('keeps private %s profile edits out of the player projection and does not expand the AI visual protocol', profile => {
     const scene = fixture(), edge = visualBase(scene)!.edgeLooks['q1-crown-cliff']
     edge.visibility = 'gm'
     const before = canonicalJson(projectScene(scene, 'player'))
@@ -113,7 +113,7 @@ describe('explicit saved rock rendering profiles', () => {
     const { floorId: _floor, layerId: _layer, visibility: _visibility, editLocked: _lock, kind, ...fields } = edge
     expect(VisualAuthoringOperationSchema.safeParse({ kind: 'visualEdge', edgeKind: kind, ...fields }).success).toBe(false)
   })
-  it.each(['naturalRockSteps5', 'naturalRockSteps6', 'naturalRockSteps7', 'naturalRockSteps8'] as const)('keeps private %s stairs and their profile metadata out of the player projection', profile => {
+  it.each(['naturalRockSteps5', 'naturalRockSteps6', 'naturalRockSteps7', 'naturalRockSteps8', 'naturalRockSteps9', 'naturalRockSteps10'] as const)('keeps private %s stairs and their profile metadata out of the player projection', profile => {
     const scene = fixture(), connection = scene.terrainConnections['q1-stairs']
     connection.visibility = 'gm'
     const points = connectionFootprint(connection), minX = Math.floor(Math.min(...points.map(p => p.x))) - 30,

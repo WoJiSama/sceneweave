@@ -1,15 +1,13 @@
 import { reliefBounds } from '../../../shared/geometry/terrain-relief.js'
 import type { ProjectedSurface } from '../../../shared/projection/types.js'
 import type { VisualEnvironment } from '../../../shared/visual/types.js'
+import { directionToLight } from '../../../shared/visual/directional-light.js'
 
 export function drawTerrainReliefLight(ctx: CanvasRenderingContext2D, area: ProjectedSurface, clip: Path2D, environment?: VisualEnvironment) {
   const grid = area.relief
   if (!grid) return
   const { columns, rows, offsetsMm } = grid, bounds = reliefBounds(area.points)
-  const bearing = ((environment?.lightDirectionDeg ?? 135) + 180) * Math.PI / 180
-  // Keep a local slope cue in diffuse environments as well as directional ones.
-  const pitch = Math.max(24, environment?.directionalLight?.elevationDeg ?? 35) * Math.PI / 180
-  const sunX = Math.sin(bearing) * Math.cos(pitch), sunY = -Math.cos(bearing) * Math.cos(pitch), sunZ = Math.sin(pitch)
+  const [sunX, sunY, sunZ] = directionToLight(environment)
   const shade = document.createElement('canvas')
   shade.width = columns
   shade.height = rows

@@ -23,6 +23,10 @@ export interface ProjectedRock {
   patches: { kind: 'walk' | 'apron'; pointsMm: PointMm[]; elevationsMm: number[] }[]
   facets: { id: string; pointsMm: PointMm[]; fill: string; opacity: number; kind: 'wall' | 'stratum' | 'joint' }[]
   strokes: { id: string; pointsMm: PointMm[]; color: string; widthMm: number; opacity: number }[]
+  spatial?: {
+    walls: Pick<import('../carved-rock/contracts.js').CarvedRockWall, 'a' | 'b' | 'normal' | 'highMm' | 'lowMm'>[]
+    shellFaces: import('../rock-shell/contracts.js').RockShellTriangle['verticesMm'][]
+  }
 }
 /** Audience-owned actual geometry only; no frozen source, identity or recipe. */
 export interface ProjectedTerrainInlay {
@@ -47,6 +51,8 @@ export interface ProjectedTerrainInlay {
   scopedPaintIds?: string[]
 }
 export interface ProjectedTerrainEdge { id: string; start: PointMm; end: PointMm; sourceAreaId: string; neighborAreaId: string | null; elevationMm: number; neighborElevationMm: number; kind: TerrainEdge['kind']; shoreline: boolean; style: EdgeStyle; surfaceStyle: SurfaceStyle | null
+  /** The carrier of a visible subsegment, used to keep visual boundary ownership after a cut. */
+  sourceSpanMm?: [PointMm, PointMm]
   /** A declared band width is an explicit paint dimension. */
   customFinish?: true
   /** Derived from this audience's declared edge and its visible neighboring terrain. */
@@ -110,8 +116,8 @@ export interface ProjectedConnection { id: string; kind: 'stairs' | 'ramp'; star
   /** Source-ground is already painted by the actual inlay, before connections. */
   inlayAppearance?: 'source-ground'
 }
-export interface ProjectedOpening { id: string; start: PointMm; end: PointMm; widthMm: number; kind: 'door' | 'window'; state: 'open' | 'closed'; secret: boolean; /** Editor-only symbol suppression preserves the physical wall hole. */ paintSymbol?: boolean }
-export interface ProjectedWall { id: string; sourceIds: string[]; /** Added only to visual-v2 projections. */ blocksLight?: boolean; start: PointMm; end: PointMm; thicknessMm: number; edgeProfile?: 'stone-blocks-v1'; style: SurfaceStyle | null; openings: ProjectedOpening[] }
+export interface ProjectedOpening { id: string; start: PointMm; end: PointMm; widthMm: number; kind: 'door' | 'window'; state: 'open' | 'closed'; secret: boolean; vertical?: import('../model/building-height.js').OpeningHeight; /** Editor-only symbol suppression preserves the physical wall hole. */ paintSymbol?: boolean }
+export interface ProjectedWall { id: string; sourceIds: string[]; /** Added only to visual-v2 projections. */ blocksLight?: boolean; start: PointMm; end: PointMm; thicknessMm: number; heightMm?: number; edgeProfile?: 'stone-blocks-v1'; style: SurfaceStyle | null; openings: ProjectedOpening[] }
 export interface ProjectedNote { id: string; positionMm: PointMm; text: string; kind: Note['kind']; visibility: 'gm' | 'public' }
 export interface ProjectedRegion { id: string; points: PointMm[]; kind: 'terrain' | 'hazard' }
 /** Disposable fixed-image paint values; no source, cluster, support or manual-state metadata. */
@@ -150,6 +156,8 @@ export interface Projection {
   /** Visible, level dry/wet boundaries without a declared shore stroke. */
   lineArtShorelines?: [PointMm, PointMm][]
   rocks?: ProjectedRock[]
+  /** Undeclared edges between equal base heights can still separate actual relief surfaces. */
+  spatialReliefEdges?: ProjectedTerrainEdge[]
   inlays?: ProjectedTerrainInlay[]
   /** Same-floor/elevation public paths across visible editing layers, after audience and editor filtering.
    * Only visible IDs survive; style/filter compatibility is checked at paint time. */

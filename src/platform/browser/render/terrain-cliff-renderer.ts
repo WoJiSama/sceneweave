@@ -1,7 +1,10 @@
 import type { LayeredCliffMass } from '../../../shared/visual/layered-cliff-mass.js'
 import type { SculptedCliffMass } from '../../../shared/visual/sculpted-cliff-mass.js'
 import type { PointMm } from '../../../shared/model/scene.js'
-import type { TerrainCliffFace } from '../../../shared/visual/terrain-cliff-plan.js'
+import { isWeatheredCliffProfile, STRATIFIED_CLIFF_PROFILE, type TerrainCliffFace } from '../../../shared/visual/terrain-cliff-plan.js'
+import { cliffStrata, strataColor } from './stratified-cliff.js'
+import { paintWeatheredCliffTexture, weatheredCliffPeriod, WEATHERED_CLIFF_TEXTURE_SIZE } from './weathered-cliff.js'
+import { terrainValueNoise } from '../../../shared/terrain-generation/field.js'
 
 const path = (rings: PointMm[][]) => {
   const result = new Path2D()
@@ -16,7 +19,9 @@ const middle = (points: [PointMm, PointMm]) => mix(...points, .5)
 
 /** The caller clips real physical openings. Faces already have mutually
  * exclusive coverage and surface ownership, so no alpha piles up at a join. */
-export function drawTerrainCliffFace(ctx: CanvasRenderingContext2D, face: TerrainCliffFace, lightDirectionDeg: number): void {
+export function drawTerrainCliffFace(ctx: CanvasRenderingContext2D, face: TerrainCliffFace, lightDirectionDeg: number, spatialTexture?: boolean): void {
+  if (isWeatheredCliffProfile(face.look.renderProfile)) return drawWeatheredCliff(ctx, face, lightDirectionDeg, spatialTexture)
+  if (face.look.renderProfile === STRATIFIED_CLIFF_PROFILE) return drawStratifiedCliff(ctx, face, lightDirectionDeg)
   if (face.look.renderProfile === 'rockRelief9') return drawSculptedCliff(ctx, face, lightDirectionDeg)
   if (face.look.renderProfile === 'rockRelief8') return drawLayeredCliff(ctx, face, lightDirectionDeg)
   if (face.natural) return drawNaturalCliff(ctx, face, lightDirectionDeg)
@@ -61,6 +66,91 @@ export function drawTerrainCliffFace(ctx: CanvasRenderingContext2D, face: Terrai
     for (const points of face.layers) ctx.stroke(line(points))
     ctx.strokeStyle = color(.08, 1.12); ctx.lineWidth = Math.max(10, look.widthMm * .011)
     for (const points of face.layers) ctx.stroke(line(points.map(a => ({ x: a.x - 10, y: a.y - 20 }))))
+  } finally { ctx.restore() }
+}
+
+function drawWeatheredCliff(ctx: CanvasRenderingContext2D, face: TerrainCliffFace, direction: number, shoulderOnly?: boolean) {
+  const { look, cells } = face, angle = direction * Math.PI / 180
+  const light = { x: Math.cos(angle), y: Math.sin(angle) }
+  const [tileWidth, tileHeight] = WEATHERED_CLIFF_TEXTURE_SIZE
+  const texture = shoulderOnly ? undefined : document.createElement('canvas')
+  if (texture) {
+    texture.width = tileWidth; texture.height = tileHeight
+    paintWeatheredCliffTexture(texture, look)
+  }
+  const pattern = texture && ctx.createPattern(texture, 'repeat-x')
+  const last = cells.at(-1)!, run = last.stationMm + Math.hypot(last.crest[1].x - last.crest[0].x, last.crest[1].y - last.crest[0].y)
+  const period = weatheredCliffPeriod(look, run)
+  ctx.save()
+  try {
+    ctx.clip(path(face.rings), 'evenodd')
+    for (const { crest, foot, inner, normal, stationMm, strength = 1 } of cells) {
+      const a = middle(inner), b = middle(crest), facing = normal.x * light.x + normal.y * light.y
+      if (Math.hypot(b.x - a.x, b.y - a.y) > .1) {
+        const soil = ctx.createLinearGradient(a.x, a.y, b.x, b.y)
+        const weathering = terrainValueNoise(look.seed, 'weathered shoulder', b.x / 2000, b.y / 1700)
+        const rim = strataColor(look, .13, .97 - facing * .045 + weathering * .08)
+        soil.addColorStop(0, rim + '00'); soil.addColorStop(.39, rim + '51'); soil.addColorStop(.78, rim + 'D0'); soil.addColorStop(1, rim)
+        ctx.globalAlpha = strength * look.opacity * (.71 + weathering * .27); ctx.fillStyle = soil
+        ctx.fill(path([[...inner, crest[1], crest[0]]]))
+      }
+      if (!pattern) continue
+      const span = Math.hypot(crest[1].x - crest[0].x, crest[1].y - crest[0].y), u = stationMm * tileWidth / period
+      const du = span * tileWidth / period
+      // Two affine triangles share the same seam in texture space. The thin
+      // overlap hides Canvas antialiasing between adjacent opaque rock faces.
+      const triangle = (a: PointMm, b: PointMm, c: PointMm, d: PointMm, bottom: boolean) => {
+        const y = bottom ? -tileHeight : tileHeight
+        const ax = (b.x - a.x) / du, ay = (b.y - a.y) / du, bx = (c.x - d.x) / y, by = (c.y - d.y) / y
+        pattern.setTransform(new DOMMatrix([ax, ay, bx, by, a.x - ax * u - (bottom ? bx * tileHeight : 0), a.y - ay * u - (bottom ? by * tileHeight : 0)]))
+        const outline = path([[a, b, c]])
+        ctx.fillStyle = pattern; ctx.strokeStyle = pattern; ctx.lineWidth = 8
+        ctx.fill(outline); ctx.stroke(outline)
+      }
+      ctx.globalAlpha = strength * look.opacity
+      triangle(crest[0], crest[1], foot[0], crest[0], false)
+      triangle(foot[0], foot[1], crest[1], foot[1], true)
+      const dark = ctx.createLinearGradient(b.x, b.y, middle(foot).x, middle(foot).y)
+      dark.addColorStop(0, '#35404900'); dark.addColorStop(1, '#354049')
+      ctx.globalAlpha = strength * look.opacity * (.11 + .09 * facing); ctx.fillStyle = dark
+      ctx.fill(path([[...crest, foot[1], foot[0]]]))
+    }
+  } finally {
+    ctx.restore()
+    if (texture) texture.width = texture.height = 0
+  }
+}
+
+function drawStratifiedCliff(ctx: CanvasRenderingContext2D, face: TerrainCliffFace, direction: number) {
+  const { look } = face, angle = direction * Math.PI / 180
+  const light = { x: Math.cos(angle), y: Math.sin(angle) }
+  ctx.save()
+  try {
+    ctx.clip(path(face.rings), 'evenodd')
+    ctx.globalAlpha = look.opacity
+    for (const { crest, foot, inner, normal } of face.cells) {
+      const facing = normal.x * light.x + normal.y * light.y, shade = .96 - facing * .095
+      ctx.fillStyle = strataColor(look, .30, shade * 1.09)
+      ctx.fill(path([[...inner, crest[1], crest[0]]]))
+      const at = (p: PointMm) => mix(mix(crest[0], crest[1], p.x), mix(foot[0], foot[1], p.x), p.y)
+      for (const piece of cliffStrata(look, crest[0], crest[1], face.highMm - face.lowMm)) {
+        const points = piece.corners.map(at)
+        const fill = path([points])
+        ctx.fillStyle = strataColor(look, piece.tone + facing * .12, shade)
+        ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 2
+        ctx.fill(fill); ctx.stroke(fill)
+        if (!piece.seam) continue
+        ctx.strokeStyle = strataColor(look, .92, shade * .82)
+        ctx.lineWidth = Math.max(12, look.widthMm * .011)
+        ctx.stroke(line([mix(points[1], points[2], .22), points[2]]))
+        if (piece.corners[1].y === 0) {
+          const t = piece.corners[1].x
+          const ridge = mix(inner[0], inner[1], t)
+          const shoulder = mix(points[1], ridge, .46 + .38 * piece.tone)
+          ctx.stroke(line([shoulder, mix(points[0], points[1], .85), mix(points[1], points[2], .35)]))
+        }
+      }
+    }
   } finally { ctx.restore() }
 }
 

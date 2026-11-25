@@ -110,7 +110,7 @@ export interface ProjectionAssetClosure { readonly complete: boolean; readonly c
 // A new projection module cannot silently inherit sprite-only decode behavior.
 const projectionModules = {
   audience: true, floorId: true, sourceRevision: true, bounds: true, gridSizeMm: true, outputBackground: true, floorArtwork: true, artStyles: true, rooms: true, terrain: true, walls: true, props: true,
-  decorations: true, spritePaintOrder: true, propPresentations: true, propVolumes: true, materialBrushes: true, groundView: true, edges: true, lineArtShorelines: true, paths: true, connections: true, rocks: true, inlays: true,
+  decorations: true, spritePaintOrder: true, propPresentations: true, propVolumes: true, materialBrushes: true, groundView: true, edges: true, spatialReliefEdges: true, lineArtShorelines: true, paths: true, connections: true, rocks: true, inlays: true,
   pathJoinGroups: true, bridgeEntrances: true, pathJoinPaintOrder: true, pathTerrainJoins: true, pathPaintOrder: true, openingPaintOrder: true, notes: true, regions: true, masks: true, regional: true,
   maskPublicRooms: true, theme: true, materials: true, visual: true, assetIds: true, limitations: true, diagnostics: true,
 } satisfies Record<keyof Projection, true>
@@ -141,7 +141,8 @@ export function projectionAssetConsumers(projection: Projection): ProjectionAsse
   // paints still independently check exact material identity and version.
   for (const [id, material] of Object.entries(projection.materials)) add({ kind: 'always', id: `material:${id}`, assetIds: [material.textureAssetId] }, [['materials', id, 'textureAssetId']])
   const styles = [...projection.rooms.map(value => value.style), ...projection.terrain.map(value => value.style), ...projection.walls.map(value => value.style),
-    ...projection.edges.map(value => value.surfaceStyle), ...projection.paths.map(value => value.style), ...projection.connections.map(value => value.style)]
+    ...projection.edges.map(value => value.surfaceStyle), ...(projection.spatialReliefEdges ?? []).map(value => value.surfaceStyle),
+    ...projection.paths.map(value => value.style), ...projection.connections.map(value => value.style)]
   const paints = styles.flatMap(style => style ? [style.base, ...style.overlays.map(overlay => overlay.paint)] : [])
     .concat(projection.terrain.flatMap(value => (value.materialPatches ?? []).map(patch => patch.paint)))
   for (const paint of paints) {

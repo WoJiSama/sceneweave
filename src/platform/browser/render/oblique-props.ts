@@ -54,7 +54,7 @@ function silhouetteHeights(profile: ReturnType<typeof textureProfile>, divisions
   return values.map(value => value / summit)
 }
 
-export function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<string>, signal?: AbortSignal) {
+export async function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<string>, signal?: AbortSignal, yieldControl?: () => Promise<void>) {
   const { projection, mesh, privacy, zOffset, images, ground, temporaryCanvas } = input
   const miniature = temporaryCanvas(32, 32).getContext('2d', { willReadFrequently: true })!
   const profiles = new Map<HTMLCanvasElement | ImageBitmap, ReturnType<typeof textureProfile>>()
@@ -66,8 +66,17 @@ export function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<stri
   const contact: MeshMaterial = { image: shadow, unlit: true, opacity: .59, privacy }
   const brushContact: MeshMaterial = { ...contact, opacity: .45, alphaCutoff: .008 }
   const bridgeColors = new Map<string, SpatialColor>()
+  const divisions = projection.props.length > 1200 ? 4 : projection.props.length > 300 ? 6 : 10
+  let nextYield = performance.now() + 16
   for (const [index, prop] of projection.props.entries()) {
-    if (index % 32 === 0) signal?.throwIfAborted()
+    if (index % 32 === 0) {
+      signal?.throwIfAborted()
+      if (yieldControl && performance.now() > nextYield) {
+        await yieldControl()
+        signal?.throwIfAborted()
+        nextYield = performance.now() + 16
+      }
+    }
     if (decalIds.has(prop.id)) continue
     const volume = projection.propVolumes?.[prop.id]
     if (!volume) continue
@@ -94,8 +103,11 @@ export function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<stri
     if (kind === 'rail') bridgeColors.set(prop.supportRef.id, wood)
     const face: MeshMaterial = { image, color: tint ?? (image ? undefined : wood), opacity: appearance.opacity, privacy, unlit: !!appearance.glow }
     const side: MeshMaterial = { color: scaleColor(wood, .94), opacity: appearance.opacity, privacy }
+    const sideImage = volume.sideAssetId ? images.get(volume.sideAssetId) : undefined
+    const sideTexture: MeshMaterial | undefined = sideImage ? { image: sideImage, color: tint, opacity: appearance.opacity, privacy } : undefined
     const trim: MeshMaterial = { ...side, color: scaleColor(wood, .64) }
-    const layer = (material: MeshMaterial, rect: BoundsMm, a: number, b: number, cap = true) => mesh.solid(material, rectangle(rect).map(pose), a, b, 800, cap)
+    const layer = (material: MeshMaterial, rect: BoundsMm, a: number, b: number, cap = true) =>
+      mesh.solid(material, rectangle(rect).map(pose), a, b, 800, cap, material === side ? sideTexture : undefined)
     const box = (x: number, y: number, width: number, height: number): BoundsMm => ({ x, y, width, height })
     const capQuad = (material: MeshMaterial, rect: BoundsMm, elevation: number, flip = false) => {
       const [a, b, c, d] = rectangle(rect).map(pose).map(p => atHeight(p, elevation))
@@ -119,7 +131,7 @@ export function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<stri
       continue
     }
     if (kind === 'rock' && image && profile && (brush === 'stone' || brush === 'foliage')) {
-      const divisions = projection.props.length > 300 ? 6 : 10, count = divisions + 1
+      const count = divisions + 1
       let heights = silhouetteProfiles.get(image)
       if (!heights) { heights = silhouetteHeights(profile, divisions); silhouetteProfiles.set(image, heights) }
       const vertices = Array.from(heights, (_, i) => {
@@ -141,7 +153,6 @@ export function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<stri
       mesh.solid(trunk, ellipse(0, 0, trunkSize, trunkSize, 8).map(pose), base, base + heightMm * .83)
       const crown: MeshMaterial = { ...face, canopy: positionMm, unlit: false }
       if (!image) crown.color = colorRgb('#4a6239')
-      const divisions = projection.props.length > 300 ? 6 : 10
       // Two connected profiles use the same source UVs. The intact crown
       // silhouette can wrap over the canopy and still expose the trunk.
       const vertex = (i: number, j: number, underside: boolean) => {
@@ -169,14 +180,14 @@ export function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<stri
       const ra = atHeight(pose(ridgeA), top), rb = atHeight(pose(ridgeB), top)
       mesh.quad(face, [pa, pb, rb, ra], [[0, 0], [1, 0], [1, .5], [0, .5]])
       mesh.quad(face, [ra, rb, pc, pd], [[0, .5], [1, .5], [1, 1], [0, 1]])
-      mesh.triangle(side, [pd, pa, ra], [[0, 1], [1, 1], [.5, 0]])
-      mesh.triangle(side, [pb, pc, rb], [[0, 1], [1, 1], [.5, 0]])
+      mesh.triangle(sideTexture ?? side, [pd, pa, ra], [[0, 1], [1, 1], [.5, 0]])
+      mesh.triangle(sideTexture ?? side, [pb, pc, rb], [[0, 1], [1, 1], [.5, 0]])
       continue
     }
     if (kind === 'table' || kind === 'seat') {
       const board = Math.min(110, heightMm * .25), leg = Math.min(fitBody.height, fitBody.width) * .14
       const round = !!brush && profile?.round
-      if (round) mesh.solid(side, ellipse(center.x, center.y, fitBody.width / 2, fitBody.height / 2, 24).map(pose), top - board, top, 800, false)
+      if (round) mesh.solid(side, ellipse(center.x, center.y, fitBody.width / 2, fitBody.height / 2, 24).map(pose), top - board, top, 800, false, sideTexture)
       else layer(side, fitBody, top - board, top, !image)
       const inset = leg * (round ? 1.25 : .45)
       for (const x of [fitBody.x + inset, fitBody.x + fitBody.width - leg - inset]) {
@@ -192,7 +203,7 @@ export function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<stri
     } else if (kind === 'round' || kind === 'rock' || kind === 'lamp') {
       const rx = fitBody.width * .45, ry = fitBody.height * .45
       const rim = ellipse(center.x, center.y, rx, ry, kind === 'rock' ? 7 : 16).map(pose)
-      mesh.solid(side, rim, base, kind === 'rock' ? base + heightMm * .49 : top, 800, !image)
+      mesh.solid(side, rim, base, kind === 'rock' ? base + heightMm * .49 : top, 800, !image, sideTexture)
       if (kind === 'rock') {
         const peak = atHeight(pose({ x: center.x - rx * .22, y: center.y - ry * .15 }), top)
         for (let i = 0; i < rim.length; i++) mesh.triangle(side, [atHeight(rim[i], base + heightMm * .49), atHeight(rim[(i + 1) % rim.length], base + heightMm * .49), peak], [[0, 1], [1, 1], [.5, 0]])
@@ -202,7 +213,7 @@ export function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<stri
         ellipse(center.x, center.y, rx * 1.01, ry * 1.01, 16).map(pose), base + heightMm * .26, top - heightMm * .16, 800, false)
     } else {
       layer(side, fitBody, base, top - 1, !image)
-      if (heightMm >= 550) {
+      if (heightMm >= 550 && !sideTexture) {
         const edge = { x: fitBody.x - 5, y: fitBody.y - 5, width: fitBody.width + 10, height: fitBody.height + 10 }
         layer(trim, edge, base + heightMm * .075, base + heightMm * .13, false)
         layer(trim, edge, base + heightMm * .85, base + heightMm * .92, false)

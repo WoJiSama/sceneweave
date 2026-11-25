@@ -37,10 +37,6 @@ import { polylineBand, polygonInside } from '../../../shared/geometry/geometry.j
 import { connectionArcFrame } from '../../../shared/geometry/connection-route.js'
 import { connectionLandingBlend, connectionLandingDepthMm } from '../../../shared/geometry/connection-landings.js'
 import { naturalRockTreads } from './cliff-relief.js'
-import { drawNaturalRockSteps } from './natural-rock-steps.js'
-import { drawNaturalRockStepsV4 } from './natural-rock-steps-v4.js'
-import { drawTerracedRockSteps } from './terraced-rock-steps.js'
-import { planRockStepSideMask } from './rock-step-surface-mask.js'
 import { paintConnectionLandingMask } from './connection-landing-mask.js'
 import { editorResidentAssetIds } from './aggregate-residency.js'
 import { paintWithPreservedAlpha } from './alpha-preservation.js'
@@ -67,7 +63,6 @@ import { ArtStyleLineGuide } from './art-style-line-guide.js'
 import { drawGroundPigment, drawSoilTrailGrain, paintedMaterialImages } from './material-drawing.js'
 import { bitmapLineSamplingPadding } from './bitmap-line-art.js'
 import { checkArtStyleSvg, colorArtStyleSvg } from './art-style-svg.js'
-import { rasterizeCanonicalSvgInWorker } from '../ai/svg-worker-client.js'
 import { activeLineArt, artStyleLightAmount, CURRENT_LINE_ART_PAINT_VERSION, preservesBitmapContours, usesSeparateArtStyle, type ActiveArtStyle, type ActiveArtStyles } from '../../../shared/visual/art-style.js'
 import type { NormalizedStaticSvg } from '../../../shared/ai/svg.js'
 import { PNG_MAX_LONG_EDGE, PNG_MAX_PIXELS } from './render-limits.js'
@@ -177,7 +172,8 @@ function worldTransform(ctx: CanvasRenderingContext2D, bounds: BoundsMm, scaleX:
 
 interface RasterSet { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; styled?: Map<string, HTMLCanvasElement>;
   paintCache?: { key: string; image: HTMLCanvasElement }; readFrequently?: boolean; bitmapLine?: boolean
-  bitmapLineIds?: ReadonlySet<string>; lineGuide?: ArtStyleLineGuide; spatialTexture?: true }
+  bitmapLineIds?: ReadonlySet<string>; lineGuide?: ArtStyleLineGuide; spatialTexture?: true
+  rockSteps?: typeof import('./rock-step-paint.js') }
 
 function lineBitmapIds(projection: Projection, sources: RasterSources): Set<string> {
   const result = new Set<string>()
@@ -216,7 +212,10 @@ export interface ArtStylePreviewCache {
 
 async function readVectorArtStyle(sources: RasterSources, source: SvgAuthoringSource, width: number, height: number, look: ActiveArtStyle,
   signal?: AbortSignal, cache?: ArtStylePreviewCache) {
-  const svg = await (cache?.readSvg(source) ?? sources.resources.read(source.normalizedSha256).then(bytes => checkArtStyleSvg(bytes, source)))
+  const [svg, { rasterizeCanonicalSvgInWorker }] = await Promise.all([
+    cache?.readSvg(source) ?? sources.resources.read(source.normalizedSha256).then(bytes => checkArtStyleSvg(bytes, source)),
+    import('../ai/svg-worker-client.js'),
+  ])
   checkCancelled(signal)
   return rasterizeCanonicalSvgInWorker(colorArtStyleSvg(svg, look), { width, height }, signal, 'paint-layer')
 }
@@ -273,10 +272,11 @@ interface RasterDecodeOptions {
   residentAssetIds?: ReadonlySet<string>
   cache?: ArtStylePreviewCache
   premultiplyAlpha?: ImageBitmapOptions['premultiplyAlpha']
+  sharedBitmaps?: Map<string, ImageBitmap>
 }
 
 export async function decodeRequired(sources: RasterSources, projection: Projection, signal?: AbortSignal,
-  { metrics, residentAssetIds, cache, premultiplyAlpha = 'default' }: RasterDecodeOptions = {}): Promise<RasterSet> {
+  { metrics, residentAssetIds, cache, premultiplyAlpha = 'default', sharedBitmaps }: RasterDecodeOptions = {}): Promise<RasterSet> {
   const bitmaps = new Map<string, ImageBitmap>(), byAssetId = new Map<string, ImageBitmap>(); let totalPixels = 0
   const verifiedHashes = new Set<string>()
   try {
@@ -286,12 +286,16 @@ export async function decodeRequired(sources: RasterSources, projection: Project
       const ref = sources.assetRefs[id], resource = ref && sources.assets[ref.sha256]
       if (!ref || !resource) throw new Error(`绘制所需素材 ${id} 缺失，无法生成完整图片。`)
       if (ref.sha256 !== resource.sha256 || ref.mimeType !== resource.mimeType || ref.pixelWidth !== resource.pixelWidth || ref.pixelHeight !== resource.pixelHeight) throw new Error(`素材 ${id} 的字节记录与工程不一致。`)
-      const cached = bitmaps.get(ref.sha256)
-      if (cached) { byAssetId.set(id, cached); if (metrics) metrics.resourceVerificationMs += performance.now() - verificationStarted; continue }
-      const blob = await (cache ? cache.readVerifiedImage(resource) : verifiedRenderBlob(sources.resources, resource))
-      checkCancelled(signal)
       if (!verifiedHashes.has(ref.sha256)) { verifiedHashes.add(ref.sha256); totalPixels += ref.pixelWidth * ref.pixelHeight }
       if (verifiedHashes.size > PACKAGE_LIMITS.uniqueImages || totalPixels > PACKAGE_LIMITS.totalImagePixels) throw new Error('绘制素材超过候选解码预算。')
+      const cached = bitmaps.get(ref.sha256) ?? sharedBitmaps?.get(ref.sha256)
+      if (cached) {
+        bitmaps.set(ref.sha256, cached); byAssetId.set(id, cached)
+        if (metrics) metrics.resourceVerificationMs += performance.now() - verificationStarted
+        continue
+      }
+      const blob = await (cache ? cache.readVerifiedImage(resource) : verifiedRenderBlob(sources.resources, resource))
+      checkCancelled(signal)
       if (metrics) metrics.resourceVerificationMs += performance.now() - verificationStarted
       if (residentAssetIds && !residentAssetIds.has(id)) continue
       const queuedStarted = metrics ? performance.now() : 0
@@ -306,10 +310,10 @@ export async function decodeRequired(sources: RasterSources, projection: Project
       } catch { checkCancelled(signal); throw new Error(`素材 ${id} 实际解码失败，已停止出图。`) }
       if (signal?.aborted) { bitmap.close(); checkCancelled(signal) }
       if (bitmap.width !== ref.pixelWidth || bitmap.height !== ref.pixelHeight) { bitmap.close(); throw new Error(`素材 ${id} 的实际解码尺寸不符。`) }
-      bitmaps.set(ref.sha256, bitmap); byAssetId.set(id, bitmap)
+      bitmaps.set(ref.sha256, bitmap); byAssetId.set(id, bitmap); sharedBitmaps?.set(ref.sha256, bitmap)
     }
     return { bitmaps, byAssetId }
-  } catch (error) { bitmaps.forEach(bitmap => bitmap.close()); throw error }
+  } catch (error) { if (!sharedBitmaps) bitmaps.forEach(bitmap => bitmap.close()); throw error }
 }
 
 function repeatMaterial(ctx: CanvasRenderingContext2D, paint: MaterialPaint, projection: Projection, raster: RasterSet): CanvasPattern {
@@ -360,7 +364,20 @@ function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D | null, style: 
         } else {
           drawSurfaceRuleMask(maskCtx, b, mask.width, mask.height, [{ outerMm: overlay.boundaryMm, holesMm: [] }], overlay.blendWidthMm)
         }
-        layerCtx.drawImage(paintImage(ctx, overlay.paint, projection, raster), 0, 0); layerCtx.globalCompositeOperation = 'destination-in'; layerCtx.drawImage(mask, 0, 0)
+        layerCtx.drawImage(paintImage(ctx, overlay.paint, projection, raster), 0, 0)
+        const brush = projection.materialBrushes?.[projection.materials[overlay.paint.materialRef.id].textureAssetId]
+        if (brush === 'grass' || brush === 'earth') {
+          const region = pointsBounds('regionsMm' in overlay ? overlay.regionsMm.flatMap(region => region.outerMm) : overlay.boundaryMm)
+          if (intersectsVisualBounds(region, b)) {
+            layerCtx.save()
+            worldTransform(layerCtx, b, sx, sy)
+            const box = new Path2D()
+            box.rect(region.x, region.y, region.width, region.height)
+            drawGroundPigment(layerCtx, box, region, brush)
+            layerCtx.restore()
+          }
+        }
+        layerCtx.globalCompositeOperation = 'destination-in'; layerCtx.drawImage(mask, 0, 0)
         ctx.save(); ctx.resetTransform(); ctx.globalAlpha = overlay.paint.opacity; ctx.drawImage(layer, 0, 0); ctx.restore()
       } finally { disposeCanvas(layer); disposeCanvas(mask) }
     }
@@ -1257,8 +1274,32 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
   }
 }
 
+function usesRockStepSideMask(profile: NonNullable<ProjectedConnection['route']>['renderProfile']) {
+  return profile === 'naturalRockSteps4' || profile === 'naturalRockSteps6' || profile === 'naturalRockSteps7' || profile === 'naturalRockSteps8'
+}
+
 function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, c: ProjectedConnection): void {
   const route = c.route!, polygon = connectionPolygon(c), path = polygonPath(polygon)
+  if (c.kind === 'stairs' && (route.renderProfile === 'naturalRockSteps9' || route.renderProfile === 'naturalRockSteps10')) {
+    if (raster.spatialTexture) return
+    const ground = projectGround(projection), [fromId, toId] = c.surfaceIds ?? []
+    const from = fromId && ground.levels.get(fromId), to = toId && ground.levels.get(toId)
+    const { planWeatheredRockSteps, drawWeatheredRockSteps } = raster.rockSteps!
+    const plan = planWeatheredRockSteps(c, from ? ground.elevation(from, c.start) : c.fromElevationMm, to ? ground.elevation(to, c.end) : c.toElevationMm)
+    if (plan) {
+      ctx.save(); ctx.clip(path)
+      const stone = new Path2D()
+      for (const tread of plan.treads) addRing(stone, tread.polygonMm)
+      fillSurface(ctx, stone, c.style, projection, raster, '#ACAA94')
+      drawWeatheredRockSteps(ctx, plan, c.style?.base.tint)
+      if (c.blocksMovement) { ctx.strokeStyle = '#9B493B'; ctx.lineWidth = 85; ctx.stroke(path) }
+      ctx.restore()
+      for (const tread of plan.treads) for (let i = 1; i < tread.front.length; i++) {
+        raster.lineGuide?.stroke(linePath(tread.front[i - 1], tread.front[i]), .52, 32, .72)
+      }
+      return
+    }
+  }
   const points = c.toElevationMm > c.fromElevationMm ? route.centerlineMm : [...route.centerlineMm].reverse(), frame = connectionArcFrame(points), half = c.widthMm / 2
   const transform = ctx.getTransform(), sx = Math.abs(transform.a), sy = Math.abs(transform.d), bounds = expandedBounds(polygon, 2)
   const left = Math.max(0, Math.floor((bounds.x - projection.bounds.x) * sx)), top = Math.max(0, Math.floor((bounds.y - projection.bounds.y) * sy))
@@ -1285,8 +1326,8 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
         : { base: '#B6B094', dark: '#606D5E', light: '#E4D4A9' }
         : { base: '#AAA98E', dark: '#59665D', light: '#E4D9B5' }
     fillSurface(target, path, c.style, local, raster, palette.base)
-    if (route.renderProfile === 'naturalRockSteps4' || route.renderProfile === 'naturalRockSteps6' || route.renderProfile === 'naturalRockSteps7' || route.renderProfile === 'naturalRockSteps8') {
-      const plan = planRockStepSideMask({ bounds: local.bounds, width: surface.width, height: surface.height,
+    if (usesRockStepSideMask(route.renderProfile)) {
+      const plan = raster.rockSteps!.planRockStepSideMask({ bounds: local.bounds, width: surface.width, height: surface.height,
         centerlineMm: route.centerlineMm, widthMm: c.widthMm })
       const sideMask = canvas(plan.width, plan.height)
       try {
@@ -1323,6 +1364,7 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
       }
       if (route.stairStyle === 'naturalRock') {
         const seed = `${c.id}/${route.centerlineMm.map(p => `${p.x},${p.y}`).join(';')}`
+        const { drawTerracedRockSteps, drawNaturalRockStepsV4, drawNaturalRockSteps } = raster.rockSteps!
         if (route.renderProfile === 'naturalRockSteps6' || route.renderProfile === 'naturalRockSteps7' || route.renderProfile === 'naturalRockSteps8') drawTerracedRockSteps(target, { frame, widthMm: c.widthMm, count,
           riseMm: Math.abs(c.toElevationMm - c.fromElevationMm), seed, bandMm: polygon, palette,
           lightDirectionDeg: projection.visual?.environment.lightDirectionDeg, profile: route.renderProfile })
@@ -1568,7 +1610,7 @@ function drawConnections(ctx: CanvasRenderingContext2D, projection: Projection, 
     drawVisualEntity(ctx, projection, c.id, expandedBounds(points, 85), (target, local) => drawConnectionBody(target, local, raster, c), !!raster.readFrequently)
   }
 }
-function drawRockBody(ctx: CanvasRenderingContext2D, rock: NonNullable<Projection['rocks']>[number]) {
+function drawRockBody(ctx: CanvasRenderingContext2D, rock: NonNullable<Projection['rocks']>[number], spatialTexture = false) {
   ctx.save()
   // Cut shoulders use actual affine geometry but grant no walkable width.
   const apron = new Path2D()
@@ -1577,16 +1619,17 @@ function drawRockBody(ctx: CanvasRenderingContext2D, rock: NonNullable<Projectio
   // A single opaque footprint prevents native antialiasing between actual
   // adjacent triangles from exposing the background as false cracks.
   const base = new Path2D()
-  for (const facet of rock.facets) addRing(base, facet.pointsMm)
+  const facets = spatialTexture ? [] : rock.facets
+  for (const facet of facets) addRing(base, facet.pointsMm)
   ctx.fillStyle = '#756A58'; ctx.fill(base)
   const fills: { fill: string; opacity: number; path: Path2D }[] = []
-  for (const facet of rock.facets) {
+  for (const facet of facets) {
     let entry = fills.at(-1)
     if (!entry || entry.fill !== facet.fill || entry.opacity !== facet.opacity) { entry = { fill: facet.fill, opacity: facet.opacity, path: new Path2D() }; fills.push(entry) }
     addRing(entry.path, facet.pointsMm)
   }
   for (const entry of fills) { ctx.fillStyle = entry.fill; ctx.globalAlpha = entry.opacity; ctx.fill(entry.path) }
-  for (const stroke of rock.strokes) { ctx.strokeStyle = stroke.color; ctx.lineWidth = stroke.widthMm; ctx.globalAlpha = stroke.opacity; const path = new Path2D(); stroke.pointsMm.forEach((p, i) => i ? path.lineTo(p.x, p.y) : path.moveTo(p.x, p.y)); ctx.stroke(path) }
+  if (!spatialTexture) for (const stroke of rock.strokes) { ctx.strokeStyle = stroke.color; ctx.lineWidth = stroke.widthMm; ctx.globalAlpha = stroke.opacity; const path = new Path2D(); stroke.pointsMm.forEach((p, i) => i ? path.lineTo(p.x, p.y) : path.moveTo(p.x, p.y)); ctx.stroke(path) }
   ctx.globalAlpha = 1
   // All walk triangles are filled as one path. Shared diagonals introduce no
   // edge marks, and wall decoration never narrows the actual visible corridor.
@@ -1746,7 +1789,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
         target.restore()
       }
       drawTerrainSurface(target, area, local, raster)
-      if (rock) drawRockBody(target, rock)
+      if (rock) drawRockBody(target, rock, raster.spatialTexture)
     }, !!raster.readFrequently)
   }
   for (const prop of projection.props) if (prop.waterAppearance && prop.waterAppearance.mode !== 'surface') {
@@ -1759,7 +1802,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   const edgeProjection = { ...projection, edges: terrainEdgePaint(projection) }
   drawTerrainEdges(ctx, edgeProjection, raster, sx, sy)
   if (guide) drawTerrainLineInk(guide, edgeProjection)
-  drawVisualBoundaries(ctx, projection, signal, !!raster.readFrequently)
+  drawVisualBoundaries(ctx, projection, signal, !!raster.readFrequently, raster.spatialTexture)
   drawTerrainInlays(ctx, projection, raster)
   if (guide) for (const inlay of projection.inlays ?? []) {
     guide.cover(polygonPath(inlay.footprintMm))
@@ -1897,7 +1940,7 @@ function finishProjection(ctx: CanvasRenderingContext2D, projection: Projection,
  * Canvas/resource backend. Receives disposable physical projection and resource
  * records only. Strict version-specific entrypoints own document validation.
  */
-export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions & { spatialTexture?: true }, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm, previewCache?: ArtStylePreviewCache): Promise<HTMLCanvasElement> {
+export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions & { spatialTexture?: true; spatialRaster?: RasterSet }, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm, previewCache?: ArtStylePreviewCache): Promise<HTMLCanvasElement> {
   options = { ...options }
   const started = options.onMetrics ? validationStarted ?? performance.now() : 0
   const metrics: RenderMetrics | undefined = options.onMetrics ? { validationProjectionMs: 0, resourceVerificationMs: 0, decoderQueueWaitMs: 0, imageDecodeMs: 0, drawSubmissionMs: 0, totalMs: 0, decodedImages: 0, decodedPixels: 0, width: 0, height: 0, audience: options.audience, ...(projection.floorId === undefined ? {} : { floorId: projection.floorId }) } : undefined
@@ -1948,8 +1991,15 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   const propDetails = plan ? new Map(plan.props.map(entry => [entry.prop.id, entry.detail])) : undefined
   if (width * height > PNG_MAX_PIXELS) throw new Error('图片超过 16M 像素预算。')
   if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') throw new Error('图片绘制需要支持真实位图解码与 Canvas 的浏览器。')
+  const needsRockSteps = drawingProjection.connections.some(({ kind, route }) =>
+    usesRockStepSideMask(route?.renderProfile) || (kind === 'stairs' && route?.stairStyle === 'naturalRock'))
+  const rockSteps = needsRockSteps ? import('./rock-step-paint.js') : undefined
+  // A failed chunk is reported at the draw boundary, after any decoded bitmaps
+  // are owned by the cleanup below.
+  void rockSteps?.catch(() => undefined)
   if (metrics) { metrics.validationProjectionMs = performance.now() - started; metrics.width = width; metrics.height = height }
-  const raster = await decodeRequired(sources, projection, options.signal, {
+  const spatialRaster = options.spatialTexture && options.spatialRaster
+  const raster = spatialRaster ? { ...spatialRaster } : await decodeRequired(sources, projection, options.signal, {
     metrics, residentAssetIds: plan ? editorResidentAssetIds(visibleProjection, plan) : undefined, cache,
   })
   raster.spatialTexture = options.spatialTexture
@@ -1973,7 +2023,8 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   }
   try {
     checkCancelled(options.signal)
-    await prepareRasterArtwork(sources, raster, drawingProjection, options.signal, cache)
+    if (!spatialRaster) await prepareRasterArtwork(sources, raster, drawingProjection, options.signal, cache)
+    if (rockSteps) raster.rockSteps = await rockSteps
     checkCancelled(options.signal)
     output = canvas(width, height)
     const ctx = context(output, !!raster.readFrequently || styleReadback)
@@ -2037,8 +2088,11 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   } catch (error) { if (output) disposeCanvas(output); throw error }
   finally {
     if (metrics) { metrics.decodedImages = raster.bitmaps.size; metrics.decodedPixels = [...raster.bitmaps.values()].reduce((sum, bitmap) => sum + bitmap.width * bitmap.height, 0) }
-    raster.bitmaps.forEach(bitmap => bitmap.close()); if (raster.paintCache) disposeCanvas(raster.paintCache.image)
-    if (raster.styled) new Set(raster.styled.values()).forEach(disposeCanvas)
+    if (!spatialRaster) {
+      raster.bitmaps.forEach(bitmap => bitmap.close())
+      if (raster.styled) new Set(raster.styled.values()).forEach(disposeCanvas)
+    }
+    if (raster.paintCache) disposeCanvas(raster.paintCache.image)
     if (padded) disposeCanvas(padded)
     if (completed && metrics) {
       metrics.totalMs = performance.now() - started

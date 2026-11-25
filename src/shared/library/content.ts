@@ -57,12 +57,15 @@ function fixedAssetRoots(document: SceneDocument): Set<string> {
     ...Object.values(document.propDefinitions).flatMap(value => value.defaultAppearance.kind === 'image' ? [value.defaultAppearance.assetId] : []),
     ...Object.values(document.materials).map(value => value.textureAssetId),
     ...Object.values(document.prefabDefinitions).flatMap(value => value.members.flatMap(member => member.propTemplate.appearance.kind === 'image' ? [member.propTemplate.appearance.assetId] : [])),
+    ...Object.values(document.propDefinitions).flatMap(value => value.defaultVolume?.sideAssetId ?? []),
+    ...Object.values(document.prefabDefinitions).flatMap(value => value.members.flatMap(member => member.propTemplate.volume?.sideAssetId ?? [])),
     ...Object.values(document.assets).flatMap(value => { const parent = value.imageRefinement ?? value.imageEnhancement; return parent ? [parent.sourceAssetId, parent.originalAssetId] : [] }),
   ])
 }
 
 /** Only fixed roots participate. Live instance/layer mappings are deliberately never traversed. */
-export function extractTemplateFixedContent(source: ProjectData, selectors: readonly CatalogSelector[], sourceIds: readonly string[] = []): ProjectData {
+export function extractTemplateFixedContent(source: ProjectData, selectors: readonly CatalogSelector[], sourceIds: readonly string[] = [],
+  instanceSideAssets: readonly string[] = []): ProjectData {
   const selected = selectors.map(value => selectorSchema.parse(value)), result = neutralProject(), document = result.document, graph = result.appearance
   const activatePresentations = () => {
     for (const sourceId of Object.keys(graph.sources)) if (graph.sources[sourceId].kind === 'prop') graph.presentations![sourceId] = cloneJson(source.appearance.presentations?.[sourceId] ?? { mode: 'topDown', rootAnchorMm: { x: 0, y: 0 }, orientation: 'rotateWithGround', groundShadowMm: null })
@@ -82,6 +85,7 @@ export function extractTemplateFixedContent(source: ProjectData, selectors: read
     if (Object.hasOwn(document.propDefinitions, id)) return
     const definition = own(source.document.propDefinitions, id)
     document.propDefinitions[id] = cloneJson(definition); addAppearance(definition.defaultAppearance)
+    if (definition.defaultVolume?.sideAssetId) addAsset(definition.defaultVolume.sideAssetId)
     for (const fixed of Object.values(source.appearance.sources)) if (fixed.kind === 'prop' && fixed.parentSourceId === null && fixed.snapshot.definitionRef?.id === id && source.appearance.presentations?.[fixed.id]?.mode === 'nearSide') addSource(fixed.id)
   }
   const addMaterial = (id: string): void => {
@@ -111,6 +115,7 @@ export function extractTemplateFixedContent(source: ProjectData, selectors: read
     for (const member of definition.members) {
       if (member.propTemplate.definitionRef) addProp(member.propTemplate.definitionRef.id)
       addAppearance(member.propTemplate.appearance)
+      if (member.propTemplate.volume?.sideAssetId) addAsset(member.propTemplate.volume.sideAssetId)
     }
     for (const member of Object.values(template.members)) {
       addSource(member.sourceId)
@@ -129,15 +134,18 @@ export function extractTemplateFixedContent(source: ProjectData, selectors: read
     else addPrefab(selector.definitionId)
   }
   for (const id of sourceIds) addSource(id)
+  for (const id of instanceSideAssets) addAsset(id)
   // Ancestor and non-active variant bytes must retain real native-v3 editing roots, not temporary image caches.
   for (;;) {
-    const roots = fixedAssetRoots(document), missing = sorted(Object.keys(document.assets).filter(id => !roots.has(id)))
+    const roots = fixedAssetRoots(document)
+    const missing = sorted(Object.keys(document.assets).filter(id => !roots.has(id) && !instanceSideAssets.includes(id)))
     if (!missing.length) break
     for (const id of missing) {
-      const props = Object.values(source.document.propDefinitions).filter(value => value.defaultAppearance.kind === 'image' && value.defaultAppearance.assetId === id)
+      const props = Object.values(source.document.propDefinitions).filter(value => value.defaultAppearance.kind === 'image' && value.defaultAppearance.assetId === id || value.defaultVolume?.sideAssetId === id)
         .sort((a, b) => Number(!a.tags.includes('sceneweave:retained-appearance')) - Number(!b.tags.includes('sceneweave:retained-appearance')) || compare(a.id, b.id))
       const materials = Object.values(source.document.materials).filter(value => value.textureAssetId === id).sort((a, b) => compare(a.id, b.id))
-      const prefabs = Object.values(source.document.prefabDefinitions).filter(value => value.members.some(member => member.propTemplate.appearance.kind === 'image' && member.propTemplate.appearance.assetId === id)).sort((a, b) => compare(a.id, b.id))
+      const prefabs = Object.values(source.document.prefabDefinitions).filter(value => value.members.some(({ propTemplate }) =>
+        propTemplate.appearance.kind === 'image' && propTemplate.appearance.assetId === id || propTemplate.volume?.sideAssetId === id)).sort((a, b) => compare(a.id, b.id))
       if (props.length) addProp(props[0].id)
       else if (materials.length) addMaterial(materials[0].id)
       else if (prefabs.length) addPrefab(prefabs[0].id)

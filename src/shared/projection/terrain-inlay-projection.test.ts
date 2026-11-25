@@ -11,6 +11,8 @@ import { cloneJson, canonicalJson } from '../validation/json.js'
 import { terrainInlayHash, terrainInlaySource } from '../terrain-inlay/scene.js'
 import { inspectTerrainInlayVisualScope, planTerrainInlayVisualScope } from '../terrain-inlay/visual-scope.js'
 import { createPublicVisibility, publicTerrainView } from '../geometry/visibility.js'
+import { createReliefBrush } from '../geometry/terrain-relief-edit.js'
+import { createSupportQuery } from '../geometry/support-sample.js'
 import type { CompositionCommand } from '../model/appearance.js'
 import type { PointMm } from '../model/scene.js'
 import { visualBase } from '../visual/base.js'
@@ -79,6 +81,23 @@ function lockedVisual(content: ReturnType<typeof authoredSource>['before'], targ
 }
 
 describe('cross-terrace actual projection and editor geometry', () => {
+  it('sculpts two source heights around a fixed inlay without changing its cut faces or anchors', () => {
+    const { after: before } = setup()
+    const stroke = { points: [{ x: 3800, y: 6750 }, { x: 6500, y: 6750 }], radiusMm: 1400, amountMm: -380 }
+    const brush = createReliefBrush(before.document, floorId, 'low')
+    expect(brush.marks(stroke).length).toBeGreaterThan(0)
+    const updates = brush.plan(stroke, true)
+    expect(updates.map(({ area }) => area.id)).toEqual(['low', 'high'])
+    const after = applyCompositionDraftCommands(before,
+      updates.map(({ area, relief }) => ({ type: 'updateTerrainArea', id: area.id, changes: { relief } })), runtime)
+    expect(after.document.terrainConnections).toEqual(before.document.terrainConnections)
+    const a = createSupportQuery(before.document, floorId), b = createSupportQuery(after.document, floorId)
+    for (const p of [{ x: 4500, y: 5000 }, { x: 8500, y: 5400 }]) expect(b.sample(p)).toEqual(a.sample(p))
+    for (const p of [{ x: 4000, y: 6800 }, { x: 6500, y: 6950 }]) expect(b.sample(p)!.zMm).toBeLessThan(a.sample(p)!.zMm - 150)
+    const read = (doc: typeof before) => projectScene(doc.document, 'gm', doc.appearance, { floorId, spatial: true })
+    expect(read(after).inlays).toEqual(read(before).inlays)
+  })
+
   it('preserves source-ground slope grass at the same coordinates while retaining visual locks', () => {
     const { before, command } = authoredSource('shore'), document = cloneJson(before.document), base = visualBase(document)!
     base.edgeLooks.look.kind = 'grass'
