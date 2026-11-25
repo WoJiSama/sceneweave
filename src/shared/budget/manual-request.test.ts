@@ -24,6 +24,17 @@ const transform: CompositionCommand = { type: 'transformAggregateNatural', id: '
   pivotMm: { x: 0, y: 0 }, quarterTurns: 0 }
 
 describe('manual request admission planning', () => {
+  it('reserves the existing standard preview tier for two dense relief grids', () => {
+    const document = populated(1), relief = { version: 1 as const, columns: 81, rows: 81, offsetsMm: Array(81 * 81).fill(0) }
+    const commands = ['low', 'high'].map<CompositionCommand>((id, index) => {
+      const x = index * 9000
+      return { type: 'createTerrainArea', id, floorId: 'blank-floor', relief,
+        boundaryMm: [{ x, y: 0 }, { x: x + 9000, y: 0 }, { x: x + 9000, y: 9000 }, { x, y: 9000 }] }
+    })
+    expect(selectManualCommandBudget(document, commands.slice(0, 1)).tierId).toBeUndefined()
+    expect(selectManualCommandBudget(document, commands).tierId).toBe('standard')
+  })
+
   it.each([256, 257, 512, 513, 1024])('selects the tier for a single command requesting %i actual layer members', count => {
     const document = populated(count), commands: CompositionCommand[] = [{ type: 'moveEntitiesToLayer', ids: Object.keys(document.props), layerId: 'target' }]
     expect(planManualCommandWork(document, commands)).toEqual({ semanticTargets: count, groupMembers: 0 })

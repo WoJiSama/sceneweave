@@ -21,6 +21,8 @@ import { staircaseSchema } from '../stairs/contracts.js'
 import { removePathAssemblyEntities } from '../path-assembly/commands.js'
 import { bridgeDeckIds } from '../path-assembly/contracts.js'
 import { createSupportQuery } from '../geometry/support-sample.js'
+import { carvedStripCutFootprints } from '../carved-rock/index.js'
+import { reliefBounds, reliefMatchesAlong } from '../geometry/terrain-relief.js'
 import { inspectScene5TransitionChanges, refreshScene5TransitionsAfterPhysicalEdit } from '../visual/derived-transitions.js'
 
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '不能使用保留ID')
@@ -540,6 +542,23 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
   }
 }
 
+function assertRockCrownJoins(before: SceneDocument, previous: TerrainArea, current: TerrainArea) {
+  if (!current.rockBody || !current.relief) return
+  const outline = terrainPoints(current)
+  const currentGrid = { grid: current.relief, bounds: reliefBounds(outline) }
+  const previousGrid = { grid: previous.relief, bounds: reliefBounds(terrainPoints(previous)) }
+  if (!reliefMatchesAlong(currentGrid, previousGrid, outline)) throw new Error('起伏须保留原岩缘的完整接合高程。')
+  for (const { carvedStrip } of Object.values(before.terrainConnections)) {
+    if (carvedStrip?.hostAreaId === current.id
+      && carvedStripCutFootprints(carvedStrip).some(ring => !reliefMatchesAlong(currentGrid, previousGrid, ring))) {
+      throw new Error('起伏须保留既有岩壁切口的完整接合高程。')
+    }
+  }
+  if (current.relief.offsetsMm.some(offset => current.groundElevationMm + offset <= current.rockBody!.baseElevationMm)) {
+    throw new Error('岩体顶部必须在底面之上。')
+  }
+}
+
 /** Detached draft mutation; the native command entry validates the complete batch once. */
 export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorCommand, context: PreparationContext, budget?: CommandBudgetProfile): OutdoorImpact {
   if ((command.type === 'removeTerrainConnection' || command.type === 'deleteOutdoorEntity' && command.kind === 'terrainConnection') && scene.terrainConnections[command.id]?.terrainInlay) throw new Error('跨台山路须显式恢复原连接及源地形，不能隐式删除填切结果。')
@@ -547,6 +566,7 @@ export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorComman
   if (budget) parseCommandBudgetProfile(budget)
   const before = cloneJson(scene), roots = rootsFor(command)
   mutate(scene, command, context)
+  if (command.type === 'updateTerrainArea' && command.changes.relief) assertRockCrownJoins(before, before.terrainAreas[command.id], scene.terrainAreas[command.id])
   const derived = refreshScene5TransitionsAfterPhysicalEdit(before, scene)
   const impact = diffImpact(before, scene, roots)
   impact.commandCost += derived.commandCost

@@ -5,6 +5,7 @@ import { sampleVisualBoundary } from '../visual/geometry.js'
 import { visualBase } from '../visual/base.js'
 import { edgeLookPaintPadding } from '../visual/paint-envelopes.js'
 import { terrainTransitionStrokePolygon } from '../visual/transition.js'
+import { isHeightCliffProfile } from '../visual/terrain-cliff-plan.js'
 import type { TerrainInlayPlan, TerrainInlayRequest } from './contracts.js'
 import { planTerrainInlay } from './geometry.js'
 
@@ -88,7 +89,7 @@ export function planTerrainInlayVisualScope(inlays: readonly TerrainInlayVisualI
       const terrainCliff = look.kind === 'cliff' && boundary.terrainAreaIds.length > 0
       if (terrainCliff) {
         if (!carrierChanged && !touchesInfluence) continue
-        if (!['rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9'].includes(look.renderProfile ?? '')) {
+        if (!isHeightCliffProfile(look.renderProfile)) {
           throw Error(`跨台实际域触及尚未提供逐段归属的旧崖画法 ${look.id}；请先明确调整该表现。`)
         }
       } else {

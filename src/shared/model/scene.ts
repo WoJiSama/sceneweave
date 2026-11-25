@@ -75,6 +75,7 @@ export interface PropDefinition extends DefinitionIdentity {
   defaultFootprintMm: SizeMm; defaultFootprintOffsetMm: PointMm
   defaultBlocksMovement: boolean; defaultBlocksSight: boolean
   defaultRenderLayer: RenderLayer; defaultShadowClass: ShadowClass
+  defaultVolume?: import('./prop-volume.js').PropVolume
 }
 export interface MaterialRef extends DefinitionIdentity {
   name: string; tags: string[]; textureAssetId: Id; defaultTileSizeMm: SizeMm
@@ -96,6 +97,7 @@ export interface Room extends Editable {
 }
 export interface Wall extends Editable {
   startVertexId: Id; endVertexId: Id; thicknessMm: number; blocksMovement: boolean; blocksSight: boolean
+  heightMm?: number
   topStyle: SurfaceStyle | null
   /** Optional opt-in fixed paint morphology; absent retains the original straight silhouette. */
   edgeProfile?: 'stone-blocks-v1'
@@ -103,6 +105,7 @@ export interface Wall extends Editable {
 export interface Opening extends Editable {
   wallId: Id; offsetReferenceVertexId: Id; offsetMm: number; widthMm: number
   kind: 'door' | 'window'; state: 'open' | 'closed'; locked: boolean; secret: boolean; revealed: boolean
+  vertical?: import('./building-height.js').OpeningHeight
 }
 export interface Prop extends Editable {
   volume?: import('./prop-volume.js').PropVolume

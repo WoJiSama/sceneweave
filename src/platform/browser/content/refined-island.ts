@@ -10,6 +10,7 @@ import { materializeVisualArt } from './visual-art-project.js'
 import { runtime } from '../runtime.js'
 
 export const REFINED_ISLAND_NAME = '岬湾苔岛 · 精修版'
+export const COASTAL_SCRUB_ART = REFINED_ISLAND_ART.filter(art => ['island-shrub-coastal-heath', 'island-shrub-scree-sedge', 'island-debris-scree'].includes(art.key))
 const FLOOR = 'visual-floor', GROUND = 'visual-layer-ground', DETAILS = 'visual-layer-details', PROPS = 'visual-layer-props', EFFECTS = 'visual-layer-effects'
 const point = (x: number, y: number): PointMm => ({ x, y })
 const ring = (coords: number[][]) => coords.map(([x, y]) => point(x, y))
@@ -60,27 +61,35 @@ function place(scene: SceneDocument, key: string, x: number, y: number, rotation
   scene.props[id] = prop; scene.entityLayers[id] = prop.renderLayer === 'ground' ? DETAILS : PROPS
 }
 
-/** Independent fixed artwork and composition; the original three sample palettes and recipes remain unchanged. */
-export function createRefinedIslandDocument(options: { sceneId?: string; now?: string } = {}): SceneDocument {
-  const scene = createVisualBlankDocument({ title: REFINED_ISLAND_NAME, widthMm: 24000, heightMm: 18000, preset: 'narrative',
-    sceneId: options.sceneId ?? 'refined-island-v1', now: options.now ?? '2026-10-25T00:00:00.000Z', gridVisible: false })
-  scene.assets = {}; scene.materials = {}; scene.propDefinitions = {}
-  for (const art of REFINED_ISLAND_ART) {
-    const id = assetId(art.key)
+export function coastalScrubAssetId(key: string) { return `refined-art-coastal-${key.slice('island-'.length)}` }
+
+export function addRefinedIslandArt(scene: SceneDocument, artwork: readonly (typeof REFINED_ISLAND_ART)[number][], forCoast = false) {
+  const licenseRef = forCoast ? 'sceneweave-refined-island-v1' : 'MIT'
+  for (const art of artwork) {
+    const id = forCoast ? coastalScrubAssetId(art.key) : assetId(art.key)
     scene.assets[id] = { id, sha256: '0'.repeat(64), mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512,
-      logicalSizeMm: { width: art.widthMm, height: art.heightMm }, licenseRef: 'MIT', origin: { ...original } }
+      logicalSizeMm: { width: art.widthMm, height: art.heightMm }, licenseRef, origin: { ...original } }
     if (art.kind === 'material') {
       const id = `refined-material-${art.key}`
       scene.materials[id] = { id, catalogId: `material.sceneweave.q1.${art.key}`, version: 1, licenseRef: 'MIT', origin: { ...original }, name: art.name,
         tags: ['原创', '岬湾苔岛', ...(art.tags ?? [])], textureAssetId: assetId(art.key), defaultTileSizeMm: { width: art.widthMm, height: art.heightMm }, applicableSurfaces: ['terrain', 'path', 'room', 'wall'] }
     } else {
-      const id = `refined-prop-${art.key}`
-      scene.propDefinitions[id] = { id, catalogId: `prop.sceneweave.q1.${art.key}`, version: 1, licenseRef: 'MIT', origin: { ...original }, name: art.name,
-        tags: ['原创', '岬湾苔岛', ...(art.tags ?? [])], defaultAppearance: { kind: 'image', assetId: assetId(art.key), tint: null, opacity: 1 },
+      const key = forCoast ? `coastal-${art.key.slice('island-'.length)}` : art.key
+      const definitionId = `refined-prop-${key}`
+      scene.propDefinitions[definitionId] = { id: definitionId, catalogId: `prop.sceneweave.q1.${key}`, version: 1, licenseRef, origin: { ...original }, name: art.name,
+        tags: ['原创', '岬湾苔岛', ...(art.tags ?? [])], defaultAppearance: { kind: 'image', assetId: id, tint: null, opacity: 1 },
         defaultVisualBoundsMm: { x: -Math.round(art.widthMm / 2), y: -Math.round(art.heightMm / 2), width: art.widthMm, height: art.heightMm },
         defaultFootprintMm: { ...art.footprintMm! }, defaultFootprintOffsetMm: point(0, 0), defaultBlocksMovement: art.blocksMovement!, defaultBlocksSight: art.blocksSight!, defaultRenderLayer: art.renderLayer!, defaultShadowClass: art.shadowClass! }
     }
   }
+}
+
+/** Independent fixed artwork and composition; the original three sample palettes and recipes remain unchanged. */
+export function createRefinedIslandDocument(options: { sceneId?: string; now?: string } = {}): SceneDocument {
+  const scene = createVisualBlankDocument({ title: REFINED_ISLAND_NAME, widthMm: 24000, heightMm: 18000, preset: 'narrative',
+    sceneId: options.sceneId ?? 'refined-island-v1', now: options.now ?? '2026-10-25T00:00:00.000Z', gridVisible: false })
+  scene.assets = {}; scene.materials = {}; scene.propDefinitions = {}
+  addRefinedIslandArt(scene, REFINED_ISLAND_ART)
   const previousTheme = scene.styleThemes['visual-theme'], themeId = 'refined-island-theme'
   scene.styleThemes = { [themeId]: { ...previousTheme, id: themeId, catalogId: 'theme.sceneweave.q1.cape-moss', name: '岬湾苔墨', origin: { ...original },
     materialSuggestions: Object.keys(scene.materials).map(ref), propSuggestions: Object.keys(scene.propDefinitions).map(ref),

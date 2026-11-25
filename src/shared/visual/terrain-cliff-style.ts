@@ -16,6 +16,9 @@ export const TERRAIN_CLIFF_STYLES = [
   { value: 'rockRelief7', label: '自然断岩 · 不规则折面' },
   { value: 'rockRelief8', label: '错落层岩 · 岩台与短立面' },
   { value: 'rockRelief9', label: '断层岩体 · 台地与陡壁' },
+  { value: 'rockRelief10', label: '层状断岩 · 岩床与石缝' },
+  { value: 'rockRelief11', label: '风化断岩 · 错落岩壁与坡脚' },
+  { value: 'rockRelief12', label: '断续露岩 · 岩层与草坡相接' },
 ] as const satisfies readonly { value: TerrainCliffProfile; label: string }[]
 
 export function terrainCliffBindings(scene: SceneDocument, areaId: string) {

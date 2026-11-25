@@ -35,9 +35,55 @@ export function sampleTerrainRelief(grid: TerrainRelief, bounds: BoundsMm, point
   const a = grid.offsetsMm[index], b = grid.offsetsMm[index + 1]
   const c = grid.offsetsMm[index + grid.columns + 1], d = grid.offsetsMm[index + grid.columns]
   const dx = x >= y ? b - a : c - d, dy = x >= y ? c - b : d - a
-  const nx = -dx * (grid.columns - 1) / bounds.width, ny = -dy * (grid.rows - 1) / bounds.height
+  const nx = (0 - dx) * (grid.columns - 1) / bounds.width, ny = (0 - dy) * (grid.rows - 1) / bounds.height
   const length = Math.hypot(nx, ny, 1)
   return { offsetMm: a + x * dx + y * dy, normal: { x: nx / length, y: ny / length, z: 1 / length } }
+}
+
+/** Segment parameters at which the piecewise planar relief can change slope. */
+export function reliefSegmentCuts(grid: TerrainRelief, bounds: BoundsMm, a: PointMm, b: PointMm): number[] {
+  const u = (p: PointMm) => (p.x - bounds.x) * (grid.columns - 1) / bounds.width
+  const v = (p: PointMm) => (p.y - bounds.y) * (grid.rows - 1) / bounds.height
+  const au = u(a), av = v(a), bu = u(b), bv = v(b)
+  const cuts = [0, 1]
+  const add = (from: number, to: number, min: number, max: number, start: number, end: number) => {
+    if (from === to) return
+    for (let i = Math.max(min, Math.ceil(Math.min(from, to))); i <= Math.min(max, Math.floor(Math.max(from, to))); i++) {
+      const t = start + (end - start) * (i - from) / (to - from)
+      if (t > start + 1e-10 && t < end - 1e-10) cuts.push(t)
+    }
+  }
+  add(au, bu, 0, grid.columns - 1, 0, 1)
+  add(av, bv, 0, grid.rows - 1, 0, 1)
+  // The diagonal in grid coordinates satisfies u - v = integer. The outer
+  // rectangle cuts above also cover transitions to a clamped sample.
+  const spans = [...new Set(cuts)].sort((x, y) => x - y)
+  const diagonal = (t: number) => Math.max(0, Math.min(grid.columns - 1, au + (bu - au) * t))
+    - Math.max(0, Math.min(grid.rows - 1, av + (bv - av) * t))
+  for (let i = 1; i < spans.length; i++) {
+    const start = spans[i - 1], end = spans[i]
+    add(diagonal(start), diagonal(end), 1 - grid.rows, grid.columns - 1, start, end)
+  }
+  return [...new Set(cuts)].sort((x, y) => x - y)
+}
+
+interface ReliefSurface { grid?: TerrainRelief; bounds: BoundsMm }
+
+/** Between the union of both lattices' cuts, the height difference is affine. */
+export function reliefMatchesAlong(current: ReliefSurface, previous: ReliefSurface, ring: readonly PointMm[]): boolean {
+  const cutsAt = (surface: ReliefSurface, p: PointMm, q: PointMm) => surface.grid ? reliefSegmentCuts(surface.grid, surface.bounds, p, q) : []
+  const heightAt = (surface: ReliefSurface, p: PointMm) => surface.grid ? sampleTerrainRelief(surface.grid, surface.bounds, p).offsetMm : 0
+  return ring.every((a, i) => {
+    const q = ring[(i + 1) % ring.length]
+    return [0, ...cutsAt(current, a, q), ...cutsAt(previous, a, q)].every(t => {
+      const p = { x: a.x + (q.x - a.x) * t, y: a.y + (q.y - a.y) * t }
+      return Math.abs(heightAt(current, p) - heightAt(previous, p)) < 1e-6
+    })
+  })
+}
+
+export function reliefLevelAlong(grid: TerrainRelief, bounds: BoundsMm, ring: readonly PointMm[]): boolean {
+  return reliefMatchesAlong({ grid, bounds }, { bounds }, ring)
 }
 
 export function createTerrainRelief(bounds: BoundsMm, heightAt: (point: PointMm) => number, cellSizeMm = 350): TerrainRelief {

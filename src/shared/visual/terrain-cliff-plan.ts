@@ -3,14 +3,37 @@ import polygonClipping, { type MultiPolygon, type Polygon, type Ring } from 'pol
 import { naturalCliffMass, type NaturalCliffMass } from './natural-cliff-mass.js'
 import { layeredCliffMass, type LayeredCliffMass } from './layered-cliff-mass.js'
 import { pointInPolygon } from '../geometry/geometry.js'
+import { reliefBounds, sampleTerrainRelief } from '../geometry/terrain-relief.js'
 import type { PointMm } from '../model/scene.js'
 import type { ProjectedSurface, Projection } from '../projection/types.js'
 import type { VisualEdgeLook } from './types.js'
+import { terrainValueNoise } from '../terrain-generation/field.js'
 
 export const TERRAIN_CLIFF_PROFILE = 'rockRelief6' as const
 export const NATURAL_TERRAIN_CLIFF_PROFILE = 'rockRelief7' as const
 export const SCULPTED_TERRAIN_CLIFF_PROFILE = 'rockRelief9' as const
 export const LAYERED_TERRAIN_CLIFF_PROFILE = 'rockRelief8' as const
+export const STRATIFIED_CLIFF_PROFILE = 'rockRelief10' as const
+export const WEATHERED_CLIFF_PROFILE = 'rockRelief11' as const
+export const ERODED_CLIFF_PROFILE = 'rockRelief12' as const
+export const isWeatheredCliffProfile = (profile: VisualEdgeLook['renderProfile']) => profile === WEATHERED_CLIFF_PROFILE || profile === ERODED_CLIFF_PROFILE
+export const isHeightCliffProfile = (profile: VisualEdgeLook['renderProfile']) => profile === TERRAIN_CLIFF_PROFILE || profile === NATURAL_TERRAIN_CLIFF_PROFILE
+  || profile === LAYERED_TERRAIN_CLIFF_PROFILE || profile === SCULPTED_TERRAIN_CLIFF_PROFILE || profile === STRATIFIED_CLIFF_PROFILE || isWeatheredCliffProfile(profile)
+
+/** The lip and debris apron swell at different scales. World-space samples
+ * keep a rock spur continuous across the tessellation of its source curve. */
+export function weatheredCliffWidth(look: Pick<VisualEdgeLook, 'seed' | 'widthMm' | 'repeatMm'>, point: PointMm, riseMm: number) {
+  const scale = Math.max(1, look.repeatMm / 590)
+  const noise = (channel: string, sx: number, sy: number) => terrainValueNoise(look.seed, channel, point.x / (sx * scale), point.y / (sy * scale))
+  const spur = Math.max(.08, .61 + noise('projecting beds', 2650, 2300) * .82 + noise('broken toe', 630, 780) * .37)
+  const crest = Math.max(.10, .54 + noise('scoured crest', 1760, 1430) * .56 + noise('spalled crest', 415, 515) * .33)
+  return { foot: Math.min(look.widthMm * 1.08, riseMm * .99) * spur, shoulder: Math.min(look.widthMm * .92, riseMm * .62) * crest }
+}
+
+export function weatheredCliffToeReach(look: Parameters<typeof weatheredCliffWidth>[0], point: PointMm, riseMm: number, normalY: number) {
+  const facing = .26 + .74 * (.5 + .5 * normalY)
+  return weatheredCliffWidth(look, point, riseMm).foot * (.46 + facing * .74)
+}
 export interface TerrainCliffCell {
   polygon: PointMm[]
   inner: [PointMm, PointMm]
@@ -18,6 +41,7 @@ export interface TerrainCliffCell {
   foot: [PointMm, PointMm]
   normal: PointMm
   stationMm: number
+  strength?: number
 }
 export interface TerrainCliffFace {
   look: VisualEdgeLook
@@ -67,7 +91,7 @@ const key = (run: Run) => JSON.stringify([run.high?.id, run.low?.id, run.side, r
 export function planTerrainCliffs(projection: Pick<Projection, 'terrain' | 'visual'>): TerrainCliffFace[] {
   const visual = projection.visual
   if (!visual) return []
-  const looks = visual.edgeLooks.filter(a => a.kind === 'cliff' && (a.renderProfile === TERRAIN_CLIFF_PROFILE || a.renderProfile === NATURAL_TERRAIN_CLIFF_PROFILE || a.renderProfile === LAYERED_TERRAIN_CLIFF_PROFILE || a.renderProfile === SCULPTED_TERRAIN_CLIFF_PROFILE) && a.opacity > 0)
+  const looks = visual.edgeLooks.filter(a => a.kind === 'cliff' && isHeightCliffProfile(a.renderProfile) && a.opacity > 0)
   if (!looks.length) return []
   if (looks.length > 128 || projection.terrain.length > 4096) throw new Error('高差岩面超过有限规划预算。')
   const surfaces = projection.terrain.map((surface, index) => ({ surface, index }))
@@ -196,7 +220,7 @@ export function planTerrainCliffs(projection: Pick<Projection, 'terrain' | 'visu
   const shadowOwned: MultiPolygon[] = []
   const angle = visual.environment.lightDirectionDeg * Math.PI / 180
   for (const face of result) {
-    const layered = face.look.renderProfile === LAYERED_TERRAIN_CLIFF_PROFILE || face.look.renderProfile === SCULPTED_TERRAIN_CLIFF_PROFILE
+    const layered = face.look.renderProfile === LAYERED_TERRAIN_CLIFF_PROFILE || face.look.renderProfile === SCULPTED_TERRAIN_CLIFF_PROFILE || face.look.renderProfile === STRATIFIED_CLIFF_PROFILE || isWeatheredCliffProfile(face.look.renderProfile)
     const exactPaint = (polygons: MultiPolygon) => layered ? snapPaint(polygons) : polygons
     const reach = Math.min(face.look.widthMm * .6, (face.highMm - face.lowMm) * .18)
     const dx = -Math.cos(angle) * reach, dy = -Math.sin(angle) * reach
@@ -250,6 +274,22 @@ function makeFace(run: Run, sharedNormal: (point: PointMm) => PointMm | undefine
   const natural = look.renderProfile === NATURAL_TERRAIN_CLIFF_PROFILE || look.renderProfile === LAYERED_TERRAIN_CLIFF_PROFILE || look.renderProfile === SCULPTED_TERRAIN_CLIFF_PROFILE
   const layered = look.renderProfile === LAYERED_TERRAIN_CLIFF_PROFILE || look.renderProfile === SCULPTED_TERRAIN_CLIFF_PROFILE
   const sculpted = look.renderProfile === SCULPTED_TERRAIN_CLIFF_PROFILE
+  const strata = look.renderProfile === STRATIFIED_CLIFF_PROFILE
+  const eroded = look.renderProfile === ERODED_CLIFF_PROFILE, weathered = isWeatheredCliffProfile(look.renderProfile)
+  const elevationAt = (surface: ProjectedSurface | null) => {
+    if (!surface) return () => 0
+    const { elevationMm, relief } = surface
+    if (!relief || !weathered) return () => elevationMm
+    const bounds = reliefBounds(surface.points)
+    return (point: PointMm) => elevationMm + sampleTerrainRelief(relief, bounds, point).offsetMm
+  }
+  const highAt = elevationAt(run.high), lowAt = elevationAt(run.low)
+  const exposedHeight = (a: PointMm, i: number) => Math.max(0, highAt(a) - lowAt(a)) * dropAt(i) / drop
+  const exposed = points.map(exposedHeight)
+  const strength = eroded ? exposed.map(height => {
+    const t = Math.max(0, Math.min(1, (height / drop - .27) / .64))
+    return t * t * (3 - 2 * t)
+  }) : undefined
   const erosion = (point: PointMm, size: number) => {
     const x = point.x / size, y = point.y / size, ix = Math.floor(x), iy = Math.floor(y), tx = x - ix, ty = y - iy
     const value = (x: number, y: number) => {
@@ -263,23 +303,25 @@ function makeFace(run: Run, sharedNormal: (point: PointMm) => PointMm | undefine
   // Height controls both the shoulder and exposed face; look.widthMm is a
   // bounded artistic maximum, not an invented physical terrace or elevation.
   const inner = points.map((a, i) => {
-    const variation = sculpted ? .86 + erosion(a, 950) * .24 + erosion(a, 360) * .09 : layered
+    if (weathered) return add(a, normalsAt[i], -weatheredCliffWidth(look, a, exposed[i]).shoulder * (strength?.[i] ?? 1))
+    const variation = strata ? .82 + erosion(a, 770) * .49 + erosion(a, 310) * .19 : sculpted ? .86 + erosion(a, 950) * .24 + erosion(a, 360) * .09 : layered
       ? .86 + .17 * Math.sin(a.x / 850 + a.y / 1200 + phase) + .07 * Math.sin(a.x / 240 - a.y / 330 + phase)
       : .91 + .08 * Math.sin(a.x / 850 + a.y / 1200 + phase) + .04 * Math.sin(a.x / 240 - a.y / 330 + phase)
-    return add(a, normalsAt[i], -Math.min(look.widthMm * 1.65, dropAt(i) * (natural ? .94 : .58)) * variation)
+    return add(a, normalsAt[i], -Math.min(look.widthMm * 1.65, dropAt(i) * (strata ? .27 : natural ? .94 : .58)) * variation)
   })
   const feet = points.map((a, i) => {
     const n = normalsAt[i], facing = .26 + .74 * (.5 + .5 * n.y)
-    const variation = sculpted ? .80 + erosion(a, 700) * .28 + erosion(a, 260) * .14 : layered
+    if (weathered) return add(a, n, weatheredCliffToeReach(look, a, exposed[i], n.y) * (strength?.[i] ?? 1))
+    const variation = strata ? .92 + erosion(a, 510) * .41 + erosion(a, 220) * .12 : sculpted ? .80 + erosion(a, 700) * .28 + erosion(a, 260) * .14 : layered
       ? .80 + .16 * Math.sin(a.x / 700 + a.y / 1100 + phase) + .08 * Math.cos(a.x / 230 - a.y / 380 + phase)
       : .88 + .08 * Math.sin(a.x / 700 + a.y / 1100 + phase) + .06 * Math.cos(a.x / 230 - a.y / 380 + phase)
-    return add(a, n, Math.min(look.widthMm, dropAt(i) * (natural ? .85 : .48)) * facing * variation)
+    return add(a, n, Math.min(look.widthMm, dropAt(i) * (strata ? .93 : natural ? .85 : .48)) * facing * variation)
   })
   for (let i = 0; i < count; i++) {
     const j = (i + 1) % points.length, polygon = [inner[i], inner[j], feet[j], feet[i]]
     if (Math.abs(area(polygon)) < 1e-5) continue
     polygons.push(poly(polygon)); cells.push({ polygon, inner: [inner[i], inner[j]], crest: [points[i], points[j]],
-      foot: [feet[i], feet[j]], normal: normals[i], stationMm: distances[i] })
+      foot: [feet[i], feet[j]], normal: normals[i], stationMm: distances[i], ...(strength ? { strength: (strength[i] + strength[j]) / 2 } : {}) })
   }
   const total = distances.at(-1)!, at = (distance: number, fraction: number) => {
     const d = closed ? (distance % total + total) % total : Math.max(0, Math.min(total, distance))
@@ -291,7 +333,7 @@ function makeFace(run: Run, sharedNormal: (point: PointMm) => PointMm | undefine
   // Long broken strata follow the mass, while wider spaced cross fractures
   // bridge its shoulder and face. Stations use millimetres, never pixel zoom.
   const spacing = Math.max(650, look.repeatMm * 2.4)
-  for (let d = 0; d < total; d += spacing) {
+  for (let d = 0; !strata && !weathered && d < total; d += spacing) {
     if (cracks.length > 4096) throw new Error('高差岩面岩层超过有限预算。')
     const wobble = Math.sin(d / 410 + points[0].x / 800 + phase) * .12
     cracks.push([at(d + spacing * .18, -.91), at(d + spacing * (.27 + wobble), -.48),

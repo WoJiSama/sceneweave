@@ -6,7 +6,7 @@ import { type NaturalGenerationRecipe, type GenerationReference } from './contra
 import { generationInputHash, managedOutputHash, constraintInputHash } from './integrity.js'
 import { terrainCommandCost } from './cost.js'
 import { assertTaskBudget, measureTaskBudget, taskBudgetProfile, taskSemanticTargets, type TaskBudgetProfile } from '../budget/task-budget.js'
-import type { TerrainGenerationResult } from './generate.js'
+import { COASTAL_ASCENT_VERSION, WEATHERED_COAST_VERSION, NATURAL_STONE_COAST_VERSION, ERODED_COAST_VERSION, type TerrainGenerationResult } from './generate.js'
 import { visualBase } from '../visual/base.js'
 /** Complete current materialization; no generator seed is a substitute for editable results. */
 export function emptyTerrainDocument(input:SceneDocument):SceneDocument {
@@ -25,14 +25,15 @@ export function composeTerrainDocument(base:SceneDocument,result:TerrainGenerati
   const roughness = !t3 && algorithmVersion >= 2 ? result.input.kind === 'island' ? .018 : .008 : .18
   const primaryBoundary = visualBase(result.document)!.boundaries[t3 ? 'terrain-high-curve' : 'terrain-coast-curve']
   if (!primaryBoundary) throw new Error('生成结果缺少确切主轮廓。')
-  const styled = algorithmVersion === 5 || algorithmVersion === 8 || algorithmVersion === 9
+  const coastalAscent = algorithmVersion === COASTAL_ASCENT_VERSION || algorithmVersion === WEATHERED_COAST_VERSION || algorithmVersion === NATURAL_STONE_COAST_VERSION || algorithmVersion === ERODED_COAST_VERSION
+  const styled = algorithmVersion === 5 || algorithmVersion === 8 || algorithmVersion === 9 || coastalAscent
   const surfaceMaterials=styled?new Set([
     ...Object.values(document.terrainAreas),...Object.values(document.terrainEdges),...Object.values(document.terrainConnections),...Object.values(document.paths),
   ].flatMap(row=>row.surfaceStyle?[row.surfaceStyle.base.materialRef.id,...row.surfaceStyle.overlays.map(overlay=>overlay.paint.materialRef.id)]:[])):null
   system.recipes[recipeId]={id:recipeId,recipeVersion:algorithmVersion,algorithmId,algorithmVersion,mapMode:'scene',seed:result.input.seed,
-    parameters:{terrainKind:result.input.kind,seaElevationMm:0,landElevationMm:800,plateauElevationMm:2600,roughness,densityFactor:.3,baySide:Math.abs(result.skeleton.bayDirection.x)>Math.abs(result.skeleton.bayDirection.y)?result.skeleton.bayDirection.x<0?'west':'east':result.skeleton.bayDirection.y<0?'north':'south'},
+    parameters:{terrainKind:result.input.kind,seaElevationMm:0,landElevationMm:800,plateauElevationMm:coastalAscent ? document.terrainAreas['terrain-high'].groundElevationMm : 2600,roughness,densityFactor:.3,baySide:Math.abs(result.skeleton.bayDirection.x)>Math.abs(result.skeleton.bayDirection.y)?result.skeleton.bayDirection.x<0?'west':'east':result.skeleton.bayDirection.y<0?'north':'south'},
     materials:Object.values(document.materials).filter(m=>surfaceMaterials?surfaceMaterials.has(m.id):Object.values(document.terrainAreas).some(a=>a.surfaceStyle?.base.materialRef.id===m.id)).map((m):NaturalGenerationRecipe['materials'][number]=>({role:m.tags.includes('water')||m.tags.includes('水')?'water':m.tags.includes('sand')?'sand':m.tags.includes('grass')||m.id.includes('moss')?'grass':'rock',ref:{id:m.id,version:m.version}})),
-    props:[...new Set(Object.values(document.props).flatMap(p=>p.definitionRef?[p.definitionRef.id]:[]))].map((id):NaturalGenerationRecipe['props'][number]=>({role:id.includes('tree-')?'tree':id.includes('grass-')?'shrub':'rock',ref:{id,version:document.propDefinitions[id].version}})),
+    props:[...new Set(Object.values(document.props).flatMap(p=>p.definitionRef?[p.definitionRef.id]:[]))].map((id):NaturalGenerationRecipe['props'][number]=>({role:id.includes('tree-')?'tree':id.includes('grass-')||algorithmVersion>=WEATHERED_COAST_VERSION&&id.includes('shrub-')?'shrub':'rock',ref:{id,version:document.propDefinitions[id].version}})),
     precision:{sampleSpacingMm:primaryBoundary.sampleSpacingMm,toleranceMm:primaryBoundary.toleranceMm,noiseCellMm:Math.round(Math.min(result.input.widthMm/result.skeleton.gridColumns,result.input.heightMm/result.skeleton.gridRows))}}
   if (algorithmVersion === 4 || styled) {
     // JSON object order cannot decide persisted recipe-array meaning. The new
@@ -59,7 +60,7 @@ export function composeTerrainDocument(base:SceneDocument,result:TerrainGenerati
   const rule=system.rules[ruleId];rule.inputHash=generationInputHash(document,rule);rule.managedOutputHash=managedOutputHash(document,rule)
   system.checks['terrain-activity-check']={id:'terrain-activity-check',constraintId,state:'passed',algorithmId,algorithmVersion,inputHash:constraintInputHash(document,constraintId),issues:[]}
   const empty=emptyTerrainDocument(base);empty.visual={version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}}
-  if(result.input.algorithmVersion===4||result.input.algorithmVersion===5||result.input.algorithmVersion===8||result.input.algorithmVersion===9){
+  if(result.input.algorithmVersion===4||result.input.algorithmVersion===5||result.input.algorithmVersion===8||result.input.algorithmVersion===9||result.input.algorithmVersion===COASTAL_ASCENT_VERSION||result.input.algorithmVersion===WEATHERED_COAST_VERSION||result.input.algorithmVersion===NATURAL_STONE_COAST_VERSION||result.input.algorithmVersion===ERODED_COAST_VERSION){
     const profile=budget??taskBudgetProfile(result.input.budgetProfileId)
     if(profile.profileId!==result.input.budgetProfileId)throw new Error('生成预算档位不同。')
     const usage=assertTaskBudget(profile,measureTaskBudget(empty,document,undefined,result.executionUsage))

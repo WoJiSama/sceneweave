@@ -92,7 +92,8 @@ export function validateVisualSystem(scene: SceneDocument): Issue[] {
         // The ribbon profile unions bounded segment quads with shared feet rather
       // than a self-crossing offset loop. Short source runs can therefore join
       // without shrinking their width; old offset profiles keep their guard.
-      if (edge.renderProfile !== 'rockRelief5' && edge.renderProfile !== 'rockRelief6' && edge.renderProfile !== 'rockRelief7' && edge.renderProfile !== 'rockRelief8' && edge.renderProfile !== 'rockRelief9' && edge.widthMm > sampled.lengthMm / 2) add('VISUAL_EDGE', '边带宽度超过曲线长度的一半。', edge.id)
+      if (!['rockRelief5', 'rockRelief6', 'rockRelief7', 'rockRelief8', 'rockRelief9', 'rockRelief10', 'rockRelief11', 'rockRelief12'].includes(edge.renderProfile ?? '')
+        && edge.widthMm > sampled.lengthMm / 2) add('VISUAL_EDGE', '边带宽度超过曲线长度的一半。', edge.id)
     } catch { /* Boundary diagnostics already report the cause. */ }
   }
   if (totalDecorations > 8192) add('VISUAL_BUDGET', '全图边缘装饰重复数超过8192。')

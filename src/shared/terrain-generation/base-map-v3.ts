@@ -1,6 +1,9 @@
 import { terrainGenerationInputV5Schema, terrainGenerationResultV5Schema, generateTerrainDocumentV5, compositionPresetV5Schema, compositionPresetV5, materializeTerrainCompositionV5 } from './surface-generation.js'
 import { terrainGenerationInputV8Schema, terrainGenerationResultV8Schema, generateTerrainDocumentV8 } from './forest-generation-v8.js'
 import { terrainGenerationInputV9Schema, terrainGenerationResultV9Schema, generateTerrainDocumentV9 } from './coast-generation-v9.js'
+import { COASTAL_ASCENT_VERSION, WEATHERED_COAST_VERSION, NATURAL_STONE_COAST_VERSION, ERODED_COAST_VERSION, terrainGenerationInputV10Schema, terrainGenerationInputV11Schema,
+  terrainGenerationInputV12Schema, terrainGenerationInputV13Schema, terrainGenerationResultV10Schema, terrainGenerationResultV11Schema, terrainGenerationResultV12Schema, terrainGenerationResultV13Schema,
+  coastalGenerationRecipe } from './coastal-generation.js'
 import { terrainGenerationInputV6Schema, terrainGenerationResultV6Schema, generateTerrainDocumentV6,
   compositionPresetV6Schema, compositionPresetV6, materializeTerrainCompositionV6 } from './surface-rule-generation.js'
 import { terrainGenerationInputV7Schema, terrainGenerationResultV7Schema, generateTerrainDocumentV7,
@@ -11,7 +14,7 @@ import { nativeSceneSchema, sceneDocumentSchema } from '../validation/scene.js'
 import { captureJson, canonicalJson, encodeUtf8, freezeJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
 import { TaskBudgetProfileSchema, BudgetUsageSchema, assertTaskBudget, measureTaskBudget, taskSemanticTargets } from '../budget/task-budget.js'
-import { terrainGenerationInputV4Schema, terrainGenerationResultV4Schema, generateTerrainDocumentV4 } from './generate.js'
+import { terrainGenerationInputV4Schema, terrainGenerationResultV4Schema, generateTerrainDocumentV4, type TerrainGenerationInput } from './generate.js'
 import { compositionPresetV4Schema, compositionPresetV4 } from './composition-presets.js'
 import { materializeTerrainComposition } from './composition-materialize.js'
 import { composeTerrainDocument } from './compose.js'
@@ -21,22 +24,29 @@ import { bindTerrainVariantPresentations, bindTerrainVariantV2Presentations } fr
 export const BASE_MAP_V3_LIMITS = Object.freeze({ requestBytes:24*1024*1024, resultBytes:32*1024*1024 })
 const id=z.string().min(1).max(256).refine(v=>v!=='__proto__'),hash=z.string().regex(/^[a-f0-9]{64}$/),count=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const generationSchema=z.discriminatedUnion('kind',[
- z.object({kind:z.literal('terrain'),input:z.union([terrainGenerationInputV4Schema,terrainGenerationInputV5Schema,terrainGenerationInputV6Schema,terrainGenerationInputV7Schema,terrainGenerationInputV8Schema,terrainGenerationInputV9Schema])}).strict(),
+ z.object({kind:z.literal('terrain'),input:z.union([terrainGenerationInputV4Schema,terrainGenerationInputV5Schema,terrainGenerationInputV6Schema,terrainGenerationInputV7Schema,terrainGenerationInputV8Schema,terrainGenerationInputV9Schema,terrainGenerationInputV10Schema,terrainGenerationInputV11Schema,terrainGenerationInputV12Schema,terrainGenerationInputV13Schema])}).strict(),
  z.object({kind:z.literal('composition'),input:z.union([compositionPresetV4Schema,compositionPresetV5Schema,compositionPresetV6Schema,compositionPresetV7Schema])}).strict(),
 ])
-const algorithmSchema=z.object({id:z.enum(['terrain-scene','terrain-scene-t3','terrain-compose']),version:z.literal([1,4,5,6,7,8,9]),recipeVersion:z.literal([4,5,6,7,8,9])}).strict()
+const algorithmVersions = [4,5,6,7,8,9,COASTAL_ASCENT_VERSION,WEATHERED_COAST_VERSION,NATURAL_STONE_COAST_VERSION,ERODED_COAST_VERSION] as const
+const algorithmSchema=z.object({id:z.enum(['terrain-scene','terrain-scene-t3','terrain-compose']),version:z.literal([1,...algorithmVersions]),recipeVersion:z.literal(algorithmVersions)}).strict()
 const context={requestId:id,workspaceSceneId:id,checkpoint:count,operationEpoch:count,flowId:id}
 const stamp={...context,inputHash:hash,baseHash:hash,paletteHash:hash,profileHash:hash,algorithm:algorithmSchema}
 export const BaseMapRequestV3Schema=z.object({protocol:z.literal('sceneweave-base-map'),version:z.literal(3),type:z.literal('generate'),...stamp,profile:TaskBudgetProfileSchema,base:sceneDocumentSchema,generation:generationSchema}).strict()
 export type BaseMapRequestV3=z.infer<typeof BaseMapRequestV3Schema>
 const resultSchema=z.discriminatedUnion('kind',[
- z.object({kind:z.literal('terrain'),terrain:z.preprocess(terrainMapOrder,z.union([terrainGenerationResultV4Schema,terrainGenerationResultV5Schema,terrainGenerationResultV6Schema,terrainGenerationResultV7Schema,terrainGenerationResultV8Schema,terrainGenerationResultV9Schema]))}).strict(),
+ z.object({kind:z.literal('terrain'),terrain:z.preprocess(terrainMapOrder,z.union([terrainGenerationResultV4Schema,terrainGenerationResultV5Schema,terrainGenerationResultV6Schema,terrainGenerationResultV7Schema,terrainGenerationResultV8Schema,terrainGenerationResultV9Schema,terrainGenerationResultV10Schema,terrainGenerationResultV11Schema,terrainGenerationResultV12Schema,terrainGenerationResultV13Schema]))}).strict(),
  z.object({kind:z.literal('composition'),document:nativeSceneSchema,plan:compositionPlanSchema}).strict(),
 ])
 const domainCost=z.object({items:z.record(z.string().min(1).max(768),z.literal(1)),total:count.max(2048),limit:z.union([z.literal(512),z.literal(1024),z.literal(2048)]),finalAdoptionCostChecked:z.literal(false)}).strict()
 export const BaseMapResponseV3Schema=z.object({protocol:z.literal('sceneweave-base-map'),version:z.literal(3),type:z.literal('result'),...stamp,generation:generationSchema,result:resultSchema,domainCost,
  generationBudget:z.object({semanticTargets:z.array(z.string().min(1).max(768)).max(2048),semanticCost:count.max(2048),usage:BudgetUsageSchema}).strict(),resultHash:hash}).strict()
 export type BaseMapResponseV3=z.infer<typeof BaseMapResponseV3Schema>
+/** The default for a fresh request. Stored requests always replay their saved version. */
+export function terrainAlgorithmForPalette(kind: TerrainGenerationInput['kind'], recipe: 4 | 5 | 6 | 7) {
+ if (recipe !== 5) return recipe
+ if (kind === 'island' || kind === 'coast') return ERODED_COAST_VERSION
+ return kind === 'forest' ? 8 : 5
+}
 const digest=(value:unknown)=>sha256Text(canonicalJson(value)),same=(a:unknown,b:unknown)=>canonicalJson(a)===canonicalJson(b)
 function capture(raw:unknown,maximum:number){const value=captureJson(raw);if(encodeUtf8(canonicalJson(value)).length>maximum)throw new Error('程序底图3传输超过字节预算。');return value}
 function algorithm(generation:BaseMapRequestV3['generation']):BaseMapRequestV3['algorithm']{return generation.kind==='composition'?{id:'terrain-compose',version:1,recipeVersion:generation.input.recipeVersion}:{id:['island','coast'].includes(generation.input.kind)?'terrain-scene':'terrain-scene-t3',version:generation.input.algorithmVersion,recipeVersion:generation.input.algorithmVersion}}
@@ -68,8 +78,9 @@ function evaluate(request:BaseMapRequestV3):BaseMapResponseV3{
    result={kind:'terrain',terrain:terrainGenerationResultV6Schema.parse(terrain)}
    document=terrain.document;execution=terrain.executionUsage
   }else{
-   const generator = version===9 ? generateTerrainDocumentV9 : version===8 ? generateTerrainDocumentV8 : version===5 ? generateTerrainDocumentV5 : generateTerrainDocumentV4
-   const schema = version===9 ? terrainGenerationResultV9Schema : version===8 ? terrainGenerationResultV8Schema : version===5 ? terrainGenerationResultV5Schema : terrainGenerationResultV4Schema
+   const coastal = coastalGenerationRecipe(version)
+   const generator = coastal?.generate ?? (version===9 ? generateTerrainDocumentV9 : version===8 ? generateTerrainDocumentV8 : version===5 ? generateTerrainDocumentV5 : generateTerrainDocumentV4)
+   const schema = coastal?.result ?? (version===9 ? terrainGenerationResultV9Schema : version===8 ? terrainGenerationResultV8Schema : version===5 ? terrainGenerationResultV5Schema : terrainGenerationResultV4Schema)
    const terrain = generator(request.base, request.generation.input)
    result={kind:'terrain',terrain:schema.parse(terrainMapOrder(terrain))}
    document=composeTerrainDocument(request.base,terrain,`base-map3-${request.inputHash}`,request.profile).document;execution=terrain.executionUsage

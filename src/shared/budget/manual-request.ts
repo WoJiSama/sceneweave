@@ -7,7 +7,7 @@ import { followingAttachmentProps } from '../attachments/dependencies.js'
 import { captureJson, freezeJson } from '../validation/json.js'
 import { visualBase } from '../visual/base.js'
 import { visualBindingEntityIds } from '../visual/diagnostics.js'
-import { MANUAL_TRANSACTION_BUDGET, selectManualTransactionBudget, type ManualTransactionBudget } from './command-budget.js'
+import { MANUAL_TRANSACTION_BUDGET, MANUAL_TRANSACTION_BUDGETS, selectManualTransactionBudget, type ManualTransactionBudget } from './command-budget.js'
 import { requestsPathAttachmentTransaction } from '../path-attachments/transaction-budget.js'
 
 export interface ManualCommandWork {
@@ -202,5 +202,14 @@ export function selectManualCommandBudget(input: SceneDocument | CompositionCont
   if (requestsPathAttachmentTransaction(document, commands)) return MANUAL_TRANSACTION_BUDGET
   if (work.semanticTargets > 1024) throw new Error(`普通事务请求展开超限[semanticTargets]：${work.semanticTargets}/1024，保留当前成果。`)
   if (work.groupMembers > 65536) throw new Error(`普通事务请求展开超限[groupMembers]：${work.groupMembers}/65536，保留当前成果。`)
-  return selectManualTransactionBudget(input, work.semanticTargets, work.groupMembers)
+  const budget = selectManualTransactionBudget(input, work.semanticTargets, work.groupMembers)
+  if (budget !== MANUAL_TRANSACTION_BUDGET) return budget
+  // Preview registration combines the prepared grid usage and a fresh net measurement.
+  const reliefNodes = commands.reduce((nodes, command) => {
+    if (command.type !== 'createTerrainArea' && command.type !== 'updateTerrainArea') return nodes
+    const relief = command.type === 'createTerrainArea' ? command.relief : command.changes.relief
+    if (!relief) return nodes
+    return nodes + Math.max(relief.offsetsMm.length, document.terrainAreas[command.id]?.relief?.offsetsMm.length ?? 0)
+  }, 0)
+  return reliefNodes * 2 > budget.limits.gridNodes ? MANUAL_TRANSACTION_BUDGETS.standard : budget
 }

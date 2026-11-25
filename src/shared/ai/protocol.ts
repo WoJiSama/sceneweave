@@ -86,7 +86,7 @@ export const TaskSnapshotSchema = z.object({ schemaVersion: z.literal(1), id, cl
 export type TaskSnapshot = z.infer<typeof TaskSnapshotSchema>
 export const ControlTaskSchema = z.object({ schemaVersion: z.literal(1), expectedGeneration: z.number().int().positive(), action: z.enum(['pause', 'cancel', 'resume']), prompt: prompt.optional(), vision: VisionInputSchema.optional() }).strict()
 export type ControlTaskRequest = z.infer<typeof ControlTaskSchema>
-export const BaseMapSelectorSchema = z.enum(['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7', 'terrain-scene-v8', 'terrain-scene-v9'])
+export const BaseMapSelectorSchema = z.enum(['terrain-scene-v6', 'terrain-compose-v6', 'terrain-scene-v7', 'terrain-compose-v7', 'terrain-scene-v8', 'terrain-scene-v9', 'terrain-scene-v10', 'terrain-scene-v11', 'terrain-scene-v12', 'terrain-scene-v13'])
 export type BaseMapSelector = z.infer<typeof BaseMapSelectorSchema>
 export const ConnectionInfoSchema = z.object({ schemaVersion: z.literal(1), model: z.string().min(1).max(128), visionModel: z.string().min(1).max(128).optional(), reasoningEffort: ReasoningEffortSchema.nullable().optional(), authoringOutputTokens: z.number().int().min(1).max(AUTHORING_LIMITS.maxOutputTokensPerRequest).optional(), protocol: z.literal('chat-completions'),
   capabilities: z.object({ conversation: z.literal(true), connectionTool: z.literal(true), sceneDraft: z.boolean(), svg: z.literal(true), vision: z.enum(['unverified', 'disabled', 'enabled']), taskReasoningEffort: z.literal(true).optional(), workflowDiscovery: z.literal(1).optional(), forestLoop: z.literal(1).optional(),
@@ -122,5 +122,9 @@ export function requiredBaseMapSelector(generation: unknown): BaseMapSelector | 
       : generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 7 ? 'terrain-scene-v7'
         : generation.kind === 'composition' && 'recipeVersion' in input && input.recipeVersion === 7 ? 'terrain-compose-v7'
           : generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 8 ? 'terrain-scene-v8'
-            : generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 9 ? 'terrain-scene-v9' : undefined
+            : generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 9 ? 'terrain-scene-v9'
+              : generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 10 ? 'terrain-scene-v10'
+                : generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 11 ? 'terrain-scene-v11'
+                  : generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 12 ? 'terrain-scene-v12'
+                    : generation.kind === 'terrain' && 'algorithmVersion' in input && input.algorithmVersion === 13 ? 'terrain-scene-v13' : undefined
 }

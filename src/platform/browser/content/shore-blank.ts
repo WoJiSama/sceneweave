@@ -7,6 +7,8 @@ import { SHORE_ART, SHORE_LICENSE, SHORE_LICENSE_REF, shoreAssetId, shoreMateria
 import { TERRAIN_VARIANT_ART, TERRAIN_VARIANT_LICENSE } from '../../../shared/visual/terrain-variant-art.js'
 import { terrainVariantAssetId } from '../../../shared/visual/terrain-variant-specs.js'
 import { TERRAIN_VARIANT_V2_ART, TERRAIN_VARIANT_V2_LICENSE } from '../../../shared/visual/terrain-variant-v2-art.js'
+import { NATURAL_STONE_ART, NATURAL_STONE_LICENSE, NATURAL_STONE_LICENSE_REF } from '../../../shared/visual/natural-stone-art.js'
+import { naturalStoneAssetId, naturalStoneDefinitionId, type NaturalStoneKey } from '../../../shared/visual/natural-stone-shapes.js'
 import { terrainVariantV2AssetId } from '../../../shared/visual/terrain-variant-v2-specs.js'
 import { cloneJson } from '../../../shared/validation/json.js'
 import { newMapArtStyle } from '../../../shared/visual/art-style.js'
@@ -15,16 +17,35 @@ import { createTerrainVariantCatalogDocument } from './terrain-variant-catalog.j
 import { createTerrainVariantV2CatalogDocument } from './terrain-variant-v2-catalog.js'
 import type { BlankOptions } from './factories.js'
 import { createRefinedBlankDocument } from './refined-blank.js'
+import { addRefinedIslandArt, coastalScrubAssetId, COASTAL_SCRUB_ART } from './refined-island.js'
 import { materializeVisualArtBatches, type VisualArtBatch } from './visual-art-project.js'
 
 export type ShoreVisualPalette = 'island' | 'coast'
+type CoastalDressing = boolean | 'naturalStone'
 const original = { kind: 'original' as const, attribution: 'Sceneweave原创岸崖表面第1版；保留独立SVG、规范化源、实际PNG与确切MIT许可；未嵌入或描摹参考图片', canEmbed: true }
+
+function addNaturalStoneDefinitions(scene: SceneDocument) {
+  const origin = { kind: 'original' as const, attribution: 'Sceneweave 原创自然石头 v1，含固定 SVG、实际 PNG 及许可。', canEmbed: true }
+  for (const art of NATURAL_STONE_ART) {
+    const { key, name, tags, widthMm, heightMm } = art, assetId = naturalStoneAssetId(key), id = naturalStoneDefinitionId(key as NaturalStoneKey)
+    if (scene.assets[assetId] || scene.propDefinitions[id]) throw new Error('自然石头固定素材身份已被占用。')
+    scene.assets[assetId] = { id: assetId, sha256: '0'.repeat(64), mimeType: 'image/png', pixelWidth: 512, pixelHeight: 512,
+      logicalSizeMm: { width: widthMm, height: heightMm }, licenseRef: NATURAL_STONE_LICENSE_REF, origin: { ...origin } }
+    scene.propDefinitions[id] = { id, catalogId: `prop.sceneweave.${id}`, version: 1, name, tags: [...tags!], licenseRef: NATURAL_STONE_LICENSE_REF, origin: { ...origin },
+      defaultAppearance: { kind: 'image', assetId, tint: null, opacity: 1 }, defaultVisualBoundsMm: { x: -Math.round(widthMm / 2), y: -Math.round(heightMm / 2), width: widthMm, height: heightMm },
+      defaultFootprintMm: { ...art.footprintMm! }, defaultFootprintOffsetMm: { x: 0, y: 0 }, defaultBlocksMovement: art.blocksMovement!, defaultBlocksSight: art.blocksSight!,
+      defaultRenderLayer: art.renderLayer!, defaultShadowClass: art.shadowClass! }
+  }
+}
 
 /** New generation palette only. Old fixed material, prop and theme snapshots
  * remain present and unchanged; no saved project is rewritten by this factory. */
-export function createShoreBlankDocument(palette: ShoreVisualPalette, options: BlankOptions, includeTerrainVariants = false, includeTerrainVariantV2 = false): SceneDocument {
+export function createShoreBlankDocument(palette: ShoreVisualPalette, options: BlankOptions, includeTerrainVariants = false, includeTerrainVariantV2 = false,
+  coastalDressing: CoastalDressing = false): SceneDocument {
   if (palette !== 'island' && palette !== 'coast') throw new Error('岸崖表面仅支持岩岛或海岸素材库。')
   const scene = createRefinedBlankDocument(palette, options)
+  if (palette === 'coast' && coastalDressing) addRefinedIslandArt(scene, COASTAL_SCRUB_ART, true)
+  if (coastalDressing === 'naturalStone') addNaturalStoneDefinitions(scene)
   for (const art of SHORE_ART) {
     const assetId = shoreAssetId(art.key), id = shoreMaterialId(art.key)
     if (scene.assets[assetId] || scene.materials[id]) throw new Error('新岸崖素材身份与固定来源冲突。')
@@ -63,14 +84,18 @@ export function createShoreBlankDocument(palette: ShoreVisualPalette, options: B
   return checked.document
 }
 
-export async function createShoreBlankProject(palette: ShoreVisualPalette, options: BlankOptions, signal?: AbortSignal, includeTerrainVariants = false, includeTerrainVariantV2 = false, woodlandPlants?: ReadonlySet<string>): Promise<EditableProject> {
+export async function createShoreBlankProject(palette: ShoreVisualPalette, options: BlankOptions, signal?: AbortSignal, includeTerrainVariants = false,
+  includeTerrainVariantV2 = false, woodlandPlants?: ReadonlySet<string>, coastalDressing: CoastalDressing = false): Promise<EditableProject> {
   signal?.throwIfAborted()
-  let scene = createShoreBlankDocument(palette, options, includeTerrainVariants, includeTerrainVariantV2)
+  let scene = createShoreBlankDocument(palette, options, includeTerrainVariants, includeTerrainVariantV2, coastalDressing)
   scene.artStyle = newMapArtStyle()
   const base = palette === 'island' ? { artwork: REFINED_ISLAND_ART, licenseText: REFINED_ISLAND_LICENSE }
     : { artwork: REFINED_COAST_ART, licenseText: REFINED_COAST_LICENSE }
-  const batches: VisualArtBatch[] = [{ ...base, assetId: key => `refined-art-${key}` },
+  const refinedAssetId = (key: string) => `refined-art-${key}`
+  const batches: VisualArtBatch[] = [{ ...base, assetId: refinedAssetId },
     { artwork: SHORE_ART, licenseText: SHORE_LICENSE, assetId: shoreAssetId },
+    ...(palette === 'coast' && coastalDressing ? [{ artwork: COASTAL_SCRUB_ART, licenseText: REFINED_ISLAND_LICENSE, assetId: coastalScrubAssetId }] : []),
+    ...(coastalDressing === 'naturalStone' ? [{ artwork: NATURAL_STONE_ART, licenseText: NATURAL_STONE_LICENSE, assetId: naturalStoneAssetId }] : []),
     ...(includeTerrainVariants ? [{ artwork: TERRAIN_VARIANT_ART, licenseText: TERRAIN_VARIANT_LICENSE, assetId: terrainVariantAssetId }] : []),
     ...(includeTerrainVariantV2 ? [{ artwork: TERRAIN_VARIANT_V2_ART, licenseText: TERRAIN_VARIANT_V2_LICENSE, assetId: terrainVariantV2AssetId }] : [])]
   if (woodlandPlants) {
@@ -81,6 +106,10 @@ export async function createShoreBlankProject(palette: ShoreVisualPalette, optio
     batches.push({ ...WHOLE_PLANT_BATCH, artwork: WHOLE_PLANT_BATCH.artwork.filter(art => woodlandPlants.has(art.key)) })
   }
   return materializeVisualArtBatches(scene, batches, signal)
+}
+
+export function createCoastalAscentBlankProject(palette: ShoreVisualPalette, options: BlankOptions, signal?: AbortSignal) {
+  return createShoreBlankProject(palette, options, signal, false, false, undefined, 'naturalStone')
 }
 
 export function createForestBlankProject(options: BlankOptions, signal?: AbortSignal) {

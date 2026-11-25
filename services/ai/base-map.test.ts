@@ -9,9 +9,10 @@ import { TaskFault, TaskStore } from './store.js'
 import { createBaseMapService } from './base-map.js'
 import { BASE_MAP_LIMITS, executeBaseMapRequest, prepareBaseMapRequest, type BaseMapResponse } from '../../src/shared/terrain-generation/base-map.js'
 import { createRefinedBlankDocument } from '../../src/platform/browser/content/refined-blank.js'
-import { TERRAIN_FIXED_SEEDS } from '../../src/shared/terrain-generation/generate.js'
+import { createShoreBlankDocument } from '../../src/platform/browser/content/shore-blank.js'
+import { checkCoastalTrail, TERRAIN_FIXED_SEEDS } from '../../src/shared/terrain-generation/generate.js'
 import { canonicalJson } from '../../src/shared/validation/json.js'
-import { BASE_MAP_V3_LIMITS, prepareBaseMapRequestV3, executeBaseMapRequestV3 } from '../../src/shared/terrain-generation/base-map-v3.js'
+import { BASE_MAP_V3_LIMITS, prepareBaseMapRequestV3, executeBaseMapRequestV3, parseBaseMapResponseV3, terrainAlgorithmForPalette } from '../../src/shared/terrain-generation/base-map-v3.js'
 import { TASK_BUDGET_PROFILES, captureExecutionBudget } from '../../src/shared/budget/task-budget.js'
 import { AI_LIMITS } from '../../src/shared/ai/protocol.js'
 
@@ -198,6 +199,26 @@ describe('profile-bound v3 base-map HTTP service', () => {
     }
     expect(complete).not.toHaveBeenCalled()
   })
+  it('runs the current fresh coastal request through the HTTP service and exact client replay', async () => {
+    const { app, headers, complete } = setup()
+    const sceneId = 'base-map-coastal-http', widthMm = 36000, heightMm = 20000, kind = 'coast'
+    const base = createShoreBlankDocument(kind, { sceneId, widthMm, heightMm, title: '海岸测试', preset: 'narrative', now: '2026-11-24T00:00:00.000Z' }, false, false, 'naturalStone')
+    const input = prepareBaseMapRequestV3({ requestId: 'coastal-request', workspaceSceneId: 'current-workspace', checkpoint: 5, operationEpoch: 1,
+      flowId: 'coastal-flow', profile: TASK_BUDGET_PROFILES.standard, base, generation: { kind: 'terrain', input: {
+        sceneId, kind, widthMm, heightMm, seed: 'ocean-final-2', algorithmVersion: terrainAlgorithmForPalette(kind, 5), budgetProfileId: 'standard', quality: 'standard',
+      } } })
+    const capability = await app.request('/v1/capabilities?baseMapSelector=terrain-scene-v13', { headers })
+    expect(capability.status).toBe(200)
+    expect((await capability.json()).capabilities.baseMapSelectors).toEqual(['terrain-scene-v13'])
+    const output = await app.request(`${path}?baseMapVersion=3`, { method: 'POST', headers, body: JSON.stringify(input) })
+    expect(output.status).toBe(200)
+    const { algorithm, result } = parseBaseMapResponseV3(input, await output.json())
+    expect(algorithm).toEqual({ id: 'terrain-scene', version: 13, recipeVersion: 13 })
+    if (result.kind !== 'terrain') throw new Error('Expected a terrain candidate')
+    expect(checkCoastalTrail(result.terrain.document).connectionIds).toEqual(['terrain-stairs', 'terrain-summit-stairs'])
+    expect(Object.values(result.terrain.document.props).some(prop => prop.definitionRef?.id.startsWith('natural-stone-v1-'))).toBe(true)
+    expect(complete).not.toHaveBeenCalled()
+  }, 30000)
   it('retains exhausted real meter charges across failed generation attempts instead of resetting a flow', () => {
     const { store } = setup(), input = prepared(), token = store.beginBaseMap('work-quota-owner', input)
     expect(() => store.measureBaseMapWork(token, () => {

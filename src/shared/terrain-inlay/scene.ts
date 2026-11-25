@@ -8,6 +8,7 @@ import { planTerrainInlay } from './geometry.js'
 import { TERRAIN_INLAY_LIMITS, type TerrainInlaySource } from './contracts.js'
 import { terrainInlaySchema } from './persistence.js'
 import { connectionArcFrame } from '../geometry/connection-route.js'
+import { reliefBounds, reliefLevelAlong } from '../geometry/terrain-relief.js'
 
 export const terrainInlayHash = (value: unknown) => sha256Text(canonicalJson(value))
 export function terrainInlaySource(area: TerrainArea): TerrainInlaySource {
@@ -45,7 +46,7 @@ export function inspectTerrainInlay(scene: SceneDocument, connection: TerrainCon
     assert(new Set(inlay.sourceProofs.map(proof => proof.areaId)).size === geometry.sources.length, '跨台山路来源证明不能重复。')
     for (const source of geometry.sources) {
       const current = scene.terrainAreas[source.id], proof = inlay.sourceProofs.find(row => row.areaId === source.id)
-      assert(current && !current.rockBody && !current.relief && proof && terrainInlayHash(terrainInlaySource(current)) === terrainInlayHash(source)
+      assert(current && !current.rockBody && proof && terrainInlayHash(terrainInlaySource(current)) === terrainInlayHash(source)
         && proof.geometryHash === terrainInlayHash(source), '跨台山路源面已移动、改高、换覆盖顺序或变成未支持的岩体；不能刷新旧来源。')
       assert(!source.boundaryMm.some(point => Object.hasOwn(geometry.verticesMm, point.id)), '实际顶点不得复用源地形身份。')
       assert(connection.visibility !== 'public' || current.visibility === 'public', '公开山路不能依赖私密源地形。')
@@ -133,7 +134,14 @@ export function inspectTerrainInlay(scene: SceneDocument, connection: TerrainCon
         : [connectionBand(other.route?.centerlineMm ?? [other.from.positionMm, other.to.positionMm], other.widthMm)]
       assert(otherFootprints.every(points => { spend(footprint.length * points.length); return !polygonsOverlap(footprint, points) }), '跨台山路影响域不能与另一连接或切口重叠。')
     }
-    planTerrainInlay(geometry)
+    const plan = planTerrainInlay(geometry)
+    for (const source of geometry.sources) {
+      const current = scene.terrainAreas[source.id]
+      if (!current.relief) continue
+      const bounds = reliefBounds(terrainPoints(current))
+      assert(plan.cells.filter(cell => cell.sourceAreaId === source.id).every(cell => reliefLevelAlong(current.relief!, bounds, cell.ringMm)),
+        '起伏须保留跨台山路切口的完整接合高程。')
+    }
     return []
   } catch (cause) { return [{ code: 'TERRAIN_INLAY', entityId: connection.id, message: cause instanceof Error ? cause.message : String(cause) }] }
 }

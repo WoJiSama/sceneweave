@@ -403,7 +403,11 @@ export function detachChangedOutputs(beforeInput: SceneDocument, nextInput: Scen
     }
     // Only trusted appearance callers supply these references. Geometry is
     // always compared against real persisted results after materialization.
-    const touched = row.managedFields.filter(fieldGroup => !equal(resolveGenerationTarget(beforeInput, { ...row.target, fieldGroup }), resolveGenerationTarget(nextInput, { ...row.target, fieldGroup }))
+    // Keep old recipe hashes replayable while treating sculpted relief as a
+    // manual geometry edit of the generated terrain area.
+    const sculpted = row.target.kind === 'terrainArea' && !equal(previousEntity?.relief ?? null, nextEntity?.relief ?? null)
+    const touched = row.managedFields.filter(fieldGroup => fieldGroup === 'geometry' && sculpted
+      || !equal(resolveGenerationTarget(beforeInput, { ...row.target, fieldGroup }), resolveGenerationTarget(nextInput, { ...row.target, fieldGroup }))
       || appearanceChanges.some(ref => ['appearance', 'surface', 'source'].includes(ref.fieldGroup) && ref.fieldGroup === fieldGroup && sameEntity(ref, row.target)))
     if (!touched.length && !(previousEntity && !nextEntity)) continue
     assertRuleUnlocked(row.ruleId)

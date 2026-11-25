@@ -5,7 +5,7 @@ import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
 import { visualBase } from '../visual/base.js'
 import { validateFloorSettings } from '../floors/output.js'
 import {inspectPathChecks} from './path-checks.js'
-import { createSupportQuery, rootSurfaceElevation } from './support-sample.js'
+import { createSupportQuery, rootSurfaceElevation as elevation } from './support-sample.js'
 import { carvedStripCenterline, carvedStripFootprint, inspectCarvedStrip } from '../carved-rock/index.js'
 import { inspectTerrainInlay, terrainInlayFootprint } from '../terrain-inlay/scene.js'
 import { createRockShellSampler, inspectRockShell } from '../rock-shell/index.js'
@@ -126,7 +126,7 @@ export function propFootprint(prop: Pick<Prop, 'positionMm' | 'rotationDeg' | 'f
   const b = { x: prop.footprintOffsetMm.x - prop.footprintMm.width / 2, y: prop.footprintOffsetMm.y - prop.footprintMm.height / 2, ...prop.footprintMm }
   return transformBounds(b, prop.positionMm, prop.rotationDeg)
 }
-const transformBounds = (bounds: BoundsMm, position: PointMm, rotation: number): PointMm[] => {
+export const transformBounds = (bounds: BoundsMm, position: PointMm, rotation: number): PointMm[] => {
   const radians = rotation * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians)
   return boundsPolygon(bounds).map(p => ({ x: position.x + p.x * cos - p.y * sin, y: position.y + p.x * sin + p.y * cos }))
 }
@@ -142,7 +142,6 @@ export function openingEndpoints(scene: Pick<SceneDocument, 'vertices' | 'walls'
 export function supportSurfaceAt(scene: SceneDocument, point: PointMm, floorId: string): GroundSurfaceRef | null {
   return createSupportQuery(scene, floorId).rootAt(point)
 }
-const elevation = rootSurfaceElevation
 const refEqual = (a: SurfaceRef, b: SurfaceRef): boolean => a.kind === b.kind && a.id === b.id
 type SupportQuery = ReturnType<typeof createSupportQuery>
 export function pointOnSurface(scene: SceneDocument, p: PointMm, ref: SurfaceRef, floorId: string): boolean {
@@ -441,8 +440,9 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   const styleGeometry = (style: SurfaceStyle | null) => { if (style) for (const overlay of style.overlays) polygon(overlay.boundaryMm, overlay.id, false) }
   const areas = Object.values(scene.terrainAreas), validAreas: TerrainArea[] = []
   for (const item of areas) {
-    if (polygon(terrainPoints(item), item.id)) validAreas.push(item)
-    withinFloor(terrainPoints(item), item.floorId, item.id); styleGeometry(item.surfaceStyle)
+    const outline = terrainPoints(item)
+    if (polygon(outline, item.id)) validAreas.push(item)
+    withinFloor(outline, item.floorId, item.id); styleGeometry(item.surfaceStyle)
     if (item.rockBody && item.rockBody.baseElevationMm >= item.groundElevationMm) error('ROCK_BODY_HEIGHT', '有限岩体底高必须严格低于顶高。', item.id)
   }
   const shellRows: { area: TerrainArea; triangles: PointMm[][] }[] = []

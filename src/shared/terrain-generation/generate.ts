@@ -1,15 +1,15 @@
 import { visualBase } from '../visual/base.js'
 import { z } from 'zod'
-import type { PointMm, Prop, SceneDocument, SurfaceRef, SurfaceStyle, TerrainArea } from '../model/scene.js'
+import type { Path, PointMm, SceneDocument, SurfaceRef, SurfaceStyle, TerrainArea } from '../model/scene.js'
 import { LAYER_ENTITY_COLLECTIONS } from '../model/scene.js'
 import { cloneJson, canonicalJson, inspectJsonInput, captureJson } from '../validation/json.js'
 import { id, point, surfaceRef } from '../validation/primitives.js'
 import { sceneDocumentSchema, validateSceneDocument } from '../validation/scene.js'
-import { corridor, pointOnSurface, polygonDistance, polygonInside, polygonsOverlap, propFootprint, pathPolygon, supportedPolygon, terrainPoints, validateGeometry } from '../geometry/geometry.js'
+import { corridor, pointInPolygon, pointOnSurface, polygonDistance, polygonInside, polygonValid, polygonsOverlap, propFootprint, pathPolygon, supportedPolygon, terrainPoints, transformBounds, validateGeometry } from '../geometry/geometry.js'
 import { visualCommandCost } from '../visual/commands.js'
 import { connectionRouteChangeCost } from '../commands/outdoor.js'
 import { assertTerrainConnectionClearances, checkTerrainRoute, searchTerrainRoute } from '../geometry/terrain-travel.js'
-import { straightRockStairRoute } from '../geometry/connection-route.js'
+import { sampleConnectionRoute, smoothConnectionControls, straightRockStairRoute } from '../geometry/connection-route.js'
 import { sampleVisualBoundary, signedVisualArea } from '../visual/geometry.js'
 import type { CubicSegment, VisualBoundary, VisualEdgeLook } from '../visual/types.js'
 import { emptyVisualSystem } from '../visual/types.js'
@@ -18,6 +18,9 @@ import { sandCoastSegmentsV2, shorelineFieldV2 } from './shoreline-v2.js'
 import { islandSkeletonV3 } from './shoreline-v3.js'
 import { forestSkeletonV8, type ForestSkeletonV8 } from './forest-layout-v8.js'
 import { coastSkeletonV9, shapeCoastalRidge } from './coast-layout-v9.js'
+import { coastalAscentLayout, coastalEdgeDetailScale, groundCoverPatch, shapeCoastalReef, shapeCoastalRock, trailGrassOutline } from './coastal-ascent.js'
+import { shapeCoastalFootSlope, shapeErodedCoastalRock } from './coastal-relief.js'
+import { placeCoastalDressing, terrainProp } from './coastal-dressing.js'
 import { SHORE_MATERIAL_IDS } from '../visual/shore-art.js'
 
 import { BudgetUsageSchema, TaskBudgetProfileSchema, taskBudgetProfile, measureTaskBudget, assertTaskBudget, captureExecutionBudget, type ExecutionBudget, type BudgetUsage } from '../budget/task-budget.js'
@@ -42,7 +45,24 @@ export type TerrainGenerationInputV8 = z.infer<typeof terrainGenerationInputV8Sc
 export const terrainGenerationInputV9Schema = z.object({ ...terrainGenerationInputV4Schema.shape, kind: z.literal('coast'), algorithmVersion: z.literal(9) }).strict()
   .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '海岸范围宽高比须为1–1.8。')
 export type TerrainGenerationInputV9 = z.infer<typeof terrainGenerationInputV9Schema>
-export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema> | TerrainGenerationInputV4 | TerrainGenerationInputV5 | TerrainGenerationInputV8 | TerrainGenerationInputV9
+export const COASTAL_ASCENT_VERSION = 10
+export const terrainGenerationInputV10Schema = z.object({ ...terrainGenerationInputV4Schema.shape, kind: z.enum(['coast', 'island']), algorithmVersion: z.literal(COASTAL_ASCENT_VERSION) }).strict()
+  .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '沿海地形范围宽高比须为1–1.8。')
+export type TerrainGenerationInputV10 = z.infer<typeof terrainGenerationInputV10Schema>
+export const WEATHERED_COAST_VERSION = 11
+export const terrainGenerationInputV11Schema = z.object({ ...terrainGenerationInputV10Schema.shape, algorithmVersion: z.literal(WEATHERED_COAST_VERSION) }).strict()
+  .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '沿海地形范围宽高比须为1–1.8。')
+export type TerrainGenerationInputV11 = z.infer<typeof terrainGenerationInputV11Schema>
+export const NATURAL_STONE_COAST_VERSION = 12
+export const terrainGenerationInputV12Schema = z.object({ ...terrainGenerationInputV11Schema.shape, algorithmVersion: z.literal(NATURAL_STONE_COAST_VERSION) }).strict()
+  .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '沿海地形范围宽高比须为1–1.8。')
+export type TerrainGenerationInputV12 = z.infer<typeof terrainGenerationInputV12Schema>
+export const ERODED_COAST_VERSION = 13
+export const terrainGenerationInputV13Schema = z.object({ ...terrainGenerationInputV12Schema.shape, algorithmVersion: z.literal(ERODED_COAST_VERSION) }).strict()
+  .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '沿海地形范围宽高比须为1–1.8。')
+export type TerrainGenerationInputV13 = z.infer<typeof terrainGenerationInputV13Schema>
+export type CoastalAscentVersion = typeof COASTAL_ASCENT_VERSION | typeof WEATHERED_COAST_VERSION | typeof NATURAL_STONE_COAST_VERSION | typeof ERODED_COAST_VERSION
+export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema> | TerrainGenerationInputV4 | TerrainGenerationInputV5 | TerrainGenerationInputV8 | TerrainGenerationInputV9 | TerrainGenerationInputV10 | TerrainGenerationInputV11 | TerrainGenerationInputV12 | TerrainGenerationInputV13
 export interface TerrainManagedTarget { kind: 'terrainArea' | 'terrainConnection' | 'path' | 'prop' | 'visualBoundary' | 'visualEdgeLook'; id: string }
 export interface TerrainGenerationResult {
   document: SceneDocument
@@ -184,8 +204,8 @@ function cubicBoundary(value: string, points: PointMm[], closed: boolean, input:
   })
   return { ...entity(value), closed, segments, sampleSpacingMm: Math.min(20000, Math.round((value === 'terrain-high-curve' ? 1600 : 1800) * scale)), toleranceMm: Math.min(1000, Math.round(90 * scale)), binding: { kind: 'decoration' } }
 }
-function addBoundArea(scene: SceneDocument, curve: VisualBoundary, input: TerrainGenerationInput, purpose: 'low' | 'high'): TerrainArea {
-  const area = addTerrain(scene, `terrain-${purpose}`, sampleVisualBoundary(curve).points, input, purpose)
+function addBoundArea(scene: SceneDocument, curve: VisualBoundary, input: TerrainGenerationInput, purpose: 'low' | 'high', value = `terrain-${purpose}`): TerrainArea {
+  const area = addTerrain(scene, value, sampleVisualBoundary(curve).points, input, purpose)
   curve.binding = { kind: 'terrain', sides: [{ areaId: area.id, startPointId: area.boundaryMm[0].id, endPointId: area.boundaryMm[0].id, reverse: false }] }
   visualBase(scene)!.boundaries[curve.id] = curve
   return area
@@ -268,25 +288,34 @@ function findStairs(scene: SceneDocument, low: TerrainArea, high: TerrainArea, i
   throw new Error(`生成高台未找到满足1500mm完整净宽与单一有效地面转换的真实台阶（${lastErrors || '候选端点不在有效支撑'}）。`)
 }
 
-function activityArea(scene: SceneDocument, center: PointMm, input: TerrainGenerationInput): TerrainGenerationResult['activity'] {
+function activityArea(scene: SceneDocument, center: PointMm, input: TerrainGenerationInput, meter?: ExecutionBudget): TerrainGenerationResult['activity'] {
   const scale = Math.min(input.widthMm / 24000, input.heightMm / 18000), width = 2400 * scale, height = 2000 * scale
-  const boundaryMm = [p(center.x - width / 2, center.y - height / 2), p(center.x + width / 2, center.y - height / 2), p(center.x + width / 2, center.y + height / 2), p(center.x - width / 2, center.y + height / 2)]
   const supportRef: SurfaceRef = { kind: 'terrainArea', id: 'terrain-high' }
-  if (!supportedPolygon(scene, boundaryMm, supportRef, FLOOR)) throw new Error('明确活动区不在高台有效支撑内。')
-  return { id: 'terrain-activity', boundaryMm, supportRef }
+  const positions = meter ? [[0, 0], [0, -240], [0, 240], [320, 0], [-320, 0], [280, 240], [-280, -240]] : [[0, 0]]
+  const outline = terrainPoints(scene.terrainAreas[supportRef.id])
+  for (const [dx, dy] of positions) {
+    const x = center.x + dx * scale, y = center.y + dy * scale
+    const boundaryMm = [p(x - width / 2, y - height / 2), p(x + width / 2, y - height / 2), p(x + width / 2, y + height / 2), p(x - width / 2, y + height / 2)]
+    meter?.charge({intersectionPairs: outline.length * boundaryMm.length})
+    if (supportedPolygon(scene, boundaryMm, supportRef, FLOOR)) return { id: 'terrain-activity', boundaryMm, supportRef }
+  }
+  throw new Error('明确活动区不在高台有效支撑内。')
 }
 function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activity: TerrainGenerationResult['activity'],meter?:ExecutionBudget,
-  coastalShape?: ReturnType<typeof coastSkeletonV9>): void {
+  coastalShape?: ReturnType<typeof coastSkeletonV9>, ascent = false): void {
   const island = ['tree-north-asym', 'tree-windbent', 'tree-split-crown', 'rock-north-ridge', 'rock-layered-shelf', 'rock-tidepool']
   const coast = ['grass-wind', 'grass-fan', 'reef-split', 'reef-shelf', 'reef-pool']
   const coastBanks = ['driftwood', 'pebbles', 'reef-shelf', 'wrack', 'reef-pool']
   const coastInland = ['grass-wind', 'grass-fan', 'grass-wind', 'reef-split', 'grass-fan', 'pebbles']
+  const slopeDebris = ['grass-wind', 'reef-split', 'grass-fan', 'reef-shelf', 'grass-wind', 'reef-pool']
   const palette = input.kind === 'coast' ? 'coast' : 'island'
-  const keys = input.kind === 'forest' ? island.filter(key => key.startsWith('tree-'))
+  const islandSlope = ['shrub-coastal-heath', 'rock-layered-shelf', 'debris-scree', 'tree-windbent', 'shrub-scree-sedge', 'rock-north-ridge', 'shrub-coastal-heath', 'tree-split-crown']
+  const keys = ascent && palette === 'island' ? islandSlope : input.kind === 'forest' ? island.filter(key => key.startsWith('tree-'))
     : input.kind === 'hill' ? island.filter(key => key.startsWith('rock-'))
       : input.kind === 'mixed' ? [...island.slice(0, 3), ...island.slice(3)] : palette === 'island' ? island : coast
   const protectedConnections = Object.values(scene.terrainConnections).map(connection => corridor(connection.from.positionMm, connection.to.positionMm, connection.widthMm + 800, true))
   const protectedRoutes = Object.values(scene.paths).map(pathPolygon)
+  const inlandCover = ascent && coastalShape ? scene.terrainAreas['terrain-low'].surfaceStyle?.overlays.find(row => row.id === 'terrain-coast-inland-cover') : undefined
   // World-cell keys are independent streams; changing one definition does not reorder coast geometry.
   const candidates: { key: string; x: number; y: number; order: number }[] = []
   for (let y = 1; y < 9; y++) for (let x = 1; x < 12; x++) {
@@ -296,41 +325,156 @@ function placeProps(scene: SceneDocument, input: TerrainGenerationInput, activit
   candidates.sort((a, b) => a.order - b.order || (a.key < b.key ? -1 : 1))
   for (const candidate of candidates) {
     const count = Object.keys(scene.props).length
-    if (count >= (coastalShape ? 24 : input.algorithmVersion === 3 ? 4 : 8)) break
+    if (count >= (ascent ? Math.min(34, Math.round(18 * Math.sqrt(input.widthMm / 24000))) : coastalShape ? 24 : input.algorithmVersion === 3 ? 4 : 8)) break
     let key = keys[count % keys.length]
     if (coastalShape) {
       const distance = candidate.y - coastalShape.shorelineAt(candidate.x)
-      if (distance < 550 || distance > input.heightMm * .54) continue
-      const onBeach = candidate.y < coastalShape.duneAt(candidate.x) + 230
-      const nearby = terrainValueNoise(input.seed, 'coast-v9/dressing-clumps', candidate.x / 7200, candidate.y / 5400)
+      if (!ascent && (distance < 550 || distance > input.heightMm * .54)) continue
+      const onBeach = inlandCover ? !pointInPolygon(candidate, inlandCover.boundaryMm) : candidate.y < coastalShape.duneAt(candidate.x) + 230
+      const nearby = ascent ? terrainValueNoise(input.seed, 'coastal-ascent/dressing-clumps', candidate.x / (input.widthMm * .21), candidate.y / (input.heightMm * .21))
+        : terrainValueNoise(input.seed, 'coast-v9/dressing-clumps', candidate.x / 7200, candidate.y / 5400)
       if (!onBeach && nearby < -.23) continue
-      const choices = onBeach ? coastBanks : coastInland
+      const choices = onBeach ? coastBanks : ascent ? slopeDebris : coastInland
       key = choices[Math.floor(terrainRandomUnit(input.seed, `coast-v9/props/${candidate.key}/kind`) * choices.length)]
     }
     const definition = scene.propDefinitions[`refined-prop-${palette}-${key}`]
     if (!definition) throw new Error(`生成缺少固定物件：${input.kind}/${key}。`)
-    const supports = ['terrain-high', 'terrain-forest', 'terrain-low'].filter(id => !!scene.terrainAreas[id])
+    const supports = ['terrain-high', 'terrain-bench', 'terrain-forest', 'terrain-low'].filter(id => !!scene.terrainAreas[id])
     const supportId = supports.find(id => pointOnSurface(scene, p(candidate.x, candidate.y), { kind: 'terrainArea', id }, FLOOR))
     if (!supportId) continue
     const positionMm = p(candidate.x, candidate.y)
     const tree = key.startsWith('tree')
     if (tree && scene.terrainAreas['terrain-forest'] && supportId !== 'terrain-forest') continue
-    const scale = coastalShape ? (key.startsWith('grass-') ? 1.22 : .64) + terrainRandomUnit(input.seed, `coast-v9/props/${candidate.key}/size`) * .56 : tree ? .7 : .65
+    const slopeScale = palette === 'coast' && /^(grass|reef)-/.test(key)
+      ? Math.min(2.65, 1 + Math.sqrt(input.widthMm / 24000 - 1) * .64) : 1
+    const scale = ascent ? slopeScale * ((tree ? .68 : .93) + terrainRandomUnit(input.seed, `coastal-ascent/props/${candidate.key}/size`) * (tree ? .27 : .64))
+      : coastalShape ? (key.startsWith('grass-') ? 1.22 : .64) + terrainRandomUnit(input.seed, `coast-v9/props/${candidate.key}/size`) * .56 : tree ? .7 : .65
     const value = `terrain-prop-${count}`
-    const prop: Prop = { id: value, floorId: FLOOR, editLocked: false, visibility: 'public', definitionRef: { id: definition.id, version: definition.version }, appearance: cloneJson(definition.defaultAppearance),
-      visualBoundsMm: { x: Math.round(definition.defaultVisualBoundsMm.x * scale), y: Math.round(definition.defaultVisualBoundsMm.y * scale), width: Math.round(definition.defaultVisualBoundsMm.width * scale), height: Math.round(definition.defaultVisualBoundsMm.height * scale) },
-      footprintMm: { width: Math.round(definition.defaultFootprintMm.width * scale), height: Math.round(definition.defaultFootprintMm.height * scale) }, footprintOffsetMm: p(0, 0), positionMm,
-      rotationDeg: tree ? 0 : Math.floor(terrainRandomUnit(input.seed, `props/${candidate.key}/rotation`) * 360), blocksMovement: definition.defaultBlocksMovement, blocksSight: definition.defaultBlocksSight,
-      supportRef: { kind: 'terrainArea', id: supportId }, renderLayer: definition.defaultRenderLayer, renderOrder: 0, shadowClass: definition.defaultShadowClass, shadowOverride: null }
+    const rotation = tree ? 0 : Math.floor(terrainRandomUnit(input.seed, `props/${candidate.key}/rotation`) * 360)
+    const prop = terrainProp(definition, value, FLOOR, supportId, positionMm, scale, rotation)
     const footprint = propFootprint(prop), visualBounds = [p(positionMm.x + prop.visualBoundsMm.x, positionMm.y + prop.visualBoundsMm.y), p(positionMm.x + prop.visualBoundsMm.x + prop.visualBoundsMm.width, positionMm.y + prop.visualBoundsMm.y),
       p(positionMm.x + prop.visualBoundsMm.x + prop.visualBoundsMm.width, positionMm.y + prop.visualBoundsMm.y + prop.visualBoundsMm.height), p(positionMm.x + prop.visualBoundsMm.x, positionMm.y + prop.visualBoundsMm.y + prop.visualBoundsMm.height)]
+    if (ascent && transformBounds(prop.visualBoundsMm, positionMm, prop.rotationDeg)
+      .some(q => q.x < 0 || q.x > input.widthMm || q.y < 0 || q.y > input.heightMm)) continue
     if (!supportedPolygon(scene, footprint, prop.supportRef, FLOOR) || polygonDistance(footprint, activity.boundaryMm) < 300 || (protectedConnections.some(band => polygonDistance(footprint, band) < 200) || protectedRoutes.some(band => polygonDistance(footprint, band) < 300))
       || tree && polygonsOverlap(visualBounds, activity.boundaryMm) || Object.values(scene.props).some(other => polygonDistance(footprint, propFootprint(other)) < 650)) continue
     scene.props[value] = prop; scene.entityLayers[value] = prop.renderLayer === 'ground' ? DETAILS : PROPS
-    chargeGeometryCheck(scene,meter)
-    if (validateGeometry(scene).errors.length) { delete scene.props[value]; delete scene.entityLayers[value] }
+    if (!ascent) {
+      chargeGeometryCheck(scene,meter)
+      if (validateGeometry(scene).errors.length) { delete scene.props[value]; delete scene.entityLayers[value] }
+    }
   }
   if (Object.keys(scene.props).length < 4) throw new Error('在保护活动区与台阶后没有足够合法树石位置。')
+}
+
+export const COASTAL_TRAIL_IDS = ['terrain-foothill-trail', 'terrain-bench-trail', 'terrain-summit-trail'] as const
+export const COASTAL_STAIR_IDS = ['terrain-stairs', 'terrain-summit-stairs'] as const
+
+function addCoastalTrail(scene: SceneDocument, land: TerrainArea[], layout: ReturnType<typeof coastalAscentLayout>, seed: string, weathered: boolean, eroded: boolean) {
+  const { scale, widthMm, trails } = layout
+  const grass = paint(scene, SHORE_MATERIAL_IDS.grass).base
+  const dirt = paint(scene, SHORE_MATERIAL_IDS.sandDry)
+  dirt.base.tint = weathered ? '#DDCFB4' : '#EBDBCA'
+  const ref = (area: TerrainArea) => ({ kind: 'terrainArea' as const, id: area.id })
+  if (layout.inland) {
+    land[0].surfaceStyle!.overlays.push({ id: 'terrain-coast-inland-cover', boundaryMm: layout.inland,
+      paint: { ...grass, tint: '#C5D1B1', opacity: .93 }, blendWidthMm: Math.round(330 * scale), renderOrder: 0 })
+  }
+  if (layout.islandOutline) {
+    // The tide shelf lies on the lower water surface. The real island and reefs
+    // occlude its interior in both views, including when the upper land is edited.
+    const water = scene.terrainAreas['terrain-water'], shallow = paint(scene, SHORE_MATERIAL_IDS.waterShallow).base
+    for (const [i, ring] of [layout.islandOutline, ...layout.reefs].entries()) {
+      const center = ring.reduce((sum, q) => ({ x: sum.x + q.x / ring.length, y: sum.y + q.y / ring.length }), { x: 0, y: 0 })
+      const boundaryMm = ring.map((q, j) => {
+        const dx = q.x - center.x, dy = q.y - center.y, length = Math.hypot(dx, dy) || 1
+        const distance = (i ? 550 : 1250) * scale * (.78 + .60 * terrainRandomUnit(seed, `shelf/${i}/${j}`))
+        return p(q.x + dx / length * distance, q.y + dy / length * distance)
+      })
+      water.surfaceStyle!.overlays.push({ id: `terrain-tidal-shelf-${i}`, boundaryMm, paint: { ...shallow, opacity: .78 },
+        blendWidthMm: Math.round((i ? 360 : 670) * scale), renderOrder: 0 })
+    }
+  }
+  for (const [i, [center, rx, ry, angle, owner]] of layout.vergePatches.entries()) {
+    const boundaryMm = groundCoverPatch(center, rx * scale, ry * scale, seed, `grassland/${i}`, angle)
+    land[owner].surfaceStyle!.overlays.push({ id: `terrain-ascent-grassland-${i}`, boundaryMm,
+      paint: { ...grass, tint: i % 3 === 0 ? '#AFC2A0' : '#E2D9AE', opacity: i % 3 === 2 ? .64 : .78 },
+      blendWidthMm: Math.round((eroded ? 445 : 330) * scale), renderOrder: 1 })
+  }
+  for (const [i, [center, rx, ry, angle, owner]] of layout.outcrops.entries()) {
+    const stone = paint(scene, SHORE_MATERIAL_IDS.rockDry).base
+    land[owner].surfaceStyle!.overlays.push({ id: `terrain-ascent-outcrop-${i}`,
+      boundaryMm: groundCoverPatch(center, rx * scale, ry * scale, seed, `outcrop/${i}`, angle),
+      paint: { ...stone, tint: eroded ? '#B5B096' : '#D1CEC2', opacity: eroded ? .59 : .86 },
+      blendWidthMm: Math.round((eroded ? 425 : 190) * scale), renderOrder: 1 })
+  }
+  for (const [i, stops] of trails.entries()) {
+    const owner = land[i], id = COASTAL_TRAIL_IDS[i]
+    const segments = smoothConnectionControls(stops).map((segment, index) => ({ id: `${id}-${index}`, ...segment }))
+    const centerlineMm = sampleVisualBoundary({ segments, closed: false, sampleSpacingMm: Math.round(scale * 1300), toleranceMm: Math.round(scale * 56) }).points
+    const road: Path = { id, floorId: FLOOR, visibility: 'public', editLocked: false, centerlineMm, widthMm,
+      supportRefs: [ref(owner)], renderOrder: 0, movementCostMultiplier: 1, boundaryBlendMm: eroded ? Math.round(Math.min(385, 185 * scale)) : weathered ? 88 : 116,
+      surfaceStyle: eroded ? { ...dirt, base: { ...dirt.base, tint: '#D0BD96' } } : dirt }
+    if (!polygonValid(pathPolygon(road), true)) road.centerlineMm = stops
+    scene.paths[id] = road
+    scene.entityLayers[id] = GROUND
+    const verge = trailGrassOutline(stops, widthMm, scale, seed, i)
+    owner.surfaceStyle!.overlays.push({ id: `${id}-grass`, boundaryMm: verge,
+      paint: { ...grass, tint: eroded ? '#AFBB91' : weathered ? '#B5C79A' : '#D4DBB1', opacity: eroded ? .71 : weathered ? .91 : .83 },
+      blendWidthMm: eroded ? Math.min(550, Math.round(395 * scale)) : weathered ? Math.min(185, Math.round(125 * scale)) : Math.min(275, Math.round(167 * scale)), renderOrder: 2 })
+  }
+  for (const [i, cap] of [trails[0][0], trails[2].at(-1)!].entries()) {
+    land[i ? 2 : 0].surfaceStyle!.overlays.push({ id: `terrain-ascent-clearing-${i}`,
+      boundaryMm: groundCoverPatch(cap, 1510 * scale, 920 * scale, seed, `clearing/${i}`, .14),
+      paint: { ...dirt.base, ...(eroded ? { tint: '#CEBA95' } : {}), opacity: eroded ? .76 : .92 },
+      blendWidthMm: eroded ? Math.min(670, Math.round(400 * scale)) : Math.min(435, Math.round(240 * scale)), renderOrder: 3 })
+  }
+  for (const [i, id] of COASTAL_STAIR_IDS.entries()) {
+    const from = trails[i].at(-1)!, to = trails[i + 1][0]
+    const length = Math.hypot(to.x - from.x, to.y - from.y)
+    const rise = land[i + 1].groundElevationMm - land[i].groundElevationMm
+    const depth = weathered ? Math.round(length * .84 / Math.ceil(rise / 190)) : Math.round(Math.min(670, (i ? 247 : 284) * scale))
+    const route = straightRockStairRoute(from, to, `${id}-run`, depth)
+    route.renderProfile = eroded ? 'naturalRockSteps10' : weathered ? 'naturalRockSteps9' : 'naturalRockSteps8'
+    if (layout.stairBends) {
+      const points = [from, layout.stairBends[i], to]
+      route.segments = points.slice(1).map((end, index) => ({ id: `${id}-run-${index}`, start: points[index], control1: points[index], control2: end, end }))
+      route.centerlineMm = sampleConnectionRoute(route)
+    }
+    // The worn ground under both ends is shared with the adjoining road paint.
+    const dx = (to.x - from.x) / length, dy = (to.y - from.y) / length
+    for (const [j, end] of [from, to].entries()) {
+      const inset = Math.min(widthMm * .20, length * .14) * (j ? -1 : 1)
+      const center = p(end.x + dx * inset, end.y + dy * inset)
+      land[i + j].surfaceStyle!.overlays.push({ id: `${id}-landing-${j}`,
+        boundaryMm: groundCoverPatch(center, widthMm * .71, widthMm * .64, seed, `${id}/wear/${j}`, Math.atan2(dy, dx)),
+        paint: { ...dirt.base, ...(eroded ? { tint: '#CEBA95', opacity: .82 } : {}) }, blendWidthMm: eroded ? 260 : 115, renderOrder: 4 })
+    }
+    const surfaceStyle = paint(scene, SHORE_MATERIAL_IDS.rockDry)
+    surfaceStyle.base.tint = eroded ? '#D2D2C6' : weathered ? '#DCE4EA' : '#D9D1BE'
+    if (weathered) surfaceStyle.base.tileSizeMm = { width: 1250, height: 1250 }
+    scene.terrainConnections[id] = { id, floorId: FLOOR, visibility: 'public', editLocked: false, kind: 'stairs',
+      from: { surfaceRef: ref(land[i]), positionMm: from }, to: { surfaceRef: ref(land[i + 1]), positionMm: to },
+      widthMm: widthMm + 190, openingId: null, blocksMovement: false, movementCostMultiplier: 1, surfaceStyle, route }
+    scene.entityLayers[id] = GROUND
+  }
+}
+
+export function checkCoastalTrail(scene: SceneDocument) {
+  const paths = COASTAL_TRAIL_IDS.map(id => scene.paths[id]), stairs = COASTAL_STAIR_IDS.map(id => scene.terrainConnections[id])
+  if (paths.some(path => !path) || stairs.some(stair => !stair)) throw new Error('沿海登高路线缺少路段或石阶。')
+  const equal = (a: PointMm, b: PointMm) => a.x === b.x && a.y === b.y
+  for (const [i, stair] of stairs.entries()) {
+    const from = scene.terrainAreas[stair.from.surfaceRef.id], to = scene.terrainAreas[stair.to.surfaceRef.id]
+    if (!from || !to || to.groundElevationMm <= from.groundElevationMm
+      || !equal(paths[i].centerlineMm.at(-1)!, stair.from.positionMm) || !equal(paths[i + 1].centerlineMm[0], stair.to.positionMm)) {
+      throw new Error('登高石阶须接到前后两段道路，并从较低支撑面登上实际岩台。')
+    }
+  }
+  const pointsMm = paths.flatMap((path, i) => [...path.centerlineMm, ...(stairs[i]?.route?.centerlineMm.slice(1, -1) ?? [])])
+  const result = checkTerrainRoute(scene, { floorId: paths[0].floorId, pointsMm, widthMm: 1100 })
+  if (!result.ok) throw new Error(`山脚到峰顶的完整通行带未通过：${result.issues.map(issue => `${issue.entityId ?? ''}${issue.code} ${issue.message}`).join('；')}`)
+  return result
 }
 
 function ellipseRing(center: PointMm, radiusX: number, radiusY: number, steps = 16, phase = 0): PointMm[] {
@@ -496,7 +640,24 @@ export function generateCoastGeometryV9(base: SceneDocument, rawInput: unknown):
   const input = terrainGenerationInputV9Schema.parse(captureJson(rawInput))
   return generateTerrainCore(base, { ...input, algorithmVersion: 4 }, false, coastSkeletonV9(input))
 }
-function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,forestV8=false,coastV9?: ReturnType<typeof coastSkeletonV9>):TerrainGenerationResult {
+export function generateCoastalGeometryV10(base: SceneDocument, rawInput: unknown): TerrainGenerationResult {
+  const input = terrainGenerationInputV10Schema.parse(captureJson(rawInput))
+  return generateTerrainCore(base, { ...input, algorithmVersion: 4 }, false, input.kind === 'coast' ? coastSkeletonV9(input) : undefined, COASTAL_ASCENT_VERSION)
+}
+export function generateCoastalGeometryV11(base: SceneDocument, rawInput: unknown): TerrainGenerationResult {
+  const input = terrainGenerationInputV11Schema.parse(captureJson(rawInput))
+  return generateTerrainCore(base, { ...input, algorithmVersion: 4 }, false, input.kind === 'coast' ? coastSkeletonV9(input) : undefined, WEATHERED_COAST_VERSION)
+}
+export function generateCoastalGeometryV12(base: SceneDocument, rawInput: unknown): TerrainGenerationResult {
+  const input = terrainGenerationInputV12Schema.parse(captureJson(rawInput))
+  return generateTerrainCore(base, { ...input, algorithmVersion: 4 }, false, input.kind === 'coast' ? coastSkeletonV9(input) : undefined, NATURAL_STONE_COAST_VERSION)
+}
+export function generateCoastalGeometryV13(base: SceneDocument, rawInput: unknown): TerrainGenerationResult {
+  const input = terrainGenerationInputV13Schema.parse(captureJson(rawInput))
+  return generateTerrainCore(base, { ...input, algorithmVersion: 4 }, false, input.kind === 'coast' ? coastSkeletonV9(input) : undefined, ERODED_COAST_VERSION)
+}
+function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,forestV8=false,coastV9?: ReturnType<typeof coastSkeletonV9>,
+  ascentVersion?: CoastalAscentVersion):TerrainGenerationResult {
   const blank = assertBlank(base, input)
   const budget = input.algorithmVersion === 4 ? taskBudgetProfile(input.budgetProfileId) : undefined
   const meter = budget ? captureExecutionBudget(budget) : undefined
@@ -511,9 +672,13 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
     return meter?{...result,executionUsage:meter.snapshot()}:result
   }
   const { widthMm: width, heightMm: height, seed } = input, scale = Math.min(width / 24000, height / 18000), centre = p(width * .5, height * .5)
+  const eroded = ascentVersion === ERODED_COAST_VERSION
+  const naturalStones = eroded || ascentVersion === NATURAL_STONE_COAST_VERSION
+  const ascent = ascentVersion ? coastalAscentLayout(input, coastV9, naturalStones, eroded) : undefined
+  const weathered = naturalStones || ascentVersion === WEATHERED_COAST_VERSION
   const highland = highlandSkeletons[variant]
-  const islandV3 = input.kind==='island' && (input.algorithmVersion === 3 || input.algorithmVersion === 4) ? islandSkeletonV3(input, variant) : undefined
-  const plateauCenter = coastV9?.plateauCenter ?? islandV3?.plateauCenter ?? (input.kind === 'island' ? p(width * highland.island[0], height * highland.island[1])
+  const islandV3 = !ascent && input.kind==='island' && (input.algorithmVersion === 3 || input.algorithmVersion === 4) ? islandSkeletonV3(input, variant) : undefined
+  const plateauCenter = ascent?.center ?? coastV9?.plateauCenter ?? islandV3?.plateauCenter ?? (input.kind === 'island' ? p(width * highland.island[0], height * highland.island[1])
     : p(width * (.28 + variant * .105), height * .76))
   const ridge = coastV9?.ridge ?? islandV3?.ridge ?? highland.knots.map(([x, y, radius]) => ({ x: plateauCenter.x + width * x, y: plateauCenter.y + height * y, radius: radius * scale }))
   const qualityColumns=input.algorithmVersion===4?(input.quality==='detailed'?{small:80,standard:112,expanded:160}:{small:64,standard:80,expanded:96})[input.budgetProfileId]:48
@@ -541,16 +706,20 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
     const inland = coastV9 ? Math.min(shaped, (y - coastV9.shorelineAt(x) - height * .055) / (2000 * scale)) : shaped
     return Math.round(inland * 1000000) / 1000000
   }
-  const lowField = coastV9?.field ?? islandV3?.field ?? ((input.algorithmVersion === 2 || input.algorithmVersion === 4) ? shorelineFieldV2(input, variant, bay, recipe) : input.kind === 'island' ? islandField : coastField)
+  const shorelineAt = ascent?.shorelineAt
+  const lowField = shorelineAt ? (x: number, y: number) => Math.round(y - shorelineAt(x)) : coastV9 ? coastV9.field
+    : islandV3?.field ?? ((input.algorithmVersion === 2 || input.algorithmVersion === 4) ? shorelineFieldV2(input, variant, bay, recipe) : input.kind === 'island' ? islandField : coastField)
   const metered=(field:(x:number,y:number)=>number)=>(x:number,y:number)=>{meter?.charge({fieldEvaluations:1});return field(x,y)}
-  meter?.charge({gridNodes:(columns+1)*(rows+1)*2})
-  const lowContours = extractTerrainContours(grid, metered(lowField)), highContours = extractTerrainContours(grid, metered(plateauField))
-  if (lowContours.length !== 1 || lowContours[0].closed !== (input.kind === 'island') || highContours.length !== 1 || !highContours[0].closed) throw new Error('首批生成出现额外分量/孔洞或意外开放边界；未静默删除。')
+  const fieldCount = Number(!ascent?.islandOutline) + Number(!ascent)
+  meter?.charge({gridNodes:(columns+1)*(rows+1)*fieldCount})
+  const lowContours = ascent?.islandOutline ? [] : extractTerrainContours(grid, metered(lowField)), highContours = ascent ? [] : extractTerrainContours(grid, metered(plateauField))
+  if ((!ascent?.islandOutline && (lowContours.length !== 1 || lowContours[0].closed !== (input.kind === 'island')))
+    || !ascent && (highContours.length !== 1 || !highContours[0].closed)) throw new Error('首批生成出现额外分量/孔洞或意外开放边界；未静默删除。')
   const failures: string[] = []
   for (const error of input.algorithmVersion===4 ? [input.quality==='detailed'?80:140] : [140, 220, 340, 500]) {
     meter?.charge({candidateAttempts:1})
     try {
-      const scene = cloneJson(blank), lowPoints = simplifyTerrainContour(lowContours[0], error * scale), highPoints = simplifyTerrainContour(highContours[0], error * scale)
+      const scene = cloneJson(blank), lowPoints = ascent?.islandOutline ?? simplifyTerrainContour(lowContours[0], error * scale), highPoints = ascent?.summit ?? simplifyTerrainContour(highContours[0], error * scale)
       if (lowPoints.length > (input.algorithmVersion===4?32:24) || highPoints.length > (input.algorithmVersion===4?32:20)) throw new Error(`轮廓复杂度超过有限控制段预算（${lowPoints.length}/${highPoints.length}）。`)
       const lowCurve = cubicBoundary('terrain-coast-curve', lowPoints, input.kind === 'island', input, !!coastV9), highCurve = cubicBoundary('terrain-high-curve', highPoints, true, input)
       if (islandV3 && input.algorithmVersion !== 4) {
@@ -561,9 +730,16 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
         lowCurve.toleranceMm = highCurve.toleranceMm = Math.min(1000, Math.round(180 * scale))
       }
       if(input.algorithmVersion===4){
-        const spacing=(input.quality==='detailed'?700:1200)*scale,tolerance=(input.quality==='detailed'?45:80)*scale
+        const spacing=(ascent ? input.quality === 'detailed' ? 1250 : 1720 : input.quality==='detailed'?700:1200)*scale
+        const tolerance=(ascent ? input.quality === 'detailed' ? 68 : 104 : input.quality==='detailed'?45:80)*scale
         lowCurve.sampleSpacingMm=highCurve.sampleSpacingMm=Math.min(20000,Math.round(spacing))
         lowCurve.toleranceMm=highCurve.toleranceMm=Math.min(1000,Math.round(tolerance))
+      }
+      const benchSampling = { spacing: highCurve.sampleSpacingMm, tolerance: highCurve.toleranceMm }
+      if (eroded) {
+        if (input.kind === 'coast') { benchSampling.spacing = Math.round(1330 * scale); benchSampling.tolerance = Math.round(75 * scale) }
+        highCurve.sampleSpacingMm = Math.round(1120 * scale)
+        highCurve.toleranceMm = Math.round(53 * scale)
       }
       const samples = sampleVisualBoundary(lowCurve).points
       let low: TerrainArea
@@ -579,13 +755,27 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
       }
       const high = addBoundArea(scene, highCurve, input, 'high')
       if (!polygonInside(terrainPoints(high), terrainPoints(low))) throw new Error('高台完整轮廓不完全位于陆地内。')
-      if (islandV3) for (const [index, points] of islandV3.reefs.entries()) {
+      for (const [index, points] of (ascent?.reefs ?? islandV3?.reefs ?? []).entries()) {
         if (polygonsOverlap(points, terrainPoints(low))) throw new Error('离岸礁石与主陆块重叠。')
-        addTerrain(scene, `terrain-reef-${index}`, points, input, 'low')
+        const groundElevationMm = naturalStones ? [235, 510, 760, 640, 285][index] : 320 + (index * 271 % 830)
+        const reef = addTerrain(scene, `terrain-reef-${index}`, points, input, 'low', ascent ? { groundElevationMm } : {})
+        if (naturalStones) shapeCoastalReef(reef, index, seed, scale, meter)
       }
-      const activity = activityArea(scene, plateauCenter, input)
-      findStairs(scene, low, high, input, activity, meter, 'stairs', !!coastV9)
-      if (coastV9) {
+      if (ascent) {
+        const benchCurve = cubicBoundary('terrain-bench-curve', ascent.bench, true, input)
+        benchCurve.sampleSpacingMm = benchSampling.spacing
+        benchCurve.toleranceMm = benchSampling.tolerance
+        const bench = addBoundArea(scene, benchCurve, input, 'high', 'terrain-bench')
+        if (!polygonInside(terrainPoints(bench), terrainPoints(low)) || !polygonInside(terrainPoints(high), terrainPoints(bench))) throw new Error('登高岩台没有完整包住峰顶，或越过真实岸线。')
+        bench.groundElevationMm = ascent.benchHeightMm
+        high.groundElevationMm = ascent.summitHeightMm
+        high.coveragePriority = 3
+        for (const area of [bench, high]) area.surfaceStyle = paint(scene, SHORE_MATERIAL_IDS.rockDry)
+        addCoastalTrail(scene, [low, bench, high], ascent, seed, weathered, eroded)
+      }
+      const activity = activityArea(scene, plateauCenter, input, ascent ? meter : undefined)
+      if (!ascent) findStairs(scene, low, high, input, activity, meter, 'stairs', !!coastV9)
+      if (coastV9 && !ascent) {
         const stairs = scene.terrainConnections['terrain-stairs']
         stairs.surfaceStyle = paint(scene, SHORE_MATERIAL_IDS.rockDry)
         stairs.surfaceStyle.base.tint = '#909f9b'
@@ -626,11 +816,30 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
       }
       addLook(scene, lowCurve.id, 'shore', input); if (input.kind === 'island') addLook(scene, lowCurve.id, 'cliff', input)
       addLook(scene, highCurve.id, 'cliff', input)
-      if (input.kind === 'island') addLook(scene, highCurve.id, 'grass', input, 'left')
-      placeProps(scene, input, activity,meter,coastV9)
+      if (ascent) for (const look of Object.values(visualBase(scene)!.edgeLooks)) look.repeatMm = Math.round(400 * scale)
+      if (input.kind === 'island' && !ascent) addLook(scene, highCurve.id, 'grass', input, 'left')
+      if (!naturalStones) {
+        if (weathered) placeCoastalDressing(scene, seed, activity.boundaryMm, FLOOR, DETAILS, PROPS)
+        else placeProps(scene, input, activity,meter,coastV9,!!ascent)
+      }
+      if (ascent) {
+        const bench = scene.terrainAreas['terrain-bench']
+        if (eroded) {
+          shapeCoastalFootSlope(low, bench, scene.paths[COASTAL_TRAIL_IDS[0]], ascent.center, ascent.slopeToe, scale, meter)
+          shapeErodedCoastalRock(bench, low, scene.paths['terrain-bench-trail'], undefined, seed, scale, ascent.bayDirection.x, ascent.slopeToe, meter)
+          shapeErodedCoastalRock(high, bench, scene.paths['terrain-summit-trail'], activity.boundaryMm, seed, scale, ascent.bayDirection.x, undefined, meter)
+        } else {
+          shapeCoastalRock(bench, scene.paths['terrain-bench-trail'], undefined, seed, scale, meter, weathered ? bench.groundElevationMm - low.groundElevationMm : undefined)
+          shapeCoastalRock(high, scene.paths['terrain-summit-trail'], activity.boundaryMm, seed, scale, meter, weathered ? high.groundElevationMm - bench.groundElevationMm : undefined)
+        }
+      }
+      if (naturalStones && input.algorithmVersion === 4) {
+        placeCoastalDressing(scene, seed, activity.boundaryMm, FLOOR, DETAILS, PROPS, coastalEdgeDetailScale(scale, input.quality))
+      }
       chargeGeometryCheck(scene,meter)
       const checked = validateSceneDocument(scene)
       if (!checked.ok) throw new Error(checked.errors.map(issue => `${issue.entityId ?? ''}:${issue.code}`).join('；'))
+      if (ascent) { chargeGeometryCheck(scene, meter); checkCoastalTrail(checked.document) }
       const document = checked.document, managedTargets: TerrainManagedTarget[] = [
         ...Object.keys(document.terrainAreas).map(id => ({ kind: 'terrainArea' as const, id })), ...Object.keys(document.terrainConnections).map(id => ({ kind: 'terrainConnection' as const, id })),
         ...Object.keys(document.paths).map(id => ({ kind: 'path' as const, id })), ...Object.keys(document.props).map(id => ({ kind: 'prop' as const, id })), ...Object.keys(visualBase(document)!.boundaries).map(id => ({ kind: 'visualBoundary' as const, id })),
@@ -642,7 +851,7 @@ function generateTerrainCore(base:SceneDocument,input:TerrainGenerationInput,for
       const recommendedGenerationRecords = generationRecordCost(managedTargets.length, activity.boundaryMm.length), total = legacyTotal + recommendedGenerationRecords
       if (input.algorithmVersion !== 4 && total > 256) throw new Error(`完整生成实际成本${total}超过256（旧实体/采样/控制${legacyTotal}，规则/管理/活动${recommendedGenerationRecords}）。`)
       if(budget)assertTaskBudget(budget,measureTaskBudget(blank,document,undefined,meter!.snapshot()))
-      return { document, input, ...(meter?{executionUsage:meter.snapshot()}:{}), skeleton: { variant, name: coastV9?.name ?? islandV3?.name ?? recipe.name, bayDirection: coastV9?.bayDirection ?? islandV3?.bayDirection ?? bay, plateauCenterMm: plateauCenter, gridColumns: columns, gridRows: rows, simplificationErrorMm: error * scale, fitErrorMm: maximumFitDisplacement(lowCurve, highCurve) }, activity, managedTargets,
+      return { document, input, ...(meter?{executionUsage:meter.snapshot()}:{}), skeleton: { variant, name: ascent?.name ?? coastV9?.name ?? islandV3?.name ?? recipe.name, bayDirection: ascent?.bayDirection ?? coastV9?.bayDirection ?? islandV3?.bayDirection ?? bay, plateauCenterMm: plateauCenter, gridColumns: columns, gridRows: rows, simplificationErrorMm: error * scale, fitErrorMm: maximumFitDisplacement(lowCurve, highCurve) }, activity, managedTargets,
         cost: { physicalEntities, terrainPoints: terrainPointsCount, terrainSegments: terrainPointsCount, pathPoints: Object.values(document.paths).reduce((sum, path) => sum + path.centerlineMm.length, 0), visualEntities, curveSegments, overlays, legacyTotal, recommendedGenerationRecords, total } }
     } catch (error) { failures.push(error instanceof Error ? error.message : '未知几何失败。') }
   }

@@ -44,6 +44,8 @@ import { geometryDocumentForValidation } from '../commands/domain.js'
 import { inspectDependencies } from '../commands/dependencies.js'
 import {pathCheckSchema,PATH_CHECK_LIMITS} from '../geometry/path-check-contracts.js'
 import { USER_LAYER_LIMIT, type SceneDocument, type Issue } from '../model/scene.js'
+import { openingHeightSchema, spatialWallHeight, wallHeightSchema } from '../model/building-height.js'
+import { propVolumeSchema } from '../model/prop-volume.js'
 import {
   id, int, positive, nonnegative, rank, angle, opacity, color, point, size, bounds, unique, ids, strings,
   versionRef, origin, identity, editable, visibility, layer, shadowClass, shadow, appearance, surfaceRef, groundRef,
@@ -75,13 +77,14 @@ const sceneShape = {
     starterPalette: z.literal('standard-v1').optional() }).strict(),
   rooms: record(z.object({ ...editable, boundaryVertexIds: ids.min(3).max(256), purpose: z.string(), visibility,
     accessExpectation: z.enum(['unspecified', 'required', 'intentionalIsolation']), supportRef: groundRef, groundElevationMm: int, floorStyle: style, furnishingPlan: roomFurnishingPlanSchema.optional() }).strict()),
-  walls: record(z.object({ ...editable, startVertexId: id, endVertexId: id, thicknessMm: positive, blocksMovement: z.boolean(), blocksSight: z.boolean(), topStyle: style, edgeProfile: z.literal('stone-blocks-v1').optional() }).strict().refine(wall => !wall.edgeProfile || supportsWallReliefStyle(wall.topStyle), '块石外缘需要遗迹石灰岩墙顶材质；更换材质前请先恢复平直外缘。')),
+  walls: record(z.object({ ...editable, startVertexId: id, endVertexId: id, thicknessMm: positive, heightMm: wallHeightSchema.optional(), blocksMovement: z.boolean(), blocksSight: z.boolean(), topStyle: style, edgeProfile: z.literal('stone-blocks-v1').optional() }).strict().refine(wall => !wall.edgeProfile || supportsWallReliefStyle(wall.topStyle), '块石外缘需要遗迹石灰岩墙顶材质；更换材质前请先恢复平直外缘。')),
   openings: record(z.object({ ...editable, wallId: id, offsetReferenceVertexId: id, offsetMm: nonnegative, widthMm: positive,
-    kind: z.enum(['door', 'window']), state: z.enum(['open', 'closed']), locked: z.boolean(), secret: z.boolean(), revealed: z.boolean() }).strict()),
+    kind: z.enum(['door', 'window']), state: z.enum(['open', 'closed']), locked: z.boolean(), secret: z.boolean(), revealed: z.boolean(), vertical: openingHeightSchema.optional() }).strict()),
   props: record(z.object({ ...editable, ...templateShape, visibility, supportRef: surfaceRef, roomId: id.optional() }).strict()),
   notes: record(z.object({ ...editable, anchor, kind: z.enum(['note', 'clue', 'label']), title: z.string().optional(), text: z.string(), visibility, discovered: z.boolean().optional() }).strict()),
   propDefinitions: record(z.object({ ...identity, name: z.string(), tags: strings, defaultAppearance: appearance, defaultVisualBoundsMm: bounds,
-    defaultFootprintMm: size, defaultFootprintOffsetMm: point, defaultBlocksMovement: z.boolean(), defaultBlocksSight: z.boolean(), defaultRenderLayer: layer, defaultShadowClass: shadowClass }).strict()),
+    defaultFootprintMm: size, defaultFootprintOffsetMm: point, defaultBlocksMovement: z.boolean(), defaultBlocksSight: z.boolean(), defaultRenderLayer: layer, defaultShadowClass: shadowClass,
+    defaultVolume: propVolumeSchema.optional() }).strict()),
   materials: record(z.object({ ...identity, name: z.string(), tags: strings, textureAssetId: id, defaultTileSizeMm: size,
     applicableSurfaces: z.array(z.enum(['room', 'wall', 'terrain', 'path'])).min(1).refine(unique, '适用表面不能重复'),
     defaultPathPaint: z.object({ alignment: z.literal('route'), rotationDeg: angle }).strict().optional(),
@@ -160,9 +163,15 @@ export function inspectSceneDocumentDomains(document: SceneDocument, geometry: R
   const oceanErrors = validateOcean(document)
   const errors = [...dependencies.errors, ...geometry.errors, ...validateVisualSystem(document), ...validateTerrainContracts(document), ...validateCompositionContracts(document), ...validateDecorations(document), ...validateSurfaceRules(document), ...validateAggregateCoordinates(document), ...validatePathAttachmentGeometry(document), ...inspectAttachments(document), ...inspectSceneWallReliefBudget(geometryDocumentForValidation(document))]
   errors.push(...oceanErrors, ...inspectPathAssemblies(document), ...inspectBridgeRoadLinks(document), ...inspectPipeLinks(document))
+  for (const opening of Object.values(document.openings)) {
+    const wall = Object.hasOwn(document.walls, opening.wallId) ? document.walls[opening.wallId] : undefined
+    if (opening.vertical && wall && opening.vertical.sillMm + opening.vertical.heightMm > spatialWallHeight(wall)) {
+      errors.push({ code: 'OPENING_HEIGHT', entityId: opening.id, message: '门窗底边与洞口高度之和须在所属墙高内。' })
+    }
+  }
   for (const area of Object.values(document.terrainAreas)) {
-    if (area.relief && (area.rockBody || area.facade || area.waterSurface || area.relief.offsetsMm.some(offset => !Number.isSafeInteger(area.groundElevationMm + offset)))) {
-      errors.push({ code: 'TERRAIN_RELIEF', entityId: area.id, message: '连续起伏需要有效高程，且仅用于非水面、非立面平台的开放地形。' })
+    if (area.relief && (area.facade || area.waterSurface || area.relief.offsetsMm.some(offset => !Number.isSafeInteger(area.groundElevationMm + offset)))) {
+      errors.push({ code: 'TERRAIN_RELIEF', entityId: area.id, message: '连续起伏需要有效高程，适用于陆地及岩体顶部。' })
     }
     if (area.boundaryBlendMm && area.rockBody) errors.push({ code: 'TERRAIN_BLEND', entityId: area.id, message: '实体岩体使用真实侧壳，不能套用平面地形边缘羽化。' })
     if (area.facade && (area.waterSurface || area.rockBody || area.boundaryBlendMm)) errors.push({ code: 'TERRAIN_FACADE', entityId: area.id, message: '立面需要有清晰轮廓的实体平台或屋面。' })
