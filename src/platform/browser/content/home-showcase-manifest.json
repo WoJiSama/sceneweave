@@ -11,7 +11,7 @@
         "黄铜桌灯聚光随灯具旋转",
         "四间房与独立门窗、家具"
       ],
-      "projectHash": "0ea219d068eaeef3f29df3b7a0fc87ef2f0b691bcd59e1816dc319a42f3e40ce",
+      "projectHash": "a9fbc8a092ad34e4f3b8c36376b080db4c2db7ab38ff61d818027288096ba726",
       "title": "雨夜旧宅调查所 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -38,15 +38,15 @@
         "file": "investigation-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "0dacdcac228b16a5f65748693ea1b65db64d3eda166a39af455a2b28e7de1abc",
+        "sha256": "1a1e9dae9deff752b4a9723c908a6cf6c1f949d46af0c11479792a319bcacc7e",
         "fullFile": "investigation-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "f2b9e271e02fecf694f5b2741cb2e1328163babed0162315bfe1d3e89c7e096c"
+        "fullSha256": "f3e05c896c6ee9bb14b4a5b4c14bf83632bf98cc50b524cb3f2fb8dce6460dcf"
       },
       "archiveFile": "investigation.sceneweave",
-      "archiveBytes": 282078,
-      "archiveSha256": "db2d652aff776fe15d8ac6306060bb1de84a28f29956b68ba51e2d7c0669bcb1"
+      "archiveBytes": 282221,
+      "archiveSha256": "d3d13513b2701914a46e8a7405398867af9d7e060db3da22eacd6436b8ac46aa"
     },
     "modern": {
       "name": "街角事务中心",
@@ -57,7 +57,7 @@
         "可聚焦分区或按区出图",
         "保留共享墙与独立门窗"
       ],
-      "projectHash": "fcfacd2ff25a63d7ffe81b5f13f82d6ed2dd0a1d0b06d9fab7aec2108570eeba",
+      "projectHash": "e22e65ebeb44be2f362b668b33cfe3fd5dbc317176d3ba8ef693465343d32bab",
       "title": "街角事务与社区服务中心 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -84,15 +84,15 @@
         "file": "modern-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "aceae889c56e07df3e3e96483b559a340b4d912d531065b9decebfd51261363d",
+        "sha256": "6eaafafbbd831b082adb2414dce0de86b96aaa841186cdbed5fd60fd57a96430",
         "fullFile": "modern-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "f811b277d779304d26f8d1c9350812140d40425f41fd654b4ed3d2c6d0080a87"
+        "fullSha256": "26977154caf92aae5eba9c614c466675b7c93b34885029758c7fa53faff37f6c"
       },
       "archiveFile": "modern.sceneweave",
-      "archiveBytes": 279695,
-      "archiveSha256": "0b6a41b7b7d86346c24655d910b38f860f54c6e05ea461676148270b6f9768dd"
+      "archiveBytes": 279865,
+      "archiveSha256": "4792ab9ed424cc650119e016b2694bb80bc9a63155a7c250cdeeb79e5994e7ae"
     },
     "fantasy": {
       "name": "余烬酒馆与旅舍",
@@ -103,7 +103,7 @@
         "提灯随餐桌移动，窗光贴合窗宽",
         "北侧餐桌和长凳可整组调整"
       ],
-      "projectHash": "9416bde3a47ddde2a1351a06be76973cbc8d5acff7c837416b6b9441e8763651",
+      "projectHash": "7f1d20dffa76e26e202e392704f50369dd6b3bfd984d52c08180178ccf5006d9",
       "title": "余烬酒馆与旅舍 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -130,11 +130,11 @@
         "file": "fantasy-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "8e787ea811ae877e6e18c84a56a4aadf12f87aabe9127dd3aba2c84a5772981c",
+        "sha256": "918df9aecca5df68fe2e9776ae1a63f8d4e095f98f96af1fa4303e682e365c70",
         "fullFile": "fantasy-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "d5e316a188c9dad5f6fdc8cc2bddb4300e23eb958aeecc34fe88d6781d840bef"
+        "fullSha256": "f0e2113f1f7de33e8315225dec850d66da2b95ceb1a5d2c0d1a402361e367603"
       },
       "artStyles": {
         "original": {
@@ -163,8 +163,8 @@
         }
       },
       "archiveFile": "fantasy.sceneweave",
-      "archiveBytes": 1050672,
-      "archiveSha256": "60b077e6bda92f8ef648df0e7795b6ff2dd9760ce4d77f2223d757979f4ba347"
+      "archiveBytes": 1050846,
+      "archiveSha256": "3c618a890752b1d564302e1f21ed1dd5047a04c5a21e8b6e55ffd24e7fd33506"
     },
     "ruins": {
       "name": "旧墓库",
@@ -175,7 +175,7 @@
         "暗门保留关闭与锁定状态",
         "玩家图隐藏藏室与私密线索"
       ],
-      "projectHash": "fef1a8962ff99e5c3acc2fd9d804646c2caf020191a4889f9f848e51ed032995",
+      "projectHash": "bbf8e2b87e7a1f2361b8444ab090fb823c0f0002be1a4cd774266d1e6efd1b58",
       "title": "失落修院墓库 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -202,15 +202,15 @@
         "file": "ruins-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "139bb275a4044fe55e4ef0b5f2801a569ec0c0aa1e1a91ef7d359dd9f0faa0bb",
+        "sha256": "b89a65d4c35a3597e811f12eb2c7cc78dd47084269f49b2517abe94ebd7acc4c",
         "fullFile": "ruins-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "0748a37fef2ba2578904ca3c0be9c6a99812192cd3b7860792956b8097d3fc50"
+        "fullSha256": "f1741d9bc573acba4afc42b4c98dda810cb2e771db8a0914579e5c3d1bb86945"
       },
       "archiveFile": "ruins.sceneweave",
-      "archiveBytes": 980034,
-      "archiveSha256": "c80384c0d56c92e0311a5d4c427beda1d742fc45a35d09d8ed6069711bb1b8ea"
+      "archiveBytes": 980159,
+      "archiveSha256": "508946f2b8d45f93c8b3e61b25cfb0c7ae82e280148920b2899a45d65359b69e"
     },
     "wilderness": {
       "name": "溪岸巡林补给站",
@@ -221,7 +221,7 @@
         "旧木板铺面与双侧分节护栏",
         "可分别调整桥体与沿线构件"
       ],
-      "projectHash": "08b7f7eef252be7c2e23223d5efa4c5b434fe1cfdec17b677ca419552307007f",
+      "projectHash": "984c83891f7a8ea423bd64d71a33c87dd3b4d2723e2254b98eebb62b27c14c6d",
       "title": "溪岸巡林补给站 · 温带荒野手绘候选",
       "boundsMm": {
         "x": 0,
@@ -248,15 +248,15 @@
         "file": "wilderness-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "8d0f0d01a8b43e3d34a8bcbcfa10d1d3213980346e0ab77242601b17d2b86d39",
+        "sha256": "79e7e4687a22dd12115d4224bec7d5bedd51e541be648f11573699a08a3684f3",
         "fullFile": "wilderness-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "be91ecdf115f4d470d6c0ab2ef9502caf4d0373947e5fcb455e51f7de21da7c9"
+        "fullSha256": "5ac7872a4bc0e2eb9e31e2384c0bb8dfadb1d038ab99b73e490849824a8055db"
       },
       "archiveFile": "wilderness.sceneweave",
-      "archiveBytes": 1106463,
-      "archiveSha256": "fd850321e2120b5315a75a568a8267063cd8cbabd21a70dabea766de717d8775"
+      "archiveBytes": 1106750,
+      "archiveSha256": "9e12bc5c4b196491748edf85b332f36f11892f30f7d4a1f61d26a89f5f3471f8"
     },
     "coast": {
       "name": "潮湾渔获补给站",
@@ -267,7 +267,7 @@
         "暖色线光沿护栏，登船口留空",
         "风化木铺面与护栏分别可调"
       ],
-      "projectHash": "1d8dff8594c5d7afd121ea9ad2e7c2e1b2e68b2a1c7d442a3be9e1f768b00aa9",
+      "projectHash": "a26c31eb4a6d20730ac73d32978d517def2e1ba4d2f496bcbe61dce1719e207e",
       "title": "潮湾渔获与岸边补给站 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -294,15 +294,15 @@
         "file": "coast-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "e740b087add0f9572edca9cc40f9b55bb43ff59e3397caf51b2ce03ae3216b62",
+        "sha256": "99d2ce6732573044f9d8d933f004ae77c6b43944f8c7ba6b4a5e828b0f7f306f",
         "fullFile": "coast-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "ac843dcff88739a9d400b0c4596c464f789788126b1849cbc4370a2b5902c6ac"
+        "fullSha256": "c2ad1a8901dbc81d2c60fe0cd87423481acae3ffbc51e4f22189da96605a9a07"
       },
       "archiveFile": "coast.sceneweave",
-      "archiveBytes": 493893,
-      "archiveSha256": "07a2eff2f03c0f7ad8e5392869683b6ea79c7d6fd8b6c1cf37e7d6f7fb4bb654"
+      "archiveBytes": 494090,
+      "archiveSha256": "872b85c4064d0c698dea069d4a1c446e10c94b372560183285b3cddf6ff52355"
     },
     "island": {
       "name": "双台岬岛",
@@ -313,7 +313,7 @@
         "低角度日光投下同向树影",
         "高地弯道支持局部宽度调整"
       ],
-      "projectHash": "f0503cb812c54caa19781a059a941bd137191d2d6276272dd1fc00684cd29f8a",
+      "projectHash": "6419d40d0a48c8b188d4c68b3bd349bf224531b79f4637567e6ac12869348c2d",
       "title": "双台岬岛 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -340,15 +340,15 @@
         "file": "island-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "0e219227998112272e868b8c29bb282f096e33745cf26d0db48c464f31339bfe",
+        "sha256": "0773815943d8b2a8cc873ed8266dae1f173b6ea33fcac0f8d5188d63f9618d08",
         "fullFile": "island-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "3c359672bcde1cbadada58fcfb6b6597dc799a495e8ea578a0f2a65953fb3355"
+        "fullSha256": "19dc61e5aff419e2fd0b144cc95541633e538208b31c4b5e48699a46b3f4351f"
       },
       "archiveFile": "island.sceneweave",
-      "archiveBytes": 381689,
-      "archiveSha256": "46bffc84a2f9ea76f51352d194365c1fe2b0af5b7398ee6d077b07a40eda2b31"
+      "archiveBytes": 381761,
+      "archiveSha256": "a01a1066f8bc75da37c2698ed29f50337858520eca394aabbe0e6a0242366253"
     },
     "volcano": {
       "name": "灰脊火口观测步道",
@@ -359,7 +359,7 @@
         "山肩观测区可单独聚焦",
         "面光随熔岩轮廓，岩壁保留余光"
       ],
-      "projectHash": "d311f432a1644e12d0077a22b7157265cf538e636158f79c83911077799782d2",
+      "projectHash": "bdbdf158157915a750cf2fbeccdc046328a4c0dfce78c6a042c2cc3f748c6957",
       "title": "灰脊火口 · 自然岩坡与熔岩池",
       "boundsMm": {
         "x": 0,
@@ -386,15 +386,15 @@
         "file": "volcano-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "899f7302f10325ba4c61e69f36a318ca9b979557fea9391c1a7deb93dda7fb1f",
+        "sha256": "d95fac51fd5cd9070af266970a2f92afab605d9375a276fce24dc79a2b5422a6",
         "fullFile": "volcano-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "f09d11d29aa0706cffa9cdbbe2861472e78d795aee8787fe0b179a53e71492ee"
+        "fullSha256": "a80cea6abca9c0da52c09efbf3f7acae2eaa4b08c706f3960d27935ca36e2d3b"
       },
       "archiveFile": "volcano.sceneweave",
-      "archiveBytes": 1022357,
-      "archiveSha256": "d3a530032474535a8238b1994f1d0e3fdad3be78e9d2ccdd00322c23f7b114c2"
+      "archiveBytes": 1022418,
+      "archiveSha256": "364a910149bdb1193f9a5da527097074b69833c2026ec66059d421c3dfd84eae"
     },
     "cyberpunk": {
       "name": "碧脉冷却枢纽",
@@ -405,7 +405,7 @@
         "桥体和道路铺装分别可调",
         "沿线护栏、冷却管和灯具"
       ],
-      "projectHash": "034f21f8c896d7d71d0537760a0a6b0c10fc34e45ce4eed2777620b568632d71",
+      "projectHash": "421bb16083a4306eaae5eb542372c5ad718b09c13b1024cd2569a416690028ba",
       "title": "碧脉冷却枢纽",
       "boundsMm": {
         "x": 0,
@@ -432,15 +432,15 @@
         "file": "cyberpunk-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "14783c55369accbfd871014faefa2febd5034a3b70fde394646fea3bd2975750",
+        "sha256": "1c2e00c852a56811c0aa53f5bab26bf999ea301811f2295f5ebd5f97d2443648",
         "fullFile": "cyberpunk-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "fbe08d90a66d76d53498a7926315d0b06d3b2d448f04eddbabacbd57892e43c4"
+        "fullSha256": "91da7d8bbf41493266cf8c52174326d4bdf35a3723821ddc27236d98e84daf91"
       },
       "archiveFile": "cyberpunk.sceneweave",
-      "archiveBytes": 1945506,
-      "archiveSha256": "0c3ff327320d6b81af657cd863f0eb9bc8f43dbffb8538f62c5547a34f0afeaf"
+      "archiveBytes": 1945982,
+      "archiveSha256": "7cc748958739d963c11836d84cd1c9f7cee0a9e2ec6f738142b183f4547cce94"
     }
   }
 }

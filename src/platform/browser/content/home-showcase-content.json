@@ -8,7 +8,7 @@
       "黄铜桌灯聚光随灯具旋转",
       "四间房与独立门窗、家具"
     ],
-    "projectHash": "0ea219d068eaeef3f29df3b7a0fc87ef2f0b691bcd59e1816dc319a42f3e40ce"
+    "projectHash": "a9fbc8a092ad34e4f3b8c36376b080db4c2db7ab38ff61d818027288096ba726"
   },
   "modern": {
     "name": "街角事务中心",
@@ -19,7 +19,7 @@
       "可聚焦分区或按区出图",
       "保留共享墙与独立门窗"
     ],
-    "projectHash": "fcfacd2ff25a63d7ffe81b5f13f82d6ed2dd0a1d0b06d9fab7aec2108570eeba"
+    "projectHash": "e22e65ebeb44be2f362b668b33cfe3fd5dbc317176d3ba8ef693465343d32bab"
   },
   "fantasy": {
     "name": "余烬酒馆与旅舍",
@@ -30,7 +30,7 @@
       "提灯随餐桌移动，窗光贴合窗宽",
       "北侧餐桌和长凳可整组调整"
     ],
-    "projectHash": "9416bde3a47ddde2a1351a06be76973cbc8d5acff7c837416b6b9441e8763651"
+    "projectHash": "7f1d20dffa76e26e202e392704f50369dd6b3bfd984d52c08180178ccf5006d9"
   },
   "ruins": {
     "name": "旧墓库",
@@ -41,7 +41,7 @@
       "暗门保留关闭与锁定状态",
       "玩家图隐藏藏室与私密线索"
     ],
-    "projectHash": "fef1a8962ff99e5c3acc2fd9d804646c2caf020191a4889f9f848e51ed032995"
+    "projectHash": "bbf8e2b87e7a1f2361b8444ab090fb823c0f0002be1a4cd774266d1e6efd1b58"
   },
   "wilderness": {
     "name": "溪岸巡林补给站",
@@ -52,7 +52,7 @@
       "旧木板铺面与双侧分节护栏",
       "可分别调整桥体与沿线构件"
     ],
-    "projectHash": "08b7f7eef252be7c2e23223d5efa4c5b434fe1cfdec17b677ca419552307007f"
+    "projectHash": "984c83891f7a8ea423bd64d71a33c87dd3b4d2723e2254b98eebb62b27c14c6d"
   },
   "coast": {
     "name": "潮湾渔获补给站",
@@ -63,7 +63,7 @@
       "暖色线光沿护栏，登船口留空",
       "风化木铺面与护栏分别可调"
     ],
-    "projectHash": "1d8dff8594c5d7afd121ea9ad2e7c2e1b2e68b2a1c7d442a3be9e1f768b00aa9"
+    "projectHash": "a26c31eb4a6d20730ac73d32978d517def2e1ba4d2f496bcbe61dce1719e207e"
   },
   "island": {
     "name": "双台岬岛",
@@ -74,7 +74,7 @@
       "低角度日光投下同向树影",
       "高地弯道支持局部宽度调整"
     ],
-    "projectHash": "f0503cb812c54caa19781a059a941bd137191d2d6276272dd1fc00684cd29f8a"
+    "projectHash": "6419d40d0a48c8b188d4c68b3bd349bf224531b79f4637567e6ac12869348c2d"
   },
   "volcano": {
     "name": "灰脊火口观测步道",
@@ -85,7 +85,7 @@
       "山肩观测区可单独聚焦",
       "面光随熔岩轮廓，岩壁保留余光"
     ],
-    "projectHash": "d311f432a1644e12d0077a22b7157265cf538e636158f79c83911077799782d2"
+    "projectHash": "bdbdf158157915a750cf2fbeccdc046328a4c0dfce78c6a042c2cc3f748c6957"
   },
   "cyberpunk": {
     "name": "碧脉冷却枢纽",
@@ -96,6 +96,6 @@
       "桥体和道路铺装分别可调",
       "沿线护栏、冷却管和灯具"
     ],
-    "projectHash": "034f21f8c896d7d71d0537760a0a6b0c10fc34e45ce4eed2777620b568632d71"
+    "projectHash": "421bb16083a4306eaae5eb542372c5ad718b09c13b1024cd2569a416690028ba"
   }
 }
