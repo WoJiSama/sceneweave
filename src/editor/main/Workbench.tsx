@@ -48,7 +48,8 @@ import { assessAddedCatalogQuality } from '../../application/workspace/asset-qua
 import { assertAssetQualityAccepted, assetQualityAcknowledgmentsComplete, type AssetQualityAssessment } from '../../shared/assets/quality-review'
 import AssetQualityReview from './AssetQualityReview'
 import { toBundle, type EditableProject } from '../../application/workspace/project'
-import { exportProject, exportHistoryArchive } from '../../shared/project/file'
+import { exportProject } from '../../shared/project/file'
+import { exportHistoryBackup, exportProjectBackup } from '../../platform/browser/export/project-backup'
 import { validateProjectBundle } from '../../shared/project/resources'
 import { projectRepository, validation, runtime } from '../../platform/browser/runtime'
 import { createStarterProject, createSampleProject, prepareCanvasGround } from '../../platform/browser/content/factories'
@@ -273,9 +274,9 @@ const download = (blob: Blob, name: string) => {
 }
 const fileController = createWorkspaceFileController({
   workspace: compositionWorkspace,
-  exportArchive: (sceneId, snapshotIds) => repository.exportArchive(sceneId, snapshotIds),
-  exportProject: bundle => exportProject(bundle, validation),
-  exportHistoryArchive: archive => exportHistoryArchive(archive, validation),
+  exportArchive: (sceneId, snapshotIds, signal) => repository.exportArchive(sceneId, snapshotIds, signal),
+  exportProject: (bundle, signal) => exportProjectBackup(bundle, { ...validation, signal }),
+  exportHistoryArchive: (archive, signal) => exportHistoryBackup(archive, { ...validation, signal }),
   exportPng,
   download,
 })
@@ -671,6 +672,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
   const placingRef = useRef(false)
   placingRef.current = !!placement || !!fillCopy
   const file = useRef<HTMLInputElement>(null), controller = useRef<AbortController | null>(null), shell = useRef<HTMLDivElement>(null), dialog = useRef<HTMLDivElement>(null)
+  const backupController = useRef<AbortController | null>(null)
   const modalOrigin = useRef<HTMLElement | null>(null)
   const actionPending = useRef(false)
   const activeRef = useRef(active)
@@ -724,7 +726,12 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     const changed = compositionWorkspace.checkpoint() !== checkpoint
     setMessage(changed ? direction === 'undo' ? '已撤销上一次编辑，可用顶部“重做”恢复。' : '已重做一次编辑，可用顶部“撤销”撤回。' : direction === 'undo' ? '当前没有可撤销的编辑。' : '当前没有可重做的编辑。')
   }
-  useEffect(() => { void ready().catch(error => setMessage(String(error))); return () => { controller.current?.abort() } }, [])
+  useEffect(() => {
+    void ready().catch(error => setMessage(String(error)))
+    const cancelBackup = () => backupController.current?.abort()
+    window.addEventListener('pagehide', cancelBackup)
+    return () => { window.removeEventListener('pagehide', cancelBackup); cancelBackup(); controller.current?.abort() }
+  }, [])
   useEffect(() => {
     onController?.({ leave: () => sessionActions.current!.leave(), request: request => sessionActions.current!.request(request) })
     return () => onController?.(null)
@@ -1458,7 +1465,12 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
   }
   const backup = (snapshotIds?: readonly string[], sceneId = completeProject?.document.sceneId) => {
     if (!completeProject || !sceneId) return
-    void action(() => fileController.backup({ project: completeProject, sceneId, snapshotIds }, setBackupAttempt),
+    void action(async () => {
+      const abort = new AbortController()
+      backupController.current = abort
+      try { await fileController.backup({ project: completeProject, sceneId, snapshotIds }, setBackupAttempt, abort.signal) }
+      finally { backupController.current = null }
+    },
       '下载工程备份', snapshotIds ? '正在生成包含所选历史的工程备份…' : '正在生成完整工程备份…')
   }
   const commit = (run: () => void | Promise<void>) => { if (!guard()) return; void action(async () => { await run() }, '编辑未采用') }
@@ -3365,7 +3377,9 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
       {generationSettingsDialog}
       {uvtt && <Suspense fallback={<p role="status">正在打开 VTT 导出工具…</p>}><UvttExportDialog {...uvtt} onClose={() => setUvtt(null)}/></Suspense>}
       <input hidden ref={file} type="file" accept=".sceneweave" aria-label="选择完整工程" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected && guard()) onImportFile(selected) }}/>
-      {busy && !preparation && <div className="asset-busy" role="status"><LoaderCircle size={17} className="spin"/>{busyMessage}{controller.current && <button onClick={() => controller.current?.abort()}>取消准备</button>}</div>}
+      {busy && !preparation && <div className="asset-busy" role="status"><LoaderCircle size={17} className="spin"/>{busyMessage}{backupController.current
+        ? <button onClick={() => backupController.current?.abort()}>取消备份</button>
+        : controller.current && <button onClick={() => controller.current?.abort()}>取消准备</button>}</div>}
     </div>
     {active && completeProject && audience === 'gm' && enhancementTarget && <Suspense fallback={<p role="status">正在打开素材编辑器…</p>}><SceneAssetEditor key={`${completeProject.document.sceneId}-${enhancementTarget.kind}-${enhancementTarget.id}-${enhancementTarget.localPaint ? 'local' : 'overview'}`} project={completeProject} target={enhancementTarget} disabled={editDisabled} previewActive={!!structure} resumeRequest={assetEditorResume} openForLocalPaint={enhancementTarget.localPaint} onDraftChange={onAssetEditorDraft} propertiesDirty={propAppearanceDraftOwners.current.editor || enhancementTarget.kind !== 'prop' && formDrafts.appearanceForm} onPreview={previewImageEnhancement} onRefinementPreview={previewImageRefinement} onClose={() => { assetEditorDraft.current = false; onEditorAppearanceDraft(false); if (enhancementTarget.kind !== 'prop') finishFormDraft('appearanceForm', true); else setFormReset(current => ({ ...current, propAppearanceForm: current.propAppearanceForm + 1 })); setEnhancementTarget(null) }} properties={enhancementTarget.kind === 'floorArtwork' ? <p className="asset-muted">仅修改此楼层底图框内的像素。可在场景预览后采用。</p> : enhancementTarget.kind === 'prop' ? <SceneInspector appearanceDefinitions={toolScene?.propDefinitions} project={completeProject} selected={enhancementTarget.id} busy={toolDisabled(['propAppearanceForm'])} appearanceResetKey={formReset.propAppearanceForm} onAppearanceDraftChange={onEditorAppearanceDraft} workspace={compositionWorkspace} onSelect={id => { select(id) }} onCommit={commit} onPreview={(commands, description) => preview(commands, description, undefined, Array.isArray(commands) && commands.some(command => (command.type === 'replacePropAppearance' || command.type === 'setPropWaterAppearance')) ? 'propAppearanceForm' : undefined)} onPropCommand={(commands, description, selectionAfterCommit) => editInspectorProp(enhancementTarget.id, commands, description, selectionAfterCommit)}/> : <div onChangeCapture={() => markFormDraft('appearanceForm')}><AppearancePanel project={completeProject} ids={[enhancementTarget.id]} layerId={completeProject.document.entityLayers[enhancementTarget.id]} scopeKind="targets" disabled={toolDisabled(['appearanceForm'])} onPreview={(commands, description) => preview(commands, description, undefined, 'appearanceForm')}/></div>}/></Suspense>}
     {active && menu && project && <SceneContextMenu key={`${menu.checkpoint}-${menu.x}-${menu.y}-${menu.ids.join('|')}`} project={project} menu={menu} onMoveToLayer={() => { try { compositionWorkspace.assertCheckpoint(menu.checkpoint); selectionSession.set(menu.ids); setLayerMoveRequest(value => value + 1); openLayers() } catch (error) { setMessage(String(error)) } }} onClose={closeMenu} onAction={action => batchAction(action, undefined, menu.ids, menu.checkpoint)} onSelect={select} onFit={() => setFitRequest(value => value + 1)} onPlace={(id, point) => { try { compositionWorkspace.assertCheckpoint(menu.checkpoint); choosePlacement(id, point) } catch (error) { setMessage(String(error)) } }} onEdit={() => { inspect('selection'); requestAnimationFrame(() => requestAnimationFrame(() => { const input = shell.current?.querySelector<HTMLElement>('.asset-inspector input:not(:disabled)') ?? shell.current?.querySelector<HTMLElement>('.asset-inspector button:not(:disabled)'); input?.focus() })) }}/>}

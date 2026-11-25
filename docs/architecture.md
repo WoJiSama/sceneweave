@@ -16,7 +16,7 @@
 
 共享层不依赖DOM或Node平台；应用层只依赖应用与共享层，浏览器实现从组合根注入。`npm run check:architecture`检查依赖方向，`npm run check:shared`检查共享层平台边界。
 
-编辑器的[文件控制器](../src/editor/main/workspace-file-controller.ts)执行完整工程备份、所选历史备份和双受众PNG；Workbench保留共享action协调与反馈，控制器通过端口调用正式导出器并重检检查点，不替代资源校验或保存冲突保全。
+编辑器的[文件控制器](../src/editor/main/workspace-file-controller.ts)执行完整工程备份、所选历史备份和双受众PNG。备份先严格校验内容、资源和许可，再由Worker压缩并累计检查100 MiB上限，发起下载前重检工程检查点。取消会释放备份操作和Worker，已开始的保存仍按原有流程运行。
 
 <a id="project"></a>
 ## 工程与版本

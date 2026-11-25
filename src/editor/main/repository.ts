@@ -1,6 +1,7 @@
 import { projectRepository } from '../../platform/browser/runtime'
 import { fromVerifiedBundle } from '../../application/workspace/project'
 import { HISTORY_LIMITS } from '../../shared/model/history'
+import { checkCancelled } from '../../shared/ports/resources'
 
 /** UI view of the repository; complete formats keep their strict version boundaries. */
 export class WorkspaceRepository {
@@ -33,11 +34,18 @@ export class WorkspaceRepository {
     return projectRepository.deleteSnapshot(owner, id, hash, metadataVersion)
   }
   async usage(sceneId: string) { const value = await projectRepository.usage(sceneId); return { ...value, originalBytes: value.legacyBytes, limits: HISTORY_LIMITS } }
-  async exportArchive(sceneId: string, snapshotIds: readonly string[]) {
-    const current = await projectRepository.load(sceneId)
+  async exportArchive(sceneId: string, snapshotIds: readonly string[], signal?: AbortSignal) {
+    checkCancelled(signal)
+    const current = await projectRepository.load(sceneId, { signal })
     if (!current) throw new Error('工程已不存在。')
     const snapshots = []
-    for (const id of snapshotIds) { const value = await projectRepository.loadSnapshot(sceneId, id); if (!value || value.kind === 'imported-auto') throw new Error('请重新选择命名或保护快照。'); snapshots.push(value) }
+    for (const id of snapshotIds) {
+      checkCancelled(signal)
+      const value = await projectRepository.loadSnapshot(sceneId, id, { signal })
+      if (!value || value.kind === 'imported-auto') throw new Error('请重新选择命名或保护快照。')
+      snapshots.push(value)
+    }
+    checkCancelled(signal)
     return { current, snapshots }
   }
 }

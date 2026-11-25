@@ -123,7 +123,7 @@ function readHistoryIndex(input: unknown): HistoryIndex {
 }
 
 /** Full validators capture all caller JSON and byte-port closures before awaiting. */
-async function pack(input: HistoryArchive, mode: ProjectManifest['packageMode'], options: CompleteValidationOptions): Promise<Uint8Array> {
+export async function prepareProjectArchive(input: HistoryArchive, mode: ProjectManifest['packageMode'], options: CompleteValidationOptions): Promise<Record<string, Uint8Array>> {
   const archive = mode === 'history' ? await validateHistoryArchive(input, options) : { current: await validateProjectBundle(input.current, options), snapshots: [] }
   checkCancelled(options.signal)
   const files: Record<string, Uint8Array> = Object.create(null), entries: ManifestEntry[] = [], jsonBudget = { values: 0 }
@@ -191,6 +191,12 @@ async function pack(input: HistoryArchive, mode: ProjectManifest['packageMode'],
   const manifestBytes = encodeUtf8(canonicalJson(manifest))
   if (manifestBytes.length > PACKAGE_LIMITS.manifestBytes || entries.length + 1 > PACKAGE_LIMITS.entries || expanded + manifestBytes.length > PACKAGE_LIMITS.expandedBytes) return failPackage('manifest、条目或展开累计预算超限。')
   parseBoundedJson(manifestBytes, jsonBudget); files['manifest.json'] = manifestBytes
+  return files
+}
+
+async function pack(input: HistoryArchive, mode: ProjectManifest['packageMode'], options: CompleteValidationOptions): Promise<Uint8Array> {
+  const files = await prepareProjectArchive(input, mode, options)
+  checkCancelled(options.signal)
   // Fixed time makes equal inputs reproducible; no platform paths or metadata are added.
   const zipped = zipSync(files, { level: 6, mtime: new Date(2000, 0, 1, 0, 0, 0) })
   if (zipped.length > PACKAGE_LIMITS.compressedBytes) return failPackage('压缩工程超过100MiB。')

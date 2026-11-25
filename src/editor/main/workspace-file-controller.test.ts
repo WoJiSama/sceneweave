@@ -73,7 +73,7 @@ function setup(project: EditableProject, status: WorkspaceState['status'] = 'sav
   return {
     ports, controller, onAttempt, onSuccess,
     setStatus(value: WorkspaceState['status']) { status = value },
-    backup: (snapshotIds?: readonly string[]) => controller.backup({ project, sceneId, snapshotIds }, onAttempt),
+    backup: (snapshotIds?: readonly string[], signal?: AbortSignal) => controller.backup({ project, sceneId, snapshotIds }, onAttempt, signal),
     async invalidate(change: 'checkpoint' | 'scene') {
       // Change one input at a time so each stale-result guard is observable.
       if (change === 'checkpoint') checkpoint++
@@ -122,6 +122,10 @@ async function expectArchiveDownload({ ports, onAttempt }: FileFixture, bytes: U
   expect(ports.download.mock.invocationCallOrder[0]).toBeLessThan(onAttempt.mock.invocationCallOrder[0])
 }
 
+function archiveBlob(bytes: Uint8Array) {
+  return new Blob([bytes.slice().buffer], { type: 'application/octet-stream' })
+}
+
 function pngFixture() {
   return new Blob([pixelPng([61, 90, 121, 255]).slice().buffer], { type: 'image/png' })
 }
@@ -135,7 +139,7 @@ describe('complete workspace backup', () => {
     const largerBuffer = new Uint8Array(bytes.length + 2).fill(255)
     largerBuffer.set(bytes, 1)
     const saving = pauseAtPort<void>()
-    const writing = pauseAtPort<Uint8Array>()
+    const writing = pauseAtPort<Blob>()
     ports.workspace.flush.mockImplementationOnce(saving.run)
     ports.exportProject.mockImplementationOnce(writing.run)
 
@@ -146,11 +150,11 @@ describe('complete workspace backup', () => {
     saving.resolve()
 
     await writing.waitForCall(operation)
-    expect(ports.exportProject).toHaveBeenCalledExactlyOnceWith(toBundle(project))
+    expect(ports.exportProject).toHaveBeenCalledExactlyOnceWith(toBundle(project), undefined)
     expect(ports.exportArchive).not.toHaveBeenCalled()
     expect(ports.download).not.toHaveBeenCalled()
     expect(onAttempt).not.toHaveBeenCalled()
-    writing.resolve(largerBuffer.subarray(1, -1))
+    writing.resolve(archiveBlob(largerBuffer.subarray(1, -1)))
 
     await operation
     expectAttempt(client, project, 'download-started', '含全部资源、许可和秘密')
@@ -166,7 +170,7 @@ describe('complete workspace backup', () => {
     const client = setup(project, status)
     const { controller, ports, onAttempt } = client
     const bytes = await exportProject(toBundle(project), validation)
-    const writing = pauseAtPort<Uint8Array>()
+    const writing = pauseAtPort<Blob>()
     ports.workspace.flush.mockRejectedValueOnce(new Error('save blocked'))
     ports.exportProject.mockImplementationOnce(writing.run)
 
@@ -174,10 +178,10 @@ describe('complete workspace backup', () => {
     await writing.waitForCall(operation)
     expect(ports.workspace.flush).not.toHaveBeenCalled()
     expect(ports.exportArchive).not.toHaveBeenCalled()
-    expect(ports.exportProject).toHaveBeenCalledExactlyOnceWith(toBundle(project))
+    expect(ports.exportProject).toHaveBeenCalledExactlyOnceWith(toBundle(project), undefined)
     expect(ports.download).not.toHaveBeenCalled()
     expect(onAttempt).not.toHaveBeenCalled()
-    writing.resolve(bytes)
+    writing.resolve(archiveBlob(bytes))
 
     await operation
     expectAttempt(client, project, 'download-started', '含全部资源、许可和秘密')
@@ -192,12 +196,12 @@ describe('complete workspace backup', () => {
       client.setStatus(status)
       throw new Error('write could not finish')
     })
-    client.ports.exportProject.mockResolvedValueOnce(bytes)
+    client.ports.exportProject.mockResolvedValueOnce(archiveBlob(bytes))
 
     await client.backup()
 
     expect(client.ports.workspace.flush).toHaveBeenCalledOnce()
-    expect(client.ports.exportProject).toHaveBeenCalledExactlyOnceWith(toBundle(project))
+    expect(client.ports.exportProject).toHaveBeenCalledExactlyOnceWith(toBundle(project), undefined)
     expect(client.ports.exportArchive).not.toHaveBeenCalled()
     expectAttempt(client, project, 'download-started', '当前页面的最新编辑')
     await expectArchiveDownload(client, bytes, completeFilename)
@@ -221,7 +225,7 @@ describe('complete workspace backup', () => {
   it('reports an export rejection without calling download', async () => {
     const project = await editableFixture()
     const client = setup(project)
-    const writing = pauseAtPort<Uint8Array>()
+    const writing = pauseAtPort<Blob>()
     client.ports.exportProject.mockImplementationOnce(writing.run)
     const operation = client.backup()
     await writing.waitForCall(operation)
@@ -237,7 +241,7 @@ describe('complete workspace backup', () => {
     const client = setup(project)
     const { ports, onAttempt } = client
     const bytes = await exportProject(toBundle(project), validation)
-    ports.exportProject.mockResolvedValue(bytes)
+    ports.exportProject.mockResolvedValue(archiveBlob(bytes))
     const failure = new Error('could not create download URL')
     ports.download.mockImplementationOnce(() => { throw failure })
 
@@ -265,7 +269,7 @@ describe('selected-history workspace backup', () => {
     const bytes = await exportHistoryArchive(archive, validation)
     const saving = pauseAtPort<void>()
     const reading = pauseAtPort<HistoryArchive>()
-    const writing = pauseAtPort<Uint8Array>()
+    const writing = pauseAtPort<Blob>()
     ports.workspace.flush.mockImplementationOnce(saving.run)
     ports.exportArchive.mockImplementationOnce(reading.run)
     ports.exportHistoryArchive.mockImplementationOnce(writing.run)
@@ -277,16 +281,16 @@ describe('selected-history workspace backup', () => {
     saving.resolve()
 
     await reading.waitForCall(operation)
-    expect(ports.exportArchive).toHaveBeenCalledExactlyOnceWith(project.document.sceneId, originalIds)
+    expect(ports.exportArchive).toHaveBeenCalledExactlyOnceWith(project.document.sceneId, originalIds, undefined)
     expect(ports.exportHistoryArchive).not.toHaveBeenCalled()
     reading.resolve(archive)
 
     await writing.waitForCall(operation)
-    expect(ports.exportHistoryArchive).toHaveBeenCalledExactlyOnceWith(archive)
+    expect(ports.exportHistoryArchive).toHaveBeenCalledExactlyOnceWith(archive, undefined)
     expect(ports.exportProject).not.toHaveBeenCalled()
     expect(ports.download).not.toHaveBeenCalled()
     expect(onAttempt).not.toHaveBeenCalled()
-    writing.resolve(bytes)
+    writing.resolve(archiveBlob(bytes))
 
     await operation
     expectAttempt(client, project, 'download-started', '所选 2 份历史快照')
@@ -342,6 +346,53 @@ describe('selected-history workspace backup', () => {
   })
 })
 
+describe('workspace backup cancellation', () => {
+  it('stops waiting for autosave, even if the independent save settles later', async () => {
+    const project = await editableFixture(), client = setup(project, 'unsaved')
+    const abort = new AbortController(), saving = pauseAtPort<void>()
+    client.ports.workspace.flush.mockImplementationOnce(saving.run)
+    const operation = client.backup(undefined, abort.signal)
+    await saving.waitForCall(operation)
+    abort.abort()
+    await operation
+    saving.reject(new Error('a later autosave failure'))
+    expect(client.ports.exportProject).not.toHaveBeenCalled()
+    expect(client.ports.download).not.toHaveBeenCalled()
+    expectAttempt(client, project, 'cancelled', '')
+  })
+
+  it('passes cancellation into history reads and drops a result that completes after cancellation', async () => {
+    const project = await editableFixture(), client = setup(project), selection = ['before-lighting']
+    const abort = new AbortController(), reading = pauseAtPort<HistoryArchive>()
+    client.ports.exportArchive.mockImplementationOnce(reading.run)
+    const operation = client.backup(selection, abort.signal)
+    await reading.waitForCall(operation)
+    expect(client.ports.exportArchive).toHaveBeenCalledWith(project.document.sceneId, selection, abort.signal)
+    abort.abort(); reading.resolve(historyArchive(project, selection))
+    await operation
+    expect(client.ports.exportHistoryArchive).not.toHaveBeenCalled()
+    expect(client.ports.download).not.toHaveBeenCalled()
+    expectAttempt(client, project, 'cancelled', '')
+  })
+
+  it.each(['complete', 'history'] as const)('passes the signal into %s packing and suppresses a late file', async mode => {
+    const project = await editableFixture(), client = setup(project)
+    const selection = mode === 'history' ? ['before-lighting'] : undefined
+    const abort = new AbortController(), writing = pauseAtPort<Blob>()
+    const result = new Blob(['late ZIP'])
+    const packed = mode === 'history' ? client.ports.exportHistoryArchive : client.ports.exportProject
+    if (selection) client.ports.exportArchive.mockResolvedValueOnce(historyArchive(project, selection))
+    packed.mockImplementationOnce(writing.run)
+    const operation = client.backup(selection, abort.signal)
+    await writing.waitForCall(operation)
+    expect(packed.mock.calls[0][1]).toBe(abort.signal)
+    abort.abort(); writing.resolve(result)
+    await operation
+    expect(client.ports.download).not.toHaveBeenCalled()
+    expectAttempt(client, project, 'cancelled', '')
+  })
+})
+
 describe.each(staleChanges)('workspace $change changes during a file operation', ({ change, detail }) => {
   it('stops before complete export when the workspace changes during flush', async () => {
     const project = await editableFixture()
@@ -381,7 +432,7 @@ describe.each(staleChanges)('workspace $change changes during a file operation',
     const project = await editableFixture()
     const client = setup(project)
     const { ports } = client
-    const writing = pauseAtPort<Uint8Array>()
+    const writing = pauseAtPort<Blob>()
     const selection = mode === 'history' ? ['before-lighting'] : undefined
     const archive = selection ? historyArchive(project, selection) : undefined
     const bytes = archive ? await exportHistoryArchive(archive, validation) : await exportProject(toBundle(project), validation)
@@ -395,7 +446,7 @@ describe.each(staleChanges)('workspace $change changes during a file operation',
     await writing.waitForCall(operation)
 
     await client.invalidate(change)
-    writing.resolve(bytes)
+    writing.resolve(archiveBlob(bytes))
     await operation
     expect(ports.download).not.toHaveBeenCalled()
     expectAttempt(client, project, 'failed', detail)

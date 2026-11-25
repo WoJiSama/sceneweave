@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Download, type Locator, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
 import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, placeKeyboardLamp } from './keyboard-ux-helpers'
@@ -137,4 +137,77 @@ test('production backup download setup failure reports no download and permits a
   expect(downloads).toHaveLength(1)
   await expect(backupStatus(page)).toContainText('已发起此工程的文件下载')
   await expect(backupStatus(page)).not.toContainText('备份生成失败')
+})
+
+test('cancels complete and selected-history backup workers without publishing a download, then retries', async ({ page }, info) => {
+  test.setTimeout(120_000)
+  await createKeyboardProject(page, '取消备份验收')
+  await placeKeyboardLamp(page)
+  const original = await keyboardProjectBackup(page, info.outputPath('before.sceneweave'))
+  const history = await openWorkspaceModule(page, '历史')
+  const snapshot = '取消备份之前'
+  await history.getByRole('button', { name: '新建命名快照', exact: true }).click()
+  await history.getByLabel('命名快照名称', { exact: true }).fill(snapshot)
+  await history.getByRole('button', { name: '保存快照', exact: true }).click()
+  await expect(page.locator('.asset-busy')).toHaveCount(0)
+  await history.getByLabel('备份携带所选快照', { exact: true }).check()
+  await history.getByLabel(`备份快照 ${snapshot}`, { exact: true }).check()
+
+  // Delay only publication of the real worker's ZIP. Validation, compression and
+  // snapshot reads still execute through the same ports as a normal backup.
+  await page.evaluate(() => {
+    const Original = window.Worker
+    const state = { completed: 0, terminated: 0, hold: true }
+    window.Worker = class extends Original {
+      private readonly backup: boolean
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        this.backup = options?.name === 'sceneweave-project-backup'
+        if (this.backup) this.addEventListener('message', event => {
+          if (state.hold && event.data?.archive instanceof Blob) { state.completed++; event.stopImmediatePropagation() }
+        })
+      }
+      terminate() { if (this.backup) state.terminated++; super.terminate() }
+    }
+    Reflect.set(window, '__backupWorkerCheck', { state, restore: () => { window.Worker = Original } })
+  })
+  const downloads: string[] = []
+  const record = (download: Download) => downloads.push(download.suggestedFilename())
+  page.on('download', record)
+  const selected = history.getByRole('button', { name: '下载工程与所选历史 · 1 份', exact: true })
+  async function cancel(button: Locator, workerCount: number) {
+    await button.click()
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, '__backupWorkerCheck').state.completed)).toBe(workerCount)
+    await page.getByRole('button', { name: '取消备份', exact: true }).click()
+    await expect(backupStatus(page)).toHaveAttribute('data-state', 'cancelled')
+    await expect(backupStatus(page)).toContainText('已取消工程备份，尚未发起本次文件下载')
+    await expect(page.locator('.asset-busy')).toHaveCount(0)
+    expect(await page.evaluate(() => Reflect.get(window, '__backupWorkerCheck').state.terminated)).toBe(workerCount)
+    await expect(page.locator('.workspace-unified')).toHaveAttribute('data-revision', String(original.document.revision))
+    expect(downloads).toEqual([])
+  }
+
+  try {
+    await cancel(await projectBackupButton(page), 1)
+    await page.locator('.workspace-export-menu > summary').press('Escape')
+    await cancel(selected, 2)
+    await page.evaluate(() => { Reflect.get(window, '__backupWorkerCheck').state.hold = false })
+    const pending = page.waitForEvent('download')
+    await selected.click()
+    const downloaded = await pending
+    const historyPath = info.outputPath('retried-history.sceneweave')
+    await downloaded.saveAs(historyPath)
+    await expect(backupStatus(page)).toContainText('所选 1 份历史快照')
+    const files = unzipSync(new Uint8Array(await readFile(historyPath)))
+    const readJson = (path: string) => JSON.parse(new TextDecoder().decode(files[path]))
+    expect(readJson('scene.json')).toEqual(original.document)
+    const archive = readJson('history.json')
+    expect(archive.snapshots).toHaveLength(1)
+    expect(archive.snapshots[0].summary).toMatchObject({ name: snapshot, sourceRevision: original.document.revision })
+    expect(readJson(archive.snapshots[0].scenePath)).toEqual(original.document)
+    expect(downloads).toEqual(['sceneweave-history.sceneweave'])
+  } finally {
+    page.off('download', record)
+    await page.evaluate(() => Reflect.get(window, '__backupWorkerCheck').restore())
+  }
 })
