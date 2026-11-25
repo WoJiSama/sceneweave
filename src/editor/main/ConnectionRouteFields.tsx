@@ -4,6 +4,7 @@ import type { CubicSegment, VisualBoundary } from '../../shared/visual/types'
 import { connectionRouteSchema, sampleConnectionRoute, smoothConnectionControls, type ConnectionRoute } from '../../shared/geometry/connection-route'
 import type { VisualBoundaryEditor } from './VisualPanel'
 import { integerCoordinateRow } from './integer-coordinate-input'
+import { pointText } from './outdoor-coordinates'
 
 export interface ConnectionRouteDraft {
   mode: 'classic' | 'polyline' | 'cubic'
@@ -71,36 +72,56 @@ interface Props {
   layerId: string
   visibility: 'public' | 'gm'
   onChange: (value: ConnectionRouteDraft) => void
+  onPointsChange?: (value: string) => void
+  onFocusCanvas?: (points: PointMm[]) => void
   onBoundaryEditor?: (value: VisualBoundaryEditor | null) => void
 }
-export default function ConnectionRouteFields({ enabled, text, draft, retained, floorId, layerId, visibility, onChange, onBoundaryEditor, appearanceControls = true }: Props) {
+export default function ConnectionRouteFields({ enabled, text, draft, retained, floorId, layerId, visibility, onChange, onPointsChange, onFocusCanvas, onBoundaryEditor, appearanceControls = true }: Props) {
   const callback = useRef(onBoundaryEditor); callback.current = onBoundaryEditor
   const change = useRef(onChange); change.current = onChange
+  const changePoints = useRef(onPointsChange); changePoints.current = onPointsChange
   const current = useRef(draft); current.current = draft
   const draftIds = useRef<string[]>([]), [error, setError] = useState('')
+  const nodesOnly = draft.mode === 'polyline' && !!onPointsChange
   const preview = useMemo(() => {
-    if (!enabled || draft.mode !== 'cubic' || !draft.handles) return null
+    if (!enabled || !draft.handles || (draft.mode !== 'cubic' && !nodesOnly)) return null
     try {
       const route = readConnectionRoute(text, draft, retained).route!
       const segments = route.segments.map((segment, index) => ({ ...segment, id: retained?.segments[index]?.id ?? (draftIds.current[index] ??= `route-draft-${crypto.randomUUID()}`) }))
       return { id: 'connection-route-session-draft', floorId, layerId, visibility, editLocked: false, closed: false, binding: { kind: 'decoration' as const },
         sampleSpacingMm: route.sampleSpacingMm, toleranceMm: route.toleranceMm, segments } satisfies VisualBoundary
     } catch { return null }
-  }, [enabled, text, draft, retained, floorId, layerId, visibility])
+  }, [enabled, text, draft, retained, floorId, layerId, visibility, nodesOnly])
   useEffect(() => {
-    if (preview) callback.current?.({ boundary: preview, onChange: boundary => change.current({ ...current.current, controls: routeControlText(boundary.segments) }) })
-    else callback.current?.(null)
+    if (!preview) return
+    callback.current?.({ boundary: preview, nodesOnly, onChange: boundary => {
+      if (nodesOnly) changePoints.current?.(pointText([boundary.segments[0].start, ...boundary.segments.map(segment => segment.end)]))
+      else change.current({ ...current.current, controls: routeControlText(boundary.segments) })
+    } })
     return () => callback.current?.(null)
-  }, [preview])
+  }, [preview, nodesOnly])
   const patch = (value: Partial<ConnectionRouteDraft>) => { setError(''); onChange({ ...draft, ...value }) }
+  const handleLabel = nodesOnly ? '在画布调整路线节点' : '在画布编辑连接控制点'
+  const toggleHandles = (checked: boolean) => {
+    if (checked) {
+      try {
+        const { route } = readConnectionRoute(text, draft, retained)
+        if (route) onFocusCanvas?.(route.segments.flatMap(segment => [segment.start, segment.control1, segment.control2, segment.end]))
+      }
+      catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); return }
+    }
+    patch({ handles: checked })
+  }
   return <div className="connection-route-fields">
     {!enabled ? <p className="asset-muted">区域地图不提供战术连接编辑，请在场景地图中创建和调整连接路线。</p> : <>
       <label>连接路线<select aria-label="连接路线形态" value={draft.mode} onChange={event => patch({ mode: event.target.value as ConnectionRouteDraft['mode'], handles: false })}><option value="classic">经典直连接</option><option value="polyline">直行／折线／之字回折</option><option value="cubic">曲线控制点</option></select></label>
       {draft.mode !== 'classic' && <><p className="asset-muted">路线首末点分别使用明确的两端支撑。回折须保留足宽转角，完整带区与高差会在候选中校验。</p>
         {draft.mode === 'cubic' && <><button type="button" className="secondary asset-wide" onClick={() => { try { patch({ controls: routeControlText(smoothConnectionControls(connectionPoints(text)).map((segment, index, all) => ({ ...segment, id: sourceId(index, retained, 'cubic', all.length) }))) }) } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) } }}>从路线节点生成曲线控制点</button>
-          <label>每行：起点；控制点1；控制点2；终点 · mm<textarea aria-label="连接曲线控制点" rows={6} value={draft.controls} onChange={event => patch({ controls: event.target.value })}/></label>
-          <label className="composition-check"><input type="checkbox" aria-label="在画布编辑连接控制点" checked={draft.handles} onChange={event => patch({ handles: event.target.checked })}/>在画布编辑连接控制点</label></>}
-        {appearanceControls && <><label>踏面风格<select aria-label="连接踏面风格" value={draft.style} onChange={event => patch({ style: event.target.value as ConnectionRoute['stairStyle'] })}><option value="stone">石砌</option><option value="wood">木梯</option><option value="naturalRock">自然岩阶</option></select></label>{draft.style === 'naturalRock' && <label className="composition-check"><input type="checkbox" aria-label="细化自然岩阶" checked={!!draft.profile} onChange={event => patch({ profile: event.target.checked ? 'naturalRockSteps2' : undefined })}/>细化踏石与短边笔触</label>}{draft.style === 'naturalRock' && draft.profile && <label>岩阶色调<select aria-label="岩阶色调" value={draft.profile} onChange={event => patch({ profile: event.target.value as ConnectionRoute['renderProfile'] })}><option value="naturalRockSteps2">浅色层岩</option><option value="naturalRockSteps3">深灰火山岩</option><option value="naturalRockSteps4">错列凿岩阶</option><option value="naturalRockSteps5">连续立面岩阶</option><option value="naturalRockSteps6">风化凿岩阶</option><option value="naturalRockSteps7">磨蚀岩阶 · 连续岩面</option><option value="naturalRockSteps8">凿岩台阶 · 踏面与侧壁</option></select></label>}
+          <label>每行：起点；控制点1；控制点2；终点 · mm<textarea aria-label="连接曲线控制点" rows={6} value={draft.controls} onChange={event => patch({ controls: event.target.value })}/></label></>}
+        {(draft.mode === 'cubic' || nodesOnly) && <label className="composition-check"><input type="checkbox" aria-label={handleLabel} data-outdoor-view-control
+          checked={draft.handles} onChange={event => toggleHandles(event.target.checked)}/>{handleLabel}</label>}
+        {nodesOnly && draft.handles && <small>拖动白色节点调整路线，首末点须分别留在各自的承托地形上。</small>}
+        {appearanceControls && <><label>踏面风格<select aria-label="连接踏面风格" value={draft.style} onChange={event => patch({ style: event.target.value as ConnectionRoute['stairStyle'] })}><option value="stone">石砌</option><option value="wood">木梯</option><option value="naturalRock">自然岩阶</option></select></label>{draft.style === 'naturalRock' && <label className="composition-check"><input type="checkbox" aria-label="细化自然岩阶" checked={!!draft.profile} onChange={event => patch({ profile: event.target.checked ? 'naturalRockSteps2' : undefined })}/>细化踏石与短边笔触</label>}{draft.style === 'naturalRock' && draft.profile && <label>岩阶色调<select aria-label="岩阶色调" value={draft.profile} onChange={event => patch({ profile: event.target.value as ConnectionRoute['renderProfile'] })}><option value="naturalRockSteps2">浅色层岩</option><option value="naturalRockSteps3">深灰火山岩</option><option value="naturalRockSteps4">错列凿岩阶</option><option value="naturalRockSteps5">连续立面岩阶</option><option value="naturalRockSteps6">风化凿岩阶</option><option value="naturalRockSteps7">磨蚀岩阶 · 连续岩面</option><option value="naturalRockSteps8">凿岩台阶 · 踏面与侧壁</option><option value="naturalRockSteps9">风化石阶 · 实高差踏面</option><option value="naturalRockSteps10">嵌岩石阶 · 磨蚀边缘与坡肩</option></select></label>}
         <label>踏面间距 mm<input type="number" aria-label="连接踏面间距毫米" min="50" max="2000" step="1" value={draft.tread} onChange={event => patch({ tread: event.target.value })}/></label>
         </>}<div className="composition-fields"><label>采样间距 mm<input type="number" aria-label="连接采样间距毫米" min="4" max="20000" step="1" value={draft.spacing} onChange={event => patch({ spacing: event.target.value })}/></label><label>曲线容差 mm<input type="number" aria-label="连接曲线容差毫米" min="1" max="1000" step="1" value={draft.tolerance} onChange={event => patch({ tolerance: event.target.value })}/></label></div>
         <small>路线控制点与完整采样共同保存；尺寸使用世界毫米。</small></>}

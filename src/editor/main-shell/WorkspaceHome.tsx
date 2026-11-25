@@ -2,27 +2,38 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ArrowRight, BookOpen, Download, FileUp, FolderOpen, HardDrive, ImagePlus, Layers3, Map as MapIcon, PencilLine, Plus, RefreshCw, Search } from 'lucide-react'
 import { tutorialHash, tutorialHref } from '../../tutorial/location'
-import type { ProjectDirectoryEntry, ProjectDirectoryCursor, ProjectDirectoryQuery } from '../../application/ports/project-directory'
+import type { ProjectDirectoryEntry, ProjectDirectoryCursor, ProjectDirectoryPage, ProjectDirectoryQuery } from '../../application/ports/project-directory'
 import type { WorkspaceRequest, WorkspaceSessionSummary } from './session'
 import showcaseManifest from '../../platform/browser/content/home-showcase-manifest.json'
 import SampleShowcase, { obliqueImage, sceneImage } from './SampleShowcase'
-import HomePreviewImage from './HomePreviewImage'
+import HomePreviewImage, { HomePreviewsPaused } from './HomePreviewImage'
 import ResourceDownloadButton from './ResourceDownloadButton'
 import { HomeArtStyleDemo, HomeObliqueDemo } from './HomeDemos'
+import StartupSceneDialog, { type StartupSceneDialogProps } from './StartupSceneDialog'
+import { currentDatabaseNames } from '../../platform/browser/storage/current-databases'
 import { homeSections, isHomeSectionHash } from './location'
 import '../workspace/home.css'
 import './home-ux.css'
 
 const scenePreview = showcaseManifest.entries.wilderness
 
-async function readProjectDirectory(query: ProjectDirectoryQuery) {
+async function listedDatabases() {
+  try { return await globalThis.indexedDB?.databases?.() }
+  catch { return undefined }
+}
+
+async function readProjectDirectory(query: ProjectDirectoryQuery): Promise<ProjectDirectoryPage> {
+  const name = currentDatabaseNames().projects
+  const databases = await listedDatabases()
+  if (databases && !databases.some(database => database.name === name)) return { entries: [], total: 0, next: null }
   const { projectRepository } = await import('../../platform/browser/runtime')
   return projectRepository.projectDirectory(query)
 }
 
-export default function WorkspaceHome({ session, onContinue, onRequest, disabled = false, developmentTools }: {
+export default function WorkspaceHome({ session, onContinue, onRequest, disabled = false, startupScene, developmentTools }: {
   session: WorkspaceSessionSummary | null; onContinue: () => void; onRequest: (request: WorkspaceRequest) => void
   disabled?: boolean
+  startupScene?: StartupSceneDialogProps
   developmentTools?: ReactNode
 }) {
   const [entries, setEntries] = useState<ProjectDirectoryEntry[]>([]), [query, setQuery] = useState(''), [refresh, setRefresh] = useState(0)
@@ -65,7 +76,7 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
   const titleCounts = new Map<string, number>()
   for (const entry of entries) if (entry.summary) titleCounts.set(entry.summary.title, (titleCounts.get(entry.summary.title) ?? 0) + 1)
   const sessionStatus: Record<string, string> = { saved: '已保存到此浏览器', saving: '正在保存到此浏览器', unsaved: '等待保存到此浏览器', error: '保存失败，请返回处理', conflict: '版本冲突，请返回处理' }
-  return <div id="home" className="workspace-home" data-testid="workspace-home">
+  return <><div id="home" className="workspace-home" data-testid="workspace-home">
     <header className="home-header">
       <a href="#home" className="home-brand" aria-label="织境首页"><Layers3 size={28} aria-hidden="true"/><span>织境 <small>Sceneweave</small></span></a>
       <div className="home-header-actions">
@@ -75,6 +86,7 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
       </div>
     </header>
     <main className="home-content">
+      <HomePreviewsPaused.Provider value={!!startupScene}>
       <section className="home-entry" aria-labelledby="home-title">
         <div className="home-entry-copy">
           <h1 id="home-title">在浏览器里画跑团地图</h1>
@@ -114,6 +126,7 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
       <HomeArtStyleDemo disabled={disabled} onOpen={() => onRequest({ type: 'showcase', sample: 'fantasy' })}/>
       <HomeObliqueDemo disabled={disabled} onOpen={() => onRequest({ type: 'showcase', sample: 'wilderness' })}/>
       <SampleShowcase onRequest={onRequest} disabled={disabled}/>
+      </HomePreviewsPaused.Provider>
       <ol className="home-steps" role="list" aria-label="备团步骤">
         <li><PencilLine size={19} aria-hidden="true"/><div><h2><a href={tutorialHref('first-map', 'rooms')}>画出布局</a></h2><p>用「房间」点两个对角，或用「地形」画出地面和道路。</p></div></li>
         <li><Layers3 size={19} aria-hidden="true"/><div><h2><a href={tutorialHref('first-map', 'furnish')}>布置场景</a></h2><p>选中房间接建隔壁一间、开门窗，或挑选家具摆到图上。</p></div></li>
@@ -134,4 +147,6 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
       </footer>
     </main>
   </div>
+    {startupScene && <StartupSceneDialog {...startupScene}/>}
+  </>
 }

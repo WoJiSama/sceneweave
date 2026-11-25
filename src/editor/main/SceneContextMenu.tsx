@@ -2,7 +2,7 @@ import { selectManualTransactionBudget } from '../../shared/budget/command-budge
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { EditableProject } from '../../application/workspace/project'
 import type { PointMm } from '../../shared/model/scene'
-import { propName, groupName } from './SceneInspector'
+import { propName, groupName } from './entity-label'
 import { selectionActionBehavior, selectionActionReason, type SelectionAction } from '../native-canvas/selection-actions'
 
 export type SceneMenu = { x: number; y: number; point: PointMm; hits: string[]; ids: string[]; checkpoint: number; origin: HTMLElement | null; blank: boolean }

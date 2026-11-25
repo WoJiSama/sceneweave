@@ -26,7 +26,7 @@ import { visualFilterColor } from '../../shared/visual/visual-filter-color'
 import { ColorFilterControls } from './ColorFilterControls'
 
 export type VisualTab = 'artStyle' | 'surface' | 'edge' | 'background' | 'environment' | 'light' | 'fog' | 'filter'
-export interface VisualBoundaryEditor { boundary: VisualBoundary; onChange: (value: VisualBoundary) => void }
+export interface VisualBoundaryEditor { boundary: VisualBoundary; nodesOnly?: boolean; onChange: (value: VisualBoundary) => void }
 const line = (a: PointMm, b: PointMm) => ({ id: newId(), start: { ...a }, control1: { x: Math.round((2 * a.x + b.x) / 3), y: Math.round((2 * a.y + b.y) / 3) }, control2: { x: Math.round((a.x + 2 * b.x) / 3), y: Math.round((a.y + 2 * b.y) / 3) }, end: { ...b } })
 const names = { shore: '海岸 · 湿沙与泡沫', cliff: '连续崖面', grass: '草沿', path: '道路边带', fence: '围栏 · 装饰' }
 export default function VisualPanel({ scene, appearance, historyIdentity, layerId, selectedIds, disabled, onPreview, onBoundaryEditor, onDraftChange, onLightCanvasTool, onCanvasStart, surfaceRequest, detailsTarget, detailsActive = true, activeTab, onTabChange, onInspect, artStyleControls }: {

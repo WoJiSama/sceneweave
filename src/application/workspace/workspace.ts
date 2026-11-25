@@ -9,7 +9,6 @@ import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, parseTaskBudgetP
 import type { CanvasGenerationTarget } from './canvas-generation.js'
 import { assertCommandBudget, measureCommandBudget, retainLocalCommandBudget, selectManualTransactionBudget, MANUAL_TRANSACTION_BUDGETS, type ManualTransactionBudget, type CommandBudgetUsage } from '../../shared/budget/command-budget.js'
 import { selectManualCommandBudget } from '../../shared/budget/manual-request.js'
-import { ProfiledAuthoringScopeSchema } from '../../shared/ai/authoring-profile.js'
 import type { BaseMapPreparationOptions } from './base-map.js'
 import type { InteriorCandidate } from './interior.js'
 import type { ForestCandidate } from './forest.js'
@@ -25,10 +24,9 @@ import type { BaseMapRequest } from '../../shared/terrain-generation/base-map.js
 import type { BaseMapRequestV2 } from '../../shared/terrain-generation/base-map-v2.js'
 import type { BaseMapRequestV3 } from '../../shared/terrain-generation/base-map-v3.js'
 import type { BaseMapSourceV3 } from '../../shared/ai/continuation-protocol-v3.js'
-import { CurrentAuthoringScopeV4Schema, type AuthoringStartV4, type CurrentAuthoringScope } from '../../shared/ai/authoring-protocol-v4.js'
+import type { AuthoringStartV4, CurrentAuthoringScope } from '../../shared/ai/authoring-protocol-v4.js'
 import type { BaseMapSource } from '../../shared/ai/continuation-protocol.js'
 import { CONTINUATION_POLICY, createContinuationPolicyV2 } from '../../shared/ai/budget-policy.js'
-import { emptyCompositionDocument } from '../../shared/terrain-generation/composition-materialize.js'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
 import { getProjectLocalTransaction, projectContentHash, releaseProjectLocalTransaction, releaseProjectTransactionReceipt } from '../../shared/project/validate.js'
 import type { TerrainPreview } from './terrain.js'
@@ -42,7 +40,7 @@ import type { TerrainEditResult, ProfiledTerrainEditResult } from '../../shared/
 import type { TerrainGenerationResult } from '../../shared/terrain-generation/generate.js'
 import { visualBase } from '../../shared/visual/base.js'
 import { visualBindingEntityIds } from '../../shared/visual/diagnostics.js'
-import { planTerrainDressing, type TerrainDressingReport } from '../../shared/visual/terrain-dressing.js'
+import type { TerrainDressingReport } from '../../shared/visual/terrain-dressing.js'
 import type { CompositionCommand, CompositionContent } from '../../shared/model/appearance.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
 import type { CancellationSignal, CompleteValidationOptions } from '../../shared/ports/resources.js'
@@ -69,7 +67,6 @@ import { validateHistoryArchive, type HistoryArchive } from '../../shared/projec
 import { captureJson, equalOwnedJson } from '../../shared/validation/json.js'
 import { prepareFillCopy, type FillCopyReport, type FillCopyRequest } from './fill-copy.js'
 import type { AuthoringDraft, AuthoringScope, AuthoringStart, DraftLease } from '../../shared/ai/authoring-protocol.js'
-import { AuthoringScopeSchema, isClassifiedAuthoring, isClassifiedAuthoringState } from '../../shared/ai/authoring-protocol.js'
 import { authoringProjectHash } from '../../shared/ai/authoring-project-hash.js'
 import type { ResourceOptions } from '../../shared/ports/resources.js'
 import type { ProjectStore, CreateSnapshotOptions, ProjectSaveGuard, SnapshotReadSession, SourcePreservationGuard } from '../ports/project-store.js'
@@ -82,7 +79,7 @@ type GeneratedAtomicStart = Extract<AuthoringStart, { schemaVersion: 2 | 3 }> | 
 /** Classified budget identity also applies to edits of the current project. Only
  * proven generated sources use the independent base-map publication path. */
 function isGeneratedAtomicStart(start: AuthoringStart): start is GeneratedAtomicStart {
-  return isClassifiedAuthoring(start) && start.source.version !== 4
+  return !!start && (start.schemaVersion === 2 || start.schemaVersion === 3 || start.schemaVersion === 4) && start.source.version !== 4
 }
 
 export type WorkspaceRepository = ProjectStore
@@ -1407,6 +1404,8 @@ export class Workspace {
     checkCancelled(signal); this.assertCatalogImport(catalog, checkpoint)
     const sourceCost = catalogAdditionCost(current, catalog)
     if (sourceCost > 256) throw new Error('地形布景固定源新增记录超过256条操作预算。')
+    const { planTerrainDressing } = await import('../../shared/visual/terrain-dressing.js')
+    checkCancelled(signal); this.assertCheckpoint(checkpoint)
     const planned = planTerrainDressing({ document: catalog.document, appearance: catalog.appearance }, capturedInput)
     const commands = captureCommands(planned.commands), budget = selectManualCommandBudget(catalog, commands)
     checkCancelled(signal); this.assertCheckpoint(checkpoint)
@@ -1811,7 +1810,10 @@ export class Workspace {
   async authorizeAtomic(scope: AuthoringScope, brief?: import('../../shared/ai/plan.js').AuthoringBrief): Promise<AtomicAuthorization & { start: import('../../shared/ai/authoring-protocol-v1.js').AuthoringStart }> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), current = this.requireProject()
-    const capturedScope = AuthoringScopeSchema.parse(captureJson(scope)), capturedBrief = brief && captureJson(brief)
+    const scopeInput = captureJson(scope), capturedBrief = brief && captureJson(brief)
+    const { AuthoringScopeSchema } = await import('../../shared/ai/authoring-protocol-v1.js')
+    this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const capturedScope = AuthoringScopeSchema.parse(scopeInput)
     const verified = await validateEditableProject(current, this.validation())
     const { captureAtomicStart, freezeAtomic } = await import('./atomic.js')
     this.assertCheckpoint(checkpoint)
@@ -1830,7 +1832,10 @@ export class Workspace {
   async authorizeCurrentAtomic(scope: CurrentAuthoringScope, brief?: import('../../shared/ai/plan.js').AuthoringBrief): Promise<AtomicAuthorization & { start: AuthoringStartV4 }> {
     this.assertWritable()
     const checkpoint = this.checkpoint(), current = this.requireProject()
-    const capturedScope = CurrentAuthoringScopeV4Schema.parse(captureJson(scope)), capturedBrief = brief && captureJson(brief)
+    const scopeInput = captureJson(scope), capturedBrief = brief && captureJson(brief)
+    const { CurrentAuthoringScopeV4Schema } = await import('../../shared/ai/authoring-protocol-v4.js')
+    this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const capturedScope = CurrentAuthoringScopeV4Schema.parse(scopeInput)
     const verified = await validateEditableProject(current, this.validation())
     const [{ captureAtomicStart, freezeAtomic }, { createCurrentAuthoringStartV4 }] = await Promise.all([
       import('./atomic.js'), import('../../shared/ai/authoring.js'),
@@ -1861,8 +1866,12 @@ export class Workspace {
     if (this.terrainPreviews.get(preview) !== 'active' || !preview.continuationSource) throw new Error('只有当前完整来源的程序底图可以接续AI；旧底图仍可独立采用。')
     this.assertCheckpoint(preview.checkpoint)
     const source = preview.continuationSource, checkpoint = this.checkpoint()
-    const authoringVersion = options.authoringVersion, capturedBrief = brief && captureJson(brief)
-    const capturedScope = (authoringVersion === 4 ? CurrentAuthoringScopeV4Schema : source.version === 3 ? ProfiledAuthoringScopeSchema : AuthoringScopeSchema).parse(captureJson(scope))
+    const authoringVersion = options.authoringVersion, capturedBrief = brief && captureJson(brief), scopeInput = captureJson(scope)
+    const [{ CurrentAuthoringScopeV4Schema, AuthoringScopeSchema }, { ProfiledAuthoringScopeSchema }] = await Promise.all([
+      import('../../shared/ai/authoring-protocol.js'), import('../../shared/ai/authoring-profile.js'),
+    ])
+    this.assertWritable(); this.assertCheckpoint(checkpoint)
+    const capturedScope = (authoringVersion === 4 ? CurrentAuthoringScopeV4Schema : source.version === 3 ? ProfiledAuthoringScopeSchema : AuthoringScopeSchema).parse(scopeInput)
     const work = this.baseMapExecution.begin(source.flowId, this.atomicSignal())
     try {
       this.assertBaseMapPreservation(source)
@@ -1929,8 +1938,8 @@ export class Workspace {
     const work = isGeneratedAtomicStart(authorization.start) ? this.baseMapExecution.begin(authorization.start.source.flowId, this.atomicSignal(options.signal)) : null
     const signal = work?.signal ?? this.atomicSignal(options.signal)
     try {
-      const [{ captureAtomicDraft, atomicChanges, freezeAtomic }, { authoringBudgetIdentity }, { materializeAuthoringArtwork }] = await Promise.all([
-        import('./atomic.js'), import('../../shared/ai/authoring.js'), import('./artwork.js'),
+      const [{ captureAtomicDraft, atomicChanges, freezeAtomic }, { authoringBudgetIdentity }, { materializeAuthoringArtwork }, { isClassifiedAuthoringState }] = await Promise.all([
+        import('./atomic.js'), import('../../shared/ai/authoring.js'), import('./artwork.js'), import('../../shared/ai/authoring-protocol.js'),
       ])
       checkCancelled(signal)
       if (isGeneratedAtomicStart(authorization.start)) { this.assertCheckpoint(authorization.checkpoint); this.assertBaseMapPreservation(authorization.start.source) }
@@ -1974,6 +1983,8 @@ export class Workspace {
   }
 
   private async baseMapUndoBaseline(source: BaseMapSource | BaseMapSourceV3, final: EditableProject, signal: NonNullable<ResourceOptions['signal']>) {
+    const { emptyCompositionDocument } = await import('../../shared/terrain-generation/composition-materialize.js')
+    checkCancelled(signal)
     const document = emptyCompositionDocument(source.blank.document)
     // Keep fixed definitions/resources introduced by the accepted result. Undo
     // removes its editable objects; it does not rewrite fixed source meanings.

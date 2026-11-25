@@ -22,7 +22,7 @@ export default function TerrainCliffStylePanel({ scene, areaId, disabled, onPrev
   }
   return <section aria-label="地形崖壁样式">
     <h3>崖壁样式</h3>
-    <p className="asset-muted">按真实高差生成崖面，随地形轮廓更新；无需另画岩壁。现有画法的自然造型仍在整改。</p>
+    <p className="asset-muted">崖面沿地形轮廓和实际高差绘制。</p>
     <fieldset disabled={disabled || scene.userLayers[scene.entityLayers[areaId]]?.editLocked}>
       <label className="asset-select">作用范围<select aria-label="地形崖壁作用范围" value={boundaryId} onChange={event => { setBoundaryId(event.target.value); setError('') }}><option value="">整块地形的绑定边缘</option>{bindings.map((item, index) => <option key={item.boundary.id} value={item.boundary.id}>边段 {index + 1}{item.boundary.binding.kind === 'terrain' && item.boundary.binding.sides.length > 1 ? ' · 与邻地共享' : ''}</option>)}</select></label>
       <label className="asset-select">崖面画法<select aria-label="地形崖面画法" value={profile} onChange={event => { setProfile(event.target.value as TerrainCliffProfile); setError('') }}>{TERRAIN_CLIFF_STYLES.map(style => <option key={style.value} value={style.value}>{style.label}</option>)}</select></label>

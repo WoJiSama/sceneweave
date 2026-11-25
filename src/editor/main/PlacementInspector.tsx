@@ -1,17 +1,20 @@
 import { Move, X } from 'lucide-react'
+import { useMemo } from 'react'
 import type { Prop, SceneDocument, SurfaceRef } from '../../shared/model/scene'
 import { NumberInput } from '../native-canvas/controls'
 import { formatDistanceMm } from '../native-canvas/building-session'
+import { createEntityLabeler } from './entity-label'
 
 export default function PlacementInspector({ scene, prop, automatic, busy, ready, onChange, onSurface, onPlace, onCancel }: {
   scene: SceneDocument; prop: Prop; automatic: boolean; busy: boolean; ready: boolean; onChange: (changes: Partial<Pick<Prop, 'positionMm' | 'rotationDeg'>>) => void
   onSurface: (surface?: SurfaceRef) => void; onPlace: () => void; onCancel: () => void
 }) {
   const definition = prop.definitionRef && scene.propDefinitions[prop.definitionRef.id]
+  const name = useMemo(() => createEntityLabeler(scene, mm => formatDistanceMm(mm, scene.units.display)), [scene])
   const surfaces: { ref: SurfaceRef; label: string }[] = [
     ...Object.values(scene.floors).filter(floor => floor.id === prop.floorId).map(floor => ({ ref: { kind: 'floor' as const, id: floor.id }, label: floor.name })),
     ...Object.values(scene.rooms).filter(room => room.floorId === prop.floorId).map(room => ({ ref: { kind: 'room' as const, id: room.id }, label: room.purpose || '房间' })),
-    ...Object.values(scene.terrainAreas).filter(area => area.floorId === prop.floorId).map((area, index) => ({ ref: { kind: 'terrainArea' as const, id: area.id }, label: `${area.waterSurface ? '水面' : '地形'} ${index + 1} · 高度 ${formatDistanceMm(area.groundElevationMm, scene.units.display)}` })),
+    ...Object.values(scene.terrainAreas).filter(area => area.floorId === prop.floorId).map(area => ({ ref: { kind: 'terrainArea' as const, id: area.id }, label: `${area.waterSurface ? '水面 · ' : ''}${name(area.id)}` })),
   ]
   return <><div className="asset-section-heading"><Move size={16}/><h2>放置物件</h2></div><h3>{definition ? definition.name : '物件'}</h3>
     <p className="asset-muted">移动鼠标预览，点击画布放置；Escape 取消。</p>

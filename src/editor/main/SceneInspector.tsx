@@ -23,12 +23,7 @@ import SightOccluderTools from './SightOccluderTools'
 import PipePortTools from './PipePortTools'
 import type { PipePort } from '../../shared/path-assembly/pipe-geometry'
 import { WaterPropTools } from './OceanTools'
-
-export const propName = (project: EditableProject, id: string) => {
-  const prop = project.document.props[id]
-  return prop.definitionRef ? project.document.propDefinitions[prop.definitionRef.id].name : `符号物件 · ${id}`
-}
-export const groupName = (project: EditableProject, id: string) => project.document.prefabDefinitions[project.document.prefabInstances[id].definitionRef.id].name
+import { groupName, propName } from './entity-label'
 
 type Props = {
   appearanceDefinitions?: SceneDocument['propDefinitions']
@@ -124,6 +119,9 @@ function SceneInspectorContent({ project, appearanceDefinitions = project.docume
       : [owner, scatterOwner].some(parent => parent && (parent.editLocked || effectiveLayerLocked(scene, parent.id))) ? '请先解除所属组合或散布的编辑锁。' : null
     if (!lockChangeReason) { try { assertDecorationMemberUnlocked(scene, selected) } catch { lockChangeReason = '请先解除所属布景或地表规则的编辑锁。' } }
     const variants = Object.values(appearanceDefinitions).filter(definition => !(definition.id.startsWith('composition-retained-prop-') && definition.tags.includes('sceneweave:retained-appearance')))
+    const naturalStones = variants.filter(definition => definition.tags.includes('自然岩石'))
+    const otherVariantOptions = variants.filter(definition => !definition.tags.includes('自然岩石'))
+      .map(variant => <option key={variant.id} value={variant.id}>{variant.name}</option>)
     const chosenId = appearanceChoice?.propId === selected && appearanceDefinitions[appearanceChoice.definitionId] ? appearanceChoice.definitionId : prop.definitionRef?.id ?? variants[0]?.id
     const chosen = chosenId ? appearanceDefinitions[chosenId] : null
     const swap = chosen ? appearanceSwapInfo(prop, chosen) : null
@@ -157,7 +155,10 @@ function SceneInspectorContent({ project, appearanceDefinitions = project.docume
             const definition = appearanceDefinitions[definitionId], info = appearanceSwapInfo(prop, definition)
             onPreview([{ type: 'replacePropAppearance', id: selected, definitionRef: { id: definitionId, version: definition.version } }], `替换物件外观，保留占地。${info.message}`)
           }
-        }}>{variants.map(variant => <option key={variant.id} value={variant.id}>{variant.name}</option>)}</select><small>{onAppearanceDraftChange ? '选择后先检查图像差异，再预览采用' : '选择后准备可取消的外观候选，保留当前图像映射与物理占地'}</small></label>
+        }}>
+          {naturalStones.length > 0 && <optgroup label="自然岩石">{naturalStones.map(variant => <option key={variant.id} value={variant.id}>{variant.name}</option>)}</optgroup>}
+          {otherVariantOptions.length > 0 && (naturalStones.length > 0 ? <optgroup label="其他物件">{otherVariantOptions}</optgroup> : otherVariantOptions)}
+        </select><small>{onAppearanceDraftChange ? '选择后先检查图像差异，再预览采用' : '选择后准备可取消的外观候选，保留当前图像映射与物理占地'}</small></label>
           {swap && chosenId !== prop.definitionRef?.id && <p className="asset-muted" role="status">{swap.message}{swap.visualDiffers && ` 按当前 ${prop.rotationDeg}° 旋转，新源外包范围为 ${swap.sourceRotatedSizeMm.width} × ${swap.sourceRotatedSizeMm.height} mm，保留的映射范围为 ${swap.currentRotatedSizeMm.width} × ${swap.currentRotatedSizeMm.height} mm。`}{swap.footprintDiffers && ' 新素材默认占地与当前实例不同，本次仍保留当前实例占地。'}</p>}
         </>}
         </fieldset>

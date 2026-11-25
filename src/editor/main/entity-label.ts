@@ -3,12 +3,19 @@ import type { SceneDocument } from '../../shared/model/scene'
 import { isCanvasGround } from '../../shared/model/canvas-ground'
 import { visualBase } from '../../shared/visual/base'
 import { LIGHT_LABELS } from '../../shared/visual/light-geometry'
+import type { EditableProject } from '../../application/workspace/project'
+
+export const propName = (project: EditableProject, id: string) => {
+  const prop = project.document.props[id]
+  return prop.definitionRef ? project.document.propDefinitions[prop.definitionRef.id].name : `符号物件 · ${id}`
+}
+export const groupName = (project: EditableProject, id: string) => project.document.prefabDefinitions[project.document.prefabInstances[id].definitionRef.id].name
 
 const meters = (value: number) => `${Number((value / 1000).toFixed(3))} m`
 const text = (value: string | undefined) => value?.trim().replace(/\s+/g, ' ') ?? ''
 
 /** Readable UI names only. IDs and all relationships remain unchanged. */
-export function createEntityLabeler(scene: SceneDocument): (id: string) => string {
+export function createEntityLabeler(scene: SceneDocument, terrainElevation = meters): (id: string) => string {
   const labels = new Map<string, string>()
   const name = (id: string) => labels.get(id) ?? id
   const numbered = <T extends { id: string }>(items: Record<string, T> | undefined, kind: string, describe?: (item: T) => string) => {
@@ -23,7 +30,29 @@ export function createEntityLabeler(scene: SceneDocument): (id: string) => strin
   numbered(scene.props, '物件', item => item.definitionRef ? name(item.definitionRef.id) : item.appearance.kind === 'symbol' ? item.appearance.bridgeArt ? bridgeArtName(item.appearance.bridgeArt)
     : ({ table: '桌子', chair: '椅子', shelf: '架子', rug: '地毯', crate: '木箱' })[item.appearance.symbol] : '')
   numbered(scene.prefabInstances, '组合', item => name(item.definitionRef.id))
-  numbered(scene.terrainAreas, '地形', item => `${isCanvasGround(item) ? '基础地面' : item.surfaceStyle ? name(item.surfaceStyle.base.materialRef.id) : '未铺装地形'} · 高程 ${meters(item.groundElevationMm)}`)
+  const visual = visualBase(scene)
+  const shores = new Set<string>(), cliffs = new Set<string>(), cliffAreas = new Set<string>(), reefAreas = new Set<string>()
+  const connectedTerrain = new Set(Object.values(scene.terrainConnections).flatMap(({ from, to }) =>
+    [from.surfaceRef, to.surfaceRef].filter(ref => ref.kind === 'terrainArea').map(ref => ref.id)))
+  for (const look of Object.values(visual?.edgeLooks ?? {})) {
+    if (look.kind === 'shore') shores.add(look.boundaryId)
+    if (look.kind === 'cliff') cliffs.add(look.boundaryId)
+  }
+  for (const boundary of Object.values(visual?.boundaries ?? {})) {
+    if (boundary.binding.kind !== 'terrain' || !cliffs.has(boundary.id)) continue
+    for (const side of boundary.binding.sides) {
+      cliffAreas.add(side.areaId)
+      const area = scene.terrainAreas[side.areaId]
+      if (boundary.closed && shores.has(boundary.id) && area?.relief && !area.waterSurface && !connectedTerrain.has(side.areaId)) reefAreas.add(side.areaId)
+    }
+  }
+  numbered(scene.terrainAreas, '地形', item => {
+    const material = item.surfaceStyle ? name(item.surfaceStyle.base.materialRef.id) : '未铺装地形'
+    const elevation = terrainElevation(item.groundElevationMm)
+    if (isCanvasGround(item)) return `基础地面 · 高程 ${elevation}`
+    const landform = reefAreas.has(item.id) ? '礁石' : cliffAreas.has(item.id) ? '崖壁地形' : ''
+    return landform ? `${landform} · ${elevation} · ${material}` : `${material} · 高程 ${elevation}`
+  })
   numbered(scene.paths, '道路', item => `${item.surfaceStyle ? name(item.surfaceStyle.base.materialRef.id) : ''}${item.assembly?.bridge ? '桥梁' : '道路'} · 净宽 ${meters(item.widthMm)}`)
   numbered(scene.regions, '区域', item => item.kind === 'partition' ? item.name ?? '编辑分区' : ({ hazard: '危险区域', terrain: '用途区域', manualMask: '玩家遮罩' })[item.kind])
   numbered(scene.notes, '注记', item => text(item.title) || text(item.text).slice(0, 50))
@@ -58,7 +87,16 @@ export function createEntityLabeler(scene: SceneDocument): (id: string) => strin
   })
   numbered(scene.pathAttachments, '门路关联', row => `${name(row.openingId)} → ${name(row.pathId)}`)
   numbered(scene.terrainEdges, '地形边缘', edge => `${name(edge.source.areaId)} · ${edge.shoreline ? '岸线' : edge.kind === 'cliff' ? '崖边' : '材质交界'}`)
-  numbered(scene.terrainConnections, '高差连接', connection => connection.terrainInlay?.groundOnly ? '开挖后的地形' : `${connection.kind === 'stairs' ? '台阶' : '坡道'} · ${name(connection.from.surfaceRef.id)} → ${name(connection.to.surfaceRef.id)}`)
+  numbered(scene.terrainConnections, '高差连接', connection => {
+    if (connection.terrainInlay?.groundOnly) return '开挖后的地形'
+    const { from, to } = connection
+    const startArea = from.surfaceRef.kind === 'terrainArea' ? scene.terrainAreas[from.surfaceRef.id] : undefined
+    const endArea = to.surfaceRef.kind === 'terrainArea' ? scene.terrainAreas[to.surfaceRef.id] : undefined
+    if (connection.kind === 'stairs' && connection.route?.stairStyle === 'naturalRock' && startArea && endArea) {
+      return `台阶 · ${meters(startArea.groundElevationMm)} → ${meters(endArea.groundElevationMm)}`
+    }
+    return `${connection.kind === 'stairs' ? '台阶' : '坡道'} · ${name(from.surfaceRef.id)} → ${name(to.surfaceRef.id)}`
+  })
   numbered(scene.scatterGroups, '散布组', group => {
     const palette = [...new Set(group.palette.map(item => name(item.propDefinitionRef.id)))].join('、')
     const domainId = group.domain.kind === 'area' ? group.domain.areaId : group.domain.kind === 'path' ? group.domain.pathId : group.domain.edgeId
@@ -68,7 +106,6 @@ export function createEntityLabeler(scene: SceneDocument): (id: string) => strin
   numbered(scene.decorationClusters, '簇状布景', group => `${group.canopyRule ? '树冠布景' : '簇状布景'} · ${name(group.supportRef.id)}`)
   numbered(scene.surfaceRules, '地表规则', rule => `${({ material: '地面铺装', trees: '树木分布', shrubs: '灌木分布', grass: '草地分布' })[rule.field]} · ${name(rule.supportRef.id)}`)
 
-  const visual = visualBase(scene)
   if (visual) {
     numbered(visual.boundaries, '装饰曲线', boundary => boundary.binding.kind === 'terrain' ? `${boundary.binding.sides.map(side => name(side.areaId)).join(' / ')} · 边界曲线` : boundary.binding.kind === 'path' ? `${name(boundary.binding.pathId)} · 路线曲线` : '')
     numbered(visual.edgeLooks, '边带效果', look => `${({ shore: '岸线', cliff: '崖面', grass: '草沿', path: '路沿', fence: '围栏' })[look.kind]} · ${name(look.boundaryId)}`)

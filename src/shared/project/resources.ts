@@ -13,12 +13,6 @@ export { bitmapVariantPixelPipeline } from './bitmap-pixels.js'
 import { PACKAGE_LIMITS } from './limits.js'
 import { projectResourceHashes, projectSourceRecords } from './source-resources.js'
 import { WeightedTaskQueue } from './task-queue.js'
-import { applyImageEnhancement } from '../image-enhancement/pixels.js'
-import { expandImageEnhancementScopeMask } from '../image-enhancement/metadata.js'
-import { tryDecodeDecontaminationSource } from '../image-enhancement/source-pixels.js'
-import { replayVectorRefinement } from '../asset-refinement/algorithms.js'
-import { compileVectorStructurePlan } from '../asset-refinement/structure-plan.js'
-import { assertLocalModelPatch, cropModelPatch, modelPatchContext } from '../asset-refinement/local-model-patch.js'
 
 const captured = new WeakMap<object, WeakMap<object, VerifiedProjectBundle>>()
 interface ValidationCapabilities {
@@ -296,19 +290,29 @@ async function verifyCapturedBundles(bundles: readonly ProjectBundle[], capabili
         yield { weight: source.pixelWidth * source.pixelHeight * (refinement.kind === 'model' && refinement.patch ? 16 : 8), async run({ signal }) {
           checkCancelled(signal)
           const sourceBytes = bytesByHash.get(source.sha256)!.slice()
-          const exact = refinement.sourcePixelMode === 'rgba8' ? tryDecodeDecontaminationSource(sourceBytes, source.mimeType) : undefined
+          const exact = refinement.sourcePixelMode === 'rgba8'
+            ? (await import('../image-enhancement/source-pixels.js')).tryDecodeDecontaminationSource(sourceBytes, source.mimeType) : undefined
+          checkCancelled(signal)
           if (refinement.sourcePixelMode === 'rgba8' && !exact) throw new Error('精修源不符合记录的确切RGBA8解码方式。')
           const original = checkedRaster(exact ?? await images.decode(sourceBytes, source, { signal }), source)
           checkCancelled(signal)
           if (refinement.kind === 'vector') {
-            const expected = refinement.algorithm === 'structure-plan-v1'
-              ? compileVectorStructurePlan(refinement.plan, { sha256: source.sha256, width: original.width, height: original.height })
-              : replayVectorRefinement(refinement.algorithm, { width: original.width, height: original.height, data: original.rgba }, refinement.options, signal)
-            const normalized = normalizeStaticSvg(expected.sourceSvg), proof = bundle.project.authoringSources[asset.id]
+            let sourceSvg: string
+            if (refinement.algorithm === 'structure-plan-v1') {
+              const { compileVectorStructurePlan } = await import('../asset-refinement/structure-plan.js')
+              checkCancelled(signal)
+              sourceSvg = compileVectorStructurePlan(refinement.plan, { sha256: source.sha256, width: original.width, height: original.height }).sourceSvg
+            } else {
+              const { replayVectorRefinement } = await import('../asset-refinement/algorithms.js')
+              sourceSvg = replayVectorRefinement(refinement.algorithm, { width: original.width, height: original.height, data: original.rgba }, refinement.options, signal).sourceSvg
+            }
+            const normalized = normalizeStaticSvg(sourceSvg), proof = bundle.project.authoringSources[asset.id]
             if (!proof || proof.sourceSha256 !== normalized.sourceSha256) throw new Error('矢量重建源不匹配原件和固定算法。')
           } else {
             let modelInput = original
             if (refinement.patch) {
+              const { assertLocalModelPatch, cropModelPatch, modelPatchContext } = await import('../asset-refinement/local-model-patch.js')
+              checkCancelled(signal)
               const input = { width: original.width, height: original.height, data: original.rgba }
               const crop = cropModelPatch(input, modelPatchContext(input, refinement.patch))
               modelInput = { width: crop.width, height: crop.height, rgba: crop.data }
@@ -328,8 +332,14 @@ async function verifyCapturedBundles(bundles: readonly ProjectBundle[], capabili
         const source = bundle.project.assets[sourceAsset.sha256], output = bundle.project.assets[asset.sha256]
         yield { weight: (source.pixelWidth * source.pixelHeight + output.pixelWidth * output.pixelHeight) * 8, async run({ signal }) {
           checkCancelled(signal)
+          const [{ applyImageEnhancement }, { expandImageEnhancementScopeMask }] = await Promise.all([
+            import('../image-enhancement/pixels.js'), import('../image-enhancement/metadata.js'),
+          ])
+          checkCancelled(signal)
           const sourceBytes = bytesByHash.get(source.sha256)!.slice()
-          const exact = enhancement.recipe.direction === 'decontaminate' || enhancement.recipe.direction === 'contour' ? tryDecodeDecontaminationSource(sourceBytes, source.mimeType) : undefined
+          const exact = enhancement.recipe.direction === 'decontaminate' || enhancement.recipe.direction === 'contour'
+            ? (await import('../image-enhancement/source-pixels.js')).tryDecodeDecontaminationSource(sourceBytes, source.mimeType) : undefined
+          checkCancelled(signal)
           const original = checkedRaster(exact ?? (bitmapPipeline(sourceAsset.id) === 'svg-rgba8-v1' ? decodeCanonicalPng(sourceBytes)
             : await images.decode(sourceBytes, source, { signal })), source)
           checkCancelled(signal)

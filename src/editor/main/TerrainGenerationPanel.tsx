@@ -10,8 +10,8 @@ export type TerrainGenerationKind = 'island' | 'coast' | 'river' | 'lake' | 'for
 export type TerrainGenerationRequest = Pick<TerrainGenerationInput, 'seed' | 'kind' | 'widthMm' | 'heightMm' | 'route'> & { ocean?: boolean }
 export const TERRAIN_GENERATION_REVIEW_SEEDS = TERRAIN_FIXED_SEEDS
 const KIND_OPTIONS: readonly { value: TerrainGenerationKind; label: string; detail: string }[] = [
-  { value: 'island', label: '岩岛', detail: '海湾 · 高台 · 登高通路' },
-  { value: 'coast', label: '海岸', detail: '岬角 · 潮湾 · 岸边岩脊' },
+  { value: 'island', label: '岩岛', detail: '离岸礁石 · 环山旧道' },
+  { value: 'coast', label: '海岸', detail: '岬角 · 潮湾 · 登高石阶' },
   { value: 'river', label: '河谷', detail: '河道 · 浅滩 · 两岸地面' },
   { value: 'lake', label: '内湖', detail: '湖岸 · 高地 · 静水边界' },
   { value: 'forest', label: '森林', detail: '林缘 · 林间空地 · 丘台' },
@@ -34,6 +34,7 @@ export interface TerrainGenerationCandidateSummary extends TerrainGenerationRequ
   terrainCount: number
   propCount: number
   connectionCount: number
+  oceanReport?: { waterCount: number; placed: readonly string[]; skipped: readonly string[] }
   budgetProfile?: TaskBudgetProfile
   cost: { total: number; limit?: number; items?: readonly { label: string; value: number }[] }
   checks?: readonly { label: string; status: 'passed' | 'failed' | 'unchecked'; detail?: string }[]
@@ -232,6 +233,10 @@ export default function TerrainGenerationPanel({
         <div><dt>树石物件</dt><dd>{candidate.propCount}</dd></div>
         <div><dt>高差连接</dt><dd>{candidate.connectionCount}</dd></div>
       </dl>
+      {candidate.oceanReport && <div role="status" className="terrain-generation-notice">
+        <p>海洋步骤：{candidate.oceanReport.waterCount}处水域；已放置{candidate.oceanReport.placed.join('、') || '无'}。</p>
+        {candidate.oceanReport.skipped.map((text, index) => <p key={index}>{text}</p>)}
+      </div>}
       {!!candidate.checks?.length && <ul className="terrain-generation-checks" aria-label="地形要求检查">{candidate.checks.map((check, index) =>
         <li key={`${check.label}-${index}`} data-status={check.status}><span>{check.label}</span><strong>{checkLabels[check.status]}</strong>{check.detail && <small>{check.detail}</small>}</li>,
       )}</ul>}

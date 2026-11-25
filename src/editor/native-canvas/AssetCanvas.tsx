@@ -38,6 +38,8 @@ import NotePrivacyNotice from './NotePrivacyNotice'
 import { ART_STYLE_PREVIEW_DELAY_MS, ArtStyleComparison, useArtStyleComparison } from './ArtStyleComparison'
 import { artStyleClip, type ArtStyleDivider } from './art-style-divider'
 import type { SceneArtStyle } from '../../shared/visual/art-style'
+import GenerationSketch from './GenerationSketch'
+import type { GenerationPlayback } from './generation-playback'
 
 export interface CanvasArtStyleComparison {
   divider: ArtStyleDivider
@@ -57,6 +59,13 @@ interface PaintedEditorFrame {
   source: EditorFrameSource
   floorId: string
   groundView: boolean
+}
+
+interface CanvasGenerationPlayback {
+  playback: GenerationPlayback
+  complete: boolean
+  baseline?: SceneDocumentV2
+  onComplete: (token: object) => void
 }
 
 function canReuseEditorFrame(previous: PaintedEditorFrame, source: EditorFrameSource, floorId: string, groundView: boolean): boolean {
@@ -161,7 +170,7 @@ export type CanvasSelectionDragStart = (ids: readonly string[]) => {
   finish: (offsetMm: PointMm) => void
 } | null
 
-export default function AssetCanvas({ floorId, project, selected, onSelect, audience = 'gm', groundView = false, persistenceBusy = false, disabled = false, inspectOnly = false, onRenderMetrics, onPaint, placement, placementTop, placementRoomOutline, fillCopy, onFillCopyCancel, onFillCopyPreview, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, onDeleteSelection, onCopySelection, onPasteSelection, memberMode = false, onMemberMode, focusPoint, onFocusPartition, sightOverlay, partitionOutline, fitRequest = 0, editorSource, artStyleDraft, onArtStylePaint, artStyleComparison, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, terrainBrush, visualBoundary, onVisualBoundaryChange, onVisualBoundaryFinish, onWallDragPreview, onSelectionDragStart, toolControlsTarget, viewControlsTarget }: { floorId?: string; groundView?: boolean; persistenceBusy?: boolean; terrainBrush?: CanvasTerrainBrush | null; fillCopy?: Omit<CanvasFillCopy, 'onPreview' | 'onCancel'> | null; onFillCopyPreview?: CanvasFillCopy['onPreview']; onFillCopyCancel?: () => void; onVisualBoundaryFinish?: (value: VisualBoundary) => void; onWallDragPreview?: (wallId: string, offsetMm: PointMm) => void; onSelectionDragStart?: CanvasSelectionDragStart; visualBoundary?: VisualBoundary | null; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; artStyleDraft?: SceneArtStyle; onArtStylePaint?: CanvasArtStyleComparison['onPaint']; artStyleComparison?: CanvasArtStyleComparison; worldTool?: CanvasWorldTool | null; editorSource?: EditorFrameSource; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onDeleteSelection?: () => void; onCopySelection?: () => string | null; onPasteSelection?: (marker: string) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; focusPoint?: { positionMm: PointMm; sequence: number; scope?: BoundsMm }; onFocusPartition?: (id: string) => void; sightOverlay?: { origin: PointMm; boundary: PointMm[] }; partitionOutline?: PointMm[]; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; inspectOnly?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; placementTop?: PointMm[]; placementRoomOutline?: PointMm[]; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
+export default function AssetCanvas({ floorId, project, selected, onSelect, audience = 'gm', groundView = false, persistenceBusy = false, disabled = false, inspectOnly = false, onRenderMetrics, onPaint, placement, placementTop, placementRoomOutline, fillCopy, onFillCopyCancel, onFillCopyPreview, onPlace, onPlacementMove, onCancelPlacement, onPlacementReady, onPlacementError, selectedIds, selectionSession, onSelectMany, onContext, onDeleteSelection, onCopySelection, onPasteSelection, memberMode = false, onMemberMode, focusPoint, onFocusPartition, sightOverlay, partitionOutline, fitRequest = 0, editorSource, generationPlayback, artStyleDraft, onArtStylePaint, artStyleComparison, selectionOptions, pointHitTest, boundsSelector, selectionGeometry, selectionSummaryReader, worldTool, terrainBrush, visualBoundary, visualBoundaryNodesOnly, onVisualBoundaryChange, onVisualBoundaryFinish, onWallDragPreview, onSelectionDragStart, toolControlsTarget, viewControlsTarget }: { floorId?: string; groundView?: boolean; persistenceBusy?: boolean; terrainBrush?: CanvasTerrainBrush | null; fillCopy?: Omit<CanvasFillCopy, 'onPreview' | 'onCancel'> | null; onFillCopyPreview?: CanvasFillCopy['onPreview']; onFillCopyCancel?: () => void; onVisualBoundaryFinish?: (value: VisualBoundary) => void; onWallDragPreview?: (wallId: string, offsetMm: PointMm) => void; onSelectionDragStart?: CanvasSelectionDragStart; visualBoundary?: VisualBoundary | null; visualBoundaryNodesOnly?: boolean; onVisualBoundaryChange?: (value: VisualBoundary) => void; toolControlsTarget?: HTMLElement | null; viewControlsTarget?: HTMLElement | null; artStyleDraft?: SceneArtStyle; onArtStylePaint?: CanvasArtStyleComparison['onPaint']; artStyleComparison?: CanvasArtStyleComparison; worldTool?: CanvasWorldTool | null; editorSource?: EditorFrameSource; generationPlayback?: CanvasGenerationPlayback; selectionOptions?: Omit<SelectionOptionsV2, 'memberMode'>; pointHitTest?: typeof hitTestAllV2; boundsSelector?: typeof selectInBoundsV2; selectionGeometry?: typeof selectionGeometryV2; selectionSummaryReader?: typeof summarizeSelectionV2; selectionSession?: SelectionSessionV2; selectedIds?: string[]; onSelectMany?: (ids: string[]) => void; onDeleteSelection?: () => void; onCopySelection?: () => string | null; onPasteSelection?: (marker: string) => void; onContext?: (point: PointMm, hits: string[], position: { x: number; y: number }, origin: HTMLElement) => void; memberMode?: boolean; onMemberMode?: (value: boolean) => void; focusPoint?: { positionMm: PointMm; sequence: number; scope?: BoundsMm }; onFocusPartition?: (id: string) => void; sightOverlay?: { origin: PointMm; boundary: PointMm[] }; partitionOutline?: PointMm[]; fitRequest?: number; project: CompleteProjectV2; selected: string | null; onSelect: (id: string | null) => void; audience?: AudienceV2; disabled?: boolean; inspectOnly?: boolean; onRenderMetrics?: RenderOptionsV2['onMetrics']; onPaint?: (revision: number) => void; placement?: PropV2 | null; placementTop?: PointMm[]; placementRoomOutline?: PointMm[]; onPlace?: (positionMm: PointMm) => void; onPlacementMove?: (positionMm: PointMm) => void; onCancelPlacement?: () => void; onPlacementReady?: (ready: boolean) => void; onPlacementError?: (message: string) => void }) {
   const canSelect = audience === 'gm' && (!disabled || inspectOnly)
   const comparisonEnabled = audience === 'gm' && !!artStyleComparison
   const comparingAlternatives = comparisonEnabled && !!artStyleComparison.labels
@@ -550,6 +559,12 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
   const showingPaint = ready || !failed && lastPaintContext.current === paintContext
   readyRef.current = !!ready
   const rect = viewportMapRectV2(view, size, bounds)
+  const generation = audience === 'gm' && !failed && generationPlayback
+  const painted = paintedEditorFrame.current
+  // Keep the exact original map under the sketch while the placed candidate's raster is prepared.
+  const showGenerationBase = generation && generation.baseline && painted?.source.bundle.project.document === generation.baseline
+    && painted.floorId === targetFloorId && painted.groundView === groundView
+    && painted.source.atmosphereBypass === editorSource?.atmosphereBypass
   const refinementBounds = !comparisonEnabled && refinement?.token === refinementView && refinement.image.width > 0 && refinement.image.height > 0 ? refinement.bounds : null
   const compareArea = { x: 0, y: 0, width: size.width, height: size.height }
   const divider = artStyleComparison?.divider
@@ -874,12 +889,12 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
       {selectionMove && <div role="status" data-testid="selection-drag-status" style={{ position: 'absolute', zIndex: 3, left: 8, bottom: 8, maxWidth: 'calc(100% - 16px)', padding: '4px 7px', background: '#f6f0ddee', color: '#24594b', fontSize: 11, pointerEvents: 'none' }}>
         {selectionMove.message ?? `移动 ΔX ${selectionMove.offsetMm.x} · ΔY ${selectionMove.offsetMm.y} mm`}。Escape 取消，当前工程未修改。
       </div>}
-      <div className="asset-viewport-image" data-transparent={project.document.outputBackground?.mode === 'transparent' || undefined} style={{ width: rect.width, height: rect.height, transform: `translate(${rect.x}px, ${rect.y}px)`, visibility: showingPaint ? 'visible' : 'hidden' }}>
+      <div className="asset-viewport-image" data-transparent={project.document.outputBackground?.mode === 'transparent' || undefined} style={{ width: rect.width, height: rect.height, transform: `translate(${rect.x}px, ${rect.y}px)`, visibility: showingPaint || showGenerationBase ? 'visible' : 'hidden' }}>
         <canvas ref={canvas} aria-label={comparingAlternatives ? '画风 B 侧' : audience === 'gm' ? '材质场景主持人预览' : '材质场景玩家预览'} style={afterClip ? { clipPath: afterClip, pointerEvents: 'none' } : undefined}/>
         {comparisonEnabled && <canvas ref={comparisonPaint.ref} className="art-style-before" aria-label={artStyleComparison?.labels ? '画风 A 侧' : '画风调整前'} style={{ clipPath: beforeClip, visibility: comparing && showingPaint ? 'visible' : 'hidden' }}/>}
         {/* Session-only render inputs preserve precision that CSS percentage serialization can round. */}
         <canvas ref={detailCanvas} className="asset-detail-preview" aria-hidden="true" data-refinement-bounds={refinementBounds ? JSON.stringify(refinementBounds) : undefined} data-refinement-scale={refinementBounds ? refinement?.screenScalePxPerMm : undefined} style={refinementBounds ? { left: `${(refinementBounds.x - bounds.x) / bounds.width * 100}%`, top: `${(refinementBounds.y - bounds.y) / bounds.height * 100}%`, width: `${refinementBounds.width / bounds.width * 100}%`, height: `${refinementBounds.height / bounds.height * 100}%` } : { display: 'none' }}/>
-        <canvas ref={overlay} className="asset-selection-overlay" aria-hidden="true"/>
+        <canvas ref={overlay} className="asset-selection-overlay" aria-hidden="true" style={showingPaint ? undefined : { visibility: 'hidden' }}/>
         {focusPoint && !focusPoint.scope && audience === 'gm' && <svg className="asset-selection-overlay" data-testid="floor-entrance-marker" aria-label="当前定位入口" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
           <circle cx={focusPoint.positionMm.x} cy={focusPoint.positionMm.y} r={12 * bounds.width / rect.width} fill="#FFD36A55" stroke="#B25822" strokeWidth={2 * bounds.width / rect.width}/>
         </svg>}
@@ -1003,7 +1018,7 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
           })()}
           {brushCursor && <circle cx={brushCursor.x} cy={brushCursor.y} r={terrainBrush.radiusMm} fill="none" stroke="#205d48" strokeWidth={1.5 * bounds.width / rect.width}/>}
         </svg>}
-        {visualBoundary && audience === 'gm' && !disabled && <svg className="visual-controls" aria-label="曲线控制点" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%' }} onClick={event => event.stopPropagation()}
+        {visualBoundary && audience === 'gm' && !disabled && <svg className="visual-controls" aria-label={visualBoundaryNodesOnly ? '路线节点' : '曲线控制点'} viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%' }} onClick={event => event.stopPropagation()}
           onPointerMove={event => {
             const drag = visualDrag.current
             if (!drag || drag.pointer !== event.pointerId || !onVisualBoundaryChange) return
@@ -1021,12 +1036,35 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
             }
             drag.current = next; onVisualBoundaryChange(next)
           }}
-          onPointerUp={event => { if (visualDrag.current?.pointer !== event.pointerId) return; event.preventDefault(); event.stopPropagation(); const finished = visualDrag.current.current; visualDrag.current = null; if (resumeRefinement.current) { resumeRefinement.current = false; setRefinementTick(value => value + 1) }; onVisualBoundaryFinish?.(finished); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+          onPointerUp={event => {
+            const drag = visualDrag.current
+            if (!drag || drag.pointer !== event.pointerId) return
+            event.preventDefault(); event.stopPropagation(); visualDrag.current = null
+            if (resumeRefinement.current) { resumeRefinement.current = false; setRefinementTick(value => value + 1) }
+            if (drag.current !== drag.original) onVisualBoundaryFinish?.(drag.current)
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+          }}
           onPointerCancel={event => { cancelVisualDrag(); event.stopPropagation() }} onLostPointerCapture={() => cancelVisualDrag()}>
           <path d={visualBoundary.segments.map((s, i) => `${i ? '' : `M ${s.start.x} ${s.start.y}`} C ${s.control1.x} ${s.control1.y} ${s.control2.x} ${s.control2.y} ${s.end.x} ${s.end.y}`).join(' ')} fill="none" stroke="#165F78" strokeWidth={2 * bounds.width / rect.width}/>
-          {visualBoundary.segments.map((segment, i) => <g key={segment.id}>
-            <path d={`M ${segment.start.x} ${segment.start.y} L ${segment.control1.x} ${segment.control1.y} M ${segment.end.x} ${segment.end.y} L ${segment.control2.x} ${segment.control2.y}`} fill="none" stroke="#165F78" strokeWidth={bounds.width / rect.width} strokeDasharray={`${4 * bounds.width / rect.width} ${3 * bounds.width / rect.width}`}/>
-            {(['start', 'control1', 'control2', 'end'] as const).filter(key => key !== 'end' || i === visualBoundary.segments.length - 1 && !visualBoundary.closed).map(key => <circle key={key} data-testid={`curve-handle-${i}-${key}`} aria-label={`曲线第${i + 1}段${key}`} cx={segment[key].x} cy={segment[key].y} r={(key.startsWith('control') ? 5 : 6) * bounds.width / rect.width} fill={key.startsWith('control') ? '#E3AD62' : '#FFF8DC'} stroke="#165F78" strokeWidth={1.5 * bounds.width / rect.width} onPointerDown={event => { event.preventDefault(); event.stopPropagation(); cancelRefinement(); viewport.current?.focus({ preventScroll: true }); const owner = event.currentTarget.ownerSVGElement!; owner.setPointerCapture(event.pointerId); visualDrag.current = { pointer: event.pointerId, owner, segment: i, key, original: structuredClone(visualBoundary), current: structuredClone(visualBoundary) } }}/>)}</g>)}
+          {!visualBoundaryNodesOnly && <path d={visualBoundary.segments.map(segment => `M ${segment.start.x} ${segment.start.y} L ${segment.control1.x} ${segment.control1.y} M ${segment.end.x} ${segment.end.y} L ${segment.control2.x} ${segment.control2.y}`).join(' ')}
+            fill="none" stroke="#165F78" strokeWidth={bounds.width / rect.width} strokeDasharray={`${4 * bounds.width / rect.width} ${3 * bounds.width / rect.width}`}/>}
+          {/* Anchors stay above coincident controls on straight segments. */}
+          {(visualBoundaryNodesOnly ? ['start', 'end'] as const : ['control1', 'control2', 'start', 'end'] as const).flatMap(key =>
+            visualBoundary.segments.map((segment, index) => {
+              if (key === 'end' && (index < visualBoundary.segments.length - 1 || visualBoundary.closed)) return null
+              const control = key === 'control1' || key === 'control2'
+              return <circle key={`${segment.id}-${key}`} data-testid={`curve-handle-${index}-${key}`}
+                aria-label={visualBoundaryNodesOnly ? `路线节点 ${index + (key === 'end' ? 2 : 1)}` : `曲线第${index + 1}段${key}`}
+                cx={segment[key].x} cy={segment[key].y} r={(control ? 5 : 6) * bounds.width / rect.width}
+                fill={control ? '#E3AD62' : '#FFF8DC'} stroke="#165F78" strokeWidth={1.5 * bounds.width / rect.width}
+                onPointerDown={event => {
+                  event.preventDefault(); event.stopPropagation(); cancelRefinement(); viewport.current?.focus({ preventScroll: true })
+                  const owner = event.currentTarget.ownerSVGElement!
+                  owner.setPointerCapture(event.pointerId)
+                  const original = structuredClone(visualBoundary)
+                  visualDrag.current = { pointer: event.pointerId, owner, segment: index, key, original, current: original }
+                }}/>
+            }))}
         </svg>}
         {worldTool?.elevation?.scopeMm && audience === 'gm' && !disabled && <svg className="asset-selection-overlay" aria-hidden="true" viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} style={{ width: '100%', height: '100%', pointerEvents: 'none' }}><polygon data-testid="elevation-scope" points={worldTool.elevation.scopeMm.map(p => `${p.x},${p.y}`).join(' ')} fill="#13758b16" stroke="#13758b" strokeWidth={2 * bounds.width / rect.width} strokeDasharray={`${6 * bounds.width / rect.width} ${4 * bounds.width / rect.width}`}/></svg>}
         {worldTool?.automaticRoad && audience === 'gm' && !disabled && <AutomaticRoadOverlay road={worldTool.automaticRoad} bounds={bounds} pixelMm={bounds.width / rect.width} snapMm={worldTool.snapMm}
@@ -1068,10 +1106,17 @@ export default function AssetCanvas({ floorId, project, selected, onSelect, audi
           })()}
         </svg>}
       </div>
+      {generation && <GenerationSketch playback={generation.playback} complete={generation.complete && ready}
+        onComplete={generation.onComplete} style={{
+          left: rect.x + (generation.playback.origin.x - bounds.x) * rect.width / bounds.width,
+          top: rect.y + (generation.playback.origin.y - bounds.y) * rect.height / bounds.height,
+          width: generation.playback.drawing.bounds.width * rect.width / bounds.width,
+          height: generation.playback.drawing.bounds.height * rect.height / bounds.height,
+        }}/>}
       {showingPaint && comparing && artStyleComparison && <ArtStyleComparison divider={artStyleComparison.divider} area={compareArea} labels={artStyleComparison.labels} onChange={artStyleComparison.onChange}/>}
       {showingPaint && comparisonEnabled && (!comparing || !ready || comparisonPaint.pending) && <div className="art-style-comparison-status" role="status">{comparisonPaint.failed ? '对比画面绘制失败。关闭后可重新打开对比。' : '正在绘制对比画面…'}</div>}
       {marquee && <div className="asset-marquee" data-testid="selection-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }}/> }
-      {!showingPaint && <div className="asset-viewport-message">
+      {!showingPaint && !generation && <div className="asset-viewport-message">
         {failed ? <div className="asset-preview-message" role="alert"><strong>此场景暂时无法绘制</strong><p>{error.message}</p><p>完整工程仍保留，可继续备份与修改。</p></div>
           : <SceneweaveLoading label="正在解码素材并绘制场景…"/>}
       </div>}

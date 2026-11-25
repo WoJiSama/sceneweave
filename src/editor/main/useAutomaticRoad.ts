@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { SceneCommand } from '../../shared/commands/commands'
-import { AUTOMATIC_ROAD_MAX_FIXED_POINTS, AUTOMATIC_ROAD_VERSION, createAutomaticRoadPlanner, roadPointEquals, type AutomaticRoadPlan } from '../../shared/geometry/automatic-road'
+import type { AutomaticRoadPlan } from '../../shared/geometry/automatic-road'
 import { distanceToSegment } from '../../shared/geometry/geometry'
 import { createSupportQuery } from '../../shared/geometry/support-sample'
 import { publicTerrainView } from '../../shared/geometry/visibility'
-import { makeRoadLanding } from '../../shared/geometry/road-grading'
-import { createRoadSurfaceSampler, roadLandingSchema, type RoadLanding } from '../../shared/geometry/road-surface'
+import { roadPointEquals } from '../../shared/geometry/road-domain'
+import { AUTOMATIC_ROAD_MAX_FIXED_POINTS, AUTOMATIC_ROAD_VERSION, createRoadSurfaceSampler, roadLandingSchema, type RoadLanding } from '../../shared/geometry/road-surface'
 import type { Path, PointMm, SceneDocument, VersionRef } from '../../shared/model/scene'
 import { planStaircase } from '../../shared/stairs/geometry'
 import type { AutomaticRoadCanvas } from '../native-canvas/AutomaticRoadOverlay'
@@ -19,6 +19,8 @@ const errorMessage = (error: unknown) => error instanceof Error ? error.message 
 type DraftResult = { plan: AutomaticRoadPlan | null; error: string | null }
 const empty: DraftResult = { plan: null, error: null }
 const noLandings: readonly RoadLanding[] = []
+const loadAutomaticRoadPlanner = () => import('./automatic-road-planner')
+type RoadPlanner = Awaited<ReturnType<typeof loadAutomaticRoadPlanner>>
 
 /** Insert a newly authored anchor into the leg that the handle came from. */
 function placePoint(fixed: PointMm[], plan: AutomaticRoadPlan, index: number, point: PointMm): { points: PointMm[]; selected: number } {
@@ -42,8 +44,19 @@ function nearestLeg(plan: AutomaticRoadPlan, point: PointMm) {
 export function useAutomaticRoad(sketch: OutdoorSketch | null, setSketch: Dispatch<SetStateAction<OutdoorSketch | null>>, scene: SceneDocument | undefined,
   preview: (commands: SceneCommand[], description: string, id: string) => void) {
   const session = sketch?.automaticRoad
-  const planner = useMemo(() => session && createAutomaticRoadPlanner(session.document,
-    { ...session, widthSections: session.existing?.widthSections }, session.existing?.id), [session])
+  const active = !!session
+  const [tools, setTools] = useState<RoadPlanner>()
+  const [loadError, setLoadError] = useState<string>()
+  useEffect(() => {
+    if (!active || tools) return
+    let current = true
+    setLoadError(undefined)
+    void loadAutomaticRoadPlanner().then(module => { if (current) setTools(module) },
+      () => { if (current) setLoadError('自动选路工具加载失败。请检查网络后刷新页面。') })
+    return () => { current = false }
+  }, [active, tools])
+  const planner = useMemo(() => session && tools?.createAutomaticRoadPlanner(session.document,
+    { ...session, widthSections: session.existing?.widthSections }, session.existing?.id), [session, tools])
   const existing = session?.existing, intent = existing?.automaticRoute
   const saved = useMemo(() => existing && intent ? { centerlineMm: existing.centerlineMm, fixedPointsMm: intent.fixedPointsMm,
     roadSurface: existing.roadSurface, landings: intent.algorithm === AUTOMATIC_ROAD_VERSION ? intent.landings : undefined } : undefined, [existing, intent])
@@ -67,7 +80,8 @@ export function useAutomaticRoad(sketch: OutdoorSketch | null, setSketch: Dispat
     setLive(null)
   }
   useEffect(() => () => { if (timer.current !== null) clearTimeout(timer.current); timer.current = null; pending.current = null }, [session])
-  if (!sketch || !session || !planner) return null
+  if (!sketch || !session) return null
+  if (!tools || !planner) return { pending: true as const, loadError, cancel: () => setSketch(null) }
   const ready = scene === session.document
   const activeLive = live?.session === session && live.sketch === sketch ? live : null
   const selection = selected?.session === session ? selected.index : -1
@@ -132,7 +146,7 @@ export function useAutomaticRoad(sketch: OutdoorSketch | null, setSketch: Dispat
     const point = fixed[selection], geometry = committed.plan?.geometry
     const source = () => createSupportQuery(session.visibility === 'public' ? publicTerrainView(session.document) : session.document, session.floorId, undefined, false)
     try {
-      const initial = landing ?? makeRoadLanding(point, p => (geometry && createRoadSurfaceSampler(geometry).sample(p)?.zMm) ?? source().sourceSample(p)?.zMm ?? null)
+      const initial = landing ?? tools.makeRoadLanding(point, p => (geometry && createRoadSurfaceSampler(geometry).sample(p)?.zMm) ?? source().sourceSample(p)?.zMm ?? null)
       const next = roadLandingSchema.parse({ ...initial, ...patch })
       change(fixed, selection, [...landings.filter(row => row !== landing), next])
     } catch (error) { setNotice({ sketch, text: errorMessage(error) }) }
@@ -172,6 +186,6 @@ export function useAutomaticRoad(sketch: OutdoorSketch | null, setSketch: Dispat
       change([...fixed.slice(0, index), point, ...fixed.slice(index)], index)
     },
   } : null
-  return { canvas, finish, cancel, restore, problem, label, ready: ready && !!committed.plan, canRestore: selection > 0 && selection < fixed.length - 1,
+  return { pending: false as const, canvas, finish, cancel, restore, problem, label, ready: ready && !!committed.plan, canRestore: selection > 0 && selection < fixed.length - 1,
     canEditLanding, landing, updateLanding, restoreLanding, lengthMm: displayed?.lengthMm, steps: overlay.treads.length }
 }

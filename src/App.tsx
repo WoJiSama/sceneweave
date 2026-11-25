@@ -10,12 +10,15 @@ import { isTutorialHash } from './tutorial/location'
 const WorkspaceHome = lazyView(() => import('./editor/main-shell/WorkspaceHome'),
   () => <p role="alert">首页加载失败。请检查网络后刷新页面。</p>)
 const loadWorkbench = () => import('./editor/main/Workbench')
+const loadWorkspaceSession = () => import('./editor/main/workspace-session')
 const prepareEditorFrame = () => { void import('./platform/browser/render/canvas-renderer').catch(() => undefined) }
-const prepareStartupEditor = () => { void loadWorkbench().catch(() => undefined); prepareEditorFrame() }
+const prepareStartupEditor = () => {
+  void loadWorkspaceSession().catch(() => undefined)
+  void loadWorkbench().catch(() => undefined)
+  prepareEditorFrame()
+}
 const Workbench = lazyView(loadWorkbench,
   ({ onBack }) => <div role="alert"><p>工作区加载失败。请检查网络后刷新页面。</p><button type="button" onClick={onBack}>回到首页</button></div>)
-const StartupSceneDialog = lazyView(() => import('./editor/main-shell/StartupSceneDialog'),
-  ({ onCancel }) => <div role="alert"><p>新建场景表单加载失败。</p><button type="button" onClick={onCancel}>关闭提示</button></div>)
 const TutorialPage = lazyView(() => import('./tutorial/TutorialPage'),
   () => <div role="alert"><p>教程加载失败。请检查网络后刷新页面。</p><a href="#home">回到首页</a></div>)
 const loadDevelopmentImport = () => Promise.all([
@@ -160,11 +163,12 @@ export default function App() {
   }
   const createStartupScene = async (options: NewSceneOptions, signal: AbortSignal, onSaving: () => void, preloadedArchive?: Promise<Uint8Array>) => {
     const editor = loadWorkbench().catch(() => { throw new Error('工作区加载失败。请检查网络后刷新页面。') })
-    const project = import('./platform/browser/content/factories').then(async ({ createStarterProject, prepareCanvasGround }) =>
-      prepareCanvasGround(await createStarterProject(options, signal, undefined, preloadedArchive), signal))
+    const project = loadWorkspaceSession().then(({ prepareStartupScene }) => prepareStartupScene(options, signal, preloadedArchive))
     prepareEditorFrame()
-    const [{ adoptStartupScene, default: Editor }, blank] = await Promise.all([editor, project])
-    await adoptStartupScene(blank, signal, onSaving)
+    // Keep cancellation available while the workbench downloads. Publish the
+    // prepared project only when the editor can open the resulting session.
+    const [{ default: Editor }, saveScene] = await Promise.all([editor, project])
+    await saveScene(onSaving)
     cancelStartup()
     setPreparedWorkbench(() => Editor)
     setStartInBuilding(true)
@@ -175,13 +179,13 @@ export default function App() {
   return <>
     <div className="native-app-content" inert={busy}>
       {notice && <div className="workspace-notice" role="status"><span>{notice}</span><button className="secondary small" onClick={() => setNotice(null)}>关闭提示</button></div>}
-      {route === 'home' && <Suspense fallback={<SceneweaveLoading fullScreen label="正在打开首页…"/>}><WorkspaceHome session={session} onContinue={() => setPage('workspace')} onRequest={request} disabled={busy} developmentTools={developmentTools}/></Suspense>}
+      {route === 'home' && <Suspense fallback={<SceneweaveLoading fullScreen label="正在打开首页…"/>}>
+        <WorkspaceHome session={session} onContinue={() => setPage('workspace')} onRequest={request} disabled={busy}
+          startupScene={startupScene ? { prepareEditor: prepareStartupEditor, onCreate: createStartupScene, onCancel: cancelStartup } : undefined} developmentTools={developmentTools}/>
+      </Suspense>}
       {route === 'tutorial' && <Suspense fallback={<SceneweaveLoading fullScreen label="正在打开使用教程…"/>}><TutorialPage onOpenSample={sample => request({ type: 'showcase', sample })}/></Suspense>}
       {mounted && <div hidden={route !== 'workspace'}><Suspense fallback={<SceneweaveLoading fullScreen label="正在打开统一工作区…"/>}><WorkbenchView active={route === 'workspace'} startInBuilding={startInBuilding} onBack={() => void home()} onController={register} onSession={setSession} onImportFile={handleFile}/></Suspense></div>}
     </div>
-    {startupScene && <Suspense fallback={<SceneweaveLoading fullScreen label="正在打开新建场景表单…"/>}>
-      <StartupSceneDialog onReady={prepareStartupEditor} onCancel={cancelStartup} onCreate={createStartupScene}/>
-    </Suspense>}
     <input ref={projectFile} data-testid="native-project-file" type="file" hidden accept=".sceneweave" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) handleFile(file) }}/>
     {busy && <div className="modal-scrim"><div className="modal" role="dialog" aria-modal="true" aria-label="检查完整工程"><p role="status">{busyLabel}</p><button className="secondary" onClick={cancel}>取消操作</button></div></div>}
   </>

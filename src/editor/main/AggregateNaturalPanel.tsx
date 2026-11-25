@@ -14,6 +14,7 @@ const message = (cause: unknown) => cause instanceof Error ? cause.message : Str
 export default function AggregateNaturalPanel({ scene, disabled, onPreview, onSelect, onSelectMany }: Props) {
   const label = useMemo(() => createEntityLabeler(scene), [scene]), areas = Object.values(scene.terrainAreas)
   const [selected, setSelected] = useState<string[]>([]), [groupId, setGroupId] = useState('')
+  const [membersOpen, setMembersOpen] = useState(false)
   const [offset, setOffset] = useState({ x: 0, y: 0 }), [pivot, setPivot] = useState({ x: 0, y: 0 })
   const [quarterTurns, setQuarterTurns] = useState<0 | 1 | 2 | 3>(0), [error, setError] = useState<string | null>(null)
   const areaIds = selected.filter(id => Object.hasOwn(scene.terrainAreas, id))
@@ -51,7 +52,7 @@ export default function AggregateNaturalPanel({ scene, disabled, onPreview, onSe
   const transform = () => {
     if (disabled || !current?.info) return
     try {
-      inspectAggregateDomain(scene, current.id, 'natural'); setError(null)
+      setError(null)
       onPreview([{ type: 'transformAggregateNatural', id: current.id, offsetMm: { ...offset }, pivotMm: { ...pivot }, quarterTurns }], '自然组整体变换')
     } catch (cause) { setError(message(cause)) }
   }
@@ -69,7 +70,9 @@ export default function AggregateNaturalPanel({ scene, disabled, onPreview, onSe
       {current?.info && <>
         <p className="asset-muted">包含 {current.info.members.length} 个对象，{current.info.readDependencies.length} 项外部支撑。</p>
         <button className="secondary asset-wide" type="button" disabled={!onSelectMany} onClick={() => onSelectMany?.(normalizeSelection(scene, current.info!.members.map(member => member.id), true))}>选择自然组</button>
-        <details className="building-details"><summary>进入内部</summary><div className="building-entity-list" aria-label="自然组内部对象">{current.info.members.map(member => <button type="button" key={`${member.kind}:${member.id}`} onClick={() => onSelect(member.id)}>{label(member.id)}</button>)}</div></details>
+        <details className="building-details" open={membersOpen} onToggle={event => setMembersOpen(event.currentTarget.open)}><summary>进入内部</summary>
+          {membersOpen && <div className="building-entity-list" aria-label="自然组内部对象">{current.info.members.map(member => <button type="button" key={`${member.kind}:${member.id}`} onClick={() => onSelect(member.id)}>{label(member.id)}</button>)}</div>}
+        </details>
         <div className="building-coordinate-grid"><NumberInput displayUnit={scene.units.display} label="自然组偏移 X" value={offset.x} onCommit={x => setOffset(value => ({ ...value, x }))}/><NumberInput displayUnit={scene.units.display} label="自然组偏移 Y" value={offset.y} onCommit={y => setOffset(value => ({ ...value, y }))}/></div>
         <label className="building-field">自然组旋转<select aria-label="自然组旋转" value={quarterTurns} onChange={event => setQuarterTurns(Number(event.target.value) as typeof quarterTurns)}><option value="0">不旋转</option><option value="1">顺时针 90°</option><option value="2">180°</option><option value="3">逆时针 90°</option></select></label>
         <NumberInput displayUnit={scene.units.display} label="自然组旋转支点 X" value={pivot.x} onCommit={x => setPivot(value => ({ ...value, x }))}/><NumberInput displayUnit={scene.units.display} label="自然组旋转支点 Y" value={pivot.y} onCommit={y => setPivot(value => ({ ...value, y }))}/>

@@ -14,6 +14,7 @@ export const workspaceFormDraftLabels = {
   prefabForm: { name: '组合参数', cancel: '取消组合草稿' },
   buildingInspector: { name: '建筑属性', cancel: '取消建筑属性草稿' },
   outdoorInspector: { name: '室外属性', cancel: '取消室外属性草稿' },
+  terrainContourForm: { name: '地形轮廓', cancel: '取消轮廓草稿' },
   selectionForm: { name: '多选批量参数', cancel: '取消批量参数草稿' },
   visualForm: { name: '视觉效果与曲线', cancel: '取消视觉草稿' },
   artStyleForm: { name: '全图画风', cancel: '取消画风草稿' },

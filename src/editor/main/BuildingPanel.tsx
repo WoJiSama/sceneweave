@@ -6,10 +6,12 @@ import type { SceneCommand } from '../../shared/commands/commands'
 import type { SceneDocument } from '../../shared/model/scene'
 import { NumberInput } from '../native-canvas/controls'
 import { finishOrthogonalBoundary, formatDistanceMm, parseBoundary, rectangleFromPoints, rectanglePoints, rulerDistance, type BuildingSketch } from '../native-canvas/building-session'
-import AggregateBuildingPanel from './AggregateBuildingPanel'
-import AggregateStructurePanel from './AggregateStructurePanel'
+import { DeferredPanel, lazyPanel } from './deferred-panel'
 import SceneBoundsPanel from './SceneBoundsPanel'
 import './building.css'
+
+const AggregateBuildingPanel = lazyPanel(() => import('./AggregateBuildingPanel'), '建筑组工具')
+const AggregateStructurePanel = lazyPanel(() => import('./AggregateStructurePanel'), '组合结构工具')
 
 export type BuildingTask = 'room' | 'note' | 'mask' | 'aggregate' | 'structure' | 'ruler'
 export type FinishRoom = (intent?: 'finish') => void
@@ -94,8 +96,16 @@ export default function BuildingPanel({ scene, layerId, disabled, sketch, onSket
       <button className="primary asset-wide" type="submit" disabled={disabled || layerLocked || !!drawingIncomplete}><Plus size={14}/>预览新房间</button>
       <details className="building-details workspace-advanced"><summary>{shape === 'rectangle' ? '精确位置' : '精确输入顶点坐标'}</summary><fieldset disabled={disabled || layerLocked}>{shape === 'rectangle' ? <div className="workspace-form-pair">{(['x', 'y'] as const).map((key, index) => <NumberInput displayUnit={scene.units.display} key={key} label={['房间起点 X', '房间起点 Y'][index]} value={rect[key]} onCommit={value => { onSketch(null); setRect(current => ({ ...current, [key]: value })) }}/>)}</div> : <label className="building-field">每行 x,y（mm）<textarea aria-label="房间多边形顶点" rows={5} value={boundary} onChange={event => { onSketch(null); setBoundary(event.target.value) }}/></label>}</fieldset></details>
     </form>
-    <div hidden={split && task !== 'aggregate'} inert={split && task !== 'aggregate'}><AggregateBuildingPanel scene={scene} disabled={disabled} onPreview={run} onSelect={onSelect} onSelectMany={onSelectMany}/></div>
-    <div hidden={split && task !== 'structure'} inert={split && task !== 'structure'}><AggregateStructurePanel scene={scene} disabled={disabled} onPreview={run} onSelect={onSelect}/></div>
+    <div hidden={split && task !== 'aggregate'} inert={split && task !== 'aggregate'}>
+      <DeferredPanel open={!split || (detailsActive && task === 'aggregate')} name="建筑组工具">
+        <AggregateBuildingPanel scene={scene} disabled={disabled} onPreview={run} onSelect={onSelect} onSelectMany={onSelectMany}/>
+      </DeferredPanel>
+    </div>
+    <div hidden={split && task !== 'structure'} inert={split && task !== 'structure'}>
+      <DeferredPanel open={!split || (detailsActive && task === 'structure')} name="组合结构工具">
+        <AggregateStructurePanel scene={scene} disabled={disabled} onPreview={run} onSelect={onSelect}/>
+      </DeferredPanel>
+    </div>
     {layerLocked && <p className="history-limit">当前图层已锁定，请先选择可编辑图层。</p>}
     {!split && <SceneBoundsPanel scene={scene} floorId={floorId} disabled={disabled || layerLocked} onPreview={run}/>}
     <details className="building-details" hidden={split && task !== 'mask'} inert={split && task !== 'mask'} open={split ? true : undefined}><summary>固定玩家遮罩</summary><p className="asset-muted">遮罩覆盖秘密几何、墙厚与阴影。玩家出图仍会检查覆盖范围。</p><fieldset disabled={disabled || layerLocked}>{(['x', 'y', 'width', 'height'] as const).map((key, index) => <NumberInput displayUnit={scene.units.display} key={key} label={['遮罩 X', '遮罩 Y', '遮罩宽度', '遮罩高度'][index]} value={mask[key]} onCommit={value => setMask(current => ({ ...current, [key]: value }))}/>)}<button className="secondary asset-wide" onClick={() => run([{ type: 'upsertManualMask', id: newId(), floorId, boundsMm: mask, layerId }], '新增固定玩家遮罩')}>预览新增遮罩</button></fieldset></details>

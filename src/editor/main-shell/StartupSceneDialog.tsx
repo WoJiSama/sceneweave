@@ -5,13 +5,13 @@ import { downloadBlankScene } from '../../platform/browser/content/blank-scene-d
 import './startup-scene-dialog.css'
 
 type Stage = 'preparing' | 'saving' | null
-type Props = {
-  onReady: () => void
+export type StartupSceneDialogProps = {
+  prepareEditor: () => void
   onCreate: (options: NewSceneOptions, signal: AbortSignal, onSaving: () => void, preloadedArchive?: Promise<Uint8Array>) => Promise<void>
   onCancel: () => void
 }
 
-export default function StartupSceneDialog({ onReady, onCreate, onCancel }: Props) {
+export default function StartupSceneDialog({ prepareEditor, onCreate, onCancel }: StartupSceneDialogProps) {
   const title = useId(), dialog = useRef<HTMLDialogElement>(null)
   const operation = useRef<AbortController | null>(null)
   const archive = useRef<{ abort: AbortController; bytes: Promise<Uint8Array> } | null>(null)
@@ -35,9 +35,9 @@ export default function StartupSceneDialog({ onReady, onCreate, onCancel }: Prop
       archive.current = { abort, bytes }
       void bytes.catch(() => { if (archive.current?.bytes === bytes) archive.current = null })
     }
-    onReady()
+    prepareEditor()
     return () => { abort?.abort(); archive.current = null }
-  }, [onReady])
+  }, [prepareEditor])
   useEffect(() => {
     const protect = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', protect)

@@ -10,10 +10,6 @@
 .visual-tabs { display: flex; flex-wrap: wrap; gap: 5px; }
 .visual-tabs button[aria-pressed=true] { background: var(--accent, #365f50); color: white; }
 .visual-segment { display: grid; gap: 8px; padding: 10px 0; border-bottom: 1px solid #8883; }
-.visual-controls { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
-.visual-controls circle { pointer-events: all; cursor: grab; touch-action: none; }
-.visual-controls circle:active { cursor: grabbing; }
-
 .art-style-presets, .art-style-parameters, .art-style-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .workspace-unified .visual-panel .art-style-toggle {
   display: flex; align-items: center; justify-content: center; flex: 1; gap: 8px;

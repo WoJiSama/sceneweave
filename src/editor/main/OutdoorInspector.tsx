@@ -3,12 +3,12 @@ import StaircaseTools from './StaircaseTools'
 import StaircaseFields from './StaircaseFields'
 import { defaultStaircase } from '../../shared/stairs/contracts'
 import { runtime } from './runtime'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ComponentProps } from 'react'
 import { Mountain, Trash2 } from 'lucide-react'
 import type { SceneCommand } from '../../shared/commands/commands'
 import { canonicalTerrainEdge, reconcileTerrainBoundary } from '../../shared/commands/outdoor'
 import { defaultShorelineStyle, terrainShorelineCommands } from '../../shared/commands/terrain-shoreline'
-import type { SceneDocument } from '../../shared/model/scene'
+import type { PointMm, SceneDocument } from '../../shared/model/scene'
 import { partitionDecorationIds } from '../../shared/geometry/partitions'
 import type { RouteWidthSection } from '../../shared/geometry/route-width'
 import { createAutomaticRoadPlanner, AUTOMATIC_ROAD_VERSION } from '../../shared/geometry/automatic-road'
@@ -25,6 +25,7 @@ import OutdoorCoordinates from './OutdoorCoordinates'
 import { effectiveEditLocked, effectiveLayerLocked } from '../../shared/commands/layers'
 import EntityLockNotice from './EntityLockNotice'
 import TerrainCliffStylePanel from './TerrainCliffStylePanel'
+import TerrainContourEditor from './TerrainContourEditor'
 import TerrainEdgeFinishPanel from './TerrainEdgeFinishPanel'
 import CarvedMountainTools from './CarvedMountainTools'
 import TerrainInlayTools from './TerrainInlayTools'
@@ -32,10 +33,11 @@ import { WaterSurfaceTools } from './OceanTools'
 import ShorelineSegmentPicker from './ShorelineSegmentPicker'
 import { outdoorEntityKind } from './outdoor-entity-kind'
 
-export default function OutdoorInspector({ scene, id, disabled, onPreview, onVisualPreview, onSelect, onBoundaryEditor, onOpenLayers, onFocusPartition, onSelectPartition, onExportPartition, onPreviewPartition, onDrawScatterExclusion, onEditAutomaticRoad }: {
+export default function OutdoorInspector({ scene, id, disabled, onPreview, onVisualPreview, onSelect, onBoundaryEditor, onFocusCanvas, contour, onOpenLayers, onFocusPartition, onSelectPartition, onExportPartition, onPreviewPartition, onDrawScatterExclusion, onEditAutomaticRoad }: {
   scene: SceneDocument; id: string; disabled: boolean; onPreview: (commands: SceneCommand[], description: string) => void
   onVisualPreview?: (commands: SceneCommand[], description: string) => void; onSelect: (id: string) => void
-  onBoundaryEditor?: (editor: VisualBoundaryEditor | null) => void; onOpenLayers?: () => void
+  onBoundaryEditor?: (editor: VisualBoundaryEditor | null) => void; onFocusCanvas?: (points: PointMm[]) => void; onOpenLayers?: () => void
+  contour?: Omit<ComponentProps<typeof TerrainContourEditor>, 'scene' | 'areaId'> & { resetKey: number }
   onFocusPartition?: (id: string) => void; onSelectPartition?: (ids: string[]) => void; onExportPartition?: (id: string, audience: 'gm' | 'player') => void
   onPreviewPartition?: (id: string) => void
   onDrawScatterExclusion?: (id: string, reason: 'manual' | 'entrance') => void
@@ -157,6 +159,8 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
     <div className="asset-section-heading"><Mountain size={16}/><h2>{name(id)}</h2></div><details><summary>对象编号</summary><code>{id}</code></details>
     <p className="asset-muted">图层：{scene.userLayers[scene.entityLayers[id]]?.name} {locked ? scatter && !scatterRegenerationLocked ? '· 部分编辑受锁保护' : '· 当前锁定' : ''}。尺寸使用{scene.units.display === 'ft' ? '英尺' : '米'}，按最近 1 mm 保存。</p>
     <EntityLockNotice scene={scene} id={id} onSelect={onSelect} onOpenLayers={onOpenLayers} description={scatter && !scatterRegenerationLocked ? '以下编辑锁保护相关内容，配置与删除保持禁用。重新散布保留固定成员，并按实际变化重新检查全部锁。' : undefined}/>
+    {area && contour && <TerrainContourEditor key={contour.resetKey} scene={scene} areaId={id} disabled={contour.disabled || locked}
+      onBoundaryEditor={contour.onBoundaryEditor} onFocusCanvas={contour.onFocusCanvas} onPreview={contour.onPreview}/>}
     {path?.automaticRoute && onEditAutomaticRoad && <button type="button" className="secondary asset-wide" disabled={disabled || locked} onClick={() => onEditAutomaticRoad(path)}>调整自动道路</button>}
     {partition && <fieldset disabled={disabled} aria-label="分区操作">
       {onFocusPartition && <button type="button" className="secondary asset-wide" onClick={() => onFocusPartition(id)}>放大到分区</button>}
@@ -221,7 +225,10 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
       {connection && !connection.terrainInlay && <><label>连接类型<select aria-label="对象连接类型" value={connectionKind} onChange={event => setConnectionKind(event.target.value as typeof connectionKind)}><option value="stairs">台阶</option><option value="ramp">坡道</option></select></label><SurfaceSelect scene={scene} floorId={entity.floorId} value={support} onChange={setSupport} label="对象连接起点表面"/><SurfaceSelect scene={scene} floorId={entity.floorId} value={toSupport} onChange={setToSupport} label="对象连接终点表面"/></>}
       {path && !path.assembly?.bridge && !path.automaticRoute && <><SurfaceMultiSelect scene={scene} floorId={entity.floorId} values={pathSupports} onChange={setPathSupports} label="对象道路支撑"/><small>按住 Ctrl / ⌘ 可多选。整条道路须位于所选支撑面的并集内。</small></>}
       {connection && !connection.terrainInlay && <OutdoorCoordinates text={ends} onChange={setEnds} label="连接路线节点" ariaLabel="对象连接端点" minimum={2} unit={scene.units.display}/>}
-      {connection && !connection.terrainInlay && <details><summary>路线形态与踏面</summary><ConnectionRouteFields enabled={scene.mapMode === 'scene'} text={ends} draft={connectionRoute} retained={connection.route} onChange={setConnectionRoute} floorId={connection.floorId} layerId={scene.entityLayers[id]} visibility={visibility} onBoundaryEditor={onBoundaryEditor}/></details>}
+      {connection && !connection.terrainInlay && <details open={connection.route?.stairStyle === 'naturalRock' || undefined}><summary>路线形态与踏面</summary>
+        <ConnectionRouteFields enabled={scene.mapMode === 'scene'} text={ends} draft={connectionRoute} retained={connection.route} onChange={setConnectionRoute}
+          onPointsChange={setEnds} onFocusCanvas={onFocusCanvas} floorId={connection.floorId} layerId={scene.entityLayers[id]} visibility={visibility} onBoundaryEditor={onBoundaryEditor}/>
+      </details>}
       {(area || path && !path.assembly && !path.automaticRoute || region) && <OutdoorCoordinates text={points} onChange={value => { setPoints(value); setEdgeSegments({}) }} label={path ? '道路中心线' : '轮廓'} ariaLabel="室外对象坐标" minimum={path ? 2 : 3} unit={scene.units.display}/>}
       {relatedEdges.length > 0 && <details><summary>关联来源边缘 · {relatedEdges.length}</summary><label className="composition-check"><input type="checkbox" aria-label="同时重映射来源边缘" checked={remapEdges} onChange={event => setRemapEdges(event.target.checked)}/>同一事务重新确认来源、相邻面与崖边</label><small>逐项选择编辑后轮廓的段序号。高差边缘变为崖边并阻挡移动；完整变化在采用前展示。无法保持唯一来源会拒绝整笔修改。</small>{relatedEdges.map(item => { const retainedIndex = boundaryDraft?.findIndex(point => point.segmentId === item.source.segmentId) ?? -1; return <label key={item.id}>{name(item.id)}{item.source.areaId === id ? <input aria-label={`重映射边段 ${item.id}`} type="number" min="0" max="2048" value={(edgeSegments[item.id] !== undefined && edgeSegments[item.id] >= 0 ? edgeSegments[item.id] : retainedIndex) + 1} onChange={event => setEdgeSegments(current => ({ ...current, [item.id]: Number(event.target.value) - 1 }))}/> : <small>保留来源 {name(item.source.segmentId)}，重新核对相邻面</small>}</label>})}</details>}
       {edge && <><details><summary>来源地形与边段</summary><button type="button" className="secondary asset-wide" onClick={() => onSelect(edge.source.areaId)}>选择源地形</button><p className="asset-muted">{name(edge.source.segmentId)}。修改来源需完整检查相邻地面。</p><label>地形编号 / 边段编号<textarea aria-label="边缘来源映射" rows={2} value={edgeSource} onChange={event => setEdgeSource(event.target.value)}/></label></details><label>边缘类型<select aria-label="对象边缘类型" value={edgeKind} onChange={event => setEdgeKind(event.target.value as typeof edgeKind)}><option value="materialTransition">材质边界</option><option value="cliff">崖边</option><option value="shore">岸地边缘</option></select></label><label className="composition-check"><input type="checkbox" aria-label="显示岸线" checked={shoreline || edgeKind === 'shore'} onChange={event => { setShoreline(event.target.checked); if (!event.target.checked && edgeKind === 'shore') setEdgeKind('materialTransition') }}/>显示岸线</label></>}

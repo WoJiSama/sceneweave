@@ -51,3 +51,6 @@
 .uvtt-export-dialog label input { width: auto; margin-top: .25rem; }
 .uvtt-export-dialog .modal-actions { display: flex; flex-wrap: wrap; gap: .6rem; justify-content: flex-end; }
 .asset-viewport-image > svg.asset-selection-overlay { position: absolute; inset: 0; }
+.visual-controls { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.visual-controls circle { pointer-events: all; cursor: grab; touch-action: none; }
+.visual-controls circle:active { cursor: grabbing; }
