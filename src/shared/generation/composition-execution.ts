@@ -1,15 +1,12 @@
 import type { SceneDocument } from '../model/scene.js'
-import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, measureTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
+import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, measureTaskBudget, parseTaskBudgetProfile } from '../budget/task-budget.js'
+import type { DomainGenerationOptions } from './execution.js'
 import { captureJson, cloneJson, freezeJson, canonicalJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { generationCandidateSchema, hashGenerationValue, parseGenerationArtifactReceipt, type GenerationArtifact, type GenerationCandidate, type GenerationStageReceipt } from './contracts.js'
 import { GenerationError } from './orchestrator.js'
 
-export interface CompositionExecutionOptions {
-  readonly profile: TaskBudgetProfile
-  readonly nowMilliseconds: () => number
-  readonly signal?: { readonly aborted: boolean }
-}
+export type CompositionExecutionOptions = Readonly<DomainGenerationOptions>
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
 const outputHash = (outputs: readonly GenerationArtifact[]) => hashGenerationValue(outputs.map(row => [row.kind, row.id, row.contentHash]))
 function captureCandidate(input: GenerationCandidate) {

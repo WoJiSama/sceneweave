@@ -6,6 +6,7 @@ import {
 } from '../../../shared/generation/execution.js'
 import { domainGenerationKinds } from '../../../shared/generation/domains/registry.js'
 import { canonicalJson, captureJson, encodeUtf8 } from '../../../shared/validation/json.js'
+import type { GenerationDrawing } from './drawing.js'
 
 const MAX_CAPABILITY_BYTES = 64 * 1024
 const workerErrorSchema = z.object({ protocolVersion: z.literal(1), type: z.literal('error'), requestId: z.string(),
@@ -21,7 +22,8 @@ export interface DomainGenerationWorker {
   onmessage: ((event: MessageEvent<unknown>) => void) | null
   onerror: ((event: ErrorEvent) => void) | null
   onmessageerror: ((event: MessageEvent<unknown>) => void) | null
-  postMessage: (message: unknown) => void
+  postMessage(message: unknown): void
+  postMessage(message: unknown, transfer: Transferable[]): void
   terminate: () => void
 }
 export interface DomainGenerationClientOptions {
@@ -29,6 +31,7 @@ export interface DomainGenerationClientOptions {
   fetch?: typeof globalThis.fetch
 }
 export interface DomainGenerationRunOptions {
+  onDrawing?: (drawing: GenerationDrawing) => void
   signal?: AbortSignal
   timeoutMs?: number
   isCurrent?: (request: Readonly<DomainExecutionRequest>) => boolean
@@ -124,6 +127,7 @@ export function createDomainGenerationClient(options: DomainGenerationClientOpti
     return new Promise<DomainExecutionResponse>((resolve, reject) => {
       const controller = new AbortController()
       let worker: DomainGenerationWorker | undefined, settled = false
+      let drawingPort: MessagePort | undefined
       let timer: ReturnType<typeof setTimeout> | undefined
       const job = { cancel: () => finish(abortError()) }
       function finish(failure?: Error, response?: DomainExecutionResponse): void {
@@ -133,6 +137,7 @@ export function createDomainGenerationClient(options: DomainGenerationClientOpti
         if (timer !== undefined) clearTimeout(timer)
         runOptions.signal?.removeEventListener('abort', job.cancel)
         controller.abort()
+        drawingPort?.close()
         if (worker) {
           worker.onmessage = null; worker.onerror = null; worker.onmessageerror = null
           try { worker.terminate() } catch { /* Cleanup failure cannot keep a request pending. */ }
@@ -201,7 +206,20 @@ export function createDomainGenerationClient(options: DomainGenerationClientOpti
         worker.onmessage = event => accept(event.data)
         worker.onerror = event => { event.preventDefault(); finish(new DomainGenerationClientError('generation_failed', '生成未完成，请调整设置后重新预览。')) }
         worker.onmessageerror = () => finish(protocolError())
-        try { worker.postMessage(request) } catch { finish(protocolError()) }
+        try {
+          if (runOptions.onDrawing) {
+            // Only this locally created worker has the sending port for this attempt.
+            const channel = new MessageChannel()
+            drawingPort = channel.port1
+            drawingPort.onmessage = (event: MessageEvent<GenerationDrawing>) => {
+              if (!settled && active === job && current()) {
+                try { runOptions.onDrawing?.(event.data) } catch { /* Presentation cannot settle the generation request. */ }
+              }
+            }
+            try { worker.postMessage(request, [channel.port2]) }
+            catch (error) { channel.port2.close(); throw error }
+          } else worker.postMessage(request)
+        } catch { finish(protocolError()) }
       }
     })
   }

@@ -1,6 +1,7 @@
 import type { SceneDocument, PointMm, Path } from '../../../model/scene.js'
 import { applyCommands, type SceneCommand } from '../../../commands/commands.js'
-import { captureExecutionBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../../../budget/task-budget.js'
+import { captureExecutionBudget, parseTaskBudgetProfile } from '../../../budget/task-budget.js'
+import type { DomainGenerationOptions } from '../../execution.js'
 import { captureJson, cloneJson, freezeJson } from '../../../validation/json.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { polygonInside, polygonDistance, polygonsOverlap, pointInPolygon, supportedPolygon, pathPolygon } from '../../../geometry/geometry.js'
@@ -115,7 +116,7 @@ export function checkVolcanoResult(document: SceneDocument, input: VolcanoGenera
   const checked = validateSceneDocument(document)
   if (!checked.ok) throw new VolcanoGenerationError('contradiction', `火山完整候选校验失败：${checked.errors.map(row => row.message).join('；')}`)
 }
-export function runVolcanoGeneration(base: SceneDocument, raw: unknown, options: { profile: TaskBudgetProfile; nowMilliseconds: () => number; signal?: { readonly aborted: boolean } }): { input: VolcanoGenerationInput; report: VolcanoReport; candidate: GenerationCandidate; resultHash: string } {
+export function runVolcanoGeneration(base: SceneDocument, raw: unknown, options: DomainGenerationOptions): { input: VolcanoGenerationInput; report: VolcanoReport; candidate: GenerationCandidate; resultHash: string } {
   const input = normalizeVolcanoInput(raw), profile = parseTaskBudgetProfile(options.profile), source = captureJson(base), p = input.parameters
   if (!validateSceneDocument(source).ok) throw new VolcanoGenerationError('invalid-input', '火山基底须为合法完整场景。')
   if (source.mapMode !== 'scene' || Object.keys(source.floors).length !== 1 || !source.floors[p.floorId] || source.userLayers[p.layerId]?.floorId !== p.floorId || source.userLayers[p.layerId].editLocked) throw new VolcanoGenerationError('unsupported', '首版火山支持单Floor、明确未锁定图层。')
@@ -217,7 +218,7 @@ export function runVolcanoGeneration(base: SceneDocument, raw: unknown, options:
     { id: 'connectivity', operator: { id: 'volcano-connectivity', version: 1 }, required: true, parameters, dependsOn: ['structure'], inputs: [{ id: 'surfaces', kind: 'support-surface', from: { kind: 'step', stepId: 'structure', operator: { id: 'volcano-structure', version: 1 } }, cardinality: { min: 4, max: 8192 }, floorId: p.floorId, coordinateFrame: 'scene-mm' }] },
   ] })
   const request: GenerationRequest = { requestVersion: 1, normalizationVersion: 1, target: { kind: 'new-project' }, coordinateFrame: 'scene-mm', intent: { environment: 'volcano', structures: [], purposes: ['crater', 'platform', 'route', 'hazard'], tags: [] }, intentSource: { kind: 'manual', contentHash: hashGenerationValue(input) }, hardConstraints: [{ id: 'volcano-bounds', kind: 'bounds', boundsMm: p.boundsMm }], softGoals: [], seed: input.seed, budgetProfile: profile, recipe }
-  const candidate = runGeneration(request, registry, { source, nowMilliseconds: options.nowMilliseconds, signal: options.signal })
+  const candidate = runGeneration(request, registry, { ...options, source })
   const resultHash = hashGenerationValue({ input, report, documentHash: candidate.documentHash, outputHash: candidate.outputHash, stages: candidate.stages })
   return freezeJson({ input, report, candidate, resultHash })
 }

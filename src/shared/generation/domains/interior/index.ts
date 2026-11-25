@@ -3,7 +3,8 @@ import { LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTI
 import { applyCommands, type SceneCommand } from '../../../commands/commands.js'
 import { decorationFootprint } from '../../../decorations/geometry.js'
 import { polygonsOverlap, propFootprint, roomPoints } from '../../../geometry/geometry.js'
-import { parseTaskBudgetProfile, type TaskBudgetProfile } from '../../../budget/task-budget.js'
+import { parseTaskBudgetProfile } from '../../../budget/task-budget.js'
+import type { DomainGenerationOptions as InteriorOptions } from '../../execution.js'
 import { captureJson, cloneJson, freezeJson, canonicalJson } from '../../../validation/json.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { getLegacyGeneration } from '../../../terrain-generation/composition-contracts.js'
@@ -67,7 +68,6 @@ export function normalizeSupportedInteriorInput(raw: unknown): SupportedInterior
 
 type InteriorInput = InteriorGenerationInput | SupportedInteriorGenerationInput
 const isSupported = (input: InteriorInput): input is SupportedInteriorGenerationInput => 'supportRef' in input.parameters
-type InteriorOptions = { profile: TaskBudgetProfile; nowMilliseconds: () => number; signal?: { readonly aborted: boolean } }
 function layoutInput(input: InteriorInput): InteriorGenerationInput {
   if (!isSupported(input)) return input
   const { supportRef: _supportRef, ...withApproach } = input.parameters
@@ -254,7 +254,7 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
   ] })
   const bounds: GenerationRequest['hardConstraints'] = [{ id: 'building-bounds', kind: 'bounds', boundsMm: p.boundsMm }]
   const request: GenerationRequest = { requestVersion: 1, normalizationVersion: 1, target: { kind: 'new-project' }, coordinateFrame: 'scene-mm', intent: { environment: 'interior', structures: ['building'], purposes: p.rooms.map(room => room.purpose), tags: [] }, intentSource: { kind: 'manual', contentHash: hashGenerationValue(input) }, hardConstraints: supported ? [] : bounds, softGoals: [], seed: input.seed, budgetProfile: profile, recipe }
-  const candidate = runGeneration(request, registry, { source: document, nowMilliseconds: options.nowMilliseconds, signal: options.signal })
+  const candidate = runGeneration(request, registry, { ...options, source: document })
   if (!layout || !connectivity || !furnishing) throw new InteriorGenerationError('invalid-input', '室内生成没有完整阶段结果。')
   if (supported) {
     // This module's bounds cover all of its actual new geometry, including full

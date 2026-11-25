@@ -192,7 +192,8 @@ export interface GenerationExecutionOptions {
   readonly signal?: { readonly aborted: boolean }
   /** Injected monotonic runtime clock; shared code has no platform clock. */
   readonly nowMilliseconds: () => number
-
+  /** Transient observation of a completed, immutable operator result. */
+  readonly onDrawingStage?: (scene: SceneDocument) => void
 }
 export function runGeneration(raw: GenerationRequest, registry: GenerationRegistry, options: GenerationExecutionOptions): GenerationCandidate {
   const checkCancelled = () => { if (options.signal?.aborted) throw new GenerationError('cancelled', '生成已取消，未发布部分候选。') }
@@ -348,6 +349,9 @@ export function runGeneration(raw: GenerationRequest, registry: GenerationRegist
       inputHash: hashGenerationValue([...selected].map(([id, values]) => [id, values.map(value => [value.id, value.contentHash])])), outputHash: hashGenerationValue(batch.map(value => [value.id, value.contentHash])) })
     charge({ metadataRecords: 1, metadataBytes: encodeUtf8(canonicalJson(receipt)).length })
     stages.push(receipt)
+    if (options.onDrawingStage && receipt.beforeHash !== receipt.afterHash) {
+      try { options.onDrawingStage(document) } catch { /* The drawing observer does not own generation. */ }
+    }
     outputs.push(...batch); diagnostics.push(...batch.filter(artifact => artifact.kind === 'diagnostic').map(artifact => ({ ...artifact.payload, artifactIds: [...artifact.payload.artifactIds] })), ...(result.diagnostics ?? []))
   }
   const candidateSpace = space

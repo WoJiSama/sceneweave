@@ -1,7 +1,8 @@
 import type { SceneDocument, PointMm } from '../../../model/scene.js'
 import { LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS } from '../../../model/scene.js'
 import { applyCommands } from '../../../commands/commands.js'
-import { parseTaskBudgetProfile, captureExecutionBudget, measureBudgetGeometry, type TaskBudgetProfile } from '../../../budget/task-budget.js'
+import { parseTaskBudgetProfile, captureExecutionBudget, measureBudgetGeometry } from '../../../budget/task-budget.js'
+import type { DomainGenerationOptions as Options } from '../../execution.js'
 import { captureJson, cloneJson, freezeJson, canonicalJson } from '../../../validation/json.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
@@ -69,7 +70,6 @@ function persist(document: SceneDocument, input: MixedGenerationInput, supportAr
   }
 }
 
-type Options = { profile: TaskBudgetProfile; nowMilliseconds: () => number; signal?: { readonly aborted: boolean } }
 /** Single-purpose adapters keep the orchestrator's phase write limits. There is
  * deliberately no broad mixed materialization bypass or natural replay bridge. */
 function runAdapter(source: SceneDocument, input: MixedGenerationInput, supportAreaId: string, options: Options, openingId?: string): GenerationCandidate {

@@ -2,6 +2,7 @@ import {
   executeDomainExecutionRequest, parseDomainExecutionRequest,
   type DomainExecutionRequest, type DomainExecutionResponse,
 } from '../../../shared/generation/execution.js'
+import { sketchGeneratedFloor, type GenerationDrawing } from './drawing.js'
 
 export interface DomainGenerationWorkerError {
   protocolVersion: 1
@@ -15,11 +16,13 @@ export interface DomainGenerationWorkerError {
 export type DomainGenerationWorkerResponse = DomainExecutionResponse | DomainGenerationWorkerError
 
 /** Only generation runs here. Resource validation and adoption remain host-owned. */
-export function executeDomainGenerationWorkerRequest(raw: unknown): DomainGenerationWorkerResponse {
+export function executeDomainGenerationWorkerRequest(raw: unknown, onDrawing?: (drawing: GenerationDrawing) => void): DomainGenerationWorkerResponse {
   // Invalid correlation data must never be echoed as a usable response.
   const request = parseDomainExecutionRequest(raw)
   try {
-    return executeDomainExecutionRequest(request, { nowMilliseconds: () => Math.floor(performance.now()) })
+    return executeDomainExecutionRequest(request, { nowMilliseconds: () => Math.floor(performance.now()),
+      onDrawingStage: onDrawing && (scene => onDrawing(sketchGeneratedFloor(scene))),
+    })
   } catch (failure) {
     const message = failure instanceof Error ? failure.message.slice(0, 512) : ''
     return { protocolVersion: 1, type: 'error', requestId: request.requestId, context: request.context,
@@ -39,7 +42,8 @@ if (typeof document === 'undefined' && typeof scope.postMessage === 'function' &
   scope.onmessage = event => {
     if (consumed) return
     consumed = true
-    try { scope.postMessage(executeDomainGenerationWorkerRequest(event.data)) }
-    finally { scope.close() }
+    const port = event.ports[0]
+    try { scope.postMessage(executeDomainGenerationWorkerRequest(event.data, port && (drawing => port.postMessage(drawing)))) }
+    finally { port?.close(); scope.close() }
   }
 }

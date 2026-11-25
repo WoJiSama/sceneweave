@@ -1,7 +1,12 @@
+import type { GenerationDrawing } from '../../platform/browser/generation/drawing'
+import type { PointMm } from '../../shared/model/scene'
+import { updateGenerationPlayback, type GenerationPlayback } from '../native-canvas/generation-playback'
+
 export type DomainOperationPhase = 'idle' | 'draft' | 'preparing' | 'review' | 'adopting'
 export type DomainOperationState<P> = {
   readonly resetKey: number
   readonly error: string | null
+  readonly drawing?: GenerationPlayback
 } & (
   | { readonly phase: 'idle' | 'draft' | 'preparing'; readonly preview: null }
   | { readonly phase: 'review' | 'adopting'; readonly preview: P }
@@ -13,6 +18,7 @@ export interface DomainOperationLease {
   readonly signal: AbortSignal
   isCurrent(): boolean
   assertCurrent(): void
+  showDrawing(drawing: GenerationDrawing, origin?: PointMm): void
 }
 export interface DomainOperationSummary {
   busy: boolean
@@ -40,6 +46,7 @@ export class DomainOperationSession<M extends object> {
     domains: readonly (keyof M)[]
     checkpoint(): number
     sourceKey: string
+    revisionBoundDrafts?: readonly (keyof M)[]
     release: { [K in keyof M]: (preview: M[K]) => void }
   }) {
     this.snapshot = Object.fromEntries(options.domains.map(domain => [domain, idle()])) as DomainOperationSnapshot<M>
@@ -110,7 +117,14 @@ export class DomainOperationSession<M extends object> {
     this.attempts.set(domain, attempt)
     const current = () => this.attempts.get(domain) === attempt && !attempt.controller.signal.aborted && attempt.checkpoint === this.options.checkpoint()
     const lease: DomainOperationLease = { epoch: attempt.epoch, checkpoint: attempt.checkpoint, signal: attempt.controller.signal, isCurrent: current,
-      assertCurrent: () => { if (!current()) throw new Error('地图生成操作已取消或工程基线已改变。') } }
+      assertCurrent: () => { if (!current()) throw new Error('地图生成操作已取消或工程基线已改变。') },
+      showDrawing: (drawing, origin) => {
+        const state = this.snapshot[domain]
+        if (current() && state.phase === 'preparing' && drawing.marks.length) {
+          this.set(domain, { ...state, drawing: updateGenerationPlayback(state.drawing, drawing, origin, performance.now()) })
+        }
+      },
+    }
     this.set(domain, { phase: 'preparing', preview: null, resetKey: state.resetKey, error: null })
     try {
       const preview = await prepare(lease)
@@ -120,7 +134,7 @@ export class DomainOperationSession<M extends object> {
         return null
       }
       this.attempts.delete(domain)
-      this.set(domain, preview === null ? idle(state.resetKey) : { phase: 'review', preview, resetKey: state.resetKey, error: null })
+      this.set(domain, preview === null ? idle(state.resetKey) : { ...this.snapshot[domain], phase: 'review', preview, error: null })
       return preview
     } catch (error) {
       if (current()) {
@@ -159,10 +173,11 @@ export class DomainOperationSession<M extends object> {
     this.source = { checkpoint, key: sourceKey }
     for (const domain of this.options.domains) {
       const phase = this.snapshot[domain].phase
+      const reset = !sameScene || this.options.revisionBoundDrafts?.includes(domain) === true
       // Workspace may publish the adopted project before its promise resolves.
       // It owns CAS; our adopting operation must be allowed to finish.
-      if (phase === 'adopting' || sameScene && (phase === 'draft' || phase === 'idle')) continue
-      this.cancel(domain, { reset: !sameScene })
+      if (phase === 'adopting' || sameScene && (phase === 'idle' || phase === 'draft' && !reset)) continue
+      this.cancel(domain, { reset })
     }
   }
 

@@ -10,10 +10,10 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
 }
-function setup() {
+function setup(revisionBoundDrafts?: readonly Domain[]) {
   let checkpoint = 4
   const release = { interior: vi.fn(), forest: vi.fn(), volcano: vi.fn(), mixed: vi.fn() }
-  const session = new DomainOperationSession<Previews>({ domains, checkpoint: () => checkpoint, sourceKey: 'scene:1', release })
+  const session = new DomainOperationSession<Previews>({ domains, checkpoint: () => checkpoint, sourceKey: 'scene:1', revisionBoundDrafts, release })
   return { session, release, changeSource: (key = 'scene:2') => { checkpoint++; session.invalidateSource(checkpoint, key) },
     changeCheckpoint: () => { checkpoint++ }, checkpoint: () => checkpoint }
 }
@@ -119,6 +119,25 @@ describe('domain operation session', () => {
     changeSource('scene:1')
     expect(session.summary()).toMatchObject({ hasDraft: true, hasCandidate: false, blocking: false })
     expect(session.getSnapshot().interior).toMatchObject({ error: '建筑放不下', resetKey: 0 })
+  })
+
+  it('resets revision-bound drafts and rejects their late results without resetting other settings', async () => {
+    const { session, changeSource, release } = setup(['forest'])
+    session.change('forest'); session.change('interior')
+    changeSource('scene:1')
+    expect(session.getSnapshot().forest).toMatchObject({ phase: 'idle', resetKey: 1 })
+    expect(session.getSnapshot().interior).toMatchObject({ phase: 'draft', resetKey: 0 })
+
+    const pending = deferred<Previews['forest']>()
+    let lease!: DomainOperationLease
+    const run = session.run('forest', current => { lease = current; return pending.promise })
+    changeSource('scene:1')
+    expect(lease.signal.aborted).toBe(true)
+    const stale = preview('forest')
+    pending.resolve(stale)
+    expect(await run).toBeNull()
+    expect(release.forest).toHaveBeenCalledExactlyOnceWith(stale)
+    expect(session.getSnapshot().forest).toMatchObject({ phase: 'idle', resetKey: 2, error: null })
   })
 
   it('does not cancel its own adoption when Workspace publishes a new project before resolving', async () => {

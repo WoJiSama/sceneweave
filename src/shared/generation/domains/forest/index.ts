@@ -1,7 +1,8 @@
 import type { SceneDocument, PointMm, SurfaceRef, DecorationCluster } from '../../../model/scene.js'
 import type { AppearanceGraph } from '../../../model/appearance.js'
 import { applyCommands, type SceneCommand } from '../../../commands/commands.js'
-import { captureExecutionBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../../../budget/task-budget.js'
+import { captureExecutionBudget, parseTaskBudgetProfile } from '../../../budget/task-budget.js'
+import type { DomainGenerationOptions } from '../../execution.js'
 import { captureJson, cloneJson, freezeJson, canonicalJson } from '../../../validation/json.js'
 import { validateSceneDocument } from '../../../validation/scene.js'
 import { polygonBooleanWithHoles, type PolygonWithHoles } from '../../../geometry/polygon-boolean.js'
@@ -168,7 +169,7 @@ export function checkForestResult(document: SceneDocument, input: ForestGenerati
   }
 }
 
-export function runForestGeneration(base: SceneDocument, raw: unknown, options: { profile: TaskBudgetProfile; nowMilliseconds: () => number; signal?: { readonly aborted: boolean } }): { input: ForestGenerationInput; report: ForestReport; candidate: GenerationCandidate; resultHash: string } {
+export function runForestGeneration(base: SceneDocument, raw: unknown, options: DomainGenerationOptions): { input: ForestGenerationInput; report: ForestReport; candidate: GenerationCandidate; resultHash: string } {
   const input = normalizeForestInput(raw), profile = parseTaskBudgetProfile(options.profile), source = captureJson(base), p = input.parameters, version = input.algorithmVersion
   assertBase(source, input)
   if (getLegacyGeneration(source)?.recipes[forestEntityId(source.sceneId, input.seed, 'recipe')]) throw new ForestGenerationError('unsupported', '同一森林配方已存在；局部重生成须由D6明确选择范围，不能覆盖现存成员。')
@@ -284,7 +285,7 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
     { id: 'vegetation', operator: { id: 'forest-vegetation', version }, required: true, parameters, dependsOn: ['ground', 'routes'], inputs: [stepInput('ground', 'forest-ground', 'plan-region'), stepInput('routes', 'forest-routes', 'port'), stepInput('routes', 'forest-routes', 'access-zone')] },
   ] })
   const request: GenerationRequest = { requestVersion: 1, normalizationVersion: 1, target: { kind: 'new-project' }, coordinateFrame: 'scene-mm', intent: { environment: 'forest', structures: [], purposes: ['clearing', 'route', 'vegetation'], tags: [] }, intentSource: { kind: 'manual', contentHash: hashGenerationValue(input) }, hardConstraints: [{ id: 'forest-bounds', kind: 'bounds', boundsMm: p.boundsMm }], softGoals: [], seed: input.seed, budgetProfile: profile, recipe }
-  const candidate = runGeneration(request, registry, { source, nowMilliseconds: options.nowMilliseconds, signal: options.signal })
+  const candidate = runGeneration(request, registry, { ...options, source })
   const resultHash = hashGenerationValue({ input, report, documentHash: candidate.documentHash, outputHash: candidate.outputHash, stages: candidate.stages })
   return freezeJson({ input, report, candidate, resultHash })
 }

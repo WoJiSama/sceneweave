@@ -3,13 +3,14 @@ import type { SceneDocument } from '../model/scene.js'
 import { assertTaskBudget, parseTaskBudgetProfile, type TaskBudgetProfile } from '../budget/task-budget.js'
 import { captureJson, canonicalJson, encodeUtf8, freezeJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
-import { checkCancelled, type CancellationSignal } from '../ports/resources.js'
+import { checkCancelled } from '../ports/resources.js'
 import { parseGenerationArtifactReceipt, hashGenerationValue } from './contracts.js'
 import { generationDomains as domains, domainGenerationKinds, type DomainGenerationKind, type DomainGenerationResults } from './domains/registry.js'
+import type { GenerationExecutionOptions } from './orchestrator.js'
 export type { DomainGenerationKind, DomainGenerationResults } from './domains/registry.js'
 
 export const DOMAIN_GENERATION_LIMITS = Object.freeze({ requestBytes: 8 * 1024 * 1024, resultBytes: 16 * 1024 * 1024, maxTimeoutMs: 60000 })
-export interface DomainGenerationOptions { profile: TaskBudgetProfile; nowMilliseconds: () => number; signal?: CancellationSignal }
+export interface DomainGenerationOptions extends Omit<GenerationExecutionOptions, 'source'> { profile: TaskBudgetProfile }
 export function runDomainGeneration<K extends DomainGenerationKind>(domain: K, base: SceneDocument, input: unknown, options: DomainGenerationOptions): DomainGenerationResults[K] {
   checkCancelled(options.signal)
   if (!Object.hasOwn(domains, domain)) throw new Error('此生成领域尚未支持。')
@@ -86,7 +87,7 @@ export function parseDomainExecutionResponse<K extends DomainGenerationKind>(raw
   assertTaskBudget(expected.profile, candidate.usage)
   return freezeJson({ ...owned, result: { ...result, candidate: { ...candidate, outputs } } }) as unknown as DomainExecutionResponse<K>
 }
-type DomainRequestExecutionOptions = { nowMilliseconds: () => number; signal?: CancellationSignal }
+type DomainRequestExecutionOptions = Omit<GenerationExecutionOptions, 'source'>
 export function executeDomainExecutionRequest<K extends DomainGenerationKind>(raw: DomainExecutionRequest<K>, options: DomainRequestExecutionOptions): DomainExecutionResponse<K>
 export function executeDomainExecutionRequest(raw: unknown, options: DomainRequestExecutionOptions): DomainExecutionResponse
 export function executeDomainExecutionRequest(raw: unknown, options: DomainRequestExecutionOptions): DomainExecutionResponse {
