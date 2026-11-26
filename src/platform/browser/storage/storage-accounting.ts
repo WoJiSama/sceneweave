@@ -15,6 +15,7 @@ export class StorageAccounting {
   private receipt: Receipt | null = null
   private readonly pending = new WeakMap<Transaction, StorageTotals>()
   private readonly foreign = new WeakSet<Transaction>()
+  private readonly maintenance = new WeakSet<Transaction>()
   constructor(private readonly db: ProjectDatabase, private readonly scan: () => Promise<StorageTotals>,
     private readonly measure: (table: string, value: unknown) => Cost) {
     // Payload hooks see complete runtime projects. Native middleware reports the
@@ -67,7 +68,7 @@ export class StorageAccounting {
   private signalForeign(tx: Transaction, table: string): void {
     // Other repository consumers (for example original-family preservation)
     // use their own transactions. Signal those writes to every other tab too.
-    if (table !== 'storageState' && !this.foreign.has(tx) && tx.storeNames.includes('storageState')) {
+    if (table !== 'storageState' && !this.maintenance.has(tx) && !this.foreign.has(tx) && tx.storeNames.includes('storageState')) {
       this.foreign.add(tx)
       void tx.table('storageState').get('epoch').then(row => {
         const epoch = this.checkedEpoch(row)
@@ -92,6 +93,26 @@ export class StorageAccounting {
   async needsScan(): Promise<boolean> {
     if (!this.receipt || this.receipt.generation !== generation(this.db.name)) return true
     return this.receipt.epoch !== this.checkedEpoch(await this.db.storageState.get('epoch'))
+  }
+  async storageEpoch(): Promise<number> { return this.checkedEpoch(await this.db.storageState.get('epoch')) }
+  recentTotals(): StorageTotals | undefined {
+    return this.receipt?.generation === generation(this.db.name) ? { ...this.receipt.totals } : undefined
+  }
+  /** Explicit removal uses native keys so a corrupt body can be removed. No
+   * budget receipt survives it, and every subsequent save reaudits the store. */
+  async runMaintenance<T>(operation: () => Promise<T>, expectedEpoch?: number): Promise<T> {
+    const tx = Dexie.currentTransaction
+    if (!tx?.active || tx.mode !== 'readwrite') throw new Error('整理须在工程库读写事务中执行。')
+    const epoch = await this.storageEpoch()
+    if (expectedEpoch !== undefined && epoch !== expectedEpoch) throw new Error('工程库已在其他操作中更新，请重新打开确认。')
+    if (epoch === Number.MAX_SAFE_INTEGER) throw new Error('存储事务版本已耗尽。')
+    this.maintenance.add(tx)
+    this.invalidate()
+    try {
+      const result = await operation()
+      await this.db.storageState.put({ key: 'epoch', epoch: epoch + 1 })
+      return result
+    } finally { this.maintenance.delete(tx) }
   }
   async totals(prepared?: StorageAuditPreparation): Promise<StorageTotals> {
     const tx = Dexie.currentTransaction

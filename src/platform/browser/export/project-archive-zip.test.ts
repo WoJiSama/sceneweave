@@ -34,9 +34,9 @@ it('rejects an oversized output during the ZIP stream, before compressing subseq
   const entries = { 'scene.json': Uint8Array.of(123, 125), 'manifest.json': Uint8Array.of(123, 125) }
   const read = entries['manifest.json'].subarray.bind(entries['manifest.json'])
   entries['manifest.json'].subarray = () => { throw new Error('later entry was reached') }
-  expect(() => zipProjectArchive(entries, 30)).toThrow('压缩工程超过100MiB')
+  expect(() => zipProjectArchive(entries, 30)).toThrow('超过 ZIP 字节预算')
   entries['manifest.json'].subarray = read
   const archive = zipProjectArchive(entries)
   expect(zipProjectArchive(entries, archive.size).size).toBe(archive.size)
-  expect(() => zipProjectArchive(entries, archive.size - 1)).toThrow('压缩工程超过100MiB')
+  expect(() => zipProjectArchive(entries, archive.size - 1)).toThrow('超过 ZIP 字节预算')
 })

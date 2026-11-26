@@ -1,4 +1,6 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { PROJECT_ARCHIVE_MAX_MIB, PACKAGE_LIMITS } from './shared/project/limits'
+import { ISSUE_LINK, WorkspaceCrashBoundary, WorkspaceCrashRecovery } from './editor/main-shell/WorkspaceCrashBoundary'
 import SceneweaveLoading from './editor/main-shell/SceneweaveLoading'
 import { lazyView } from './editor/main-shell/lazy-view'
 import { isHomeSectionHash } from './editor/main-shell/location'
@@ -35,10 +37,12 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 export default function App() {
   const [route, setRoute] = useState(currentPage), [mounted, setMounted] = useState(() => currentPage() === 'workspace')
   const [session, setSession] = useState<WorkspaceSessionSummary | null>(null), [notice, setNotice] = useState<string | null>(null)
+  const [unexpectedError, setUnexpectedError] = useState(false)
   const [busy, setBusy] = useState(false)
   const [startupScene, setStartupScene] = useState(false)
   const [startInBuilding, setStartInBuilding] = useState(false)
   const [preparedWorkbench, setPreparedWorkbench] = useState<typeof import('./editor/main/Workbench')['default'] | null>(null)
+  const [workbenchAttempt, setWorkbenchAttempt] = useState(0), [workbenchCrashed, setWorkbenchCrashed] = useState(false)
   const startupHash = useRef<string | null>(null)
   const [busyLabel, setBusyLabel] = useState('正在检查完整内容…')
   const controller = useRef<WorkspaceController | null>(null), queued = useRef<WorkspaceRequest | null>(null)
@@ -50,6 +54,10 @@ export default function App() {
     const hash = pageHash(value)
     if (window.location.hash !== hash) window.history[replace ? 'replaceState' : 'pushState'](null, '', hash)
   }, [])
+  const restartWorkbench = useCallback(() => {
+    setWorkbenchCrashed(false)
+    setWorkbenchAttempt(value => value + 1)
+  }, [])
   const request = useCallback((value: WorkspaceRequest) => {
     if (startupHash.current !== null) return
     if (value.type === 'import') { projectFile.current?.click(); return }
@@ -59,10 +67,11 @@ export default function App() {
       return
     }
     if (value.type === 'open' || value.type === 'open-project' || value.type === 'showcase' || value.type === 'sample' || value.type === 'reload') prepareEditorFrame()
+    if (workbenchCrashed) restartWorkbench()
     setPage('workspace')
     if (controller.current) controller.current.request(value)
     else queued.current = value
-  }, [mounted, setPage])
+  }, [mounted, restartWorkbench, setPage, workbenchCrashed])
   const register = useCallback((value: WorkspaceController | null) => {
     controller.current = value
     if (value && queued.current) queueMicrotask(() => {
@@ -106,6 +115,13 @@ export default function App() {
   useEffect(() => {
     return () => operation.current?.abort()
   }, [])
+  useEffect(() => {
+    const showUnexpected = () => setUnexpectedError(true)
+    const reportError = (event: ErrorEvent) => { if (event instanceof ErrorEvent) showUnexpected() }
+    window.addEventListener('error', reportError)
+    window.addEventListener('unhandledrejection', showUnexpected)
+    return () => { window.removeEventListener('error', reportError); window.removeEventListener('unhandledrejection', showUnexpected) }
+  }, [])
   const run = async (task: (signal: AbortSignal) => Promise<void>, label = '正在检查完整内容…') => {
     if (operation.current) return
     const abort = new AbortController()
@@ -114,10 +130,14 @@ export default function App() {
     catch (error) { if (!abort.signal.aborted) setNotice(message(error)) }
     finally { if (operation.current === abort) { operation.current = null; setBusy(false) } }
   }
-  const preserveCurrent = async () => !controller.current || await controller.current.leave()
+  const preserveCurrent = async () => {
+    if (controller.current) return controller.current.leave()
+    if (workbenchCrashed) await (await loadWorkspaceSession()).nativeWorkspace.flush()
+    return true
+  }
   const handleFile = (file: File) => void run(async signal => {
     if (!await preserveCurrent()) return
-    if (!file.size || file.size > 100 * 1024 * 1024) throw new Error('工程文件为空或超过100MiB。')
+    if (!file.size || file.size > PACKAGE_LIMITS.compressedBytes) throw new Error(`工程文件为空或超过 ${PROJECT_ARCHIVE_MAX_MIB} MiB。`)
     const { installProjectFile } = await import('./editor/main-shell/project-file')
     const project = await installProjectFile(file, signal)
     signal.throwIfAborted()
@@ -145,12 +165,25 @@ export default function App() {
   return <>
     <div className="native-app-content" inert={busy}>
       {notice && <div className="workspace-notice" role="status"><span>{notice}</span><button className="secondary small" onClick={() => setNotice(null)}>关闭提示</button></div>}
+      {unexpectedError && !workbenchCrashed && <div className="workspace-notice" role="status"><span>页面操作发生异常。可下载工程备份并重试。</span><a href={ISSUE_LINK} target="_blank" rel="noreferrer">反馈问题</a><button className="secondary small" onClick={() => setUnexpectedError(false)}>关闭异常提示</button></div>}
       {route === 'home' && <Suspense fallback={<SceneweaveLoading fullScreen label="正在打开首页…"/>}>
         <WorkspaceHome session={session} onContinue={() => setPage('workspace')} onRequest={request} disabled={busy}
+          onReleaseActive={workbenchCrashed ? undefined : async () => {
+            const { nativeWorkspace } = await loadWorkspaceSession()
+            await nativeWorkspace.close()
+            setSession(null)
+          }}
           startupScene={startupScene ? { prepareEditor: prepareStartupEditor, onCreate: createStartupScene, onCancel: cancelStartup } : undefined}/>
       </Suspense>}
       {route === 'tutorial' && <Suspense fallback={<SceneweaveLoading fullScreen label="正在打开使用教程…"/>}><TutorialPage onOpenSample={sample => request({ type: 'showcase', sample })}/></Suspense>}
-      {mounted && <div hidden={route !== 'workspace'}><Suspense fallback={<SceneweaveLoading fullScreen label="正在打开统一工作区…"/>}><WorkbenchView active={route === 'workspace'} startInBuilding={startInBuilding} onBack={() => void home()} onController={register} onSession={setSession} onImportFile={handleFile}/></Suspense></div>}
+      {mounted && <div hidden={route !== 'workspace'}>
+        <WorkspaceCrashBoundary key={workbenchAttempt} onCrash={() => { controller.current = null; setWorkbenchCrashed(true) }}
+          fallback={<WorkspaceCrashRecovery onHome={() => setPage('home', true)} onRetry={restartWorkbench}/>}>
+          <Suspense fallback={<SceneweaveLoading fullScreen label="正在打开统一工作区…"/>}>
+            <WorkbenchView active={route === 'workspace'} startInBuilding={startInBuilding} onBack={() => void home()} onController={register} onSession={setSession} onImportFile={handleFile}/>
+          </Suspense>
+        </WorkspaceCrashBoundary>
+      </div>}
     </div>
     <input ref={projectFile} data-testid="native-project-file" type="file" hidden accept=".sceneweave" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) handleFile(file) }}/>
     {busy && <div className="modal-scrim"><div className="modal" role="dialog" aria-modal="true" aria-label="检查完整工程"><p role="status">{busyLabel}</p><button className="secondary" onClick={cancel}>取消操作</button></div></div>}

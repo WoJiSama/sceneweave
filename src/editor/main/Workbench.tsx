@@ -114,6 +114,8 @@ import WorkspaceFileActions from './WorkspaceFileActions'
 import ResourceDownloadButton from '../main-shell/ResourceDownloadButton'
 import WorkspaceBackupFeedback, { type WorkspaceBackupAttempt } from './WorkspaceBackupFeedback'
 import WorkspaceSaveRecovery from './WorkspaceSaveRecovery'
+import { nearProjectStorageLimit, rememberLocalProjects } from '../../platform/browser/storage/local-retention'
+import { downloadFile as download } from '../main-shell/recovery-file'
 import { createWorkspaceFileController } from './workspace-file-controller'
 import OpeningPlacementPanel, { type OpeningTool } from './OpeningPlacementPanel'
 import { openingAtPoint } from './opening-placement'
@@ -256,10 +258,6 @@ const createGraveyardProject = (signal: AbortSignal, progress?: LoadProgress) =>
 const createVolcanoProject = (signal: AbortSignal, progress?: LoadProgress) => createSampleProject('volcano', signal, progress)
 const createCalibrationProject = (signal: AbortSignal, progress?: LoadProgress) => createSampleProject('calibration', signal, progress)
 const bytesLabel = (bytes: number) => `${(bytes / 1024).toFixed(1)} KiB`
-const download = (blob: Blob, name: string) => {
-  const url = URL.createObjectURL(blob), anchor = document.createElement('a')
-  anchor.href = url; anchor.download = name; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 30_000)
-}
 const fileController = createWorkspaceFileController({
   workspace: compositionWorkspace,
   exportArchive: (sceneId, snapshotIds, signal) => repository.exportArchive(sceneId, snapshotIds, signal),
@@ -541,6 +539,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     } finally { if (imageLibraryJob.current === job) imageLibraryJob.current = null }
   }
   useEffect(() => {
+    if (completeProject && state.status === 'saved') rememberLocalProjects()
     const document = completeProject?.document
     if (!document || state.status !== 'saved' || document.presetSnapshot.presetId !== 'image-import-manual' || imageLibraryAttempts.current.has(document.sceneId)) return
     imageLibraryAttempts.current.add(document.sceneId)
@@ -3351,6 +3350,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
         <div className="workspace-header-layout" ref={setLayoutControlsTarget}/></div></header>
       <WorkspaceBackupFeedback project={completeProject} attempt={backupAttempt}/>
       <WorkspaceSaveRecovery status={state.status} error={state.error} busy={busy} copyBlockedReason={transitionReason} backupBlockedReason={exportBlockedReason}
+        sceneId={completeProject?.document.sceneId} storageLow={nearProjectStorageLimit(projectRepository.recentStorageTotals())}
         onRetry={() => void action(() => compositionWorkspace.retry(), '重试保存失败', '正在重试保存…')}
         onCopy={() => { if (guard()) void action(() => compositionWorkspace.saveAsCopy(), '另存副本失败', '正在另存副本…') }}
         onBackup={() => backup()}/>

@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto'
 
 export const MAX_REQUEST_BYTES = 64 * 1024
 export const MAX_MAP_REQUEST_BYTES = 256 * 1024
-export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
+// Same outer file limit as the browser's complete v1 reader.
+export const MAX_ARCHIVE_BYTES = 304 * 1024 * 1024
 export const digest = bytes => createHash('sha256').update(bytes).digest('hex')
 export const assert = (condition, message) => { if (!condition) throw new Error(message) }
 

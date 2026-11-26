@@ -10,6 +10,10 @@ import ResourceDownloadButton from './ResourceDownloadButton'
 import { HomeArtStyleDemo, HomeObliqueDemo } from './HomeDemos'
 import StartupSceneDialog, { type StartupSceneDialogProps } from './StartupSceneDialog'
 import { currentDatabaseNames } from '../../platform/browser/storage/current-databases'
+import { browserStorageStatus, hadLocalProjects, rememberLocalProjects } from '../../platform/browser/storage/local-retention'
+import { ProjectStorageDialog } from './ProjectStorageDialog'
+import { ISSUE_LINK } from './WorkspaceCrashBoundary'
+import { PROJECT_WRITER_BUILD } from '../../shared/project/format'
 import { homeSections, isHomeSectionHash } from './location'
 import '../workspace/home.css'
 import './home-ux.css'
@@ -29,10 +33,11 @@ async function readProjectDirectory(query: ProjectDirectoryQuery): Promise<Proje
   return projectRepository.projectDirectory(query)
 }
 
-export default function WorkspaceHome({ session, onContinue, onRequest, disabled = false, startupScene }: {
+export default function WorkspaceHome({ session, onContinue, onRequest, disabled = false, startupScene, onReleaseActive }: {
   session: WorkspaceSessionSummary | null; onContinue: () => void; onRequest: (request: WorkspaceRequest) => void
   disabled?: boolean
   startupScene?: StartupSceneDialogProps
+  onReleaseActive?(): Promise<void>
 }) {
   const [entries, setEntries] = useState<ProjectDirectoryEntry[]>([]), [query, setQuery] = useState(''), [refresh, setRefresh] = useState(0)
   const [next, setNext] = useState<ProjectDirectoryCursor | null>(null), [total, setTotal] = useState(0)
@@ -40,6 +45,15 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
   const searchInput = useRef<HTMLInputElement>(null)
   const clearSearch = () => { setQuery(''); searchInput.current?.focus() }
   const [loading, setLoading] = useState(true), [error, setError] = useState<string | null>(null)
+  const [storage, setStorage] = useState(false), [storageMissing, setStorageMissing] = useState(false), [browserStorageLow, setBrowserStorageLow] = useState(false)
+  const afterMaintenance = useRef(false)
+  useEffect(() => {
+    let active = true
+    void browserStorageStatus().then(value => {
+      if (active) setBrowserStorageLow(!!value.quota && (value.used ?? 0) >= value.quota * .85)
+    })
+    return () => { active = false }
+  }, [refresh])
   useEffect(() => {
     const showSection = () => {
       const hash = window.location.hash
@@ -54,7 +68,15 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
   }, [])
   useEffect(() => { const ticket = ++directoryRequest.current; setLoading(true); setNext(null)
     void readProjectDirectory({ query, limit: 50 }).then(value => {
-      if (ticket === directoryRequest.current) { setEntries(value.entries); setNext(value.next); setTotal(value.total); setError(null) }
+      if (ticket === directoryRequest.current) {
+        setEntries(value.entries); setNext(value.next); setTotal(value.total); setError(null)
+        if (!query.trim()) {
+          if (value.total) rememberLocalProjects()
+          else if (afterMaintenance.current) rememberLocalProjects(false)
+          setStorageMissing(!value.total && hadLocalProjects())
+          afterMaintenance.current = false
+        }
+      }
     }, failure => { if (ticket === directoryRequest.current) setError(String(failure instanceof Error ? failure.message : failure)) }).finally(() => { if (ticket === directoryRequest.current) setLoading(false) })
     // A new filter/session or unmount also invalidates a later pagination read.
     return () => { directoryRequest.current++ }
@@ -134,16 +156,26 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
         {loading && <p role="status">正在读取本地工程列表…{entries.length > 0 && '下方暂时显示上次结果。'}</p>}{error && <p role="alert" className="home-diagnostic">工程列表读取失败：{error}。请点击刷新重试。{entries.length > 0 && '下方保留上次结果。'}</p>}
         {!loading && !error && <p className="home-project-note" role="status">{search ? `匹配或待检查 ${total} 个工程，已显示 ${entries.length} 个` : `共 ${total} 个工程，已显示 ${entries.length} 个，按最近保存排序`}</p>}
         {!loading && !error && !filtered.length && <div className="home-empty"><FolderOpen size={25}/><p>{search ? '没有匹配的工程' : '此浏览器还没有工程'}</p>{search && <button className="secondary" onClick={clearSearch}>清空工程搜索</button>}</div>}
+        {!loading && !search && !error && storageMissing && <p className="home-diagnostic" role="alert">此地址曾有工程。若浏览器回收了本地数据，可用「打开工程文件」恢复备份。</p>}
+        {browserStorageLow && <p className="home-diagnostic" role="status">浏览器站点存储接近上限。请先下载备份，再整理本地存储。</p>}
         <div className="home-project-list">{filtered.map(value => { const entry = value.summary; return entry ? <article className="home-project-row" key={entry.sceneId} data-project-key={`native:${entry.sceneId}`}><span className="home-file-icon"><Layers3 size={21}/></span><div className="home-project-info"><h3>{entry.title}</h3><p>完整工程 · r{entry.revision} · {new Date(entry.savedAt).toLocaleString('zh-CN')}</p><span className="home-project-identity">{session?.sceneId === entry.sceneId ? '当前会话 · ' : ''}{(titleCounts.get(entry.title) ?? 0) > 1 ? '同名工程 · ' : ''}标识 {entry.sceneId.slice(0, 8)}</span><details className="home-project-id"><summary>完整工程 ID</summary><small>{entry.sceneId}</small></details></div><button className="secondary" title={`${session?.sceneId === entry.sceneId ? '继续编辑' : '打开'}：${entry.title} · ${entry.sceneId.slice(0, 8)}`} disabled={disabled} onClick={() => session?.sceneId === entry.sceneId ? onContinue() : onRequest({ type: 'open', sceneId: entry.sceneId })}>{session?.sceneId === entry.sceneId ? '继续编辑' : '打开'}<ArrowRight size={15}/></button></article> : <article className="home-project-row" key={value.sceneId} data-project-key={`native:${value.sceneId}`}><div className="home-project-info"><h3>工程目录不可读</h3><p role="alert">{value.issue}</p><small>工程 ID：{value.sceneId}</small><p>此记录仍保留，请从备份恢复或检查原数据。</p></div>{session?.sceneId === value.sceneId && <button className="secondary" disabled={disabled} onClick={onContinue}>继续当前编辑</button>}</article> })}</div>
         {next && <button className="secondary" disabled={loading || disabled} onClick={loadMore}>加载更多工程</button>}
       </section>
       <footer className="home-footer">
         <h2>本地保存与备份</h2>
         <p>已采用的编辑会自动保存到当前站点的浏览器。清除站点数据或更换设备、浏览器或站点地址前，请下载 .sceneweave 备份。通过首页「打开工程文件」恢复。</p>
-        <p>工程备份包含实际素材。工程备份与主持人地图可能包含秘密，请由主持人保管。</p>
+        <p>工程备份包含实际素材，素材库和模板库须在各自面板另行备份。工程备份与主持人地图可能包含秘密，请由主持人保管。</p>
+        <div className="project-storage-actions">
+          <button type="button" className="secondary" disabled={disabled} onClick={() => setStorage(true)}>管理本地存储</button>
+          <a href={ISSUE_LINK} target="_blank" rel="noreferrer">反馈问题</a>
+          <a href="https://github.com/WoJiSama/sceneweave/releases" target="_blank" rel="noreferrer">版本发布</a>
+          <small title={PROJECT_WRITER_BUILD}>构建 {PROJECT_WRITER_BUILD.replace(/\+g([a-f0-9]{7})[a-f0-9]+/, '+g$1')}</small>
+        </div>
       </footer>
     </main>
   </div>
     {startupScene && <StartupSceneDialog {...startupScene}/>}
+    {storage && <ProjectStorageDialog activeSceneId={session?.sceneId} onReleaseActive={onReleaseActive} onClose={() => setStorage(false)}
+      onChange={() => { afterMaintenance.current = true; clearSearch(); setRefresh(value => value + 1) }}/>}
   </>
 }

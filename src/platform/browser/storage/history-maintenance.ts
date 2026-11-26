@@ -54,7 +54,8 @@ function scanRows<T>(table: Pick<Table<T>, 'each'>, inspect: (row: T) => void): 
  * Every retained document and every candidate byte row is checked before the
  * first deletion; image decoding deliberately stays outside IDB transactions.
  */
-export async function collectUnusedResources(database: ProjectDatabase, checks: HistoryMaintenanceChecks, options: ResourceOptions = {}): Promise<UnusedResourceCollection> {
+export async function collectUnusedResources(database: ProjectDatabase, checks: HistoryMaintenanceChecks,
+  options: ResourceOptions & { recoverOrphans?: boolean } = {}): Promise<UnusedResourceCollection> {
   const transaction = Dexie.currentTransaction
   if (!transaction?.active || transaction.db !== database || transaction.mode !== 'readwrite'
     || PROJECT_TABLES.some(table => !transaction.storeNames.includes(table))) throw new Error('历史维护须在完整工程库读写事务中执行。')
@@ -104,15 +105,19 @@ export async function collectUnusedResources(database: ProjectDatabase, checks: 
   const result: UnusedResourceCollection = { resourceCount: 0, resourceBytes: 0, licenseCount: 0, licenseBytes: 0 }
   await scanRows(database.resources, row => {
     checkCancelled(options.signal)
-    const bytes = resourceBytes(row), expected = resources.get(row.sha256)
+    const expected = resources.get(row.sha256)
+    const size = expected === undefined && options.recoverOrphans
+      ? row.bytes instanceof Uint8Array ? row.bytes.byteLength : 0 : resourceBytes(row).length
     if (expected !== undefined) {
-      if (expected !== bytes.length) throw new Error('历史维护引用资源实际长度不符。')
+      if (expected !== size) throw new Error('历史维护引用资源实际长度不符。')
       resources.delete(row.sha256)
-    } else { unusedResources.push(row.sha256); result.resourceCount++; result.resourceBytes += bytes.length }
+    } else { unusedResources.push(row.sha256); result.resourceCount++; result.resourceBytes += size }
   })
   await scanRows(database.licenseTexts, row => {
     checkCancelled(options.signal)
-    const size = licenseBytes(row), expected = licenses.get(row.sha256)
+    const expected = licenses.get(row.sha256)
+    const size = expected === undefined && options.recoverOrphans
+      ? typeof row.text === 'string' ? encodeUtf8(row.text).length : 0 : licenseBytes(row)
     if (expected !== undefined) {
       if (expected !== row.text) throw new Error('历史维护引用许可实际正文不符。')
       licenses.delete(row.sha256)

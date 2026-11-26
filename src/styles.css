@@ -8,3 +8,14 @@
 @media(max-width:1300px){.app-rail{width:62px}.rail-item.active:before{left:-4px}.layers-panel{width:205px}.inspector{width:250px}.topbar{padding:0 18px}.topbar-right{gap:6px}.brand-title>b{font-size:16px}.brand-title>span:first-child{font-size:21px}.save-indicator{font-size:9px}.canvas-toolbar{padding:0 9px}.toolbar-divider{margin:0 4px}.audience-switch button{padding:6px}.inspector-scroll{padding-left:16px;padding-right:16px}.brand-title .prototype-tag{display:none}}
 @media(max-width:1080px){.app-shell{min-width:640px}.app-rail{width:54px}.rail-item{width:44px}.rail-logo{margin-bottom:20px}.layers-panel{display:none}.inspector{width:240px}.topbar{height:60px;padding:0 15px}.topbar-right{gap:7px}.brand-title>b,.brand-title .prototype-tag,.save-indicator,.topbar-divider{display:none}.topbar-right>.text-button{font-size:0;padding:8px;gap:0}.topbar-right>.text-button svg{height:17px;width:17px}.export-main{min-width:109px}.document-bar{height:50px;padding:0 16px}.document-format{display:none}.document-actions{gap:6px}.canvas-toolbar{padding:0 8px}.canvas-toolbar .icon-button{width:28px}.toolbar-divider{margin:0 2px}.audience-switch button{font-size:9px;padding:5px}.audience-switch button svg{width:12px}.statusbar{padding:0 11px;font-size:8px}.statusbar>div{gap:6px}.statusbar>div:first-child>span:nth-last-child(-n+2),.statusbar>div:first-child>b:last-of-type{display:none}.canvas-caption{left:16px;top:17px;font-size:9px}.player-preview-pill{top:46px;right:15px;font-size:9px}.canvas-bottom-left{left:17px}.canvas-bottom-left>span{max-width:180px}.zoom-control{bottom:48px;right:15px}.zoom-control>span{min-width:35px}.canvas-coordinates{right:17px;font-size:8px}.breadcrumb{font-size:10px}.document-actions>.text-button{font-size:10px}.inspector-scroll{padding-left:15px;padding-right:15px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.workspace-crash-recovery {
+  max-width: 46rem;
+  margin: 4rem auto;
+  padding: 1.5rem;
+}
+.workspace-crash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem;
+}

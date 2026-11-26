@@ -209,7 +209,7 @@ async function pack(input: HistoryArchive, mode: ProjectManifest['packageMode'],
   checkCancelled(options.signal)
   // Fixed time makes equal inputs reproducible; no platform paths or metadata are added.
   const zipped = zipSync(files, { level: 6, mtime: new Date(2000, 0, 1, 0, 0, 0) })
-  if (zipped.length > PACKAGE_LIMITS.compressedBytes) return failPackage('压缩工程超过100MiB。')
+  if (zipped.length > PACKAGE_LIMITS.compressedBytes) return failPackage('工程文件超过 ZIP 字节预算。')
   checkCancelled(options.signal)
   return zipped
 }
@@ -223,6 +223,7 @@ async function unpack(input: Uint8Array, expectedMode: ProjectManifest['packageM
   let zip: BoundedZip, header: unknown
   try {
     zip = inspectBoundedZip(input, {
+      compressedBytes: PACKAGE_LIMITS.compressedBytes,
       minEntries: 1, allowEmptyDirectories: true, requiredPaths: ['manifest.json'],
       pathBudget: projectEnvelopePathBudget,
       documentPath: projectDocumentPath,

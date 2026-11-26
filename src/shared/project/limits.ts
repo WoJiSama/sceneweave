@@ -1,6 +1,7 @@
-/** File protections, not a measured capacity claim. See docs/06. */
+/** ZIP headers and DEFLATE expansion have headroom above the payload budget. */
+export const PROJECT_ARCHIVE_MAX_MIB = 304
 export const PACKAGE_LIMITS = Object.freeze({
-  compressedBytes: 100 * 1024 * 1024, expandedBytes: 300 * 1024 * 1024,
+  compressedBytes: PROJECT_ARCHIVE_MAX_MIB * 1024 * 1024, expandedBytes: 300 * 1024 * 1024,
   manifestBytes: 1024 * 1024, sceneBytes: 20 * 1024 * 1024, sourcesBytes: 1024 * 1024,
   extensionsBytes: 256 * 1024, extensionDataBytes: 64 * 1024, extensionNamespaces: 32,
   licenseBytes: 256 * 1024, sourceBytes: 1024 * 1024, totalSourceBytes: 32 * 1024 * 1024,

@@ -10,7 +10,7 @@ export function zipProjectArchive(files: Record<string, Uint8Array>, limit: numb
   const zip = new Zip((error, chunk) => {
     if (error) throw error
     size += chunk.length
-    if (size > limit) failPackage('压缩工程超过100MiB。')
+    if (size > limit) failPackage('工程文件超过 ZIP 字节预算。')
     chunks.push(chunk)
   })
   const mtime = new Date(2000, 0, 1, 0, 0, 0)

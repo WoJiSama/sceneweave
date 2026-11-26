@@ -1,0 +1,18 @@
+.project-storage-dialog {
+  width: min(36rem, calc(100% - 2rem));
+  max-height: calc(100% - 3rem);
+  padding: 1.5rem;
+  color: var(--ink);
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: auto;
+}
+.project-storage-dialog::backdrop { background: #253e3466; }
+.project-storage-dialog > * + * { margin-top: 1rem; }
+.project-storage-dialog p { line-height: 1.6; overflow-wrap: anywhere; margin-bottom: .5rem; }
+.project-storage-dialog label { display: grid; gap: .35rem; }
+.project-storage-dialog select { max-width: 100%; min-height: 36px; }
+.project-storage-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem; }
+.vtt-import-form { display: grid; gap: .7rem; }
+.vtt-import-form .vtt-import-consent { display: flex; align-items: center; }

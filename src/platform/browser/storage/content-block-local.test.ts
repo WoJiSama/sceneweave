@@ -173,7 +173,7 @@ describe('local complete-content block preparation', () => {
   it('rejects world-space angle aliases before local encoding can normalize them', () => {
     const before = source(40, true), after = moved(before), forged = cloneJson(after)
     forged.document.props.item.rotationDeg = 450
-    expect(canonicalProjectCoordinates(forged)).toBe(canonicalProjectCoordinates(after))
+    expect(() => canonicalProjectCoordinates(forged)).toThrow('聚合坐标朝向须位于 [0, 360) 度。')
     expect(prepareLocalProjectContent(after, forged)).toBeUndefined()
     expect(prepareLocalProjectContent(after, encodeProjectCoordinates(after))).toBeDefined()
   })

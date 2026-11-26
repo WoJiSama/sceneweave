@@ -23,6 +23,7 @@ import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT
   type StoredBinding, type StoredBytes, type StoredHistoryMetadata, type StoredProject, type StoredSnapshot } from './database.js'
 
 import { StorageAccounting, type StorageTotals } from './storage-accounting.js'
+import { collectUnusedContentBlocks, discardAutomaticHistory, removeOwnedProject } from './project-maintenance.js'
 import { prepareStorageAudit, StorageAuditConflictError, type StorageAuditPreparation } from './storage-audit.js'
 import { auditCapturedHistoryInWorker } from './history-audit-client.js'
 import type { CapturedHistoryVersion } from './history-audit-message.js'
@@ -188,6 +189,7 @@ interface ResourceAssembly {
 }
 /** One native repository, independent of every legacy writer. Reads and public saves verify real bytes. */
 export class ProjectRepository implements ProjectStore, ProjectDirectoryStore {
+  private readonly maintenanceReviews = new WeakMap<object, { owner: string; epoch: number }>()
   readonly database: ProjectDatabase
   private opening: Promise<void> | null = null
   private invalidated = false
@@ -476,6 +478,66 @@ export class ProjectRepository implements ProjectStore, ProjectDirectoryStore {
     return this.database.transaction('r', [this.database.projects, this.database.historyMetadata, this.database.historyHeads,
       this.database.historyVersions, this.database.historyPins, this.database.snapshots, this.database.importedSnapshots],
       () => readHistoryDirectory(this.database, ownerSceneId))
+  }
+  /** A confirmation covers the selected project's currently visible revision.
+   * Raw reads allow recovery even when the selected content is unreadable. */
+  async reviewProjectMaintenance(owner: string, revision?: number): Promise<object> {
+    id(owner); await this.open()
+    const epoch = await this.database.transaction('r', this.database.projects, this.database.storageState, async () => {
+      const current = await this.database.rawJsonRecord('projects', owner) as StoredProject | undefined
+      if (!current || revision !== undefined && revision !== current.revision) throw new ProjectConflictError(current?.revision ?? null)
+      return this.accounting.storageEpoch()
+    })
+    const review = Object.freeze({})
+    this.maintenanceReviews.set(review, { owner, epoch })
+    return review
+  }
+  recentStorageTotals(): StorageTotals | undefined { return this.accounting.recentTotals() }
+  private async confirmedMaintenance<T>(review: object, options: ResourceOptions, run: (owner: string) => Promise<T>): Promise<T> {
+    const checked = this.maintenanceReviews.get(review)
+    if (!checked) throw new Error('请先选择并重新确认要整理的工程。')
+    this.maintenanceReviews.delete(review)
+    checkCancelled(options.signal)
+    return this.database.transaction('rw', PROJECT_TABLES, async () => this.accounting.runMaintenance(async () => {
+      checkCancelled(options.signal)
+      const result = await run(checked.owner)
+      checkCancelled(options.signal)
+      return result
+    }, checked.epoch))
+  }
+  removeProject(review: object, options: ResourceOptions = {}): Promise<void> {
+    return this.confirmedMaintenance(review, options, owner => removeOwnedProject(owner, options.signal))
+  }
+  private async reclaimUnreferenced(options: ResourceOptions, recoverOrphans: boolean) {
+    const result = await collectUnusedResources(this.database, { assertCurrent, assertAutomatic, assertSnapshot }, { ...options, recoverOrphans })
+    const blockCount = await collectUnusedContentBlocks(this.database, options.signal)
+    return { ...result, blockCount }
+  }
+  /** Maintenance verifies every surviving owner before touching shared bytes.
+   * A corrupt orphan can be removed by its key after that closure is proved. */
+  async reclaimProjectStorage(options: ResourceOptions = {}): Promise<UnusedResourceCollection & { blockCount: number }> {
+    checkCancelled(options.signal); await this.open()
+    return this.database.transaction('rw', PROJECT_TABLES, async () => this.accounting.runMaintenance(async () => {
+      const result = await this.reclaimUnreferenced(options, true)
+      await this.scanTotals()
+      checkCancelled(options.signal)
+      return result
+    }))
+  }
+  trimProjectHistory(review: object, options: ResourceOptions = {}): Promise<number> {
+    return this.confirmedMaintenance(review, options, async owner => {
+      const before = await this.scanTotals()
+      const count = await discardAutomaticHistory(this.database, owner, options.signal)
+      if (!count) return count
+      const metadata = await this.database.historyMetadata.get(owner)
+      assertMetadata(metadata, owner)
+      if (metadata.metadataVersion === Number.MAX_SAFE_INTEGER) throw new HistoryMetadataConflictError()
+      await this.database.historyMetadata.put({ ...metadata, metadataVersion: metadata.metadataVersion + 1 })
+      await this.reclaimUnreferenced(options, false)
+      const after = await this.scanTotals()
+      if (after.documentBytes >= before.documentBytes) throw new Error('整理后没有减少文档占用，原历史已保留。')
+      return count
+    })
   }
   async load(sceneId: string, options: ResourceOptions = {}): Promise<ProjectBundle | null> {
     id(sceneId); checkCancelled(options.signal); await this.open()
