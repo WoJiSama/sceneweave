@@ -65,13 +65,6 @@ try {
     result.errors.push(`Unexpected external request ${route.request().url()}`); return route.abort()
   })
   await page.goto(`${origin}${base}#home`)
-  await step('empty legacy source is only inspected', async () => {
-    await page.getByText('一次性迁入旧开发数据', { exact: true }).click()
-    await page.getByRole('button', { name: '检查迁入范围' }).click()
-    await expect(page.getByText(/没有可迁入的旧开发数据/)).toBeVisible()
-    await expect(page.getByRole('button', { name: '迁入并切换到 v1' })).toBeDisabled()
-    return {}
-  })
   await step('create full current project through homepage', async () => {
     await page.getByRole('button', { name: '新建场景', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '新建空白场景' })

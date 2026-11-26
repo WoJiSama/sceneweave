@@ -1,7 +1,7 @@
 import { LibraryRepository } from '../../platform/browser/library'
 import { CATALOG_CURATION, catalogCurationFor as curated } from '../../platform/browser/content'
 import { loadBuiltinCatalog } from '../../platform/browser/content'
-import { validation, runtime } from '../../platform/browser/runtime'
+import { validation } from '../../platform/browser/runtime'
 import { toBundle, fromBundle, fromVerifiedBundle, type EditableProject } from '../../application/workspace/project'
 import { listSnapshotCatalogItems, prepareLibraryEntries, prepareLibraryEntry, loadLibraryCapsule, adoptLibraryEntries } from '../../shared/library/content'
 import { exportLibraryBackup, importLibraryBackup } from '../../shared/library/backup'
@@ -33,7 +33,7 @@ export const catalogCurationFor = curated
 export const catalogReadonlyTags = (item: Parameters<typeof readonlyTags>[0]) => readonlyTags(item, CATALOG_CURATION)
 export const filterCatalogItems = (items: Parameters<typeof filterItems>[0], organizations: Parameters<typeof filterItems>[1], filter: Parameters<typeof filterItems>[2]) => filterItems(items, organizations, filter, CATALOG_CURATION)
 export class CatalogRepositoryV1 {
-  private readonly native = new LibraryRepository({ validation, runtime })
+  private readonly native = new LibraryRepository({ validation })
   read() { return this.native.read() }
   load(key: string, signal?: AbortSignal) { return this.native.load(key, { signal }) }
   commit(expected: number, mutation: Parameters<LibraryRepository['commit']>[1], signal?: AbortSignal) { return this.native.commit(expected, mutation, { signal }) }

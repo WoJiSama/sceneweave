@@ -1,9 +1,7 @@
-import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
 import { unzlibSync, zlibSync } from 'fflate'
-import { layerSceneV3 } from '../../core/v3/test-fixtures'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../../shared/appearance/graph.js'
 import { inspectDependencies } from '../../shared/geometry/dependencies.js'
-import type { SceneDocument } from '../../shared/model/scene.js'
 import type { ProjectBundle } from '../../shared/model/project.js'
 import type { CompleteValidationOptions } from '../../shared/ports/resources.js'
 import { crc32, sha256Bytes } from '../../shared/project/binary.js'
@@ -40,7 +38,7 @@ export const validation: CompleteValidationOptions = { images: {
 } }
 
 export function fixture(options: { image?: boolean; building?: boolean } = {}): ProjectBundle {
-  const document = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
+  const document = layerScene()
   document.sceneId = runtime.ids.nextId(); document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   document.props.other = { ...cloneJson(document.props.item), id: 'other', positionMm: { x: 9000, y: 9000 } }
   const layer = document.entityLayers.item

@@ -370,7 +370,7 @@ export async function loadSceneTemplate(input: Uint8Array, validation: CompleteV
   if (Object.values(doc.rooms).some(room => room.furnishingPlan)) throw new Error('模板不能携带源房间的布置或删除记忆。')
   if (Object.keys(doc.floors).length !== 1 || Object.keys(doc.userLayers).length !== 1 || doc.presetSnapshot.presetId !== 'scene-template-v1' || doc.revision !== 0 || doc.createdAt !== stamp || doc.updatedAt !== stamp || project.appearance.layerAdjustments && Object.keys(project.appearance.layerAdjustments).length) throw new Error('文件不是中性完整场景模板。')
   for (const key of ['terrainEdges', 'terrainConnections', 'scatterGroups', 'decorations', 'decorationClusters', 'surfaceRules', 'pathAttachments'] as const) if (Object.keys(doc[key] ?? {}).length) throw new Error('场景模板包含未支持依赖。')
-  if (doc.aggregateCoordinates || doc.regional || doc.mapMode !== 'scene' || doc.generationMetadata || doc.activeStyleThemeRef || doc.constraints.pathChecks.length || doc.constraints.entranceOpeningIds.length) throw new Error('场景模板含范围外工程状态。')
+  if (project.extensions || doc.aggregateCoordinates || doc.regional || doc.mapMode !== 'scene' || doc.generationMetadata || doc.activeStyleThemeRef || doc.constraints.pathChecks.length || doc.constraints.entranceOpeningIds.length) throw new Error('场景模板含范围外工程状态。')
   const scope = inspectTemplateScope(doc, { name: doc.title, roomIds: Object.keys(doc.rooms), ...(bridgeId ? { bridgeId } : {}), noteIds: Object.keys(doc.notes), maskIds: Object.keys(doc.regions) }, true)
   if (scope.pathIds.length !== Object.keys(doc.paths).length || scope.terrainAreaIds.length !== Object.keys(doc.terrainAreas).length
     || scope.wallIds.length !== Object.keys(doc.walls).length || scope.vertexIds.length !== Object.keys(doc.vertices).length

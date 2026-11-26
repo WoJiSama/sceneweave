@@ -15,21 +15,39 @@ export interface BoundedZipPolicy {
   minEntries?: 1
   allowEmptyDirectories?: true
 }
-export function zipPathBudget(name: string): number {
+function knownProjectPathBudget(name: string): number | undefined {
   if (name === 'manifest.json' || name === 'history.json') return PACKAGE_LIMITS.manifestBytes
+  if (name === 'extensions.json' || /^snapshots\/(?:[0-5][0-9]|6[0-3])\.extensions\.json$/.test(name)) return PACKAGE_LIMITS.extensionsBytes
   if (name === 'sources.json' || /^snapshots\/(?:[0-5][0-9]|6[0-3])\.sources\.json$/.test(name)) return PACKAGE_LIMITS.sourcesBytes
   if (/^sources\/[0-9a-f]{64}\.svg$/.test(name)) return PACKAGE_LIMITS.sourceBytes
   if (name === 'scene.json' || name === 'identity.json' || name === 'appearance.json' || /^snapshots\/(?:[0-5][0-9]|6[0-3])\.(?:scene|identity|appearance)\.json$/.test(name)) return PACKAGE_LIMITS.sceneBytes
   if (/^assets\/[0-9a-f]{64}\.(?:png|jpg|webp)$/.test(name)) return PACKAGE_LIMITS.imageBytes
   if (/^licenses\/[0-9a-f]{64}\.txt$/.test(name)) return PACKAGE_LIMITS.licenseBytes
-  return failPackage('ZIP包含不安全、未知、目录或嵌套归档路径。')
 }
+
+export function zipPathBudget(name: string): number {
+  return knownProjectPathBudget(name) ?? failPackage('ZIP包含不安全、未知、目录或嵌套归档路径。')
+}
+
+/** Future relative paths can be inspected in the directory, but only a supported manifest admits their payloads. */
+export function projectEnvelopePathBudget(name: string): number {
+  const known = knownProjectPathBudget(name)
+  if (known !== undefined) return known
+  const directory = name.endsWith('/'), path = directory ? name.slice(0, -1) : name
+  if (/[\\:\x00-\x1f\x7f]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) {
+    return failPackage('ZIP包含不安全路径。')
+  }
+  return directory ? 0 : PACKAGE_LIMITS.expandedBytes
+}
+
+export const projectDocumentPath = (name: string): boolean =>
+  name === 'scene.json' || name === 'identity.json' || name === 'appearance.json' || name === 'sources.json' || name === 'extensions.json' || name.startsWith('snapshots/')
 
 /** Captures the caller bytes synchronously, then validates every directory/local record. */
 export function inspectZip(input: Uint8Array, signal?: CancellationSignal): BoundedZip {
   return inspectBoundedZip(input, { pathBudget: zipPathBudget,
     requiredPaths: ['manifest.json', 'scene.json', 'identity.json', 'appearance.json', 'sources.json'],
-    documentPath: name => name === 'scene.json' || name === 'identity.json' || name === 'appearance.json' || name.startsWith('snapshots/'),
+    documentPath: projectDocumentPath,
   }, signal)
 }
 
@@ -79,9 +97,10 @@ export function inspectBoundedZip(input: Uint8Array, policy: BoundedZipPolicy, s
     extra(central.subarray(cursor + 46 + nameSize, cursor + 46 + nameSize + extraSize))
     const entry: ZipEntry = { name, flags: view.getUint16(cursor + 8, true), method: view.getUint16(cursor + 10, true), crc: view.getUint32(cursor + 16, true), compressed: view.getUint32(cursor + 20, true), expanded: view.getUint32(cursor + 24, true), offset: view.getUint32(cursor + 42, true), dataStart: 0 }
     if (entry.flags & ~0x080e || ![0, 8].includes(entry.method) || entry.method === 0 && entry.flags & 6) failPackage('不支持ZIP加密、压缩方法或标志。')
-    const emptyDirectory = policy.allowEmptyDirectories === true && name.endsWith('/') && entry.expanded === 0
-    if (emptyDirectory && entry.method === 8 && entry.compressed === 0) failPackage('空目录的deflate流缺失。')
-    if ((!entry.expanded && !emptyDirectory) || entry.expanded > budget || entry.compressed > PACKAGE_LIMITS.compressedBytes) failPackage('ZIP条目超过展开预算。')
+    const directory = policy.allowEmptyDirectories === true && name.endsWith('/')
+    if (directory && entry.expanded !== 0) failPackage('ZIP目录路径的展开预算为0字节。')
+    if (directory && entry.method === 8 && entry.compressed === 0) failPackage('空目录的deflate流缺失。')
+    if ((!entry.expanded && !directory) || entry.expanded > budget || entry.compressed > PACKAGE_LIMITS.compressedBytes) failPackage('ZIP条目超过展开预算。')
     if ((totalExpanded += entry.expanded) > PACKAGE_LIMITS.expandedBytes) failPackage('ZIP总展开量超过300 MiB。')
     if (policy.documentPath(name) && (documentBytes += entry.expanded) > PACKAGE_LIMITS.archiveDocumentBytes) failPackage('历史文档与身份累计超过128 MiB。')
     entries.set(name, entry)

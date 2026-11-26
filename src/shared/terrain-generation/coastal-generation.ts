@@ -7,6 +7,7 @@ import { COASTAL_ASCENT_VERSION, WEATHERED_COAST_VERSION, NATURAL_STONE_COAST_VE
 import { styleTerrainGeometryV5, terrainGenerationResultV5Schema, type TerrainGenerationInputV5 } from './surface-generation.js'
 import type { ShoreSurfaceOptions } from '../visual/shore-surfaces.js'
 import { coastalEdgeDetailScale } from './coastal-ascent.js'
+import { isCoastalAscentVersion } from './recipe-capabilities.js'
 
 export { COASTAL_ASCENT_VERSION, WEATHERED_COAST_VERSION, NATURAL_STONE_COAST_VERSION, ERODED_COAST_VERSION,
   terrainGenerationInputV10Schema, terrainGenerationInputV11Schema, terrainGenerationInputV12Schema, terrainGenerationInputV13Schema }
@@ -57,8 +58,8 @@ const recipes = {
   [WEATHERED_COAST_VERSION]: { input: terrainGenerationInputV11Schema, result: terrainGenerationResultV11Schema, generate: generateTerrainDocumentV11 },
   [NATURAL_STONE_COAST_VERSION]: { input: terrainGenerationInputV12Schema, result: terrainGenerationResultV12Schema, generate: generateTerrainDocumentV12 },
   [ERODED_COAST_VERSION]: { input: terrainGenerationInputV13Schema, result: terrainGenerationResultV13Schema, generate: generateTerrainDocumentV13 },
-}
+} satisfies Record<CoastalAscentVersion, unknown>
 
 export function coastalGenerationRecipe(version: unknown) {
-  return typeof version === 'number' && Object.hasOwn(recipes, version) ? recipes[version as CoastalAscentVersion] : undefined
+  return isCoastalAscentVersion(version) ? recipes[version] : undefined
 }

@@ -1,21 +1,17 @@
 import { currentDatabaseNames } from '../storage/current-databases.js'
 import Dexie, { type Table } from 'dexie'
 import type { CatalogOrganization, PreparedLibraryEntry } from '../../../shared/library/types.js'
-import type { LibraryConversionJob } from '../../../application/ports/library-conversion-store.js'
 
-export const LEGACY_DEVELOPMENT_LIBRARY_DATABASE = 'sceneweave-library'
 export const LIBRARY_DATABASE_NAME = currentDatabaseNames().library
 export const LIBRARY_STORES = {
   entries: 'key,&logicalKey', organizations: 'key', metadata: 'id',
+  // Reserved physical stores keep the existing IndexedDB layout.
   conversionJobs: 'jobId,&jobKey', conversionStaging: '[jobId+kind+key]',
 } as const
 export const LIBRARY_TABLES = Object.keys(LIBRARY_STORES) as (keyof typeof LIBRARY_STORES)[]
 export interface StoredEntry { key: string; logicalKey: string; entry: PreparedLibraryEntry }
 export interface StoredOrganization { key: string; value: CatalogOrganization }
 export interface StoredMetadata { id: 'catalog'; revision: number }
-export type StagedRecord = { jobId: string; kind: 'entry'; key: string; value: StoredEntry }
-  | { jobId: string; kind: 'organization'; key: string; value: StoredOrganization }
-
 const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right)
 /** An absent database is inspected without creating it. Foreign schemas are never upgraded. */
 export function inspectLibraryDatabase(name: string): Promise<void> {
@@ -55,8 +51,6 @@ export class LibraryDatabase extends Dexie {
   entries!: Table<StoredEntry, string>
   organizations!: Table<StoredOrganization, string>
   metadata!: Table<StoredMetadata, string>
-  conversionJobs!: Table<LibraryConversionJob, string>
-  conversionStaging!: Table<StagedRecord, [string, string, string]>
   constructor(name = LIBRARY_DATABASE_NAME) {
     if (['sceneweave-m0', 'sceneweave-m1', 'sceneweave-m1-layers', 'sceneweave-m1-history', 'sceneweave-m1-composition', 'sceneweave-m1-outdoor', 'sceneweave-catalog', 'sceneweave-catalog-v1', 'sceneweave-projects'].includes(name)) throw new Error('新个人素材库不能使用旧库或工程库名称。')
     super(name, { autoOpen: false })

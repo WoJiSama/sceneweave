@@ -45,6 +45,11 @@ export function projectSpatialProps(scene: SceneDocument, projection: Projection
   projection.propVolumes = propVolumes
   const sideAssets = Object.values(propVolumes).flatMap(volume => volume.sideAssetId ?? [])
   if (sideAssets.length) projection.assetIds = [...new Set([...projection.assetIds, ...sideAssets])].sort()
+  for (const decoration of projection.decorations ?? []) {
+    const row = scene.decorations[decoration.id]
+    const volume = scene.propDefinitions[row.definitionRef.id]?.defaultVolume
+    if (volume?.kind === 'rock') decoration.moundHeightMm = Math.round(volume.heightMm * row.scalePpm / 1_000_000)
+  }
 }
 
 export function defaultVolume(prop: Prop, tags: readonly string[]): PropVolume {

@@ -38,7 +38,7 @@ npm run test:e2e:production
 
 生产回归在设置`SCENEWEAVE_DETAIL_ARTIFACT`后可运行`detail-floor-privacy-acceptance.spec.ts`，设置`SCENEWEAVE_NOTE_PRIVACY_INPUTS`后可运行`note-privacy-notice.spec.ts`。布置及加载相关生产回归也可通过同一入口按文件选择。混合文件中专查生产构建的用例使用`@production`标记。
 
-测试夹具保留在`tests/fixtures`，其中旧格式文件用于兼容/重放测试，不代表普通产品入口接受旧工程。严格几何拒绝例和真实资源校验继续保留，不为通过而缩小原断言。
+测试使用当前完整工程 v1 夹具。保留严格几何拒绝例和真实资源校验。
 
 保存、受众、渲染或共同算法变更按影响选择复验。性能另用正常构建和[性能工具](../tools/performance/README.md)串行测量；其他会话正在测量时不要并行启动构建或浏览器检查。
 

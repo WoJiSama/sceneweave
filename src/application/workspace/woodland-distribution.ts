@@ -1,12 +1,15 @@
 import type { PointMm, SceneDocument, SizeMm } from '../../shared/model/scene.js'
+import type { TaskBudgetProfile } from '../../shared/budget/task-budget.js'
 import type { ForestParameters, ForestVegetation } from '../../shared/generation/domains/forest/contracts.js'
 import { forestRectangle } from '../../shared/generation/domains/forest/index.js'
-import { estimateSurfaceRegionInstances } from '../../shared/decorations/generate.js'
+import { DECORATION_LIMITS } from '../../shared/decorations/contracts.js'
+import { countSurfaceRegionInstances, estimateSurfaceRegionInstances } from '../../shared/decorations/generate.js'
 import { polygonBooleanWithHoles, type PolygonWithHoles } from '../../shared/geometry/polygon-boolean.js'
 import { distanceToSegment, pointInPolygon } from '../../shared/geometry/geometry.js'
 import type { MixedParameters } from '../../shared/generation/domains/mixed/contracts.js'
 import { cloneJson } from '../../shared/validation/json.js'
 import { sha256Text } from '../../shared/validation/hash.js'
+import { terrainRandomUnit } from '../../shared/terrain-generation/field.js'
 
 export type WoodlandDistribution = 'auto' | 'uniform' | 'copses'
 type Zone = ForestParameters['zones'][number]
@@ -19,6 +22,11 @@ export function defaultWoodlandCoverages({ width, height }: SizeMm) {
   const factor = Math.min(1, 3_000_000_000 / (width * height))
   const ppm = (value: number) => Math.round(value * factor) * 1000
   return { tree: ppm(145), shrub: ppm(28), grass: ppm(15) }
+}
+
+export function defaultForestCampCoverages({ width, height }: SizeMm) {
+  const factor = Math.min(1, 2_000_000_000 / (width * height))
+  return { tree: Math.round(420 * factor) * 1000, shrub: Math.round(97 * factor) * 1000, grass: Math.round(91 * factor) * 1000 }
 }
 
 type PlantingReservation = { points: PointMm[]; closed?: boolean; margin: number }
@@ -153,4 +161,74 @@ export function forestZonesForDistribution(document: SceneDocument, parameters: 
   }
   if (mode === 'auto') for (const zone of zones) for (const row of zone.vegetation) row.clusterVersion = 'cluster-v2'
   return zones
+}
+
+const forestCampTargets = {
+  small: { tree: 16, shrub: 24, grass: 33 },
+  standard: { tree: 26, shrub: 38, grass: 50 },
+  expanded: { tree: 38, shrub: 53, grass: 68 },
+}
+
+/** Prepare explicit, independently bounded planting regions before executing the forest recipe. */
+export function forestCampZones(document: SceneDocument, p: ForestParameters, seed: string, profile: TaskBudgetProfile,
+  mode: WoodlandDistribution = 'auto', secondTree?: ForestVegetation['palette']): Zone[] {
+  const b = p.boundsMm, [source] = p.zones, reservations = plantingReservations(p)
+  const narrow = Math.min(b.width, b.height), wide = b.width >= b.height
+  if (mode === 'copses' && narrow < 16000) throw new WoodlandSpaceError('疏密林地需要宽和高至少16米；请扩大地图或选择自动适配林地。')
+  const alongLimit = profile.profileId === 'small' ? 2 : 4
+  const along = Math.max(1, Math.min(alongLimit, Math.ceil(Math.max(b.width, b.height) / 18000)))
+  const across = narrow >= 17000 ? 2 : 1
+  const random = (key: string) => terrainRandomUnit(seed, `forest-camp/zones/${key}`)
+  const cuts = (origin: number, size: number, count: number, axis: string) => Array.from({ length: count + 1 }, (_, i) =>
+    origin + Math.round(size / count * (i + (mode !== 'uniform' && i > 0 && i < count ? (random(`${axis}/${i}`) - .5) * .35 : 0))))
+  const xs = cuts(b.x, b.width, wide ? along : across, 'x'), ys = cuts(b.y, b.height, wide ? across : along, 'y')
+  const clearings = p.clearings.map(row => ({ outer: row.boundaryMm, holes: [] }))
+  const tiles = xs.slice(0, -1).flatMap((x, column) => ys.slice(0, -1).map((y, row) => {
+    const key = `${column + 1}-${row + 1}`, width = xs[column + 1] - x, height = ys[row + 1] - y
+    const boundaryMm = mode !== 'copses' ? forestRectangle({ x, y, width, height }) : Array.from({ length: 12 }, (_, i) => {
+      const angle = i * Math.PI / 6, radius = .36 + random(`${key}/edge/${i}`) * .12
+      return { x: x + Math.round(width * (.5 + radius * Math.cos(angle))), y: y + Math.round(height * (.5 + radius * Math.sin(angle))) }
+    })
+    const polygons = polygonBooleanWithHoles({ operation: 'difference', subject: [{ outer: boundaryMm, holes: [] }], clip: clearings }).polygons
+    return { key, x, y, width, height, boundaryMm, polygons, column, row, vegetation: [] as ForestVegetation[] }
+  }))
+  for (const plant of source.vegetation) {
+    const proposals = tiles.map(tile => {
+      const alternate = plant.role === 'tree' && mode !== 'uniform' && (tile.column + tile.row) % 2 === 1 ? secondTree : undefined
+      const palette = alternate ?? plant.palette
+      const radius = Math.max(...palette.map(item => {
+        const bounds = document.propDefinitions[item.definitionRef.id]?.defaultVisualBoundsMm
+        if (!bounds) throw new Error('森林营地需使用工程内确切固定的植被素材。')
+        return Math.hypot(bounds.width, bounds.height) / 2
+      })) + plant.clearanceMm
+      let sites = 0, sampled = 0
+      for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) {
+        const point = { x: tile.x + tile.width * (x + .5) / 5, y: tile.y + tile.height * (y + .5) / 5 }
+        if (!pointInPolygon(point, tile.boundaryMm)) continue
+        sampled++
+        if (Math.min(point.x - b.x, point.y - b.y, b.x + b.width - point.x, b.y + b.height - point.y) < radius) continue
+        if (reservations.some(r => (r.closed && pointInPolygon(point, r.points)) || r.points.some((a, i) =>
+          (i > 0 || r.closed) && distanceToSegment(point, a, r.points[(i + r.points.length - 1) % r.points.length]) < radius + r.margin))) continue
+        sites++
+      }
+      const bias = mode === 'uniform' ? 1 : .82 + .55 * random(`${tile.key}/${plant.role}`)
+      const coveragePpm = Math.min(1_000_000, Math.round(plant.coveragePpm * bias * (sites ? .68 + .45 * sites / sampled : 0)))
+      const count = countSurfaceRegionInstances(document, palette, { polygons: tile.polygons, coveragePpm })
+      const maximum = DECORATION_LIMITS.membersPerCluster
+      return { tile, palette, coveragePpm, count: Math.min(maximum, count), capped: count > maximum }
+    })
+    const total = proposals.reduce((sum, proposal) => sum + proposal.count, 0), limit = forestCampTargets[profile.profileId][plant.role]
+    if (!total) continue
+    const share = Math.min(1, limit / total)
+    for (const proposal of proposals) {
+      const { tile, palette, count } = proposal, target = Math.floor(count * share)
+      if (!target) continue
+      const vegetation = { ...plant, palette, clusterVersion: 'cluster-v2' as const }
+      const coveragePpm = target === count && !proposal.capped ? proposal.coveragePpm : coverageForCount(document, vegetation, tile.polygons, target)
+      tile.vegetation.push({ ...vegetation, coveragePpm })
+    }
+  }
+  const zones = tiles.filter(tile => tile.vegetation.length).map(tile => ({ id: `forest-camp-${tile.key}`, supportRef: source.supportRef,
+    boundaryMm: tile.boundaryMm, vegetation: tile.vegetation }))
+  return zones.length ? zones : [{ ...source, vegetation: source.vegetation.map(row => ({ ...row, coveragePpm: 0 })) }]
 }

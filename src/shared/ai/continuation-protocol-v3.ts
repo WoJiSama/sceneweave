@@ -1,10 +1,9 @@
 import { ProfiledAuthoringScopeSchema } from './authoring-profile.js'
 import { z } from 'zod'
-import { projectDataSchema } from '../project/validate.js'
 import { BaseMapRequestV3Schema, BaseMapResponseV3Schema } from '../terrain-generation/base-map-v3.js'
 import { BudgetPolicyV2Schema } from './budget-policy.js'
 import { BudgetUsageSchema } from '../budget/task-budget.js'
-import { AuthoringStartSchema, AuthoringStateSchema, AuthoringSummarySchema,
+import { authoringProjectSchema, AuthoringStartSchema, AuthoringStateSchema, AuthoringSummarySchema,
   DraftStampSchema, DraftClaimSchema, DraftLeaseSchema, DraftAppliedSchema, DraftValidationSchema } from './authoring-protocol-v1.js'
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/)
@@ -13,10 +12,10 @@ const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const ids = (limit: number) => z.array(id).max(limit).refine(values => new Set(values).size === values.length)
 import { BudgetIdentitySchema } from './continuation-protocol.js'
 export const BaseMapSourceV3Schema = z.object({
-  version: z.literal(3), flowId: id, blank: projectDataSchema,
+  version: z.literal(3), flowId: id, blank: authoringProjectSchema,
   preservation: z.object({ sceneId: id.nullable(), revision: count.nullable(), contentHash: hash.nullable(), checkpoint: count }).strict(),
   request: BaseMapRequestV3Schema, response: BaseMapResponseV3Schema,
-  preparedAt: z.string().datetime(), identityAllocation: ids(8192), project: projectDataSchema, projectHash: hash,
+  preparedAt: z.string().datetime(), identityAllocation: ids(8192), project: authoringProjectSchema, projectHash: hash,
   resourceClosureHash: hash,
   execution: z.object({ executor: z.enum(['worker', 'server']), startedAt: z.string().datetime(), completedAt: z.string().datetime(),
     activeRuntimeMs: count, generationCalls: count.min(1), materializationCalls: count.min(1) }).strict(),

@@ -6,6 +6,7 @@ export interface ObliqueCamera {
   zoom: number
   targetMm?: PointMm
   fadeCanopy?: boolean
+  showBase?: boolean
 }
 export const DEFAULT_OBLIQUE_CAMERA: ObliqueCamera = { azimuthDeg: -13, elevationDeg: 55, zoom: 1 }
 

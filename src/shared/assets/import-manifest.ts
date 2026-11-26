@@ -2,16 +2,26 @@ import type { PointMm, RenderLayer, ShadowClass } from '../model/scene.js'
 import { captureBytes, decodeUtf8 } from '../project/binary.js'
 import { parseBoundedJson } from '../project/json.js'
 import { hasExactKeys, isSha256 } from '../project/limits.js'
-import { captureJson, encodeUtf8, freezeJson } from '../validation/json.js'
+import { canonicalJson, captureJson, encodeUtf8, freezeJson } from '../validation/json.js'
+import { sha256Text } from '../validation/hash.js'
+import { isPackageId, isPositiveVersion } from './package-identity.js'
 
 export const ASSET_PACK_MANIFEST_FILENAME = 'sceneweave-assets.json'
+export const ASSET_PACK_EXTENSION_POINT = Object.freeze({ point: 'sceneweave/asset-pack', apiVersion: 1 })
 /** Source admission bounds, not a claim about measured library capacity. */
 export const ASSET_PACK_MANIFEST_LIMITS = Object.freeze({
   bytes: 256 * 1024, items: 64, licenses: 64, pathBytes: 128, jsonDepth: 16, jsonValues: 20_000,
 })
 export interface AssetPackInfo {
   readonly id: string; readonly name: string; readonly version: number
+  readonly publisher?: string
   readonly style: string; readonly scenes: readonly string[]
+}
+export interface AssetPackReference {
+  readonly publisher: string
+  readonly id: string
+  readonly version: number
+  readonly contentSha256: string
 }
 export interface AssetPackLicense { readonly id: string; readonly text: string; readonly attribution: string }
 export interface AssetPackItem {
@@ -38,9 +48,6 @@ const validUnicode = (value: string) => value === decodeUtf8(encodeUtf8(value))
 const text = (value: unknown, maximum: number): value is string => typeof value === 'string' && !!value.trim()
   && Array.from(value).length <= maximum && !unsafeText.test(value) && validUnicode(value)
 const size = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= 1_000_000
-const exact = (value: unknown, required: readonly string[], optional: readonly string[] = []): value is Record<string, unknown> =>
-  !!value && typeof value === 'object' && !Array.isArray(value)
-  && required.every(key => Object.hasOwn(value, key)) && Object.keys(value).every(key => required.includes(key) || optional.includes(key))
 const uniqueTexts = (value: unknown, maximumItems: number, maximumLength: number, minimumItems = 0): value is string[] =>
   Array.isArray(value) && value.length >= minimumItems && value.length <= maximumItems
   && value.every(item => text(item, maximumLength)) && new Set(value).size === value.length
@@ -94,8 +101,9 @@ export function validateAssetPackManifest(input: unknown): AssetPackManifest {
   if (encodeUtf8(JSON.stringify(owned)).length > ASSET_PACK_MANIFEST_LIMITS.bytes) fail('清单超过256KiB。')
   if (!hasExactKeys(owned, ['format', 'schemaVersion', 'pack', 'licenses', 'items']) || owned.format !== 'sceneweave-asset-pack' || owned.schemaVersion !== 1) fail('格式、版本或根字段不受支持。')
   const pack = owned.pack
-  if (!hasExactKeys(pack, ['id', 'name', 'version', 'style', 'scenes']) || !text(pack.id, 120) || !text(pack.name, 120)
-    || !Number.isSafeInteger(pack.version) || (pack.version as number) < 1 || !text(pack.style, 120) || !uniqueTexts(pack.scenes, 32, 80, 1)) fail('主题包须提供有效标识、名称、正整数版本、画风及场景。')
+  if (!hasExactKeys(pack, ['id', 'name', 'version', 'style', 'scenes'], ['publisher']) || !text(pack.id, 120) || !text(pack.name, 120)
+    || !isPositiveVersion(pack.version) || !text(pack.style, 120) || !uniqueTexts(pack.scenes, 32, 80, 1)) fail('主题包须提供有效标识、名称、正整数版本、画风及场景。')
+  if (pack.publisher !== undefined && (!isPackageId(pack.publisher) || !isPackageId(pack.id))) fail('发布者和包标识须为最多64位的小写字母或数字，可用点或短横线分段。')
   if (!Array.isArray(owned.licenses) || !owned.licenses.length || owned.licenses.length > ASSET_PACK_MANIFEST_LIMITS.licenses) fail('须提供1–64项内联许可。')
   const licenseIds = new Set<string>()
   for (const license of owned.licenses) {
@@ -109,14 +117,14 @@ export function validateAssetPackManifest(input: unknown): AssetPackManifest {
   const register = createAssetPathRegistry()
   const propKeys = ['footprintWidthMm', 'footprintHeightMm', 'rootAnchorMm', 'footprintOffsetMm', 'blocksMovement', 'blocksSight', 'renderLayer', 'shadowClass']
   for (const item of owned.items) {
-    if (!exact(item, ['path', 'name', 'kind', 'widthMm', 'heightMm', 'licenseId'], ['tags', ...propKeys, 'applicableSurfaces', 'sourceSha256'])) fail('素材字段缺失、未知或含不支持的审批/行为字段。')
+    if (!hasExactKeys(item, ['path', 'name', 'kind', 'widthMm', 'heightMm', 'licenseId'], ['tags', ...propKeys, 'applicableSurfaces', 'sourceSha256'])) fail('素材字段缺失、未知或含不支持的审批/行为字段。')
     if (typeof item.path !== 'string') fail('素材路径必须为文本。')
     register(item.path, false)
     if (!/\.(?:png|jpe?g|webp|svg)$/i.test(item.path)) fail('清单只能引用PNG、JPEG、WebP或静态SVG。')
     validateAssetDisplayName(item.name)
     if (!size(item.widthMm) || !size(item.heightMm) || typeof item.licenseId !== 'string' || !licenseIds.has(item.licenseId)) fail('素材须提供有效整数毫米尺寸和已定义的许可引用。')
     if (item.tags !== undefined && !uniqueTexts(item.tags, 50, 80)) fail('素材标签须为不重复、最多50项且每项最多80字符的文本。')
-    if (item.sourceSha256 !== undefined && !isSha256(item.sourceSha256)) fail('原始来源校验和必须为64位小写SHA-256。')
+    if ((pack.publisher !== undefined || item.sourceSha256 !== undefined) && !isSha256(item.sourceSha256)) fail('原始来源校验和必须为64位小写SHA-256。含发布者的包须逐项声明。')
     if (item.kind === 'prop') {
       if (!size(item.footprintWidthMm) || !size(item.footprintHeightMm)) fail('物件必须明确提供正整数毫米实际占地宽高。')
       if (Object.hasOwn(item, 'applicableSurfaces')) fail('物件不能声明材质适用表面。')
@@ -145,4 +153,18 @@ export function parseAssetPackManifest(input: Uint8Array): AssetPackManifest {
     if (error instanceof Error && error.message.startsWith('素材包清单无效：')) throw error
     return fail(error instanceof Error ? error.message.replace(/^完整v1工程无效：/, '') : '清单无法读取。')
   }
+}
+
+/** A manifest describes an expected release. Admission also checks every declared source byte hash. */
+export function assetPackReference(manifest: AssetPackManifest): AssetPackReference | undefined {
+  const { publisher, id, version } = manifest.pack
+  if (publisher === undefined) return undefined
+  return Object.freeze({ publisher, id, version, contentSha256: sha256Text(canonicalJson(manifest)) })
+}
+
+export function captureAssetPackReference(input: unknown): AssetPackReference {
+  const value = captureJson(input)
+  if (!hasExactKeys(value, ['publisher', 'id', 'version', 'contentSha256']) || !isPackageId(value.publisher) || !isPackageId(value.id)
+    || !isPositiveVersion(value.version) || !isSha256(value.contentSha256)) fail('预期素材包须指定发布者、包标识、正整数版本和内容 SHA-256。')
+  return Object.freeze({ publisher: value.publisher, id: value.id, version: value.version, contentSha256: value.contentSha256 })
 }

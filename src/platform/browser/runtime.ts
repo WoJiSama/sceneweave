@@ -9,5 +9,5 @@ export const projectRepository = new ProjectRepository({ runtime, validation })
 
 let library: Promise<import('./library/index.js').LibraryRepository> | undefined
 export function loadLibraryRepository() {
-  return library ??= import('./library/index.js').then(({ LibraryRepository }) => new LibraryRepository({ runtime, validation }))
+  return library ??= import('./library/index.js').then(({ LibraryRepository }) => new LibraryRepository({ validation }))
 }

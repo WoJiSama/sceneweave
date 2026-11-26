@@ -90,7 +90,7 @@ test('production tutorial and blank workspace stay within their first-load scrip
   const tutorial = await startupScripts(page)
   expect(tutorial).not.toHaveLength(0)
   expect(tutorial.reduce((bytes, script) => bytes + script.bytes, 0)).toBeLessThan(380 * 1024)
-  expect(tutorial.filter(script => /^(Workbench|WorkspaceHome|repository|resources|development-import)-/.test(script.name))).toEqual([])
+  expect(tutorial.filter(script => /^(Workbench|WorkspaceHome|repository|resources)-/.test(script.name))).toEqual([])
 
   await page.goto('./#home')
   await expect(page.getByTestId('workspace-home').getByText('共 0 个工程', { exact: false })).toBeVisible()

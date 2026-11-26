@@ -1,4 +1,5 @@
 import type { ProjectBundle, ProjectData, ResourceBytePort } from '../../shared/model/project.js'
+import { projectDataFields } from '../../shared/model/project.js'
 import type { CompleteValidationOptions, ResourceOptions } from '../../shared/ports/resources.js'
 import { checkCancelled } from '../../shared/ports/resources.js'
 import { captureProjectBundleInput, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, validateProjectSnapshot, type VerifiedProjectBundle } from '../../shared/project/resources.js'
@@ -6,7 +7,6 @@ import { captureJson } from '../../shared/validation/json.js'
 
 /** Native complete-v1 metadata plus an owned byte reader, never a legacy view. */
 export type EditableProject = ProjectData & { resources: ResourceBytePort }
-const fields = ['format', 'schemaVersion', 'document', 'historyIdentity', 'appearance', 'assets', 'licenses', 'licenseBindings', 'authoringSources'] as const
 // An application wrapper can retain a certificate only when this module created
 // it from the validator's exact owned metadata and immutable byte closure.
 const verifiedProjects = new WeakMap<EditableProject, VerifiedProjectBundle>()
@@ -19,8 +19,8 @@ export function getVerifiedEditableProject(input: EditableProject): EditableProj
 /** Capture top-level data once, before any caller-owned wrapper can change it. */
 export function captureEditableInput(input: EditableProject): EditableProject {
   if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new Error('编辑工程必须为普通数据对象。')
-  const descriptors = Object.getOwnPropertyDescriptors(input), keys = [...fields, 'resources']
-  if (Reflect.ownKeys(input).length !== keys.length || !keys.every(key => descriptors[key]?.enumerable && 'value' in descriptors[key])) throw new Error('编辑工程含未知、访问器、隐藏或Symbol字段。')
+  const descriptors = Object.getOwnPropertyDescriptors(input), keys = [...projectDataFields(descriptors), 'resources']
+  if (Reflect.ownKeys(descriptors).length !== keys.length || !keys.every(key => descriptors[key]?.enumerable && 'value' in descriptors[key])) throw new Error('编辑工程含未知、访问器、隐藏或Symbol字段。')
   return Object.fromEntries(keys.map(key => [key, descriptors[key].value])) as unknown as EditableProject
 }
 

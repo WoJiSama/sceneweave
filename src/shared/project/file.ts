@@ -11,14 +11,16 @@ import { validateHistoryArchive } from './history.js'
 import { decodeUtf8, sha256Bytes } from './binary.js'
 import { parseBoundedJson } from './json.js'
 import { failPackage, hasExactKeys, isSha256, PACKAGE_LIMITS } from './limits.js'
-import { inspectZip, zipPathBudget } from './zip.js'
+import { inspectBoundedZip, projectDocumentPath, projectEnvelopePathBudget, zipPathBudget, type BoundedZip } from './zip.js'
+import { checkProjectReader, PROJECT_EXTENSIONS_READER_VERSION, PROJECT_FORMAT, PROJECT_SCHEMA_VERSION, PROJECT_WRITER_BUILD } from './format.js'
 import { decodeSceneCoordinates, encodeSceneCoordinates } from '../aggregates/scene-coordinates.js'
 
-export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'history'
-  | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'asset' | 'license' | 'source'
+export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'extensions' | 'history'
+  | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'snapshot-extensions' | 'asset' | 'license' | 'source'
 export interface ManifestEntry { path: string; role: PackageRole; sha256: string; sizeBytes: number; mimeType: string }
 export interface ProjectManifest {
-  format: 'sceneweave-complete-project'; schemaVersion: 1; application: 'Sceneweave'; applicationVersion: string
+  format: typeof PROJECT_FORMAT; schemaVersion: typeof PROJECT_SCHEMA_VERSION; application: 'Sceneweave'; applicationVersion: string
+  minReaderVersion?: number
   packageMode: 'complete' | 'history'; sceneId: string; revision: number; entries: ManifestEntry[]
   assetRecords: Record<string, AssetRecord>; licenseBindings: LicenseBinding[]
 }
@@ -29,6 +31,8 @@ export interface ProjectReferences {
 export interface HistoryIndex { schemaVersion: 1; current: ProjectReferences; snapshots: (ProjectReferences & { summary: SnapshotSummary })[] }
 const suffix: Record<AssetRecord['mimeType'], string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }
 const rootPaths = { scenePath: 'scene.json', identityPath: 'identity.json', appearancePath: 'appearance.json', sourcesPath: 'sources.json' }
+const extensionsPath = (scenePath: string) => scenePath.replace(/scene\.json$/, 'extensions.json')
+const containsExtensions = (entries: ManifestEntry[]) => entries.some(entry => entry.role === 'extensions' || entry.role === 'snapshot-extensions')
 const referenceKeys = ['scenePath', 'identityPath', 'appearancePath', 'sourcesPath', 'assetHashes', 'licenseHashes', 'sourceHashes', 'licenseBindings']
 const nonempty = (value: unknown, max = 256): value is string => typeof value === 'string' && value.length > 0 && value.length <= max
 const sorted = (values: string[]): string[] => values.sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
@@ -70,10 +74,10 @@ function roleFor(path: string, mimeType: string, hash: string, mode: ProjectMani
   const budget = zipPathBudget(path)
   if (!budget) return failPackage('未知路径。')
   if (mimeType === 'application/json') {
-    const roots: Record<string, PackageRole> = { 'scene.json': 'scene', 'identity.json': 'identity', 'appearance.json': 'appearance', 'sources.json': 'sources' }
+    const roots: Record<string, PackageRole> = { 'scene.json': 'scene', 'identity.json': 'identity', 'appearance.json': 'appearance', 'sources.json': 'sources', 'extensions.json': 'extensions' }
     if (Object.hasOwn(roots, path)) return roots[path]
     if (mode === 'history' && path === 'history.json') return 'history'
-    const match = /^snapshots\/(?:[0-5][0-9]|6[0-3])\.(scene|identity|appearance|sources)\.json$/.exec(path)
+    const match = /^snapshots\/(?:[0-5][0-9]|6[0-3])\.(scene|identity|appearance|sources|extensions)\.json$/.exec(path)
     if (mode === 'history' && match) return `snapshot-${match[1]}` as PackageRole
   }
   if (Object.hasOwn(suffix, mimeType) && path === `assets/${hash}.${suffix[mimeType as keyof typeof suffix]}`) return 'asset'
@@ -82,8 +86,9 @@ function roleFor(path: string, mimeType: string, hash: string, mode: ProjectMani
   return failPackage('路径、角色、hash和MIME不匹配。')
 }
 export function readProjectManifest(input: unknown): ProjectManifest {
-  if (!hasExactKeys(input, ['format', 'schemaVersion', 'application', 'applicationVersion', 'packageMode', 'sceneId', 'revision', 'entries', 'assetRecords', 'licenseBindings'])
-    || input.format !== 'sceneweave-complete-project' || input.schemaVersion !== 1 || input.application !== 'Sceneweave'
+  checkProjectReader(input)
+  if (!hasExactKeys(input, ['format', 'schemaVersion', 'application', 'applicationVersion', 'packageMode', 'sceneId', 'revision', 'entries', 'assetRecords', 'licenseBindings'], ['minReaderVersion'])
+    || input.schemaVersion !== PROJECT_SCHEMA_VERSION || input.application !== 'Sceneweave'
     || input.packageMode !== 'complete' && input.packageMode !== 'history'
     || !nonempty(input.applicationVersion, 100) || !nonempty(input.sceneId) || !Number.isSafeInteger(input.revision) || Number(input.revision) < 0
     || !Array.isArray(input.entries) || input.entries.length < 4 || input.entries.length >= PACKAGE_LIMITS.entries) return failPackage('manifest格式、版本、字段或身份无效。')
@@ -96,7 +101,9 @@ export function readProjectManifest(input: unknown): ProjectManifest {
     paths.add(value.path); entries.push(value as unknown as ManifestEntry)
   }
   if (Object.values(rootPaths).some(path => !paths.has(path)) || paths.has('history.json') !== (input.packageMode === 'history')) return failPackage('manifest缺少唯一四份JSON或历史索引。')
-  return { format: 'sceneweave-complete-project', schemaVersion: input.schemaVersion, application: 'Sceneweave', applicationVersion: input.applicationVersion,
+  if (containsExtensions(entries) && Number(input.minReaderVersion ?? 1) < PROJECT_EXTENSIONS_READER_VERSION) return failPackage('含扩展区的工程须声明最低读取协议 v2。')
+  return { format: PROJECT_FORMAT, schemaVersion: input.schemaVersion, application: 'Sceneweave', applicationVersion: input.applicationVersion,
+    ...(Object.hasOwn(input, 'minReaderVersion') ? { minReaderVersion: Number(input.minReaderVersion) } : {}),
     packageMode: input.packageMode, sceneId: input.sceneId, revision: Number(input.revision), entries,
     assetRecords: readAssetRecords(input.assetRecords), licenseBindings: readBindings(input.licenseBindings) }
 }
@@ -132,7 +139,7 @@ export async function prepareProjectArchive(input: HistoryArchive, mode: Project
     checkCancelled(options.signal)
     if (Object.hasOwn(files, path) || !bytes.length || bytes.length > zipPathBudget(path)) return failPackage('重复路径或单文件预算超限。')
     if ((expanded += bytes.length) > PACKAGE_LIMITS.expandedBytes) return failPackage('总展开预算超过300MiB。')
-    if (Object.values(rootPaths).includes(path) || path.startsWith('snapshots/')) {
+    if (projectDocumentPath(path)) {
       if ((documentBytes += bytes.length) > PACKAGE_LIMITS.archiveDocumentBytes) return failPackage('历史文档累计超过128MiB。')
     }
     if (path.endsWith('.json')) parseBoundedJson(bytes, jsonBudget)
@@ -146,6 +153,7 @@ export async function prepareProjectArchive(input: HistoryArchive, mode: Project
     addJson(paths.identityPath, `${prefix}identity` as PackageRole, project.historyIdentity)
     addJson(paths.appearancePath, `${prefix}appearance` as PackageRole, project.appearance)
     addJson(paths.sourcesPath, `${prefix}sources` as PackageRole, project.authoringSources)
+    if (project.extensions) addJson(extensionsPath(paths.scenePath), historical ? 'snapshot-extensions' : 'extensions', project.extensions)
   }
   addParts(archive.current, rootPaths, false)
   const index: HistoryIndex = { schemaVersion: 1, current: references(archive.current.project), snapshots: [] }
@@ -186,7 +194,9 @@ export async function prepareProjectArchive(input: HistoryArchive, mode: Project
     if ((totalSources += bytes.length) > PACKAGE_LIMITS.totalSourceBytes || bytes.length !== size || sha256Bytes(bytes) !== hash) return failPackage('导出SVG源读取与已验证字节不一致或累计超限。')
     add(`sources/${hash}.svg`, 'source', bytes, 'image/svg+xml')
   }
-  const manifest: ProjectManifest = { format: 'sceneweave-complete-project', schemaVersion: archive.current.project.schemaVersion, application: 'Sceneweave', applicationVersion: 'development', packageMode: mode,
+  // Existing v1 readers require exact manifest keys. The baseline minimum of one is implicit.
+  const manifest: ProjectManifest = { format: PROJECT_FORMAT, schemaVersion: archive.current.project.schemaVersion, application: 'Sceneweave', applicationVersion: PROJECT_WRITER_BUILD, packageMode: mode,
+    ...(containsExtensions(entries) ? { minReaderVersion: PROJECT_EXTENSIONS_READER_VERSION } : {}),
     sceneId: archive.current.project.document.sceneId, revision: archive.current.project.document.revision, entries, assetRecords: assets, licenseBindings: archive.current.project.licenseBindings }
   const manifestBytes = encodeUtf8(canonicalJson(manifest))
   if (manifestBytes.length > PACKAGE_LIMITS.manifestBytes || entries.length + 1 > PACKAGE_LIMITS.entries || expanded + manifestBytes.length > PACKAGE_LIMITS.expandedBytes) return failPackage('manifest、条目或展开累计预算超限。')
@@ -206,19 +216,35 @@ async function pack(input: HistoryArchive, mode: ProjectManifest['packageMode'],
 export async function exportProject(bundle: ProjectBundle, options: CompleteValidationOptions): Promise<Uint8Array> { return pack({ current: bundle, snapshots: [] }, 'complete', options) }
 export async function exportHistoryArchive(archive: HistoryArchive, options: CompleteValidationOptions): Promise<Uint8Array> { return pack(archive, 'history', options) }
 
-async function unpack(input: Uint8Array, mode: ProjectManifest['packageMode'], options: CompleteValidationOptions): Promise<HistoryArchive> {
-  // inspectZip makes the independent byte capture before this function's first await.
-  const zip = inspectZip(input, options.signal), jsonBudget = { values: 0 }
-  const manifest = readProjectManifest(parseBoundedJson(await zip.read('manifest.json'), jsonBudget))
-  if (manifest.packageMode !== mode) return failPackage(`请使用${mode === 'complete' ? '完整工程' : '历史归档'}入口，不能静默丢弃或补造历史。`)
-  const declared = new Set(['manifest.json', ...manifest.entries.map(entry => entry.path)])
-  if (declared.size !== zip.entries.size || [...declared].some(path => !zip.entries.has(path))) return failPackage('ZIP存在未声明或缺失路径。')
+async function unpack(input: Uint8Array, expectedMode: ProjectManifest['packageMode'] | undefined, options: CompleteValidationOptions): Promise<HistoryArchive> {
+  // Only the bounded manifest is inflated before version negotiation. The strict
+  // manifest below admits each v1 path, role and size before any payload read.
+  const jsonBudget = { values: 0 }
+  let zip: BoundedZip, header: unknown
+  try {
+    zip = inspectBoundedZip(input, {
+      minEntries: 1, allowEmptyDirectories: true, requiredPaths: ['manifest.json'],
+      pathBudget: projectEnvelopePathBudget,
+      documentPath: projectDocumentPath,
+    }, options.signal)
+    header = parseBoundedJson(await zip.read('manifest.json'), jsonBudget)
+  } catch (error) {
+    checkCancelled(options.signal)
+    throw new Error(`请选择有效的 Sceneweave 完整工程 v1 文件。${error instanceof Error ? error.message : ''}`, { cause: error })
+  }
+  const manifest = readProjectManifest(header), mode = manifest.packageMode
+  if (expectedMode !== undefined && mode !== expectedMode) return failPackage(`请使用${expectedMode === 'complete' ? '完整工程' : '历史归档'}入口，不能静默丢弃或补造历史。`)
+  if (zip.entries.size !== manifest.entries.length + 1) return failPackage('ZIP存在未声明或缺失路径。')
+  for (const entry of manifest.entries) {
+    const record = zip.entries.get(entry.path)
+    if (!record) return failPackage('ZIP存在未声明或缺失路径。')
+    if (record.expanded !== entry.sizeBytes) return failPackage('manifest与ZIP声明长度不一致。')
+  }
   const bytes = new Map<string, Uint8Array>(), resourceBytes = new Map<string, Uint8Array>(), licenses: Record<string, LicenseTextRecord> = Object.create(null)
   const assetPaths = new Set<string>(), sourcePaths = new Map<string, number>()
   let totalSourceBytes = 0
   for (const entry of manifest.entries) {
     checkCancelled(options.signal)
-    if (zip.entries.get(entry.path)!.expanded !== entry.sizeBytes) return failPackage('manifest与ZIP声明长度不一致。')
     const value = await zip.read(entry.path)
     if (value.length !== entry.sizeBytes || sha256Bytes(value) !== entry.sha256) return failPackage(`${entry.path}的长度或SHA-256不一致。`)
     bytes.set(entry.path, value)
@@ -260,8 +286,10 @@ async function unpack(input: Uint8Array, mode: ProjectManifest['packageMode'], o
       selectedLicenses[hash] = licenses[hash]; usedLicenses.add(hash)
     }
     const document = decodeSceneCoordinates(json(refs.scenePath))
-    const project = validateProjectData({ format: 'sceneweave-complete-project', schemaVersion: document?.schemaVersion, document,
+    const privatePath = extensionsPath(refs.scenePath)
+    const project = validateProjectData({ format: PROJECT_FORMAT, schemaVersion: document?.schemaVersion, document,
       historyIdentity: json(refs.identityPath) as ProjectData['historyIdentity'], appearance: json(refs.appearancePath) as ProjectData['appearance'], authoringSources: json(refs.sourcesPath) as ProjectData['authoringSources'],
+      ...(bytes.has(privatePath) ? { extensions: json(privatePath) } : {}),
       assets, licenses: selectedLicenses, licenseBindings: refs.licenseBindings })
     const expectedSources = projectSourceRecords(project)
     if (!same(refs.sourceHashes, sorted([...expectedSources.keys()]))) return failPackage('SVG源引用必须恰好覆盖来源记录。')
@@ -287,3 +315,5 @@ async function unpack(input: Uint8Array, mode: ProjectManifest['packageMode'], o
 }
 export async function importProject(bytes: Uint8Array, options: CompleteValidationOptions): Promise<ProjectBundle> { return (await unpack(bytes, 'complete', options)).current }
 export async function importHistoryArchive(bytes: Uint8Array, options: CompleteValidationOptions): Promise<HistoryArchive> { return unpack(bytes, 'history', options) }
+/** File-open entry for hosts accepting both complete projects and selected history. */
+export function importProjectArchive(bytes: Uint8Array, options: CompleteValidationOptions): Promise<HistoryArchive> { return unpack(bytes, undefined, options) }

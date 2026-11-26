@@ -4,15 +4,23 @@ import { REFINED_ISLAND_ART, REFINED_ISLAND_LICENSE } from '../../../shared/visu
 import { REFINED_COAST_LICENSE } from '../../../shared/visual/coast-art.js'
 import { normalizeStaticSvg, CANONICAL_SVG_PROCESSOR } from '../../../shared/ai/svg.js'
 import { sha256Bytes } from '../../../shared/validation/hash.js'
-import { encodeUtf8 } from '../../../shared/validation/json.js'
+import { cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { createRefinedBlankDocument } from './refined-blank.js'
-import { createShoreBlankDocument, createShoreBlankProject } from './shore-blank.js'
+import { createShoreBlankDocument, createShoreBlankProject, FOREST_CAMP_FINISH } from './shore-blank.js'
 import { materializeVisualArt, materializeVisualArtBatches, type VisualArtBatch } from './visual-art-project.js'
 import { rasterizeNormalizedSvg } from '../ai/svg-raster.js'
 import { validateProjectData } from '../../../shared/project/validate.js'
 import { terrainVariantAssetId, terrainVariantDefinitionId } from '../../../shared/visual/terrain-variant-specs.js'
 import { TERRAIN_VARIANT_V2_LICENSE_REF } from '../../../shared/visual/terrain-variant-v2-art.js'
 import { terrainVariantV2AssetId, terrainVariantV2DefinitionId } from '../../../shared/visual/terrain-variant-v2-specs.js'
+import { prepareGenerationIntent } from '../../../application/workspace/generation-intent.js'
+import { defaultForestCampCoverages } from '../../../application/workspace/woodland-distribution.js'
+import { browserGenerationContent } from './generation-intent.js'
+import { taskBudgetProfile } from '../../../shared/budget/task-budget.js'
+import { runForestGeneration } from '../../../shared/generation/domains/forest/index.js'
+import { THEME_PACK_LICENSE } from '../../../shared/visual/theme-pack-art.js'
+import { checkTerrainRoute } from '../../../shared/geometry/terrain-travel.js'
+import type { SceneDocument } from '../../../shared/model/scene.js'
 
 // These mocks only exercise source/metadata propagation and exact licence
 // ownership. PNG raster, decoding and pixels are verified in the real browser.
@@ -29,6 +37,56 @@ vi.mock('../../../application/workspace/project.js', async importOriginal => ({
 
 const options = { title: '新岸崖素材空白', sceneId: 'shore-blank-fixture', now: '2026-10-30T00:00:00.000Z', widthMm: 24000, heightMm: 18000, preset: 'narrative' as const }
 const licensePath = (text: string) => `licenses/${sha256Bytes(encodeUtf8(text))}.txt`
+
+it.each([
+  { widthMm: 32000, heightMm: 24000, seed: 'forest-1', entranceSide: 'west', budget: 'standard', minimum: [10, 12, 20] },
+  { widthMm: 32000, heightMm: 24000, seed: 'forest-1', entranceSide: 'west', budget: 'small', minimum: [8, 10, 18] },
+  { widthMm: 48000, heightMm: 36000, seed: 'cedar-2', entranceSide: 'south', budget: 'standard', minimum: [10, 12, 20] },
+] as const)('generates editable woodland camp details through the first candidate at $widthMm × $heightMm in $budget', async ({ widthMm, heightMm, seed, entranceSide, budget, minimum }) => {
+  const profile = taskBudgetProfile(budget), coverage = defaultForestCampCoverages({ width: widthMm, height: heightMm })
+  const request = { title: '测试林地', widthMm, heightMm, seed, entranceSide, routeWidthMm: 1800, woodlandDistribution: 'auto' as const,
+    clearings: [{ id: 'camp', boundsMm: { x: Math.round(widthMm * .375), y: Math.round(heightMm * .375), width: widthMm / 4, height: heightMm / 4 } }],
+    treeCoveragePpm: coverage.tree, shrubCoveragePpm: coverage.shrub, grassCoveragePpm: coverage.grass }
+  const runtime = { ids: { nextId: () => 'camp-default-bounds' }, clock: { now: () => '2026-11-25T00:00:00.000Z' } }
+  const { base, input } = await prepareGenerationIntent({ domain: 'forest', request }, { runtime, content: browserGenerationContent, selectBudget: () => profile })
+  expect(input.parameters.groundFinish).toEqual(FOREST_CAMP_FINISH)
+  const materialRefs = [FOREST_CAMP_FINISH.soilMaterialRef, FOREST_CAMP_FINISH.meadowMaterialRef, FOREST_CAMP_FINISH.gravelMaterialRef]
+  for (const { id } of materialRefs) {
+    const material = base.document.materials[id]
+    expect(base.licenseBindings).toContainEqual(expect.objectContaining({ subjectId: id, licensePath: licensePath(THEME_PACK_LICENSE) }))
+    expect(base.authoringSources[material.textureAssetId]?.kind).toBe('svg')
+  }
+  const result = runForestGeneration(base.document, input, { profile, nowMilliseconds: () => 0 }), scene = cloneJson(result.candidate.document) as SceneDocument
+  const counts = ['tree', 'shrub', 'grass'].map(role => result.report.vegetation.filter(row => row.role === role).reduce((sum, row) => sum + row.placed, 0))
+  counts.forEach((count, i) => expect(count, `第 ${i + 1} 类植被实际数量 ${counts.join('/')}`).toBeGreaterThanOrEqual(minimum[i]))
+  const patches = Object.values(scene.surfaceRules).filter(rule => rule.field === 'material')
+  expect(new Set(patches.map(rule => rule.paint.materialRef.id))).toEqual(new Set([...materialRefs, FOREST_CAMP_FINISH.mossMaterialRef].map(ref => ref.id)))
+  expect(patches.every(rule => rule.supportRef.id === result.report.groundAreaId)).toBe(true)
+  const stones = Object.values(scene.props).filter(prop => prop.definitionRef?.id === FOREST_CAMP_FINISH.stoneDefinitionRef.id)
+  expect(stones.length).toBeGreaterThan(0)
+  expect(stones.every(prop => !prop.blocksMovement && !prop.blocksSight && prop.supportRef?.id === result.report.groundAreaId)).toBe(true)
+  for (const path of Object.values(scene.paths)) {
+    expect(path.widthMm).toBe(1800)
+    expect(checkTerrainRoute(scene, { floorId: path.floorId, widthMm: path.widthMm, pointsMm: path.centerlineMm }).ok).toBe(true)
+  }
+  if (seed === 'forest-1' && budget === 'standard') expect(runForestGeneration(base.document, result.input, { profile, nowMilliseconds: () => 0 }).resultHash).toBe(result.resultHash)
+}, 30000)
+
+it('keeps both camp routes usable on the small budget across a large floor', async () => {
+  const profile = taskBudgetProfile('small'), widthMm = 200000, heightMm = 200000
+  const { tree, shrub, grass } = defaultForestCampCoverages({ width: widthMm, height: heightMm })
+  const request = { title: '大范围林地', widthMm, heightMm, seed: 'edge-2', entranceSide: 'north' as const, routeWidthMm: 1800, woodlandDistribution: 'auto' as const,
+    clearings: [{ id: 'camp', boundsMm: { x: 75000, y: 75000, width: 50000, height: 50000 } },
+      { id: 'corner', boundsMm: { x: 194000, y: 2000, width: 4000, height: 3600 } }],
+    treeCoveragePpm: tree, shrubCoveragePpm: shrub, grassCoveragePpm: grass }
+  const runtime = { ids: { nextId: () => 'large-camp-bounds' }, clock: { now: () => '2026-11-25T00:00:00.000Z' } }
+  const { base, input } = await prepareGenerationIntent({ domain: 'forest', request }, { runtime, content: browserGenerationContent, selectBudget: () => profile })
+  const result = runForestGeneration(base.document, input, { profile, nowMilliseconds: () => 0 })
+  expect(result.report.pathIds).toHaveLength(2)
+  expect(result.input.parameters.zones.length).toBeLessThanOrEqual(4)
+  expect(result.report.vegetation.every(row => row.requested <= 64)).toBe(true)
+  expect(Object.values(result.candidate.document.surfaceRules).some(rule => rule.field === 'material')).toBe(true)
+}, 30000)
 
 describe('independent shore surface palette', () => {
   it('retains seven distinct supported opaque periodic SVG sources and exact material roles', () => {

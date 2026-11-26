@@ -82,14 +82,6 @@ try {
     const archive=await shared.importHistoryArchive(await shared.exportHistoryArchive({current:bundle,snapshots:[{...summary,bundle}]},options),options);
     assert.equal(archive.snapshots.length,1);assert.deepEqual(archive.current.project,project);
     assert.deepEqual(archive.snapshots[0].bundle.project,project);
-    const fingerprint=shared.projectContentHash(project), raw=shared.encodeUtf8(shared.canonicalJson(project));
-    const backup=await shared.exportMigrationSet({setId:'node-backup',createdAt:context.clock.now(),converterVersion:shared.CONVERTER_VERSION,
-      scope:{kind:'project-family',repository:'node-smoke',sourceSceneId:project.document.sceneId},sourceFingerprint:fingerprint,
-      records:[{role:'current',recordKey:'node-current',sourceFormat:'node-smoke',contentHash:fingerprint,bytes:raw}]});
-    const reread=await shared.importMigrationSet(backup.index,backup.volumes);
-    assert.equal(shared.assertBackupReceipt(reread.receipt,{setId:'node-backup',sourceFingerprint:fingerprint}).sourceFingerprint,fingerprint);
-    assert.deepEqual(reread.records[0].bytes,raw);
-    assert.throws(()=>shared.assertBackupReceipt({...reread.receipt},{sourceFingerprint:fingerprint}));
     const catalogKey=JSON.stringify([1,'a'.repeat(64),'prop','node-uninstalled',1,'b'.repeat(64)]);
     const organizations={[catalogKey]:{tags:[' Node label '],colors:['蓝','灰'],favorite:true}};
     const libraryBackup=await shared.exportLibraryBackup({entries:[],organizations},options);
@@ -97,7 +89,7 @@ try {
     assert.deepEqual(libraryResult,{entries:[],organizations});
     assert.equal(JSON.parse(new TextDecoder().decode(libraryBackup)).format,'sceneweave-asset-library');
     await assert.rejects(shared.importLibraryBackup(new TextEncoder().encode(JSON.stringify({format:'sceneweave-library',schemaVersion:1,records:[]})),options));
-    console.log('Node原生ESM导入、场景命令/身份/投影、无图片当前/所选历史ZIP、保全set重读/receipt及未安装素材整理的新库备份往返通过；未使用DOM或真实图片适配器。');
+    console.log('Node原生ESM导入、场景命令/身份/投影、无图片当前/所选历史ZIP及未安装素材整理的新库备份往返通过；未使用DOM或真实图片适配器。');
   `
   const executed = spawnSync(process.execPath, ['--input-type=module', '-e', smoke], { cwd: root, encoding: 'utf8' })
   if (executed.status !== 0) throw new Error(executed.stdout + executed.stderr)

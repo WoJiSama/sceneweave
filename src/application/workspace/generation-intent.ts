@@ -1,4 +1,5 @@
 import type { InteriorLayoutParameters, InteriorGenerationInput } from '../../shared/generation/domains/interior/contracts.js'
+import { defaultBuildingWallHeight } from '../../shared/model/building-height.js'
 import { forestRectangle } from '../../shared/generation/domains/forest/index.js'
 import type { ForestGenerationInput, ForestVegetation } from '../../shared/generation/domains/forest/contracts.js'
 import type { VolcanoGenerationInput } from '../../shared/generation/domains/volcano/contracts.js'
@@ -9,7 +10,7 @@ import { checkCancelled, type ResourceOptions } from '../../shared/ports/resourc
 import type { PreparationContext } from '../../shared/ports/runtime.js'
 import { captureJson, freezeJson } from '../../shared/validation/json.js'
 import type { EditableProject } from './project.js'
-import { forestZonesForDistribution, type WoodlandDistribution } from './woodland-distribution.js'
+import { forestCampZones, forestZonesForDistribution, type WoodlandDistribution } from './woodland-distribution.js'
 import { planWoodlandTrails } from './woodland-trails.js'
 
 export interface InteriorGenerationUiRequest {
@@ -141,6 +142,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       return { kind: 'new-project', domain: 'interior', base: content.base, profile: profile(), input: {
         version: 1, algorithmVersion: 22, seed: owned.seed, parameters: {
           floorId: floor.id, layerId: layer.id, boundsMm: { ...floor.boundsMm }, wallThicknessMm: owned.wallThicknessMm,
+          wallHeightMm: defaultBuildingWallHeight(owned.rooms.map(room => room.purpose)),
           rooms: owned.arrangement.furniture ? furnishLounges(owned.rooms) : owned.rooms, relations: owned.relations, corridor: owned.corridor,
           materials: captureJson(content.materials ?? { floor: null, wall: null }), arrangement: { ...owned.arrangement, palette },
         },
@@ -151,7 +153,10 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       const owned = intent.request, content = await options.content.forest(baseIntent, resourceOptions)
       checkCancelled(options.signal)
       const { floor, layer } = groundLayer(content.base, '森林与营地'), bounds = floor.boundsMm
-      const selectedProfile = profile(), inset = Math.ceil(owned.routeWidthMm / 2) + 300
+      const selectedProfile = profile()
+      // A square entrance cap projects farther sideways on a diagonal branch.
+      const inset = Math.max(Math.ceil(owned.routeWidthMm / 2) + 300,
+        content.groundFinish?.kind === 'woodland-v2' ? Math.ceil(owned.routeWidthMm / Math.SQRT2) + 1 : 0)
       const centre = { x: Math.round(bounds.x + bounds.width / 2), y: Math.round(bounds.y + bounds.height / 2) }
       const positionMm = owned.entranceSide === 'west' ? { x: bounds.x + inset, y: centre.y }
         : owned.entranceSide === 'east' ? { x: bounds.x + bounds.width - inset, y: centre.y }
@@ -171,8 +176,13 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
         ] }], clearings, entrances: [{ id: 'entry', supportRef, positionMm, directionDeg, widthMm: owned.routeWidthMm }],
         routes: clearings.map(row => ({ id: `route:${row.id}`, fromEntranceId: 'entry', toClearingId: row.id, viaMm: [], widthMm: owned.routeWidthMm, materialRef: captureJson(content.routeMaterial) })),
       }
-      parameters.zones = forestZonesForDistribution(content.base.document, parameters, owned.seed, owned.woodlandDistribution, content.secondTree)
-      if (parameters.groundFinish) planWoodlandTrails(parameters, owned.seed)
+      if (parameters.groundFinish?.kind === 'woodland-v2') {
+        planWoodlandTrails(parameters, owned.seed)
+        parameters.zones = forestCampZones(content.base.document, parameters, owned.seed, selectedProfile, owned.woodlandDistribution, content.secondTree)
+      } else {
+        parameters.zones = forestZonesForDistribution(content.base.document, parameters, owned.seed, owned.woodlandDistribution, content.secondTree)
+        if (parameters.groundFinish) planWoodlandTrails(parameters, owned.seed)
+      }
       return { kind: 'new-project', domain: 'forest', base: content.base, profile: selectedProfile, input: { version: 1, algorithmVersion: 2, seed: owned.seed, parameters } }
     }
     case 'volcano': {
@@ -209,6 +219,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       const clearArea = Math.max(1, (bounds.width - p.building.wallThicknessMm) * (bounds.height - p.building.wallThicknessMm))
       p.building.rooms = Array.from({ length: owned.roomCount }, (_, index) => ({ id: `room-${index + 1}`, purpose: owned.purpose,
         minAreaMm2: Math.max(1, Math.floor(clearArea / (owned.roomCount * 3))), maxAreaMm2: clearArea, minClearSideMm: 1200 }))
+      p.building.wallHeightMm = defaultBuildingWallHeight([owned.purpose])
       p.building.relations = []
       p.building.arrangement.furniture = owned.furniture
       if (owned.furniture && input.algorithmVersion === 19 && content.loungeFocus !== false) furnishLounges(p.building.rooms)

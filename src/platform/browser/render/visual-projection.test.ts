@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
-import { createBlankDocumentV2 } from '../../../editor/v2/blank-project'
-import { migrateSceneV2 } from '../../../core/v3/migration'
+import { blankScene } from '../../../../tests/helpers/current-project-fixtures.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
 import { projectEditorScene, projectScene } from '../../../shared/projection/projection.js'
 import { projectVisualSystem, projectedWallFootprints } from '../../../shared/visual/projection.js'
@@ -14,8 +12,7 @@ import { materializedBoundaryHash } from '../../../shared/terrain-generation/int
 import { sampleVisualBoundary } from '../../../shared/visual/geometry.js'
 
 function fixture() {
-  const old = createBlankDocumentV2({ title: 'visual projection', widthMm: 10000, heightMm: 8000, preset: 'investigation', sceneId: 'visual-projection', now: '2026-10-25T00:00:00.000Z' })
-  const scene: SceneDocument = toCurrentSceneDocument({ ...migrateSceneV2(old, { sceneId: 'visual-projection-native', now: old.updatedAt }), format: 'sceneweave-scene', schemaVersion: 1 })
+  const scene: SceneDocument = blankScene({ title: 'visual projection', widthMm: 10000, heightMm: 8000, sceneId: 'visual-projection', now: '2026-10-25T00:00:00.000Z' })
   const projection = projectScene(scene, 'player'), layerId = Object.keys(scene.userLayers)[0]
   const entity = { floorId: Object.keys(scene.floors)[0], layerId, visibility: 'public' as const, editLocked: false }
   const boundary: VisualBoundary = { ...entity, id: 'coast', closed: false, binding: { kind: 'decoration' }, sampleSpacingMm: 500, toleranceMm: 10,

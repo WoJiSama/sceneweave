@@ -1,4 +1,4 @@
-import { closeWorkspaceDrawers, openBuildingTask, openOutdoorTask, openSceneObjects, openTerrainTask, openWorkspaceModule } from './workspace-navigation-helpers'
+import { closeWorkspaceDrawers, openBuildingTask, openOutdoorTask, openSceneObjects, openWorkspaceModule } from './workspace-navigation-helpers'
 import { openDetailsBySummary, mapExportButton, reloadSaved } from './workspace-ux-helpers'
 import { expect, test, chromium, type Page, type TestInfo } from '@playwright/test'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
@@ -32,62 +32,60 @@ async function blank(page: Page, title: string) {
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click(); await expect(dialog).toHaveCount(0); await settled(page)
 }
 
-for (const sample of ['VIS-01-S01', 'VIS-02-S01', 'VIS-02-S02', 'M2-SECRET-DOOR'] as const) {
-  test(`native privacy A/B ${sample}: private edits leave actual player 4K pixels and metadata unchanged`, async ({ page, browser }, info) => {
-    await page.goto('/')
-    const result = await page.evaluate(async sample => {
-      const helperPath = '/tests/helpers/m2-joint-browser.ts', renderPath = '/src/platform/browser/render/renderer.ts', projectionPath = '/src/shared/projection/projection.ts'
-      const { nativePrivacyPair, readActualPng } = await import(helperPath) as typeof import('./helpers/m2-joint-browser')
-      const { exportPng, renderProject } = await import(renderPath) as typeof import('../src/platform/browser/render/renderer')
-      const { projectScene } = await import(projectionPath) as typeof import('../src/shared/projection/projection')
-      const pair = await nativePrivacyPair(sample), before = [JSON.stringify(pair.a.project), JSON.stringify(pair.b.project)]
-      const outputs: any[] = []
-      for (const audience of ['player', 'gm'] as const) {
-        const longEdgePx = audience === 'player' ? 4096 : 1024
-        const a = await readActualPng(await exportPng(pair.a, { audience, longEdgePx })), b = await readActualPng(await exportPng(pair.b, { audience, longEdgePx }))
-        let differingChannels = 0, opaque = true, maxDifference = 0
-        const firstDifferences: { x: number; y: number; channel: number; a: number; b: number }[] = []
-        if (a.pixels.length !== b.pixels.length) throw new Error('Private edit changed export dimensions')
-        for (let index = 0; index < a.pixels.length; index++) {
-          if (a.pixels[index] !== b.pixels[index]) {
-            differingChannels++; maxDifference = Math.max(maxDifference, Math.abs(a.pixels[index] - b.pixels[index]))
-            if (firstDifferences.length < 20) firstDifferences.push({ x: Math.floor(index / 4) % a.width, y: Math.floor(index / 4 / a.width), channel: index % 4, a: a.pixels[index], b: b.pixels[index] })
-          }
-          if (index % 4 === 3 && a.pixels[index] !== 255) opaque = false
+test('private SVG and secret door edits leave player 4K pixels and metadata unchanged', async ({ page, browser }, info) => {
+  await page.goto('/')
+  const result = await page.evaluate(async () => {
+    const helperPath = '/tests/helpers/m2-joint-browser.ts', renderPath = '/src/platform/browser/render/renderer.ts', projectionPath = '/src/shared/projection/projection.ts'
+    const { nativePrivacyPair, readActualPng } = await import(helperPath) as typeof import('./helpers/m2-joint-browser')
+    const { exportPng, renderProject } = await import(renderPath) as typeof import('../src/platform/browser/render/renderer')
+    const { projectScene } = await import(projectionPath) as typeof import('../src/shared/projection/projection')
+    const pair = await nativePrivacyPair(), before = [JSON.stringify(pair.a.project), JSON.stringify(pair.b.project)]
+    const outputs: any[] = []
+    for (const audience of ['player', 'gm'] as const) {
+      const longEdgePx = audience === 'player' ? 4096 : 1024
+      const a = await readActualPng(await exportPng(pair.a, { audience, longEdgePx })), b = await readActualPng(await exportPng(pair.b, { audience, longEdgePx }))
+      let differingChannels = 0, opaque = true, maxDifference = 0
+      const firstDifferences: { x: number; y: number; channel: number; a: number; b: number }[] = []
+      if (a.pixels.length !== b.pixels.length) throw new Error('Private edit changed export dimensions')
+      for (let index = 0; index < a.pixels.length; index++) {
+        if (a.pixels[index] !== b.pixels[index]) {
+          differingChannels++; maxDifference = Math.max(maxDifference, Math.abs(a.pixels[index] - b.pixels[index]))
+          if (firstDifferences.length < 20) firstDifferences.push({ x: Math.floor(index / 4) % a.width, y: Math.floor(index / 4 / a.width), channel: index % 4, a: a.pixels[index], b: b.pixels[index] })
         }
-        outputs.push({ audience, width: a.width, height: a.height, hashA: a.rgbaHash, hashB: b.rgbaHash, differingChannels, opaque,
-          chunks: a.chunks, maxDifference, firstDifferences, privateMarkers: pair.sentinels.filter(marker => a.rawText.includes(marker) || b.rawText.includes(marker)) })
+        if (index % 4 === 3 && a.pixels[index] !== 255) opaque = false
       }
-      // A second call after both audiences were rendered exercises the hot path
-      // without reusing a GM projection. Pixel comparisons remain per browser.
-      const previews: string[] = []
-      for (const bundle of [pair.a, pair.b]) {
-        const canvas = await renderProject(bundle, { audience: 'player', longEdgePx: 1024 })
-        const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('Actual preview encode failed')), 'image/png'))
-        previews.push((await readActualPng(blob)).rgbaHash); canvas.width = canvas.height = 0
-      }
-      const projection = projectScene(pair.b.project.document, 'player'), playerJson = JSON.stringify(projection)
-      const unsafe = { project: structuredClone(pair.b.project), resources: pair.b.resources }
-      for (const [id, region] of Object.entries(unsafe.project.document.regions)) if (region.kind === 'manualMask') { delete unsafe.project.document.regions[id]; delete unsafe.project.document.entityLayers[id] }
-      let unsafeError = ''
-      try { projectScene(unsafe.project.document, 'player') } catch (error) { unsafeError = String(error) }
-      return { sample, outputs, previews, privateResourcesInPlayerProjection: pair.privateAssetIds.filter(id => projection.assetIds.includes(id)),
-        projectionEqual: JSON.stringify(projectScene(pair.a.project.document, 'player')) === playerJson,
-        publicResourcesEqual: projection.assetIds.every(id => pair.a.project.document.assets[id].sha256 === pair.b.project.document.assets[id].sha256),
-        privateTextInPlayerProjection: pair.sentinels.filter(marker => playerJson.includes(marker)), masks: projection.masks.length, unsafeError,
-        unchanged: before[0] === JSON.stringify(pair.a.project) && before[1] === JSON.stringify(pair.b.project), sourceFormat: pair.a.project.format,
-        nativePrivateSvgCount: Object.keys(pair.b.project.authoringSources).length }
-    }, sample)
-    await report(info, `privacy-${sample}.json`, { browser: browser.version(), ...result })
-    expect(result.sourceFormat).toBe('sceneweave-complete-project'); expect(result.unchanged).toBe(true); expect(result.projectionEqual).toBe(true); expect(result.publicResourcesEqual).toBe(true)
-    expect(result.outputs[0].width).toBe(4096); expect(result.outputs[0].differingChannels).toBe(0); expect(result.outputs[0].hashA).toBe(result.outputs[0].hashB)
-    expect(result.outputs[1].differingChannels).toBeGreaterThan(0); expect(result.previews[0]).toBe(result.previews[1])
-    expect(result.privateResourcesInPlayerProjection).toEqual([]); expect(result.privateTextInPlayerProjection).toEqual([])
-    expect(result.masks).toBeGreaterThan(0); expect(result.unsafeError).toContain('遮罩未覆盖')
-    for (const output of result.outputs) { expect(output.opaque).toBe(true); expect(output.privateMarkers).toEqual([]); expect(output.chunks.every((chunk: string) => ['IHDR', 'IDAT', 'IEND', 'sRGB'].includes(chunk))).toBe(true) }
-    if (sample === 'M2-SECRET-DOOR') expect(result.nativePrivateSvgCount).toBe(1)
+      outputs.push({ audience, width: a.width, height: a.height, hashA: a.rgbaHash, hashB: b.rgbaHash, differingChannels, opaque,
+        chunks: a.chunks, maxDifference, firstDifferences, privateMarkers: pair.sentinels.filter(marker => a.rawText.includes(marker) || b.rawText.includes(marker)) })
+    }
+    // A second call after both audiences were rendered exercises the hot path
+    // without reusing a GM projection. Pixel comparisons remain per browser.
+    const previews: string[] = []
+    for (const bundle of [pair.a, pair.b]) {
+      const canvas = await renderProject(bundle, { audience: 'player', longEdgePx: 1024 })
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('Actual preview encode failed')), 'image/png'))
+      previews.push((await readActualPng(blob)).rgbaHash); canvas.width = canvas.height = 0
+    }
+    const projection = projectScene(pair.b.project.document, 'player'), playerJson = JSON.stringify(projection)
+    const unsafe = { project: structuredClone(pair.b.project), resources: pair.b.resources }
+    for (const [id, region] of Object.entries(unsafe.project.document.regions)) if (region.kind === 'manualMask') { delete unsafe.project.document.regions[id]; delete unsafe.project.document.entityLayers[id] }
+    let unsafeError = ''
+    try { projectScene(unsafe.project.document, 'player') } catch (error) { unsafeError = String(error) }
+    return { outputs, previews, privateResourcesInPlayerProjection: pair.privateAssetIds.filter(id => projection.assetIds.includes(id)),
+      projectionEqual: JSON.stringify(projectScene(pair.a.project.document, 'player')) === playerJson,
+      publicResourcesEqual: projection.assetIds.every(id => pair.a.project.document.assets[id].sha256 === pair.b.project.document.assets[id].sha256),
+      privateTextInPlayerProjection: pair.sentinels.filter(marker => playerJson.includes(marker)), masks: projection.masks.length, unsafeError,
+      unchanged: before[0] === JSON.stringify(pair.a.project) && before[1] === JSON.stringify(pair.b.project), sourceFormat: pair.a.project.format,
+      nativePrivateSvgCount: Object.keys(pair.b.project.authoringSources).length }
   })
-}
+  await report(info, 'privacy-secret-door.json', { browser: browser.version(), ...result })
+  expect(result.sourceFormat).toBe('sceneweave-complete-project'); expect(result.unchanged).toBe(true); expect(result.projectionEqual).toBe(true); expect(result.publicResourcesEqual).toBe(true)
+  expect(result.outputs[0].width).toBe(4096); expect(result.outputs[0].differingChannels).toBe(0); expect(result.outputs[0].hashA).toBe(result.outputs[0].hashB)
+  expect(result.outputs[1].differingChannels).toBeGreaterThan(0); expect(result.previews[0]).toBe(result.previews[1])
+  expect(result.privateResourcesInPlayerProjection).toEqual([]); expect(result.privateTextInPlayerProjection).toEqual([])
+  expect(result.masks).toBeGreaterThan(0); expect(result.unsafeError).toContain('遮罩未覆盖')
+  for (const output of result.outputs) { expect(output.opaque).toBe(true); expect(output.privateMarkers).toEqual([]); expect(output.chunks.every((chunk: string) => ['IHDR', 'IDAT', 'IEND', 'sRGB'].includes(chunk))).toBe(true) }
+  expect(result.nativePrivateSvgCount).toBe(1)
+})
 
 test('native protected restore failure rolls back actual IndexedDB and retains saved branch, memory, undo and recovery', async ({ page }, info) => {
   await page.goto('/')
@@ -234,45 +232,6 @@ test('native two-page revision and metadata CAS preserve both editable branches 
   await page.evaluate(async () => { const { repository } = Reflect.get(window, '__jointCAS'); repository.close(); await repository.database.delete() })
 })
 
-test('all six legacy repositories convert only after reread preservation and keep source rows, complete ancestry and independent native identities', async ({ page }, info) => {
-  test.setTimeout(240_000)
-  await page.goto('/')
-  const result = await page.evaluate(async () => {
-    const fixturePath = '/tests/helpers/u1a-browser.ts', helperPath = '/tests/helpers/m20d-fixtures.ts', conversionPath = '/src/application/migration/conversion.ts', capturePath = '/src/compat/legacy/capture.ts', setPath = '/src/shared/migration/set.ts'
-    const fixture = await import(fixturePath), helper = await import(helperPath), migration = await import(conversionPath), capture = await import(capturePath), { importMigrationSet } = await import(setPath)
-    const seeded = await fixture.seedU1ADiscoveryFixture(), env = helper.migrationEnvironment(), before = await fixture.fingerprintU1ADatabases()
-    const converted = []
-    try {
-      for (const repository of ['v1', 'v2', 'v3', 'v4', 'v5', 'v6'] as const) {
-        const reference = { repository, sceneId: seeded.sceneId }, initial = await capture.captureLegacyFamily(reference), start = await migration.beginProjectConversion(reference, env)
-        if (!start.backup) throw new Error('A new conversion must require reread preservation')
-        const reread = await helper.rereadBackup(start.backup), recovered = await importMigrationSet(reread.index, reread.volumes)
-        const exactPreservation = initial.records.every((record: any) => recovered.records.some((actual: any) => actual.role === record.role && actual.recordKey === record.recordKey && actual.contentHash === record.contentHash && actual.bytes.length === record.bytes.length && actual.bytes.every((value: number, index: number) => value === record.bytes[index])))
-        const done = await migration.continueProjectConversion({ jobId: start.job.jobId, backup: reread }, env)
-        const cold = await env.repository.load(done.job.targetSceneId), originals = await env.repository.listLegacySources(done.job.targetSceneId)
-        const exactOriginals = []
-        for (const original of originals) {
-          const actual = await env.repository.loadLegacyOriginal(done.job.targetSceneId, original.nodeId)
-          exactOriginals.push({ schema: original.sourceSchemaVersion, hash: original.sourceHash, bytes: actual.bytes.length })
-        }
-        converted.push({ repository, stage: done.job.stage, oldId: seeded.sceneId, newId: done.job.targetSceneId, revision: cold.project.document.revision,
-          format: cold.project.format, sourceUnchanged: (await capture.captureLegacyFamily(reference)).sourceFingerprint === initial.sourceFingerprint,
-          preservedRoles: recovered.records.map((v: any) => v.role), exactPreservation,
-          originalSchemas: originals.map((v: any) => v.sourceSchemaVersion), exactOriginals, snapshots: (await env.repository.listSnapshots(done.job.targetSceneId)).map((v: any) => v.kind) })
-      }
-      return { before, after: await fixture.fingerprintU1ADatabases(), converted, nativeReady: (await env.repository.list()).length }
-    } finally { env.repository.close() }
-  })
-  expect(result.after).toEqual(result.before); expect(result.nativeReady).toBe(6); expect(new Set(result.converted.map(value => value.newId)).size).toBe(6)
-  for (const value of result.converted) {
-    expect(value.stage).toBe('verified'); expect(value.format).toBe('sceneweave-complete-project'); expect(value.newId).not.toBe(value.oldId); expect(value.revision).toBe(0); expect(value.sourceUnchanged).toBe(true)
-    expect(value.exactPreservation).toBe(true); expect(value.preservedRoles).toContain('current'); expect(value.exactOriginals.every((row: any) => row.bytes > 0)).toBe(true)
-    expect(value.originalSchemas).toEqual([]); expect(value.snapshots).toEqual(value.repository === 'v6' ? ['imported-auto'] : [])
-  }
-  expect(result.converted[3].preservedRoles).toContain('named'); expect(result.converted[4].preservedRoles).toContain('named')
-  await report(info, 'six-legacy-native-preservation.json', result)
-})
-
 test('selected SVG history archive imports in an empty native database offline and remains editable with exact original source/license bytes', async ({ page, context, browserName }, info) => {
   await page.goto('/')
   const transfer = await page.evaluate(async () => {
@@ -288,11 +247,12 @@ test('selected SVG history archive imports in an empty native database offline a
     repository.close(); await repository.database.delete()
     return { base64, expected, owner }
   })
-  // Load the application's modules before going offline. This does not claim PWA
-  // cold start: no network modules or external assets are fetched after this point.
+  // Load the application, history restore and PNG renderer before testing offline data access.
   await page.evaluate(async () => {
     const helperPath = '/tests/helpers/m2-joint-browser.ts', filePath = '/src/shared/project/file.ts', repositoryPath = '/src/platform/browser/storage/repository.ts', workspacePath = '/src/application/workspace/workspace.ts', projectPath = '/src/application/workspace/project.ts', renderPath = '/src/platform/browser/render/renderer.ts'
     const [helper, io, repo, workspace, project, render] = await Promise.all([import(helperPath), import(filePath), import(repositoryPath), import(workspacePath), import(projectPath), import(renderPath)])
+    const restorePath = '/src/shared/history/restore.ts', canvasRendererPath = '/src/platform/browser/render/canvas-renderer.ts'
+    await Promise.all([import(restorePath), import(canvasRendererPath)])
     Reflect.set(window, '__jointOffline', { helper, io, repo, workspace, project, render })
   })
   let requestsAfterOffline = 0; page.on('request', request => { if (request.url().startsWith('http')) requestsAfterOffline++ })
@@ -380,7 +340,7 @@ test('390px actual mixed-tool UI, named restore, reload, keyboard drawers and fa
   await reloadSaved(page); await settled(page); expect((await readState(page)).document).toEqual(restored.document)
   await page.getByRole('button', { name: '回到首页', exact: true }).click()
   await page.getByTestId('native-project-file').setInputFiles({ name: 'truncated.sceneweave', mimeType: 'application/octet-stream', buffer: Buffer.from([80, 75, 3, 4, 0]) })
-  await expect(page.locator('.workspace-notice')).toContainText('只支持当前完整工程v1文件；旧开发数据请使用首页独立迁入工具。')
+  await expect(page.locator('.workspace-notice')).toContainText('请选择有效的 Sceneweave 完整工程 v1 文件。')
   await page.getByTestId('workspace-home').getByRole('button', { name: '继续编辑', exact: true }).first().click(); await settled(page); expect((await readState(page)).document).toEqual(restored.document)
   await page.getByRole('button', { name: '关闭提示', exact: true }).click()
   expect(errors).toEqual([])

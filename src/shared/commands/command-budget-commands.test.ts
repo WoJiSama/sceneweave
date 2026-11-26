@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
-import { layerSceneV3, scatterLayerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene, scatterLayerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent, inspectAppearanceScope, resolveAppearance } from '../appearance/graph.js'
 import { applyCompositionCommands } from '../appearance/commands.js'
 import { MANUAL_TRANSACTION_BUDGET, measureCommandBudget } from '../budget/command-budget.js'
 import { taskBudgetProfile } from '../budget/task-budget.js'
 import type { CompositionContent } from '../model/appearance.js'
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { materializedBoundaryHash } from '../terrain-generation/integrity.js'
 import { cloneJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
@@ -47,7 +46,7 @@ describe('explicit ordinary command budgets', () => {
   })
 
   it('deduplicates a container and its 256 live members when moving layers, while keeping locks', () => {
-    const source = toCurrentSceneDocument({ ...scatterLayerSceneV3(256), format: 'sceneweave-scene' })
+    const source = scatterLayerScene(256)
     source.userLayers.target = { id: 'target', floorId: 'blank-floor', name: '目标', order: 1, editLocked: false }
     expect(previewLayerMove(source, ['scatter'], 'target').reason).toMatch(/256/)
     expect(previewLayerMove(source, ['scatter'], 'target', taskBudgetProfile('small')).reason).toMatch(/256/)
@@ -60,7 +59,7 @@ describe('explicit ordinary command budgets', () => {
   })
 
   it('exposes synchronized intermediate content for both scene and appearance commands', () => {
-    const source = createCompositionContent(toCurrentSceneDocument({ ...layerSceneV3(), format: 'sceneweave-scene' }), runtime()), ordinary: CompositionContent[] = []
+    const source = createCompositionContent(layerScene(), runtime()), ordinary: CompositionContent[] = []
     const moved = applyCompositionCommands(source, [
       { type: 'updateProp', id: 'item', changes: { positionMm: { x: 4500, y: 4000 } } },
       { type: 'updateProp', id: 'item', changes: { positionMm: { x: 5000, y: 4000 } } },
@@ -77,7 +76,7 @@ describe('explicit ordinary command budgets', () => {
   })
 
   it('keeps a wide layer scope usable when instance overrides mask almost all effective changes', () => {
-    let source = createCompositionContent(toCurrentSceneDocument({ ...scatterLayerSceneV3(256), format: 'sceneweave-scene' }), runtime())
+    let source = createCompositionContent(scatterLayerScene(256), runtime())
     for (const id of Object.keys(source.document.props).filter(id => id !== 'item')) {
       source.appearance.instanceAdjustments[id] = [{ id: `keep-${id}`, kind: 'opacity', value: .7, enabled: true }]
     }

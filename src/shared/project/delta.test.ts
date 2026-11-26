@@ -1,6 +1,5 @@
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it, vi } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { svgProjectFixture } from '../../../tests/helpers/m24-svg-fixtures.js'
 import { createCompositionContent } from '../appearance/graph.js'
 import { applyCompositionDraftCommands, completeCompositionTransactionReceipt, getCompositionTransactionReceipt } from '../appearance/commands.js'
@@ -20,7 +19,7 @@ import { certifyProjectData, completeProjectTransactionReceipt, createProjectRep
 
 let sequence = 0
 function fixture(configure?: (document: SceneDocument) => void): ProjectData {
-  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+  const document: SceneDocument = layerScene()
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   configure?.(document)
   const content = createCompositionContent(document, { ids: { nextId: () => `delta-test-${++sequence}` }, clock: { now: () => '2026-10-29T00:00:00.000Z' } })

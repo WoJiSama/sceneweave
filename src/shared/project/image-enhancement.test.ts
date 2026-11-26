@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { bitmapVariant, createCompositionContent } from '../appearance/graph.js'
 import { inspectDependencies } from '../commands/dependencies.js'
 import { applyImageEnhancement } from '../image-enhancement/pixels.js'
@@ -9,7 +9,6 @@ import { tryDecodeDecontaminationSource } from '../image-enhancement/source-pixe
 import type { ImageSelectionMask } from '../image-import/selection-mask.js'
 import type { ImagePixels } from '../image-import/pixels.js'
 import { loadLibraryCapsule, prepareLibraryEntry } from '../library/content.js'
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import type { AssetRecord, ProjectBundle, ProjectData } from '../model/project.js'
 import type { AssetRef, SceneDocument } from '../model/scene.js'
 import type { ImageProcessingPort } from '../ports/resources.js'
@@ -35,7 +34,7 @@ const images: ImageProcessingPort = {
   async transform(image, parameters) { return { ...image, rgba: transformRgba(image.rgba, parameters.tint, parameters.brightness) } },
 }
 function fixture(depth = 1, scope?: ImageSelectionMask, selectedRecipe = recipe, sourcePixels = pixels) {
-  const document: SceneDocument = toCurrentSceneDocument({ ...layerSceneV3(), format: 'sceneweave-scene' })
+  const document: SceneDocument = layerScene()
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const bytes = new Map<string, Uint8Array>(), records: ProjectData['assets'] = {}
   const origin = { kind: 'imported' as const, attribution: 'Image enhancement test fixture', canEmbed: true }

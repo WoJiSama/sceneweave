@@ -1,4 +1,5 @@
 import { openGenerationTask, openWorkspaceModule } from './workspace-navigation-helpers'
+import { keyboardProjectBackup } from './keyboard-ux-helpers'
 import { expect, test } from '@playwright/test'
 
 test('interior suggestions save, cold-open and allow deleting furniture without restoring it', async ({ page }, info) => {
@@ -30,6 +31,7 @@ test('interior suggestions save, cold-open and allow deleting furniture without 
   await expect(candidate.getByLabel('室内首次布置结果')).toContainText(/实际安排 [1-9]\d* 扇门、[1-9]\d* 件家具/)
   await expect(page.locator('.asset-view-actions')).toContainText('12.000 m × 8.000 m')
   await expect(page.getByLabel('材质场景主持人预览', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('generation-sketch')).toHaveCount(0)
   await page.screenshot({ path: info.outputPath('interior-preview.png') })
   // Changing a parameter invalidates the old candidate before another preview.
   await openGenerationTask(page, '室内布局')
@@ -52,6 +54,10 @@ test('interior suggestions save, cold-open and allow deleting furniture without 
   await expect(page.getByLabel('材质场景主持人预览', { exact: true })).toBeVisible({ timeout: 30000 })
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
   await page.screenshot({ path: info.outputPath('interior-cold-open.png') })
+  const { document } = await keyboardProjectBackup(page, info.outputPath('interior-with-building-heights.sceneweave'))
+  expect(Object.values(document.walls).every(wall => wall.heightMm === 2800)).toBe(true)
+  expect(Object.values(document.openings).every(opening => opening.vertical?.heightMm === 2100)).toBe(true)
+  expect(Object.values(document.props).some(prop => prop.definitionRef && document.propDefinitions[prop.definitionRef.id].defaultVolume)).toBe(true)
   // Initial suggestions never become permanent requirements. Delete a real
   // generated furniture instance through the normal inspector, then cold-open.
   await openWorkspaceModule(page, '场景')

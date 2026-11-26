@@ -1,12 +1,7 @@
-import { toCurrentSceneDocument } from '../../src/shared/model/current-scene.js'
-import { createHouse } from '../../src/core/seed'
-import { migrateSceneV1 } from '../../src/core/v2/migration'
-import { migrateSceneV2 } from '../../src/core/v3/migration'
-import { createPrivacyPairB4, type PrivacyCaseB4 } from '../b4-privacy-fixtures'
+import secretDoorScene from './secret-door-scene.json'
 import { createCompositionContent } from '../../src/shared/appearance/graph'
 import { createMemoryResources, validateProjectBundle } from '../../src/shared/project/resources'
 import { sha256Bytes } from '../../src/shared/project/binary'
-import { normalizePngChunks } from '../../src/shared/project/image-bytes'
 import { inspectDependencies } from '../../src/shared/geometry/dependencies'
 import { createBrowserImagePort } from '../../src/platform/browser/images'
 import { createBrowserSvgPort } from '../../src/platform/browser/ai/svg-port'
@@ -21,29 +16,10 @@ import type { SceneDocument } from '../../src/shared/model/scene'
 export const validation = { images: createBrowserImagePort(), svg: createBrowserSvgPort() }
 export const runtime = { ids: { nextId: () => crypto.randomUUID() }, clock: { now: () => new Date().toISOString() } }
 
-/** Fixture adaptation only. The entire renderer/storage path exercised below uses native complete v1. */
-export async function nativePrivacyPair(name: PrivacyCaseB4 | 'M2-SECRET-DOOR') {
-  if (name !== 'M2-SECRET-DOOR') {
-    const pair = await createPrivacyPairB4(name)
-    const variants = []
-    for (const input of [pair.a, pair.b]) {
-      const document: SceneDocument = toCurrentSceneDocument({ ...migrateSceneV2(input.document, { sceneId: `joint-${name}` }), format: 'sceneweave-scene', schemaVersion: 1 })
-      const bytes = new Map<string, Uint8Array>()
-      const remap = new Map<string, string>()
-      const assets = Object.fromEntries(await Promise.all(Object.entries(input.assets).map(async ([hash, { blob, ...record }]) => {
-        const adopted = normalizePngChunks(new Uint8Array(await blob.arrayBuffer())), next = sha256Bytes(adopted)
-        bytes.set(next, adopted); remap.set(hash, next); return [next, { ...record, sha256: next, sizeBytes: adopted.length }]
-      })))
-      for (const ref of Object.values(document.assets)) ref.sha256 = remap.get(ref.sha256)!
-      const content = createCompositionContent(document, runtime)
-      variants.push(await validateProjectBundle({ project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets,
-        licenses: input.licenses, licenseBindings: input.licenseBindings, authoringSources: {} }, resources: createMemoryResources(bytes) }, validation))
-    }
-    return { a: variants[0], b: variants[1], privateAssetIds: pair.secretAssetIds, sentinels: pair.sentinelStrings }
-  }
+export async function nativePrivacyPair() {
   const variants: ProjectBundle[] = []
   for (const variant of ['a', 'b']) {
-    const document: SceneDocument = toCurrentSceneDocument({ ...migrateSceneV2(migrateSceneV1(createHouse('joint-secret-source')), { sceneId: 'joint-secret-target' }), format: 'sceneweave-scene', schemaVersion: 1 })
+    const document = structuredClone(secretDoorScene) as unknown as SceneDocument
     const other = variant === 'b'
     document.regions['g-a1'].boundaryMm = [{ x: -500, y: -500 }, { x: 18500, y: -500 }, { x: 18500, y: 4500 }, { x: -500, y: 4500 }]
     if (other) {

@@ -13,12 +13,10 @@ export class WorkspaceRepository {
   listNamedSnapshots(sceneId: string) { return projectRepository.listSnapshots(sceneId) }
   async historyOverview(sceneId: string) {
     const value = await projectRepository.historyOverview(sceneId)
-    return { snapshots: value.snapshots, legacySources: value.legacySources, history: value.history,
-      usage: { ...value.usage, originalBytes: value.usage.legacyBytes, limits: HISTORY_LIMITS } }
+    return { snapshots: value.snapshots, history: value.history,
+      usage: { ...value.usage, limits: HISTORY_LIMITS } }
   }
   listHistoryVersions(sceneId: string) { return projectRepository.listHistoryVersions(sceneId) }
-  listLegacySources(sceneId: string) { return projectRepository.listLegacySources(sceneId) }
-  loadLegacyOriginal(sceneId: string, nodeId: string) { return projectRepository.loadLegacyOriginal(sceneId, nodeId) }
   async loadNamedSnapshot(id: string, ownerSceneId: string) {
     const value = await projectRepository.loadSnapshot(ownerSceneId, id)
     if (!value) return null
@@ -33,7 +31,7 @@ export class WorkspaceRepository {
     if (metadataVersion === undefined) throw new Error('请先读取历史元数据。')
     return projectRepository.deleteSnapshot(owner, id, hash, metadataVersion)
   }
-  async usage(sceneId: string) { const value = await projectRepository.usage(sceneId); return { ...value, originalBytes: value.legacyBytes, limits: HISTORY_LIMITS } }
+  async usage(sceneId: string) { const value = await projectRepository.usage(sceneId); return { ...value, limits: HISTORY_LIMITS } }
   async exportArchive(sceneId: string, snapshotIds: readonly string[], signal?: AbortSignal) {
     checkCancelled(signal)
     const current = await projectRepository.load(sceneId, { signal })

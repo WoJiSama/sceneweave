@@ -7,17 +7,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const sourceRoot = resolve(root, 'src')
 const sourceRelative = path => relative(sourceRoot, path).replaceAll('\\', '/')
 const allowedPackages = new Set(['zod', 'fflate', 'polygon-clipping'])
-// This test-only helper imports the legacy fixture used by application tests.
+// This helper is shared by workspace and storage tests.
 // Production modules must never acquire that dependency through the helper.
 const testSupport = new Set(['application/workspace/test-fixtures'])
-// The independent one-time migration use cases still consume the read-only
-// legacy capture/conversion boundary. This grants no browser implementation
-// dependency and does not reopen legacy files through the ordinary workspace.
-const migrationImports = new Map([
-  ['application/migration/conversion.ts', new Set(['../../compat/legacy/capture.js', '../../compat/legacy/file.js', '../../compat/legacy/convert.js'])],
-  ['application/migration/preservation.ts', new Set(['../../compat/legacy/capture.js', '../../compat/legacy/catalog.js'])],
-  ['application/migration/library-conversion.ts', new Set(['../../compat/legacy/capture.js', '../../compat/legacy/catalog.js'])],
-])
 const files = []
 async function walk(folder) {
   for (const item of await readdir(folder, { withFileTypes: true })) {
@@ -35,7 +27,6 @@ for (const path of files) {
   const layer = sourceRelative(path).split('/')[0]
   const syntax = ts.createSourceFile(path, await readFile(path, 'utf8'), ts.ScriptTarget.Latest, true)
   const inspect = specifier => {
-    if (migrationImports.get(sourceRelative(path))?.has(specifier)) return
     const targetPath = specifier.startsWith('.') ? sourceRelative(resolve(dirname(path), specifier)) : null
     if (targetPath && testSupport.has(targetPath.replace(/\.[jt]sx?$/, ''))) throw new Error(`生产模块不能依赖测试夹具：${relative(root, path)} → ${specifier}`)
     const target = targetPath?.split('/')[0]

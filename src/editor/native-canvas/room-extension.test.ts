@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { layerSceneV3, STAMP_V3 } from '../../core/v3/test-fixtures'
+import { layerScene, FIXTURE_STAMP } from '../../../tests/helpers/current-project-fixtures.js'
 import { applyCommands } from '../../shared/commands/commands'
-import { toCurrentSceneDocument } from '../../shared/model/current-scene'
 import { extensionBoundary, extensionDepth, extensionWallAt, startRoomExtension } from './room-extension'
 
 describe('room extension from an existing wall', () => {
   it('keeps the actual endpoints of a reversed diagonal wall and excludes a shared, hidden or locked edge', () => {
-    const base = toCurrentSceneDocument({ ...layerSceneV3(), format: 'sceneweave-scene' })
+    const base = layerScene()
     let sequence = 0
-    const runtime = { ids: { nextId: () => `extension-test-${++sequence}` }, clock: { now: () => STAMP_V3 } }
+    const runtime = { ids: { nextId: () => `extension-test-${++sequence}` }, clock: { now: () => FIXTURE_STAMP } }
     const room = { type: 'createRoom' as const, floorId: 'blank-floor', thicknessMm: 200, layerId: 'layer-default-0' }
     const scene = applyCommands(base, [{ ...room, id: 'hall', boundaryMm: [{ x: 3000, y: 3000 }, { x: 9000, y: 3000 }, { x: 6000, y: 7000 }] }], runtime)
     const outside = startRoomExtension(scene, 'hall', new Set()).walls.find(wall => wall.outward.x > 0)!

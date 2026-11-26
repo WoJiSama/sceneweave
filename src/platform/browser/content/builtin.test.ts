@@ -1,16 +1,14 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createOutdoorBlankProject } from '../../../editor/v6/blank-project'
-import { extendBuiltinCatalogProject } from '../../../editor/v6/themed-catalog'
-import { describeCatalogItems } from '../../../catalog/content'
-import oldCuration from '../../../catalog/curation-data.json'
-import { listCatalogItems } from '../../../shared/library/content.js'
+import { adoptLibraryEntries, listCatalogItems, prepareLibraryEntry } from '../../../shared/library/content.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { getVerifiedProjectBundle } from '../../../shared/project/resources.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
 import { loadBuiltinCatalog, builtinIdentityAudit } from './builtin.js'
+import curationData from './curation-data.json'
 import { CATALOG_CURATION, catalogCurationFor } from './curation.js'
+import { preferredObliqueProp, withBuiltinPropVolumes } from './builtin-prop-volumes.js'
 
 // Explicit Node image-port double: real Chrome checks separately decode all 57 images.
 const validation: CompleteValidationOptions = { images: {
@@ -27,41 +25,37 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe('M2-0e standalone native-v1 immutable builtin fixed content', () => {
-  it('has no runtime path to editor factories or legacy catalog code', async () => {
+  it('has no runtime path to editor factories', async () => {
     const pending = [resolve('src/platform/browser/content/index.ts')], visited = new Set<string>()
     while (pending.length) {
       const path = pending.pop()!
       if (visited.has(path)) continue
       visited.add(path)
-      expect(path).not.toContain('/src/editor/'); expect(path).not.toMatch(/\/src\/catalog\/.*\.ts$/)
+      expect(path.replaceAll('\\', '/')).not.toMatch(/\/src\/(?:editor|catalog)\//)
+      if (path.endsWith('.json')) continue
       const source = await readFile(path, 'utf8')
       for (const match of source.matchAll(/(?:import|export)\s+(?:[^;\n]*?\s+from\s+)?['"]([^'"]+)['"]/g)) {
-        if (!match[1].startsWith('.') || match[1].endsWith('.json')) continue
+        if (!match[1].startsWith('.')) continue
         const dependency = resolve(path, '..', match[1].replace(/\.js$/, '.ts'))
-        pending.push(dependency.endsWith('.ts') ? dependency : `${dependency}.ts`)
+        pending.push(/\.(?:ts|json)$/.test(dependency) ? dependency : `${dependency}.ts`)
       }
     }
     expect(visited.size).toBeGreaterThan(10)
   })
 
-  it('recomputes all 62 exact old keys, full metadata, 57 actual bytes and six refinement references without changing fixed defaults', async () => {
-    const old = await extendBuiltinCatalogProject(await createOutdoorBlankProject({ title: 'Old independent provider', widthMm: 20_000, heightMm: 20_000, preset: 'investigation' }))
-    const native = await loadBuiltinCatalog(validation), oldItems = describeCatalogItems(old), newItems = listCatalogItems(native)
+  it('validates all 62 fixed keys, 57 image resources and six refinement references', async () => {
+    const native = await loadBuiltinCatalog(validation), newItems = listCatalogItems(native)
     expect(getVerifiedProjectBundle(native)).toBe(native)
     expect(builtinIdentityAudit(native)).toEqual({ items: 62, images: 57, curations: 62, refines: 6 })
-    expect(new Map(newItems.map(item => [item.identity.key, item]))).toEqual(new Map(oldItems.map(item => [item.identity.key, item])))
-    for (const collection of ['assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes'] as const) expect(native.project.document[collection]).toEqual(old.document[collection])
-    for (const collection of ['sources', 'variants', 'prefabAppearanceTemplates'] as const) expect(native.project.appearance[collection]).toEqual(old.appearance[collection])
-    expect(native.project.licenses).toEqual(old.licenses); expect(native.project.licenseBindings).toEqual(old.licenseBindings)
     expect(native.project.authoringSources).toEqual({}); expect(native.project.document.sceneId).toBe('sceneweave-builtin-content-v1')
-    for (const [hash, record] of Object.entries(old.assets)) {
+    for (const hash of Object.keys(native.project.assets)) {
       const bytes = await native.resources.read(hash)
-      expect(bytes).toEqual(new Uint8Array(await record.blob.arrayBuffer())); expect(sha256Bytes(bytes)).toBe(hash)
+      expect(sha256Bytes(bytes)).toBe(hash)
       bytes[0] ^= 1
       expect(sha256Bytes(await native.resources.read(hash))).toBe(hash)
     }
     const byKey = new Map(newItems.map(item => [item.identity.key, item]))
-    for (const record of oldCuration.records) {
+    for (const record of curationData.records) {
       expect(CATALOG_CURATION.get(record.key)).toEqual(record)
       expect(catalogCurationFor(byKey.get(record.key)!)).toEqual(record)
       if (record.refines) {
@@ -72,6 +66,23 @@ describe('M2-0e standalone native-v1 immutable builtin fixed content', () => {
         expect(catalogCurationFor(changed)).toBeUndefined()
       }
     }
+  })
+
+  it('adopts a versioned volume with the exact bitmap and license while retaining the original fixed definition', async () => {
+    const original = await loadBuiltinCatalog(validation), extended = withBuiltinPropVolumes(original.project)
+    const id = 'm1d-p-01', oldDefinition = original.project.document.propDefinitions[id]
+    const ref = preferredObliqueProp(extended.document, id)
+    expect(ref.version).toBe(2)
+    const next = extended.document.propDefinitions[ref.id]
+    expect(next.defaultVolume).toEqual({ kind: 'box', heightMm: 650 })
+    expect(next.defaultAppearance).toEqual(oldDefinition.defaultAppearance)
+    const item = await prepareLibraryEntry({ project: extended, resources: original.resources }, { kind: 'prop', definitionId: ref.id }, validation)
+    const { bundle } = await adoptLibraryEntries(original, [item], validation)
+    expect(bundle.project.document.propDefinitions[id]).toEqual(oldDefinition)
+    expect(bundle.project.document.propDefinitions[ref.id]).toEqual(next)
+    expect(bundle.project.assets).toEqual(original.project.assets)
+    const license = original.project.licenseBindings.find(row => row.subjectKind === 'propDefinition' && row.subjectId === id)!
+    expect(bundle.project.licenseBindings).toContainEqual({ ...license, subjectId: ref.id })
   })
 
   it('rejects a failed fetch and altered actual source bytes instead of publishing a partial provider', async () => {

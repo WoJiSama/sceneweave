@@ -1,7 +1,8 @@
 import { terrainGenerationInputV5Schema, terrainGenerationResultV5Schema, generateTerrainDocumentV5, compositionPresetV5Schema, compositionPresetV5, materializeTerrainCompositionV5 } from './surface-generation.js'
 import { terrainGenerationInputV8Schema, terrainGenerationResultV8Schema, generateTerrainDocumentV8 } from './forest-generation-v8.js'
 import { terrainGenerationInputV9Schema, terrainGenerationResultV9Schema, generateTerrainDocumentV9 } from './coast-generation-v9.js'
-import { COASTAL_ASCENT_VERSION, WEATHERED_COAST_VERSION, NATURAL_STONE_COAST_VERSION, ERODED_COAST_VERSION, terrainGenerationInputV10Schema, terrainGenerationInputV11Schema,
+import { COASTAL_ASCENT_VERSIONS, ERODED_COAST_VERSION } from './recipe-capabilities.js'
+import { terrainGenerationInputV10Schema, terrainGenerationInputV11Schema,
   terrainGenerationInputV12Schema, terrainGenerationInputV13Schema, terrainGenerationResultV10Schema, terrainGenerationResultV11Schema, terrainGenerationResultV12Schema, terrainGenerationResultV13Schema,
   coastalGenerationRecipe } from './coastal-generation.js'
 import { terrainGenerationInputV6Schema, terrainGenerationResultV6Schema, generateTerrainDocumentV6,
@@ -27,7 +28,7 @@ const generationSchema=z.discriminatedUnion('kind',[
  z.object({kind:z.literal('terrain'),input:z.union([terrainGenerationInputV4Schema,terrainGenerationInputV5Schema,terrainGenerationInputV6Schema,terrainGenerationInputV7Schema,terrainGenerationInputV8Schema,terrainGenerationInputV9Schema,terrainGenerationInputV10Schema,terrainGenerationInputV11Schema,terrainGenerationInputV12Schema,terrainGenerationInputV13Schema])}).strict(),
  z.object({kind:z.literal('composition'),input:z.union([compositionPresetV4Schema,compositionPresetV5Schema,compositionPresetV6Schema,compositionPresetV7Schema])}).strict(),
 ])
-const algorithmVersions = [4,5,6,7,8,9,COASTAL_ASCENT_VERSION,WEATHERED_COAST_VERSION,NATURAL_STONE_COAST_VERSION,ERODED_COAST_VERSION] as const
+const algorithmVersions = [4,5,6,7,8,9,...COASTAL_ASCENT_VERSIONS] as const
 const algorithmSchema=z.object({id:z.enum(['terrain-scene','terrain-scene-t3','terrain-compose']),version:z.literal([1,...algorithmVersions]),recipeVersion:z.literal(algorithmVersions)}).strict()
 const context={requestId:id,workspaceSceneId:id,checkpoint:count,operationEpoch:count,flowId:id}
 const stamp={...context,inputHash:hash,baseHash:hash,paletteHash:hash,profileHash:hash,algorithm:algorithmSchema}
@@ -41,11 +42,10 @@ const domainCost=z.object({items:z.record(z.string().min(1).max(768),z.literal(1
 export const BaseMapResponseV3Schema=z.object({protocol:z.literal('sceneweave-base-map'),version:z.literal(3),type:z.literal('result'),...stamp,generation:generationSchema,result:resultSchema,domainCost,
  generationBudget:z.object({semanticTargets:z.array(z.string().min(1).max(768)).max(2048),semanticCost:count.max(2048),usage:BudgetUsageSchema}).strict(),resultHash:hash}).strict()
 export type BaseMapResponseV3=z.infer<typeof BaseMapResponseV3Schema>
-/** The default for a fresh request. Stored requests always replay their saved version. */
-export function terrainAlgorithmForPalette(kind: TerrainGenerationInput['kind'], recipe: 4 | 5 | 6 | 7) {
- if (recipe !== 5) return recipe
- if (kind === 'island' || kind === 'coast') return ERODED_COAST_VERSION
- return kind === 'forest' ? 8 : 5
+/** Fresh requests with the default terrain preset. Replay uses the recorded version. */
+export function defaultTerrainAlgorithmVersion(kind: TerrainGenerationInput['kind']) {
+  if (kind === 'island' || kind === 'coast') return ERODED_COAST_VERSION
+  return kind === 'forest' ? 8 : 5
 }
 const digest=(value:unknown)=>sha256Text(canonicalJson(value)),same=(a:unknown,b:unknown)=>canonicalJson(a)===canonicalJson(b)
 function capture(raw:unknown,maximum:number){const value=captureJson(raw);if(encodeUtf8(canonicalJson(value)).length>maximum)throw new Error('程序底图3传输超过字节预算。');return value}

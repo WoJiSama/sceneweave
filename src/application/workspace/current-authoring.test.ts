@@ -5,6 +5,7 @@ import { ProjectRepository } from '../../platform/browser/storage/repository.js'
 import { applyAuthoringStep, replayAuthoring } from '../../shared/ai/authoring.js'
 import type { AuthoringDraft, DraftLease } from '../../shared/ai/authoring-protocol.js'
 import { cloneJson } from '../../shared/validation/json.js'
+import type { ProjectExtensions } from '../../shared/model/project.js'
 import { type AtomicCandidate } from './atomic.js'
 import { fromBundle, toBundle } from './project.js'
 import { Workspace } from './workspace.js'
@@ -16,11 +17,13 @@ afterEach(async () => {
   for (const workspace of sessions.splice(0)) await workspace.close().catch(() => {})
   for (const repo of repos.splice(0)) { const name = repo.database.name; repo.close(); await Dexie.delete(name) }
 })
-async function setup() {
+async function setup(extensions?: ProjectExtensions) {
   const repo = new ProjectRepository({ name: `current-authoring-${crypto.randomUUID()}`, runtime, validation })
   repos.push(repo)
   const workspace = new Workspace(repo, { runtime, validation }); sessions.push(workspace)
-  await workspace.adoptNew(await fromBundle(fixture({ image: true }), validation))
+  const bundle = fixture({ image: true })
+  if (extensions) bundle.project.extensions = extensions
+  await workspace.adoptNew(await fromBundle(bundle, validation))
   const authorization = await workspace.authorizeCurrentAtomic({ targetIds: ['item'], operations: ['transform', 'opacity'], placement: null })
   const draft: AuthoringDraft = { schemaVersion: 4, taskId: 'current-authoring-task', generation: 1, start: authorization.start,
     state: applyAuthoringStep(authorization.start, replayAuthoring(authorization.start, []).state,
@@ -35,22 +38,31 @@ function lease(candidate: AtomicCandidate): DraftLease {
 
 describe('current authoring4 workspace publication boundary', () => {
   it('edits the current complete project in place with full resources, protection, one undo and cold persistence', async () => {
-    const { repo, workspace, authorization, draft } = await setup(), original = workspace.getState().project!
+    const extensions = { 'example.org/notes': { schemaVersion: 7, data: '私有线索：潮汐密码' } }
+    const { repo, workspace, authorization, draft } = await setup(extensions), original = workspace.getState().project!
     expect(authorization.start.source).toMatchObject({ version: 4, kind: 'current-baseline', preservation: { sceneId: original.document.sceneId } })
-    const candidate = await workspace.prepareAtomicCandidate(authorization, draft)
+    expect(JSON.stringify(authorization.start)).not.toMatch(/example\.org|潮汐密码/)
+    expect(authorization.baseContentHash).not.toBe(authorization.start.baseContentHash)
+    const leaked = { ...authorization.start, project: { ...authorization.start.project, extensions } }
+    await expect(workspace.reattachAtomic(leaked)).rejects.toThrow(/不能包含主持人扩展区/)
+    const candidate = await workspace.prepareAtomicCandidate(await workspace.reattachAtomic(draft.start), draft)
+    expect(candidate.project.extensions).toEqual(extensions)
     expect(workspace.getState().project).toBe(original)
     expect(candidate.operationCost).toBe(1); expect(candidate.budgetIdentity).toBeDefined()
     const result = await workspace.adoptAtomicCandidate(candidate, { claim: async () => lease(candidate) }); await result.save
     expect(workspace.getDocument()).toMatchObject({ schemaVersion: 1, sceneId: original.document.sceneId, revision: 1 })
     expect(workspace.getDocument()!.props.item.rotationDeg).toBe(30)
     expect(result.protection!.project.document).toEqual(original.document)
+    expect(result.protection!.project.extensions).toEqual(extensions)
     const cold = (await repo.load(original.document.sceneId))!
     expect(cold.project).toEqual(toBundle(workspace.getState().project!).project)
     for (const hash of Object.keys(original.assets)) expect(await cold.resources.read(hash)).toEqual(await original.resources.read(hash))
     workspace.undo(); expect(workspace.getDocument()!.revision).toBe(2); expect(workspace.getDocument()!.props.item.rotationDeg).toBe(original.document.props.item.rotationDeg)
+    expect(workspace.getState().project!.extensions).toEqual(extensions)
     workspace.redo(); expect(workspace.getDocument()!.revision).toBe(3); expect(workspace.getDocument()!.props.item.rotationDeg).toBe(30)
     await workspace.flush()
     expect((await repo.load(original.document.sceneId))!.project.document.revision).toBe(3)
+    expect((await repo.load(original.document.sceneId))!.project.extensions).toEqual(extensions)
   }, 30000)
 
   it('reattaches the exact current source while rejecting tampered budgets and stale local edits before claiming', async () => {

@@ -4,11 +4,11 @@ import type { AuthoringDraft, AuthoringScope, AuthoringStart, DraftLease } from 
 import { AuthoringDraftSchema, DraftLeaseSchema, AUTHORING_LIMITS } from '../../shared/ai/authoring-protocol.js'
 import type { BudgetStateV3 } from '../../shared/ai/continuation-protocol-v3.js'
 import { isClassifiedVersion, isClassifiedAuthoring, authoringProjectHash, replayAuthoring, validateAuthoringStart } from '../../shared/ai/authoring.js'
-import type { ProjectData } from '../../shared/model/project.js'
+import type { ProjectBundle, ProjectData } from '../../shared/model/project.js'
 import { LAYER_ENTITY_COLLECTIONS } from '../../shared/model/scene.js'
 import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics.js'
 import { canonicalJson, captureJson } from '../../shared/validation/json.js'
-import type { EditableProject } from './project.js'
+import { toBundle, type EditableProject } from './project.js'
 import type { EditableSnapshot } from './workspace.js'
 import type { BudgetIdentity, BudgetState } from '../../shared/ai/continuation-protocol.js'
 import type { AssetQualityAssessment } from '../../shared/assets/quality-review.js'
@@ -19,6 +19,7 @@ export interface AtomicAuthorization {
   checkpoint: number
   currentSceneId: string
   currentRevision: number
+  /** The local project, including any GM-only extension data. */
   baseContentHash: string
 }
 export interface AtomicChange { id: string; collection?: string; before: unknown; after: unknown; fields: string[] }
@@ -59,9 +60,21 @@ export function captureAtomicStart<T extends AuthoringStart>(input: T): T {
   const captured = captureJson(input) as unknown as AuthoringStart
   return freezeAtomic(validateAuthoringStart(captured)) as T
 }
+
+export function currentAuthoringBaseline(source: EditableProject) {
+  const complete = toBundle(source).project
+  const { extensions, ...project } = complete
+  const baseContentHash = authoringProjectHash(project)
+  return { project, baseContentHash, workspaceHash: extensions ? authoringProjectHash(complete) : baseContentHash }
+}
+
+/** Replay can only replace the metadata admitted to the task. Local state comes from its verified baseline. */
+export function localAuthoringBundle(project: ProjectData, source: EditableProject): ProjectBundle {
+  return { project: source.extensions ? { ...project, extensions: source.extensions } : project, resources: source.resources }
+}
 export function captureAtomicDraft(input: AuthoringDraft, authorization: AtomicAuthorization, options: { allowEmpty?: boolean } = {}) {
   const draft = freezeAtomic(AuthoringDraftSchema.parse(captureJson(input)))
-  if (authoringProjectHash(draft.start.project) !== authorization.baseContentHash
+  if (authoringProjectHash(draft.start.project) !== authorization.start.baseContentHash
     || canonicalJson(draft.start) !== canonicalJson(authorization.start)) throw new Error('任务草稿不属于本机授权的确切基线和范围。')
   const replayed = replayAuthoring(authorization.start, draft.state.steps)
   // Canonical hashes compare every state field; task JSON has no trusted valid flag.

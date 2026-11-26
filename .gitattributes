@@ -9,3 +9,6 @@ public/assets/**/LICENSE.txt text eol=lf
 # Frozen comparison patches retain their exact bytes, including mixed newlines.
 tools/performance/baselines/*-20261112.patch -text
 tools/performance/experiments/*.patch -text
+
+# Released compatibility fixtures are checked against the original byte digests.
+tests/fixtures/project-compatibility/** -text

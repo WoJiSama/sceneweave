@@ -1,28 +1,45 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react'
 import { DEFAULT_OBLIQUE_CAMERA, zoomOblique, type ObliqueCamera } from '../../platform/browser/render/oblique-camera'
-import type { prepareObliquePreview } from '../../platform/browser/render/oblique-renderer'
+import type { ObliquePreviewMode, prepareObliquePreview } from '../../platform/browser/render/oblique-renderer'
 
 type ObliqueView = Awaited<ReturnType<typeof prepareObliquePreview>>
-type PrepareView = (canvas: HTMLCanvasElement, signal: AbortSignal) => Promise<ObliqueView>
+type PrepareView = (canvas: HTMLCanvasElement, signal: AbortSignal, mode: ObliquePreviewMode) => Promise<ObliqueView>
 interface ViewOptions {
   enabled?: boolean
+  visible?: boolean
   activate?: () => void
   tiltOnOpen?: boolean
   wheelZoom?: boolean
+  mode?: ObliquePreviewMode
 }
 
-export function useObliqueView(prepare: PrepareView, { enabled = true, activate, tiltOnOpen = false, wheelZoom = true }: ViewOptions = {}) {
+function sizeObliqueCanvas(canvas: HTMLCanvasElement, mode: ObliquePreviewMode) {
+  const { width, height } = canvas.getBoundingClientRect()
+  if (width <= 0 || height <= 0) return false
+  const densityLimit = mode === 'performance' ? 1 : 2
+  const edgeLimit = mode === 'performance' ? 960 : 1920
+  const scale = Math.min(devicePixelRatio, densityLimit, edgeLimit / Math.max(width, height))
+  const pixelWidth = Math.max(1, Math.round(width * scale)), pixelHeight = Math.max(1, Math.round(height * scale))
+  if (canvas.width === pixelWidth && canvas.height === pixelHeight) return false
+  canvas.width = pixelWidth; canvas.height = pixelHeight
+  return true
+}
+
+export function useObliqueView(prepare: PrepareView, { enabled = true, visible = true, activate, tiltOnOpen = false, wheelZoom = true, mode = 'normal' }: ViewOptions = {}) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const view = useRef<ObliqueView>(null)
   const pointer = useRef<{ id: number; x: number; y: number } | null>(null)
   const [camera, setCamera] = useState(DEFAULT_OBLIQUE_CAMERA)
   const latestCamera = useRef(camera)
   latestCamera.current = camera
+  const latestMode = useRef(mode)
+  latestMode.current = mode
   const introCamera = useRef<ObliqueCamera | null>(null)
   const hasOrbitInput = useRef(false)
   const drawFrame = useRef(0)
   const [phase, setPhase] = useState<'loading' | 'tilting' | 'ready'>('loading')
   const [error, setError] = useState('')
+  const [backingEdge, setBackingEdge] = useState(0)
   const ready = enabled && phase === 'ready' && !error
 
   useEffect(() => {
@@ -53,36 +70,41 @@ export function useObliqueView(prepare: PrepareView, { enabled = true, activate,
       setCamera(DEFAULT_OBLIQUE_CAMERA)
     }
     element.addEventListener('webglcontextlost', contextLost)
-    void prepare(element, controller.signal).then(result => {
-      if (controller.signal.aborted) { result.dispose(); return }
-      view.current = result
-      if (!tiltOnOpen || hasOrbitInput.current || matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        result.draw(latestCamera.current)
-        setPhase('ready')
-        return
-      }
-      introCamera.current = { azimuthDeg: 0, elevationDeg: 90, zoom: 1 }
-      result.draw(introCamera.current)
-      setPhase('tilting')
-      const start = performance.now()
-      const tilt = (now: number) => {
-        try {
-          if (hasOrbitInput.current) {
-            result.draw(latestCamera.current)
-            setPhase('ready')
-            return
-          }
-          const time = Math.max(0, Math.min(1, (now - start) / 430))
-          const progress = time * time * (3 - 2 * time)
-          introCamera.current = { azimuthDeg: DEFAULT_OBLIQUE_CAMERA.azimuthDeg * progress,
-            elevationDeg: 90 + (DEFAULT_OBLIQUE_CAMERA.elevationDeg - 90) * progress, zoom: 1 }
-          result.draw(introCamera.current)
-          if (time < 1) frame = requestAnimationFrame(tilt)
-          else { introCamera.current = null; setPhase('ready') }
-        } catch (failure) { fail(failure) }
-      }
-      frame = requestAnimationFrame(tilt)
-    }).catch(fail)
+    frame = requestAnimationFrame(() => {
+      const initialMode = latestMode.current
+      sizeObliqueCanvas(element, initialMode)
+      void prepare(element, controller.signal, initialMode).then(result => {
+        if (controller.signal.aborted) { result.dispose(); return }
+        view.current = result
+        if (result.setMode(latestMode.current)) sizeObliqueCanvas(element, latestMode.current)
+        if (!tiltOnOpen || hasOrbitInput.current || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          result.draw(latestCamera.current)
+          setPhase('ready')
+          return
+        }
+        introCamera.current = { azimuthDeg: 0, elevationDeg: 90, zoom: 1 }
+        result.draw(introCamera.current)
+        setPhase('tilting')
+        const start = performance.now()
+        const tilt = (now: number) => {
+          try {
+            if (hasOrbitInput.current) {
+              result.draw(latestCamera.current)
+              setPhase('ready')
+              return
+            }
+            const time = Math.max(0, Math.min(1, (now - start) / 430))
+            const progress = time * time * (3 - 2 * time)
+            introCamera.current = { azimuthDeg: DEFAULT_OBLIQUE_CAMERA.azimuthDeg * progress,
+              elevationDeg: 90 + (DEFAULT_OBLIQUE_CAMERA.elevationDeg - 90) * progress, zoom: 1 }
+            result.draw(introCamera.current)
+            if (time < 1) frame = requestAnimationFrame(tilt)
+            else { introCamera.current = null; setPhase('ready') }
+          } catch (failure) { fail(failure) }
+        }
+        frame = requestAnimationFrame(tilt)
+      }).catch(fail)
+    })
     return () => {
       controller.abort()
       cancelAnimationFrame(frame)
@@ -105,6 +127,37 @@ export function useObliqueView(prepare: PrepareView, { enabled = true, activate,
       catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
     })
   }, [ready, camera])
+
+  useEffect(() => {
+    if (!visible || !ready) return
+    const element = canvas.current!
+    let density: MediaQueryList | undefined
+    const measure = () => {
+      try {
+        const resized = sizeObliqueCanvas(element, mode)
+        const changed = view.current?.setMode(mode)
+        if (resized || changed) view.current?.draw(latestCamera.current)
+        setBackingEdge(Math.max(element.width, element.height))
+      } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
+    }
+    const watchDensity = () => {
+      density?.removeEventListener('change', watchDensity)
+      density = matchMedia(`(resolution: ${devicePixelRatio}dppx)`)
+      density.addEventListener('change', watchDensity)
+      measure()
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    watchDensity()
+    return () => { observer.disconnect(); density?.removeEventListener('change', watchDensity) }
+  }, [ready, visible, mode])
+
+  useEffect(() => {
+    if (!visible || !ready || !backingEdge || mode === 'performance') return
+    const controller = new AbortController()
+    const timer = setTimeout(() => void view.current?.refine(camera.zoom, controller.signal).catch(() => undefined), 240)
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [ready, visible, camera.zoom, backingEdge, mode])
 
   const zoom = (current: ObliqueCamera, amount: number, toward?: { x: number; y: number }) =>
     view.current ? zoomOblique(current, view.current.bounds, amount, toward) : current

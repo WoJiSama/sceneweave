@@ -1,11 +1,10 @@
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { layerSceneV3 } from '../../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import type { ProjectData, SnapshotSummary } from '../../../shared/model/project.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
-import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { applyProjectDelta } from '../../../shared/project/delta.js'
 import * as projectDelta from '../../../shared/project/delta.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
@@ -19,7 +18,7 @@ const NOW = '2026-10-30T00:00:00.000Z'
 const connections: Dexie[] = [], names = new Set<string>()
 let sequence = 0
 function project(): ProjectData {
-  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
+  const document: SceneDocument = layerScene()
   document.sceneId = 'history-owner'; document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const content = createCompositionContent(document, { ids: { nextId: () => `history-token-${++sequence}` }, clock: { now: () => NOW } })
   return { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }

@@ -6,8 +6,8 @@ import { rootSurfaceElevation } from './support-sample.js'
 import { publicTerrainView } from './visibility.js'
 import { assertRoadProfile, createRoadGround, roadPointEquals, roadSupportKey } from './road-domain.js'
 import { gradeRoadSurface, roadShoulderMm } from './road-grading.js'
-import { AUTOMATIC_ROAD_MAX_FIXED_POINTS, ROAD_RISER_LIMIT_MM, RoadFootprintConflict, type RoadLanding, type RoadSurfaceGeometry } from './road-surface.js'
-import { connectionArcFrame } from './connection-route.js'
+import { AUTOMATIC_ROAD_MAX_FIXED_POINTS, AUTOMATIC_ROAD_VERSION, ROAD_RISER_LIMIT_MM, RoadFootprintConflict, type RoadLanding, type RoadSurfaceGeometry } from './road-surface.js'
+import { connectionArcFrame, sampleConnectionRoute, smoothConnectionControls } from './connection-route.js'
 
 export { AUTOMATIC_ROAD_MAX_FIXED_POINTS, AUTOMATIC_ROAD_VERSION } from './road-surface.js'
 export { roadPointEquals } from './road-domain.js'
@@ -19,6 +19,13 @@ const NO_ROUTE = '这两个点之间未找到满足净宽和坡度的路线。�
 
 export type AutomaticRoadShape = Pick<Path, 'centerlineMm' | 'roadSurface'> & { fixedPointsMm: readonly PointMm[]; landings?: readonly RoadLanding[] }
 export type AutomaticRoadPlan = AutomaticRoadShape & { band: PointMm[]; supportRefs: SurfaceRef[]; geometry?: RoadSurfaceGeometry; lengthMm: number }
+
+/** A known trail corridor can be regraded from its authored anchors. This
+ * preserves every requested turn and does not search outside that corridor. */
+export function sampleAnchoredRoad(anchors: readonly PointMm[]) {
+  return sampleConnectionRoute({ kind: 'cubic', sampleSpacingMm: 1400, toleranceMm: 130,
+    segments: smoothConnectionControls(anchors).map((segment, i) => ({ ...segment, id: String(i) })) })
+}
 const distance = (a: PointMm, b: PointMm) => Math.hypot(b.x - a.x, b.y - a.y)
 const pointKey = ({ x, y }: PointMm) => `${x},${y}`
 
@@ -238,11 +245,13 @@ export function createAutomaticRoadPlanner(scene: SceneDocument, request: Pick<P
   const view = visibility === 'public' ? publicTerrainView(scene) : scene
   const ground = createRoadGround(view, floorId, editingId)
   const actualGround = view === scene ? ground : createRoadGround(scene, floorId, editingId)
+  const editIntent = editingId ? scene.paths[editingId]?.automaticRoute : undefined
+  const anchored = editIntent?.algorithm === AUTOMATIC_ROAD_VERSION && editIntent.alignment === 'anchors-v1'
   const segmentCosts = new Map<string, number>()
   const solveLeg = createLegSearch(view, floor, ground, widthMm, segmentCosts)
 
   return (fixedPointsMm: readonly PointMm[], previous?: AutomaticRoadShape,
-    options: { landings?: readonly RoadLanding[]; legacyStaircase?: StaircaseConfig | null; widthChanged?: boolean } = {}): AutomaticRoadPlan => {
+    options: { landings?: readonly RoadLanding[]; legacyStaircase?: StaircaseConfig | null; widthChanged?: boolean; anchorOnly?: boolean } = {}): AutomaticRoadPlan => {
     if (!floor || !Number.isSafeInteger(widthMm) || widthMm <= 0 || fixedPointsMm.length < 2 || fixedPointsMm.length > AUTOMATIC_ROAD_MAX_FIXED_POINTS
       || new Set(fixedPointsMm.map(pointKey)).size !== fixedPointsMm.length
       || fixedPointsMm.some(p => ![p.x, p.y].every(Number.isSafeInteger) || !fitsFloor(floor, p) || !ground.sample(p))) {
@@ -289,6 +298,11 @@ export function createAutomaticRoadPlanner(scene: SceneDocument, request: Pick<P
       agreeWithActual(geometry.footprintMm, refs)
       return { centerlineMm, fixedPointsMm, band: geometry.footprintMm, supportRefs: refs,
         lengthMm: connectionArcFrame(centerlineMm).length, roadSurface, geometry, landings }
+    }
+    if (anchored || options.anchorOnly) {
+      const canReuse = previous && previous.fixedPointsMm.length === fixedPointsMm.length
+        && fixedPointsMm.every((p, i) => roadPointEquals(p, previous.fixedPointsMm[i]))
+      return grade(canReuse ? previous.centerlineMm : sampleAnchoredRoad(fixedPointsMm))
     }
     try {
       return grade(trace(solveLeg))

@@ -1,13 +1,9 @@
-import { topDownPresentation } from './appearance/presentation.js'
-import { toCurrentSceneDocument } from './model/current-scene.js'
 import { unzipSync, unzlibSync, zlibSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
-import { describeCatalogItems } from '../catalog/content'
-import { addPropAppearanceSourceV6, bitmapVariantV6, ensureSourceAssetRootsV6 } from '../core/v6/graph'
-import type { PropTemplate } from '../core/v3/types'
-import { concatBytes, emptyProject, imageProject, imageRecord, outdoorProject, pixelPng, pngChunk } from '../io/v6/test-fixtures'
-import type { CompleteProjectV6 } from '../io/v6/types'
 import type { ProjectBundle } from './model/project.js'
+import type { PropTemplate } from './model/scene.js'
+import { addPropAppearanceSource, bitmapVariant, ensureSourceAssetRoots } from './appearance/graph.js'
+import { concatBytes, emptyProject, imageProject, imageRecord, outdoorProject, pixelPng, pngChunk } from '../../tests/helpers/current-project-fixtures.js'
 import type { CompleteValidationOptions, RasterImage } from './ports/resources.js'
 import { createMemoryResources } from './project/resources.js'
 import { exportProject } from './project/file.js'
@@ -33,22 +29,12 @@ const validation: CompleteValidationOptions = { images: {
   },
   async encodePng() { throw new Error('validation never encodes') },
 } }
-async function unified(input: CompleteProjectV6): Promise<ProjectBundle> {
-  const bytes = new Map<string, Uint8Array>()
-  for (const [hash, asset] of Object.entries(input.assets)) bytes.set(hash, new Uint8Array(await asset.blob.arrayBuffer()))
-  return { project: { format: 'sceneweave-complete-project', schemaVersion: 1,
-    document: toCurrentSceneDocument({ ...structuredClone(input.document), format: 'sceneweave-scene' }),
-    historyIdentity: { ...structuredClone(input.historyIdentity), version: 5, generationTokens: {}, regionalTokens: {}, presentationTokens: {}, terrainTokens: {}, decorationTokens: {}, surfaceRuleTokens: {} }, appearance: { ...structuredClone(input.appearance), version: 2, presentations: Object.fromEntries(Object.values(input.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) }, authoringSources: {},
-    assets: Object.fromEntries(Object.entries(input.assets).map(([hash, { blob: _blob, ...record }]) => [hash, record])),
-    licenses: structuredClone(input.licenses), licenseBindings: structuredClone(input.licenseBindings),
-  }, resources: createMemoryResources(bytes) }
-}
-async function privatePrefabProject(members = 1): Promise<CompleteProjectV6> {
-  const project = await outdoorProject(1), original = project.document.props['scatter-item-0'], originalDefinition = project.document.propDefinitions['scatter-definition']
+function privatePrefabProject(members = 1): ProjectBundle {
+  const bundle = outdoorProject(1), project = bundle.project, original = project.document.props['scatter-item-0'], originalDefinition = project.document.propDefinitions['scatter-definition']
   const template: PropTemplate = { definitionRef: { id: originalDefinition.id, version: 1 }, appearance: structuredClone(original.appearance), visualBoundsMm: { x: -100, y: -100, width: 200, height: 200 },
     positionMm: { x: 0, y: 0 }, rotationDeg: 0, footprintMm: { width: 200, height: 200 }, footprintOffsetMm: { x: -100, y: -100 }, blocksMovement: false, blocksSight: false, renderLayer: 'object', renderOrder: 0, shadowClass: 'none', shadowOverride: null }
   const definition = { id: 'private-prefab', catalogId: 'test.private-prefab', version: 1, licenseRef: originalDefinition.licenseRef, origin: originalDefinition.origin, name: '私密组合', tags: ['固定标签'], members: [] as { key: string; propTemplate: PropTemplate }[] }
-  const fixedMembers: CompleteProjectV6['appearance']['prefabAppearanceTemplates'][string]['members'] = {}
+  const fixedMembers: ProjectBundle['project']['appearance']['prefabAppearanceTemplates'][string]['members'] = {}
   for (let index = 0; index < members; index++) {
     const prop = structuredClone(template), key = `member-${index}`
     if (members > 1) {
@@ -56,24 +42,25 @@ async function privatePrefabProject(members = 1): Promise<CompleteProjectV6> {
       project.document.propDefinitions[id] = { ...structuredClone(originalDefinition), id, catalogId: id }
       project.licenseBindings.push({ ...project.licenseBindings[0], subjectId: id }); prop.definitionRef = { id, version: 1 }
     }
-    const ancestor = addPropAppearanceSourceV6(project.appearance, prop), child = addPropAppearanceSourceV6(project.appearance, { ...prop, appearance: { ...prop.appearance, opacity: .7 } }, ancestor)
+    const ancestor = addPropAppearanceSource(project.appearance, prop), child = addPropAppearanceSource(project.appearance, { ...prop, appearance: { ...prop.appearance, opacity: .7 } }, ancestor)
     definition.members.push({ key, propTemplate: prop }); fixedMembers[key] = { sourceId: child, adjustments: [{ id: `opacity-${index}`, kind: 'opacity', value: .5, enabled: true }] }
   }
   project.document.prefabDefinitions[definition.id] = definition
   project.appearance.prefabAppearanceTemplates[definition.id] = { definitionRef: { id: definition.id, version: 1 }, visibility: 'gm', members: fixedMembers }
   project.licenseBindings.push({ ...project.licenseBindings[0], subjectKind: 'prefabDefinition', subjectId: definition.id })
-  return project
+  return bundle
 }
 
 describe('M2-0e complete-v1 neutral library capsules', () => {
-  it('preserves old algorithm1 item/key for prop, material and private prefab; incidental scene metadata is excluded', async () => {
-    for (const old of [await outdoorProject(1), await imageProject(), await privatePrefabProject()]) {
-      const bundle = await unified(old), items = listCatalogItems(bundle)
-      expect(items).toEqual(describeCatalogItems(old))
+  it('keeps fixed prop, material and private prefab identities independent of scene metadata', async () => {
+    for (const bundle of [outdoorProject(1), imageProject(), privatePrefabProject()]) {
+      const items = listCatalogItems(bundle)
       bundle.project.document.title = '场景秘密'; bundle.project.document.revision++
+      bundle.project.extensions = { 'example.org/notes': { schemaVersion: 3, data: '主持人私有状态' } }
       for (const item of items) {
         const entry = await prepareLibraryEntry(bundle, item.selector, validation), loaded = await loadLibraryCapsule(entry, validation)
         expect(entry.item).toEqual(item)
+        expect(loaded.project.extensions).toBeUndefined()
         expect(loaded.project).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, authoringSources: {},
           document: { format: 'sceneweave-scene', schemaVersion: 1, title: '素材目录载体', revision: 0, props: {}, rooms: {}, notes: {} },
           historyIdentity: { version: 5, propTokens: {}, prefabTokens: {}, outdoorTokens: {} } })
@@ -85,8 +72,8 @@ describe('M2-0e complete-v1 neutral library capsules', () => {
   })
 
   it('preserves private template visibility, complete source ancestors and append-only adoption identity', async () => {
-    const source = await unified(await privatePrefabProject()), entry = await prepareLibraryEntry(source, { kind: 'prefab', definitionId: 'private-prefab' }, validation)
-    const loaded = await loadLibraryCapsule(entry, validation), target = await unified(emptyProject()), before = canonicalJson(target.project)
+    const source = privatePrefabProject(), entry = await prepareLibraryEntry(source, { kind: 'prefab', definitionId: 'private-prefab' }, validation)
+    const loaded = await loadLibraryCapsule(entry, validation), target = emptyProject(), before = canonicalJson(target.project)
     expect(entry.item.visibility).toBe('gm'); expect(Object.keys(loaded.project.appearance.sources)).toHaveLength(2)
     expect(loaded.project.appearance.prefabAppearanceTemplates).toEqual(source.project.appearance.prefabAppearanceTemplates)
     const adopted = await adoptLibraryEntries(target, [entry], validation)
@@ -98,28 +85,30 @@ describe('M2-0e complete-v1 neutral library capsules', () => {
   })
 
   it('retains actual inactive variant input/output pixels, licensed bytes and fixed roots', async () => {
-    let old = await imageProject()
-    const inputAsset = old.document.assets['test-image'], variant = bitmapVariantV6(inputAsset.id, '#808080', 1)!, original = pixelPng()
-    const png = concatBytes([original.subarray(0, 8), original.subarray(8, 33), pngChunk('IDAT', zlibSync(new Uint8Array([0, 10, 25, 40, 200]))), pngChunk('IEND', new Uint8Array())]), output = await imageRecord(png)
-    old.document.assets[variant.outputAssetId] = { ...inputAsset, id: variant.outputAssetId, sha256: output.sha256 }
-    old.assets[output.sha256] = output; old.appearance.variants[variant.id] = variant
+    const original = pixelPng(), source = imageProject(original)
+    let project = source.project
+    const inputAsset = project.document.assets['test-image'], variant = bitmapVariant(inputAsset.id, '#808080', 1)!
+    const png = concatBytes([original.subarray(0, 8), original.subarray(8, 33), pngChunk('IDAT', zlibSync(new Uint8Array([0, 10, 25, 40, 200]))), pngChunk('IEND', new Uint8Array())]), output = imageRecord(png)
+    project.document.assets[variant.outputAssetId] = { ...inputAsset, id: variant.outputAssetId, sha256: output.sha256 }
+    project.assets[output.sha256] = output; project.appearance.variants[variant.id] = variant
     const prop = { id: 'derived-prop', catalogId: 'test.derived-prop', version: 1, licenseRef: inputAsset.licenseRef, origin: inputAsset.origin, name: '固定派生', tags: [], defaultAppearance: { kind: 'image' as const, assetId: variant.outputAssetId, tint: null, opacity: 1 },
       defaultVisualBoundsMm: { x: -500, y: -500, width: 1000, height: 1000 }, defaultFootprintMm: { width: 1000, height: 1000 }, defaultFootprintOffsetMm: { x: -500, y: -500 }, defaultBlocksMovement: false, defaultBlocksSight: false, defaultRenderLayer: 'object' as const, defaultShadowClass: 'none' as const }
-    old.document.propDefinitions[prop.id] = prop
-    old.licenseBindings.push({ ...old.licenseBindings[0], subjectId: variant.outputAssetId }, { ...old.licenseBindings[0], subjectKind: 'propDefinition', subjectId: prop.id })
-    old = { ...old, ...ensureSourceAssetRootsV6(old) }
-    const bundle = await unified(old), entry = await prepareLibraryEntry(bundle, { kind: 'prop', definitionId: prop.id }, validation), loaded = await loadLibraryCapsule(entry, validation)
-    expect(entry.item).toEqual(describeCatalogItems(old).find(item => item.selector.definitionId === prop.id))
+    project.document.propDefinitions[prop.id] = prop
+    project.licenseBindings.push({ ...project.licenseBindings[0], subjectId: variant.outputAssetId }, { ...project.licenseBindings[0], subjectKind: 'propDefinition', subjectId: prop.id })
+    project = { ...project, ...ensureSourceAssetRoots(project) }
+    const bundle = { project, resources: createMemoryResources(new Map([[inputAsset.sha256, original], [output.sha256, png]])) }
+    const entry = await prepareLibraryEntry(bundle, { kind: 'prop', definitionId: prop.id }, validation), loaded = await loadLibraryCapsule(entry, validation)
+    expect(entry.item).toEqual(listCatalogItems(bundle).find(item => item.selector.definitionId === prop.id))
     expect(loaded.project.appearance.variants[variant.id]).toEqual(variant)
     expect(Object.keys(loaded.project.assets)).toHaveLength(2)
-    expect(loaded.project.document.materials['test-material']).toEqual(old.document.materials['test-material'])
+    expect(loaded.project.document.materials['test-material']).toEqual(project.document.materials['test-material'])
     expect(await loaded.resources.read(output.sha256)).toEqual(png)
     const badPixels = { ...validation, images: { ...validation.images, async transform(image: RasterImage) { return image } } }
     await expect(loadLibraryCapsule(entry, badPixels)).rejects.toThrow(/像素/)
   })
 
   it('rejects forged metadata, accessors, corrupt bytes and a valid whole map disguised as a capsule', async () => {
-    const bundle = await unified(await outdoorProject(1)), entry = await prepareLibraryEntry(bundle, { kind: 'prop', definitionId: 'scatter-definition' }, validation)
+    const bundle = outdoorProject(1), entry = await prepareLibraryEntry(bundle, { kind: 'prop', definitionId: 'scatter-definition' }, validation)
     await expect(loadLibraryCapsule({ ...entry, item: { ...entry.item, name: '伪造' } }, validation)).rejects.toThrow(/不一致/)
     await expect(loadLibraryCapsule({ ...entry, unsupported: true } as never, validation)).rejects.toThrow(/字段/)
     await expect(loadLibraryCapsule({ ...entry, capsule: new Uint8Array([0]) }, validation)).rejects.toThrow(/摘要/)
@@ -131,7 +120,7 @@ describe('M2-0e complete-v1 neutral library capsules', () => {
   })
 
   it('captures caller bytes and item before awaits, and honors cancellation', async () => {
-    const bundle = await unified(await outdoorProject(1)), entry = await prepareLibraryEntry(bundle, { kind: 'prop', definitionId: 'scatter-definition' }, validation)
+    const bundle = outdoorProject(1), entry = await prepareLibraryEntry(bundle, { kind: 'prop', definitionId: 'scatter-definition' }, validation)
     const loading = loadLibraryCapsule(entry, validation)
     entry.capsule.fill(0); entry.item.name = 'later mutation'
     expect((await loading).project.document.propDefinitions['scatter-definition'].name).not.toBe('later mutation')
@@ -146,13 +135,13 @@ describe('M2-0e complete-v1 neutral library capsules', () => {
   })
 
   it('rejects logical conflicts and actual expanded adoption above256 without mutating current', async () => {
-    const source = await unified(await outdoorProject(1)), entry = await prepareLibraryEntry(source, { kind: 'prop', definitionId: 'scatter-definition' }, validation)
+    const source = outdoorProject(1), entry = await prepareLibraryEntry(source, { kind: 'prop', definitionId: 'scatter-definition' }, validation)
     source.project.document.propDefinitions['scatter-definition'].name = 'same identity different content'
     const before = canonicalJson(source.project)
     await expect(adoptLibraryEntries(source, [entry], validation)).rejects.toThrow(/逻辑/)
     expect(canonicalJson(source.project)).toBe(before)
-    const large = await prepareLibraryEntry(await unified(await privatePrefabProject(85)), { kind: 'prefab', definitionId: 'private-prefab' }, validation)
-    const target = await unified(emptyProject()), targetBefore = canonicalJson(target.project)
+    const large = await prepareLibraryEntry(privatePrefabProject(85), { kind: 'prefab', definitionId: 'private-prefab' }, validation)
+    const target = emptyProject(), targetBefore = canonicalJson(target.project)
     await expect(adoptLibraryEntries(target, [large], validation)).rejects.toThrow(/超过256/)
     expect(canonicalJson(target.project)).toBe(targetBefore)
   })

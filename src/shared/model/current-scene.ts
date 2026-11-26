@@ -22,7 +22,7 @@ export type InternalSceneInput = Omit<SceneDocument, CurrentField> & {
 
 /** Construct the full current shape without generating geometry, members or identities.
  * Public readers must strictly validate their input before reaching this boundary.
- * Historical canopy ownership requires the independent one-time importer.
+ * Current authoring represents continuous vegetation with surface rules.
  */
 export function toCurrentSceneDocument(input: InternalSceneInput): SceneDocument {
   const scene = captureJson(input)
@@ -33,7 +33,7 @@ export function toCurrentSceneDocument(input: InternalSceneInput): SceneDocument
     return { ...check, floorId: check.floorId }
   })
   if (Object.values(scene.decorationClusters ?? {}).some(cluster => Object.hasOwn(cluster, 'canopyRule'))) {
-    throw new Error('旧树冠规则须经独立迁入转换，不能作为当前工程直接构造。')
+    throw new Error('当前工程使用地表规则表示连续植被。')
   }
   const generation = scene.generation?.version === 5 ? scene.generation : createEmptyGeneration5(scene.generation)
   const base = scene.visual?.version === 3 ? scene.visual.base : scene.visual?.version === 2 ? scene.visual

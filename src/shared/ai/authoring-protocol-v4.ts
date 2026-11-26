@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { projectDataSchema } from '../project/validate.js'
 import { connectionRouteSchema } from '../geometry/connection-route.js'
 import { decorationClusterSchema, decorationSchema } from '../decorations/contracts.js'
 import * as v1 from './authoring-protocol-v1.js'
@@ -50,7 +49,7 @@ export const AuthoringStepV4Schema = v1.AuthoringStepSchema.extend({ operations:
 export type AuthoringStepV4 = z.infer<typeof AuthoringStepV4Schema>
 export const CurrentBaselineSourceV4Schema = z.object({ version: z.literal(4), kind: z.literal('current-baseline'), flowId: id,
   preservation: z.object({ sceneId: id, revision: count, contentHash: hash, checkpoint: count }).strict(),
-  project: projectDataSchema, projectHash: hash, resourceClosureHash: hash,
+  project: v1.authoringProjectSchema, projectHash: hash, resourceClosureHash: hash,
 }).strict()
 export type CurrentBaselineSourceV4 = z.infer<typeof CurrentBaselineSourceV4Schema>
 export const AuthoringStartV4Schema = v1.AuthoringStartSchema.omit({ schemaVersion: true, scope: true }).extend({

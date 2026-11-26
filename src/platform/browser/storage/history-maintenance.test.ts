@@ -2,11 +2,8 @@ import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { zlibSync } from 'fflate'
 import { afterEach, describe, expect, it } from 'vitest'
-import { concatBytes, imageProject, pixelPng, pngChunk } from '../../../io/v3/test-fixtures.js'
-import { createCompositionContent } from '../../../shared/appearance/graph.js'
-import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
+import { concatBytes, imageProject, pixelPng, pngChunk } from '../../../../tests/helpers/current-project-fixtures.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
-import type { SceneDocument } from '../../../shared/model/scene.js'
 import type { CompleteValidationOptions, ResourceOptions } from '../../../shared/ports/resources.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
@@ -46,16 +43,9 @@ function uniquePixel(): Uint8Array {
   return concatBytes([pixelPng().subarray(0, 33), pngChunk('IDAT', zlibSync(rgba)), pngChunk('IEND', new Uint8Array())])
 }
 async function imageBundle(name: string): Promise<ProjectBundle> {
-  const old = await imageProject(), bytes = uniquePixel(), imageHash = sha256Bytes(bytes)
-  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(old.document), format: 'sceneweave-scene', schemaVersion: 1 })
-  document.sceneId = `maintenance-image-${++sequence}`
-  document.assets['test-image'].sha256 = imageHash
-  const text = `Sceneweave original ${name}. CC0-1.0.`, licenseHash = sha256Bytes(encodeUtf8(text))
-  return { project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...createCompositionContent(document, runtime),
-    assets: { [imageHash]: { sha256: imageHash, sizeBytes: bytes.length, mimeType: 'image/png', pixelWidth: 1, pixelHeight: 1 } },
-    licenses: { [licenseHash]: { sha256: licenseHash, text } },
-    licenseBindings: old.licenseBindings.map(binding => ({ ...binding, licensePath: `licenses/${licenseHash}.txt` })), authoringSources: {} },
-  resources: createMemoryResources(new Map([[imageHash, bytes]])) }
+  const bundle = imageProject(uniquePixel())
+  bundle.project.document.title = 'History maintenance fixture'
+  return bundle
 }
 function withoutImage(source: ProjectBundle, revision: number): ProjectBundle {
   const project = cloneJson(source.project)
@@ -107,7 +97,7 @@ describe('complete history resource maintenance', () => {
     const before = { versions: await repo.database.historyVersions.toArray(), heads: await repo.database.historyHeads.toArray(), pins: await repo.database.historyPins.toArray() }
     const orphan = await orphans(repo), decoded = decodeTransactions.length
     const legacyBytes = encodeUtf8('permanently retained exact original'), legacyHash = sha256Bytes(legacyBytes)
-    await repo.database.legacyBlobs.add({ sha256: legacyHash, bytes: legacyBytes })
+    await repo.database.table('legacyBlobs').add({ sha256: legacyHash, bytes: legacyBytes })
     let versionReads = 0
     const observeVersionRead = (row: HistoryVersion) => { versionReads++; return row }
     repo.database.historyVersions.hook('reading', observeVersionRead)
@@ -121,7 +111,7 @@ describe('complete history resource maintenance', () => {
     expect(await repo.database.licenseTexts.get(orphan.licenseHash)).toBeUndefined()
     expect(await repo.database.resources.get(Object.keys(original.project.assets)[0])).toBeDefined()
     expect(await repo.database.licenseTexts.get(Object.keys(original.project.licenses)[0])).toBeDefined()
-    expect(await repo.database.legacyBlobs.get(legacyHash)).toEqual({ sha256: legacyHash, bytes: legacyBytes })
+    expect(await repo.database.table('legacyBlobs').get(legacyHash)).toEqual({ sha256: legacyHash, bytes: legacyBytes })
     expect({ versions: await repo.database.historyVersions.toArray(), heads: await repo.database.historyHeads.toArray(), pins: await repo.database.historyPins.toArray() }).toEqual(before)
     expect(decodeTransactions).toHaveLength(decoded)
     expect((await repo.loadHistoryVersion(owner, root.id))!.project).toEqual(original.project)
@@ -158,11 +148,11 @@ describe('complete history resource maintenance', () => {
     await repo.save(source, null)
     const orphan = await orphans(repo)
     const capsule = { capsuleId: 'retired-capsule', sourceSceneId: owner, targetSceneId: owner, createdAt: NOW }
-    await repo.database.nativeUpgradeCapsules.add(capsule)
-    await expect(collect(repo)).rejects.toThrow(/独立迁入保全库/)
+    await repo.database.table('nativeUpgradeCapsules').add(capsule)
+    await expect(collect(repo)).rejects.toThrow(/独立保全记录/)
     expect(await repo.database.resources.get(orphan.resourceHash)).toBeDefined()
     expect(await repo.database.licenseTexts.get(orphan.licenseHash)).toBeDefined()
-    expect(await repo.database.nativeUpgradeCapsules.get(capsule.capsuleId)).toEqual(capsule)
+    expect(await repo.database.table('nativeUpgradeCapsules').get(capsule.capsuleId)).toEqual(capsule)
   })
 
   it('refuses missing referenced bytes or corrupt orphan bytes before deleting any candidate', async () => {

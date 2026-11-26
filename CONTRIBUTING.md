@@ -30,27 +30,55 @@ npx playwright test tests/<相关文件>.spec.ts
 
 ```sh
 node tools/harness/sceneweave.mjs workflows
-node tools/harness/sceneweave.mjs workflows --id sceneweave-forest-building --step generate
-node tools/harness/sceneweave.mjs workflows --id sceneweave-forest-building --schema
-node tools/harness/sceneweave.mjs workflows --id sceneweave-forest-building --effects
+node tools/harness/sceneweave.mjs workflows --id sceneweave-map-authoring --step start --definition-hash HASH_FROM_CATALOG
+node tools/harness/sceneweave.mjs workflows --id sceneweave-map-authoring --schema
 ```
 
-Codex 的地图和图片 Skill 从这份目录选择流程。应用及图片MCP通过`sceneweave_workflow`读取同一份步骤正文和实际宿主能力。CLI在`--id`查询时可加`--definition-hash`核对任务绑定，图片MCP的`image_import_workflow`也带相同ID、版本和摘要。目录不授予工具权限；普通应用聊天尚无图片执行工具。任务和制作包绑定真实定义摘要。换电脑时携带工作包及其`.workflow.json`伴随文件。遇到旧摘要时，用对应版本恢复，或在页面打开实际工作包并核对新版流程和输入后另起任务。
+Codex 的地图和图片 Skill 从这份目录选择流程。应用及图片MCP通过`sceneweave_workflow`读取同一份步骤正文和实际宿主能力。把目录返回的 `definitionHash` 填入 `HASH_FROM_CATALOG` 核对任务绑定，图片MCP的`image_import_workflow`也带相同ID、版本和摘要。目录不授予工具权限；普通应用聊天尚无图片执行工具。任务和制作包绑定真实定义摘要。换电脑时携带工作包及其`.workflow.json`伴随文件。遇到旧摘要时，用对应版本恢复，或在页面打开实际工作包并核对新版流程和输入后另起任务。
 
 <a id="local-map-harness"></a>
-## 本机地图CLI
+## 通用助手制图
 
-安装Playwright Chromium后读取能力和规范example，再提交严格请求。以下绝对路径替换为实际路径，输出目录必须尚不存在且父目录存在：
+按 [README 的本地运行](README.md#本地运行) 安装依赖。让有本地命令能力的助手从仓库根运行以下命令。工具会检查 Playwright Chromium、Chrome 和 Edge，并在独立浏览器出图。需要安装 Chromium 时运行 `npx playwright install chromium`。可用 `SCENEWEAVE_BROWSER_CHANNEL` 指定浏览器。输入和输出使用绝对路径，每次输出传一个新目录。
 
 ```sh
-node tools/harness/sceneweave.mjs capabilities
-node tools/harness/sceneweave.mjs example > /absolute/existing-parent/request.json
-node tools/harness/sceneweave.mjs generate --input /absolute/existing-parent/request.json --output /absolute/existing-parent/new-map --allow forest-building --budget standard
+node tools/harness/sceneweave.mjs map capabilities
+node tools/harness/sceneweave.mjs map example landscape-reference > /absolute/work/request.json
+node tools/harness/sceneweave.mjs map generate --input /absolute/work/request.json --output /absolute/work/first-map --allow map-authoring --stage draft
+node tools/harness/sceneweave.mjs map inspect --project /absolute/work/first-map/map.sceneweave --allow map-authoring
+node tools/harness/sceneweave.mjs map schema edit
+node tools/harness/sceneweave.mjs map edit --project /absolute/work/first-map/map.sceneweave --input /absolute/work/edit.json --output /absolute/work/revised-map --allow map-authoring --stage draft
+node tools/harness/sceneweave.mjs map verify --candidate /absolute/work/revised-map --output /absolute/work/delivery --allow map-authoring --editor reopen
 ```
 
-工具在隔离浏览器运行，输出`request.json`、`map.sceneweave`、`preview.png`和`result.json`。只有`status:complete`表示实际落盘复读、独立完整冷导入与预览像素核对通过；视觉和用户签收另判。从普通页面导入结果继续编辑，不写入用户旧库。
+Windows PowerShell 可用 `| Set-Content -Encoding utf8NoBOM -LiteralPath <路径>` 保存示例请求。
+
+用 `landscape` 指定主要轮廓和地貌。`outline: "smooth"` 按段平滑岸线并保留共享边。道路可给两端和 `around: { landmarkId, side }`，程序检查完整净宽、路肩和踏步后选择绕行线。也可以指定确切途经点。默认用每轴 0–1000 的相对坐标。有参考图时给出 `referenceSizePx` 并使用像素锚点，映射保持宽高比。有图中已知距离时用 `referenceScale` 标定。净宽、高程和绕行距离用毫米。室内布局用 `interior`，林地用 `forest`，精确坐标与对象组合用 `layout`。
+
+低地中需要保留的山丘、岩块或台地可设 `preserveRelief: true`。地表覆盖用 `covers`，每项给 `id`、`areaId`、`region` 和 `cover`（`grass`、`sand` 或 `rock`）。布景可选 `pattern: "meadow"` 或 `"grove"`。在 `checks` 中声明必须可走的走廊，布景会预留完整净宽。在 `heightChecks` 中可用 `id`、`low`、`high`、`minRiseMm` 核对实际高差。将 `required` 设为 `false` 可作观察项。
+
+从 `inspect` 复制 `projectHash`、`floorId` 和实际对象 ID。下面为参考图示例调整通路和局部植被。可选的 `around.radiusMm` 指定绕行半径。对有手工固定平台的道路，用 `points` 明确保留对应途经点。
+
+```json
+{
+  "projectHash": "从 inspect 复制",
+  "floorId": "从 inspect 复制",
+  "operations": [
+    { "kind": "path-update", "id": "ascent", "around": { "landmarkId": "summit", "side": "west" } },
+    { "kind": "scenery-density", "id": "west-woods", "density": 1 }
+  ]
+}
+```
+
+用 `terrain-shape` 局部塑形，用 `cover-zone` 在指定地块新增或按原 ID 更新覆盖。用 `scenery-zone` 新增布景区，`scenery-density` 调整已有组。`region` 可给 `at` 和 `radius`，也可用 `boundary` 圈定范围。对同一工程单独提交 `{ "kind": "art-style", "style": "tea" }` 操作，可对照画风。回执中的 `artStyle` 是实际生效的画风。编辑默认用毫米，使用原图像素时设置 `referenceSizePx`，等比映射选择 `referenceMapping: "fit"`。编辑请求可带上仍需通过的 `checks` 和 `heightChecks`。生成和编辑各支持最多 256 条显式操作，输入与重放文件上限 256 KiB。实际展开、几何和资源按任务档计量。
+
+生成或编辑默认走完整交付检查。`--stage draft` 会先保存可打开的 `map.sceneweave`、真实 `preview.png`、重放用的 `request.json` 和 `result.json`。有地形高差或指定 `oblique: true` 时还会出 `oblique.png`。有可定位的问题时，`diagnostic.png` 的编号对应回执中的 `diagnosticMarkers`。画面可用后运行 `map verify`，在新目录逐像素验证独立冷读的重绘。`--editor reopen` 加验普通首页导入和视图，在独立浏览器上下文完成。回执为 `complete` 后可交付。旧图片缺失或损坏时可用 `--previews redraw` 从同一工程重绘复核。
+
+使用本机 stdio MCP 时，启动 `node tools/harness/map-server.mjs --workspace /absolute/work --allow map-authoring`。从 `tools/list` 获取实际能力。以制图目录内的相对路径读取工程，输出传一个新目录名。生成或编辑可传 `stage: "draft"`，用 `sceneweave_map_preview` 加 `draft: true` 查看草稿，可选 `view: "diagnostic"`。用 `sceneweave_map_verify` 复核，`editor: true` 加验普通编辑器，`previews: "redraw"` 可重绘。
 
 <a id="forest-loop-mcp"></a>
+原林中建筑 CLI 使用 `example`、`generate --allow forest-building --budget standard` 和 `repair-furniture`。其参数与通用制图请求各有 schema。
+
 有限林中建筑循环使用`node tools/harness/forest-server.mjs --input /absolute/request.json --output /absolute/new-loop --allow forest-building --budget standard`。先发现实际state/action工具，再按当前stateHash执行。最多3次生成或指定房间修正、4次决策，需求固定、无改善停止，最终审阅保存。具体边界见[架构](docs/architecture.md#ai)。
 
 完成一次动作后，可用 `node tools/harness/forest-server.mjs --resume /absolute/saved-loop --allow forest-building --budget standard` 按原预算档位重开。宿主核对固定请求、流程绑定、已用预算和候选文件，随后从 `sceneweave_forest_state` 读取当前可执行动作。移交时携带完整循环目录。若中断时仍有动作在途，保留原记录，并从已完成候选的 `map.sceneweave` 进入页面审阅。

@@ -18,6 +18,7 @@ export interface MeshMaterial {
   canopy?: PointMm
   coverage?: MeshMask
   privacy?: MeshMask
+  mapBase?: true
 }
 
 const radians = (n: number) => n * Math.PI / 180
@@ -38,6 +39,7 @@ export class ObliqueMesh {
   private light?: SpatialPoint
   private nextObjectId = 0
   bottom = 0
+  baseBottom = 0
   top = 0
   private vertexCount = 0
 
@@ -52,7 +54,7 @@ export class ObliqueMesh {
       if (!id) { id = ++this.nextObjectId; this.objectIds.set(value, id) }
       return id
     }
-    return JSON.stringify([objectId(material.image), material.color ?? [1, 1, 1], !!material.repeat, !!material.unlit,
+    return JSON.stringify([objectId(material.image), material.color ?? [1, 1, 1], !!material.repeat, !!material.unlit, !!material.mapBase,
       material.alphaCutoff ?? .22, objectId(material.coverage), objectId(material.privacy), material.unlit ? null : light ?? null])
   }
 
@@ -82,7 +84,8 @@ export class ObliqueMesh {
     }
     for (let i = 0; i < 3; i++) {
       vertices.push(...points[i], ...n, ...uv[i])
-      this.bottom = Math.min(this.bottom, points[i][2])
+      if (material.mapBase) this.baseBottom = Math.min(this.baseBottom, points[i][2])
+      else this.bottom = Math.min(this.bottom, points[i][2])
       this.top = Math.max(this.top, points[i][2])
     }
   }
@@ -199,22 +202,30 @@ function compile(gl: WebGLRenderingContext | WebGL2RenderingContext, program: We
 
 /** One context owns the buffers and textures for the mounted preview. Camera changes
  * only update uniforms and translucent wall order. */
-export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, bounds: BoundsMm, sun: SpatialPoint, background: SpatialColor) {
+export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, bounds: BoundsMm, sun: SpatialPoint, background: SpatialColor,
+  deterministicColor = false) {
   const options = { alpha: false, antialias: true, preserveDrawingBuffer: true }
   const gl2 = canvas.getContext('webgl2', options) as WebGL2RenderingContext | null
   const gl = gl2 ?? (canvas.getContext('webgl', options) as WebGLRenderingContext | null)
   if (!gl) throw new Error('当前设备无法准备 3D 预览。')
+  // The driver can dither a color to different adjacent byte values in fresh
+  // framebuffers. Export needs a repeatable color for independent cold reads.
+  if (deterministicColor) gl.disable(gl.DITHER)
   const textures = {
     color: new Map<TextureSource | undefined | null, WebGLTexture>(),
     repeat: new Map<TextureSource | undefined | null, WebGLTexture>(),
     mask: new Map<TextureSource | undefined | null, WebGLTexture>(),
   }
   const colorDetails = new Map<TextureSource, WebGLTexture>()
+  const clearColorDetails = () => {
+    for (const texture of colorDetails.values()) gl.deleteTexture(texture)
+    colorDetails.clear()
+  }
   const buffers: WebGLBuffer[] = []
   const program = gl.createProgram()!
   const dispose = () => {
     for (const cache of Object.values(textures)) for (const texture of cache.values()) gl.deleteTexture(texture)
-    for (const texture of colorDetails.values()) gl.deleteTexture(texture)
+    clearColorDetails()
     for (const buffer of buffers) gl.deleteBuffer(buffer)
     gl.deleteProgram(program)
     gl.getExtension('WEBGL_lose_context')?.loseContext()
@@ -366,10 +377,11 @@ export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, b
       const yaw = radians(camera.azimuthDeg), pitch = radians(camera.elevationDeg)
       const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch)
       const spanX = Math.abs(cy) * bounds.width + Math.abs(sy) * bounds.height
-      const spanY = (Math.abs(sy) * bounds.width + Math.abs(cy) * bounds.height) * sp + (mesh.top - mesh.bottom) * cp
+      const bottom = camera.showBase ? Math.min(mesh.bottom, mesh.baseBottom) : mesh.bottom
+      const spanY = (Math.abs(sy) * bounds.width + Math.abs(cy) * bounds.height) * sp + (mesh.top - bottom) * cp
       const scale = .92 * camera.zoom * Math.min(canvas.width / spanX, canvas.height / spanY)
       const center = camera.targetMm ?? { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
-      const centerX = center.x - bounds.x, centerY = center.y - bounds.y, centerZ = (mesh.top + mesh.bottom) * .5
+      const centerX = center.x - bounds.x, centerY = center.y - bounds.y, centerZ = (mesh.top + bottom) * .5
       const halfWidth = canvas.width / (2 * scale), halfHeight = canvas.height / (2 * scale)
       gl.viewport(0, 0, canvas.width, canvas.height)
       gl.clearColor(...background, 1)
@@ -379,12 +391,13 @@ export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, b
       gl.uniform2f(u.uYaw, cy, sy)
       gl.uniform2f(u.uPitch, sp, cp)
       gl.uniform2f(u.uScale, 2 * scale / canvas.width, 2 * scale / canvas.height)
-      gl.uniform1f(u.uDepth, Math.hypot(bounds.width, bounds.height, mesh.top - mesh.bottom) * 4)
+      gl.uniform1f(u.uDepth, Math.hypot(bounds.width, bounds.height, mesh.top - bottom) * 4)
       gl.disable(gl.BLEND)
       const batches = camera.fadeCanopy && camera.zoom > 1.16 ? individualBatches : combinedBatches
       const translucent: { batch: ReturnType<typeof addBatch>; opacity: number; depth: number }[] = []
       let drawCalls = 0, drawnTriangles = 0
       for (const batch of batches) {
+        if (batch.material.mapBase && !camera.showBase) continue
         const x = batch.center[0] - centerX, y = batch.center[1] - centerY, z = batch.center[2] - centerZ
         const across = x * cy + y * sy, along = y * cy - x * sy
         const [rx, ry, rz] = batch.radius
@@ -409,7 +422,7 @@ export function mountObliqueMesh(canvas: HTMLCanvasElement, mesh: ObliqueMesh, b
       if (gl.getError() !== gl.NO_ERROR) throw new Error('设备未能完成 3D 绘制。')
       return { drawCalls, drawnTriangles }
     }
-    return { draw, dispose, maxTextureSize, replaceColorDetail, setDetailed, batchCount: combinedBatches.length }
+    return { draw, dispose, maxTextureSize, replaceColorDetail, clearColorDetails, setDetailed, batchCount: combinedBatches.length }
   } catch (error) {
     dispose()
     throw error

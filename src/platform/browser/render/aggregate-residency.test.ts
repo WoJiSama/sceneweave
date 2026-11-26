@@ -4,7 +4,7 @@ import { createAggregateDerivedResidency, editorResidentAssetIds } from './aggre
 import { createEditorRenderPlan } from './editor-render-plan.js'
 import type { Projection } from '../../../shared/projection/types.js'
 import { projectScene } from '../../../shared/projection/projection.js'
-import { layerSceneV3 } from '../../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../../tests/helpers/current-project-fixtures.js'
 import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 
 describe('editor derived chunk residency', () => {
@@ -36,7 +36,7 @@ describe('editor derived chunk residency', () => {
   })
 
   it('defers only exclusively offscreen prop bitmap decode and preserves material/shared image consumers', () => {
-    const scene = toCurrentSceneDocument({ ...structuredClone(layerSceneV3()), format: 'sceneweave-scene' })
+    const scene = toCurrentSceneDocument({ ...structuredClone(layerScene()), format: 'sceneweave-scene' })
     const projection = projectScene(scene, 'gm') as Projection
     const original = projection.props[0]
     projection.props = [
@@ -56,7 +56,7 @@ describe('editor derived chunk residency', () => {
   })
 
   it('defers offscreen decoration images only with a complete consumer closure', () => {
-    const source = projectScene(toCurrentSceneDocument({ ...structuredClone(layerSceneV3()), format: 'sceneweave-scene' }), 'gm')
+    const source = projectScene(toCurrentSceneDocument({ ...structuredClone(layerScene()), format: 'sceneweave-scene' }), 'gm')
     source.props = []
     source.decorations = ['near', 'far', 'shared'].map((id, index) => ({ id, assetId: id === 'shared' ? 'near-image' : `${id}-image`, positionMm: { x: index ? 15000 : 1000, y: index ? 15000 : 1000 },
       rotationDeg: 0, visualBoundsMm: { x: -100, y: -100, width: 200, height: 200 }, opacity: 1, renderLayer: 'object', renderOrder: index }))
@@ -71,7 +71,7 @@ describe('editor derived chunk residency', () => {
   })
 
   it.each(['module', 'nested-reference', 'unassigned-asset'] as const)('falls back to complete decode for an unknown %s, including a reused offscreen sprite image', mode => {
-    const source = projectScene(toCurrentSceneDocument({ ...structuredClone(layerSceneV3()), format: 'sceneweave-scene' }), 'gm')
+    const source = projectScene(toCurrentSceneDocument({ ...structuredClone(layerScene()), format: 'sceneweave-scene' }), 'gm')
     source.props = []; source.materials = {}; source.rooms = []; source.terrain = []; source.walls = []; source.edges = []; source.paths = []; source.connections = []
     source.decorations = ['near', 'far'].map((id, index) => ({ id, assetId: `${id}-image`, positionMm: { x: index ? 15000 : 1000, y: index ? 15000 : 1000 }, rotationDeg: 0,
       visualBoundsMm: { x: -100, y: -100, width: 200, height: 200 }, opacity: 1, renderLayer: 'object', renderOrder: index }))
@@ -85,7 +85,7 @@ describe('editor derived chunk residency', () => {
   })
 
   it('consumes envelope resources and rejects an envelope from a different audience', () => {
-    const source = projectScene(toCurrentSceneDocument({ ...structuredClone(layerSceneV3()), format: 'sceneweave-scene' }), 'gm')
+    const source = projectScene(toCurrentSceneDocument({ ...structuredClone(layerScene()), format: 'sceneweave-scene' }), 'gm')
     source.props = []; source.materials = {}; source.rooms = []; source.terrain = []; source.walls = []; source.edges = []; source.paths = []; source.connections = []
     source.decorations = [{ id: 'far', assetId: 'only-image', positionMm: { x: 15000, y: 15000 }, rotationDeg: 0, visualBoundsMm: { x: -100, y: -100, width: 200, height: 200 }, opacity: 1, renderLayer: 'object', renderOrder: 0 }]
     source.assetIds = ['only-image']

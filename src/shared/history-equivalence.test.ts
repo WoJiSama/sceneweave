@@ -1,78 +1,39 @@
-import { topDownPresentation } from './appearance/presentation.js'
-import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it } from 'vitest'
-import { scatterLayerSceneV3, symbolPropV3 } from '../core/v3/test-fixtures.js'
-import type { SceneDocumentV3 } from '../core/v3/types.js'
-import { sceneSchemaV3 } from '../core/v3/schema.js'
-import { createHistoryIdentityV4 } from '../core/v4/identity.js'
-import { StructureContinuitySessionV4 } from '../core/v4/structure-continuity.js'
-import { buildStructureRestorePlanV4 } from '../core/v4/structure-restore.js'
-import { applyCompositionCommandsV6 } from '../core/v6/commands.js'
-import { createCompositionContentV6, inspectAppearanceScopeV6, listRequiredVariantsV6, resolveAppearanceV6 } from '../core/v6/graph.js'
-import { advanceHistoryIdentityV6, createHistoryIdentityTraceV6, outdoorIdentityDescriptorsV6 } from '../core/v6/identity.js'
-import { buildRestorePlanV6 } from '../core/v6/restore.js'
-import { appearanceGraphSchemaV6 } from '../core/v6/schema.js'
-import { compositionFixtureV6, imageFixtureV6, prefabFixtureV6, surfaceFixtureV6 } from '../core/v6/test-fixtures.js'
-import type { CompositionCommandV6, CompositionContentV6 } from '../core/v6/types.js'
+import { compositionFixture, fixtureRuntime, groupLayerScene, imageCompositionFixture, scatterLayerScene, symbolProp } from '../../tests/helpers/current-project-fixtures.js'
 import { applyCompositionCommands } from './appearance/commands.js'
-import { createAppearanceGraph, createCompositionContent, inspectAppearanceScope, listRequiredVariants, resolveAppearance } from './appearance/graph.js'
+import { createCompositionContent, inspectAppearanceScope, listRequiredVariants, resolveAppearance } from './appearance/graph.js'
 import { advanceHistoryIdentity, assertOutdoorContinuity, createHistoryIdentity, createHistoryIdentityTrace, mergeIdentityRecords, outdoorIdentityDescriptors, validateHistoryIdentity } from './history/identity.js'
 import { buildRestorePlan } from './history/restore.js'
 import { StructureContinuitySession } from './history/structure-continuity.js'
 import { buildStructureRestorePlan } from './history/structure-restore.js'
-import type { CompositionCommand, CompositionContent } from './model/appearance.js'
-import type { SceneDocument } from './model/scene.js'
+import type { CompositionCommand } from './model/appearance.js'
 import type { PreparationContext } from './ports/runtime.js'
 import { certifyCompositionContent, getCertifiedCompositionContent, reviseCompositionContent, validateAppearanceGraph, validateCompositionContent } from './validation/content.js'
 import { cloneJson, inspectJsonInput } from './validation/json.js'
 
 const stamp = '2026-10-24T00:00:00.000Z'
-// Differential fixtures contain only commands supported by both historical and current contracts.
-type EquivalenceCommand = CompositionCommand & CompositionCommandV6
 const context = (): PreparationContext => {
   let allocated = 0
   return { ids: { nextId: () => `native-test-${++allocated}` }, clock: { now: () => stamp } }
 }
-/** Add current empty capabilities while preserving the historical primitive identities. */
-const nativeScene = (document: SceneDocumentV3): SceneDocument => toCurrentSceneDocument({ ...cloneJson(document), format: 'sceneweave-scene' })
-const native = (input: CompositionContentV6): CompositionContent => {
-  const document = nativeScene(input.document), currentIdentity = createHistoryIdentity(document, context())
-  // Historical fixtures have no structure axis. Give their shared live
-  // structures stable test witnesses independent of the old prop allocator.
-  currentIdentity.structureTokens = Object.fromEntries(Object.entries(currentIdentity.structureTokens ?? {}).map(([id, record]) => [id, { ...record, token: `structure-birth-${id}`, topologyToken: `structure-topology-${id}` }]))
-  return { document, historyIdentity: { ...currentIdentity, ...cloneJson(input.historyIdentity), version: 5 },
-    appearance: { ...cloneJson(input.appearance), version: 2, presentations: Object.fromEntries(Object.values(input.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) } }
+function surfaceCompositionFixture() {
+  const document = scatterLayerScene(0), asset = Object.values(document.assets)[0]
+  delete document.scatterGroups.scatter; delete document.entityLayers.scatter
+  document.materials.material = { id: 'material', catalogId: 'test.material', version: 1, licenseRef: asset.licenseRef, origin: asset.origin,
+    name: 'Test material', tags: [], textureAssetId: asset.id, defaultTileSizeMm: { width: 1000, height: 1000 }, applicableSurfaces: ['terrain'] }
+  const paint = { materialRef: { id: 'material', version: 1 }, tileSizeMm: { width: 1000, height: 1000 }, rotationDeg: 0,
+    alignment: 'world' as const, originMm: { x: 0, y: 0 }, tint: null, opacity: 1 }
+  document.terrainAreas.domain.surfaceStyle = { base: paint, overlays: [{ id: 'overlay', paint: { ...paint, opacity: .4 },
+    boundaryMm: [{ x: 2000, y: 2000 }, { x: 4000, y: 2000 }, { x: 4000, y: 4000 }, { x: 2000, y: 4000 }], blendWidthMm: 0, renderOrder: 0 }] }
+  return createCompositionContent(document, fixtureRuntime())
 }
-const triad = (input: CompositionContent): CompositionContent => ({ document: input.document, historyIdentity: input.historyIdentity, appearance: input.appearance })
-function legacy(input: CompositionContent): CompositionContentV6 {
-  const copy = cloneJson(triad(input))
-  const { mapMode, generation, regional, visual, decorations, decorationClusters, surfaceRules, ...document } = copy.document
-  expect(mapMode).toBe('scene'); expect(regional).toBeNull()
-  expect(decorations).toEqual({}); expect(decorationClusters).toEqual({}); expect(surfaceRules).toEqual({})
-  expect(visual.base.base.boundaries).toEqual({}); expect(visual.base.materializedEdges).toEqual({}); expect(visual.transitions).toEqual({})
-  const { generationTokens, regionalTokens, presentationTokens, terrainTokens, decorationTokens, surfaceRuleTokens, structureTokens: _structureTokens, ...identity } = copy.historyIdentity
-  for (const records of [generationTokens, regionalTokens, terrainTokens, decorationTokens, surfaceRuleTokens]) expect(records).toEqual({})
-  // Current overlay identity is additional evidence; historical surface primitives remain identical.
-  expect(Object.keys(presentationTokens ?? {})).toEqual(Object.values(document.terrainAreas).flatMap(area => (area.surfaceStyle?.overlays ?? []).map(overlay => overlay.id)))
-  const { presentations, ...appearance } = copy.appearance
-  expect(presentations).toEqual(Object.fromEntries(Object.values(appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])))
-  // These differential fixtures only use historical fields. The strict reader
-  // rejects any current-only field instead of asserting away new union members.
-  return { document: sceneSchemaV3.parse({ ...document, format: 'sceneweave', schemaVersion: 3 }), historyIdentity: { ...identity, version: 3 },
-    appearance: appearanceGraphSchemaV6.parse({ ...appearance, version: 1 }) }
-}
-const legacyAppearance = (appearance: CompositionContent['appearance']) => {
-  const { presentations, ...fields } = appearance
-  expect(presentations).toEqual(Object.fromEntries(Object.values(fields.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])))
-  return { ...fields, version: 1 }
-}
-const compare = (actual: CompositionContent, expected: CompositionContentV6) => expect(legacy(actual)).toEqual({ document: expected.document, historyIdentity: expected.historyIdentity, appearance: expected.appearance })
 
-describe('M2-0b native history, appearance and finite restore equivalence', () => {
-  it('validates the full native identity5 and retains exact pre-existing topology hashes', () => {
-    const old = createCompositionContentV6(scatterLayerSceneV3(2)), current = native(old)
+describe('M2-0b history, appearance and finite restore', () => {
+  it('validates identity5 and binds the topology of outdoor entities', () => {
+    const current = createCompositionContent(scatterLayerScene(2), fixtureRuntime())
     expect(validateHistoryIdentity(current.historyIdentity, current.document)).toEqual(current.historyIdentity)
-    expect(outdoorIdentityDescriptors(current.document)).toEqual(outdoorIdentityDescriptorsV6(old.document))
+    const descriptors = outdoorIdentityDescriptors(current.document)
+    for (const [id, descriptor] of Object.entries(descriptors)) expect(current.historyIdentity.outdoorTokens[id]).toMatchObject(descriptor)
     expect(createHistoryIdentity(current.document, context())).toEqual(createHistoryIdentity(current.document, context()))
     expect(createCompositionContent(current.document, context()).appearance).toEqual(current.appearance)
     expect(() => validateHistoryIdentity({ ...current.historyIdentity, version: 3 }, current.document)).toThrow(/字段/)
@@ -83,28 +44,23 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
   })
 
   it('observes a topology change and change-back inside one draft and never restores the old continuity token', () => {
-    const old = createCompositionContentV6(scatterLayerSceneV3(0)), current = native(old)
+    const current = createCompositionContent(scatterLayerScene(0), fixtureRuntime())
     const changed = cloneJson(current.document); changed.scatterGroups.scatter.seed = 'another-seed'
-    const oldChanged = cloneJson(old.document); oldChanged.scatterGroups.scatter.seed = 'another-seed'
     const trace = createHistoryIdentityTrace(current.historyIdentity, current.document, context())
-    const oldTrace = createHistoryIdentityTraceV6(old.historyIdentity, old.document)
-    trace.observe(changed); oldTrace.observe(oldChanged)
-    const result = trace.finish(current.document), expected = oldTrace.finish(old.document)
-    expect(result.outdoorTokens.scatter.topologyHash).toBe(expected.outdoorTokens.scatter.topologyHash)
+    trace.observe(changed)
+    const result = trace.finish(current.document)
+    expect(result.outdoorTokens.scatter.topologyHash).toBe(current.historyIdentity.outdoorTokens.scatter.topologyHash)
     expect(result.outdoorTokens.scatter.token).toBe(current.historyIdentity.outdoorTokens.scatter.token)
     expect(result.outdoorTokens.scatter.topologyToken).not.toBe(current.historyIdentity.outdoorTokens.scatter.topologyToken)
-    expect(expected.outdoorTokens.scatter.topologyToken).not.toBe(old.historyIdentity.outdoorTokens.scatter.topologyToken)
     expect(() => assertOutdoorContinuity(result, current.historyIdentity, ['scatter'])).toThrow(/连续性/)
     expect(result.outdoorTokens.domain).toEqual(current.historyIdentity.outdoorTokens.domain)
   })
 
   it('keeps tombstones, refuses ordinary resurrection and merges branch births without replacing current topology', () => {
-    const old = createCompositionContentV6(scatterLayerSceneV3(0)), current = native(old), removed = cloneJson(current.document)
+    const current = createCompositionContent(scatterLayerScene(0), fixtureRuntime()), removed = cloneJson(current.document)
     delete removed.scatterGroups.scatter; delete removed.entityLayers.scatter
     const identity = advanceHistoryIdentity(current.historyIdentity, current.document, removed, context())
-    const oldRemoved = legacy({ ...current, document: removed }).document
-    const expected = advanceHistoryIdentityV6(old.historyIdentity, old.document, oldRemoved)
-    expect(identity.outdoorTokens.scatter).toEqual(expected.outdoorTokens.scatter)
+    expect(identity.outdoorTokens.scatter).toEqual(current.historyIdentity.outdoorTokens.scatter)
     expect(() => advanceHistoryIdentity(identity, removed, current.document, context())).toThrow(/不能复用/)
     const undo = advanceHistoryIdentity(identity, removed, current.document, context(), { allowResurrection: true })
     expect(undo.outdoorTokens.scatter.token).toBe(identity.outdoorTokens.scatter.token)
@@ -119,14 +75,12 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
   })
 
   it('matches source → layer → instance opacity including zero and respects current edit locks', () => {
-    const old = compositionFixtureV6(), current = native(old), layerId = current.document.entityLayers.item
-    const commands: EquivalenceCommand[] = [
+    const current = compositionFixture(), layerId = current.document.entityLayers.item
+    const commands: CompositionCommand[] = [
       { type: 'setAppearanceAdjustment', scope: { kind: 'layer', layerId }, adjustment: { id: 'layer-opacity', kind: 'opacity', enabled: true, value: .4 } },
       { type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'item-opacity', kind: 'opacity', enabled: true, value: 0 } },
     ]
     const result = validateCompositionContent(resolveAppearance(applyCompositionCommands(current, commands, context())))
-    const expected = resolveAppearanceV6(applyCompositionCommandsV6(old, commands))
-    compare(result, expected)
     expect(result.document.props.item.appearance.opacity).toBe(0)
     expect(result.document.props.other.appearance.opacity).toBe(.4)
     const locked = cloneJson(current); locked.document.userLayers[layerId].editLocked = true
@@ -135,57 +89,50 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
   })
 
   it('retains fixed bitmap-source and variant IDs, rejects missing actual outputs and detects corrupt ancestors', () => {
-    const old = imageFixtureV6(), current = native(old)
-    expect(legacyAppearance(createAppearanceGraph(current.document))).toEqual(old.appearance)
-    const commands: EquivalenceCommand[] = [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'tint', kind: 'tint', value: '#aA8844', enabled: true } }]
-    const pending = applyCompositionCommands(current, commands, context()), oldPending = applyCompositionCommandsV6(old, commands)
-    expect(listRequiredVariants(pending)).toEqual(listRequiredVariantsV6(oldPending))
+    const current = imageCompositionFixture()
+    const commands: CompositionCommand[] = [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'tint', kind: 'tint', value: '#aA8844', enabled: true } }]
+    const pending = applyCompositionCommands(current, commands, context())
+    const variants = listRequiredVariants(pending)
+    expect(variants).toHaveLength(1)
+    expect(variants[0].tint?.toLowerCase()).toBe('#aa8844')
     expect(() => resolveAppearance(pending)).toThrow(/尚未完整采用/)
-    expect(() => resolveAppearanceV6(oldPending)).toThrow(/尚未完整采用/)
     const cycle = cloneJson(current.appearance), sourceId = cycle.propSources.item
     cycle.sources[sourceId].parentSourceId = sourceId
     expect(() => validateAppearanceGraph(cycle, current.document)).toThrow(/循环/)
   })
 
   it('preserves private fixed prefab templates and deduplicates whole-group plus member scope', () => {
-    const old = prefabFixtureV6(), current = native(old), scope = { kind: 'targets' as const, ids: ['group', 'left'] }
-    expect(legacyAppearance(createAppearanceGraph(current.document))).toEqual(old.appearance)
+    const current = createCompositionContent(groupLayerScene(), fixtureRuntime()), scope = { kind: 'targets' as const, ids: ['group', 'left'] }
     expect(current.appearance.prefabAppearanceTemplates.definition.visibility).toBe('gm')
-    expect(inspectAppearanceScope(current, scope)).toEqual(inspectAppearanceScopeV6(old, scope))
     expect(inspectAppearanceScope(current, scope).targetIds.sort()).toEqual(['left', 'right'])
     const locked = cloneJson(current); locked.document.prefabInstances.group.editLocked = true
     expect(() => inspectAppearanceScope(locked, scope)).toThrow(/锁定/)
   })
 
   it('keeps mixed command families separate and charges the real expanded layer scope against 256', () => {
-    const old = compositionFixtureV6(), current = native(old)
-    const mixed: EquivalenceCommand[] = [
+    const current = compositionFixture()
+    const mixed: CompositionCommand[] = [
       { type: 'updateProp', id: 'item', changes: { rotationDeg: 10 } },
       { type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] }, adjustment: { id: 'opacity', kind: 'opacity', enabled: true, value: .5 } },
     ]
     expect(() => applyCompositionCommands(current, mixed, context())).toThrow(/不能混批/)
-    expect(() => applyCompositionCommandsV6(old, mixed)).toThrow(/不能混批/)
-    const document = cloneJson(old.document), layerId = document.entityLayers.item
+    const document = cloneJson(current.document), layerId = document.entityLayers.item
     for (let index = 0; index < 255; index++) {
-      const id = `extra-${index}`; document.props[id] = symbolPropV3(id, 8000 + index, 8000); document.entityLayers[id] = layerId
+      const id = `extra-${index}`; document.props[id] = symbolProp(id, 8000 + index, 8000); document.entityLayers[id] = layerId
     }
-    const largeOld = createCompositionContentV6(document), large = native(largeOld)
-    const commands: EquivalenceCommand[] = [{ type: 'setAppearanceAdjustment', scope: { kind: 'layer', layerId }, adjustment: { id: 'too-wide', kind: 'opacity', enabled: true, value: .5 } }]
+    const large = createCompositionContent(document, fixtureRuntime())
+    const commands: CompositionCommand[] = [{ type: 'setAppearanceAdjustment', scope: { kind: 'layer', layerId }, adjustment: { id: 'too-wide', kind: 'opacity', enabled: true, value: .5 } }]
     expect(() => applyCompositionCommands(large, commands, context())).toThrow(/256/)
-    expect(() => applyCompositionCommandsV6(largeOld, commands)).toThrow(/256/)
   })
 
   it('restores one prop transform while preserving newer fields and outside edits exactly', () => {
-    const oldHistoric = compositionFixtureV6(), oldCurrent = cloneJson(oldHistoric)
-    oldCurrent.document.props.item.positionMm.x += 400
-    oldCurrent.document.props.other.rotationDeg = 27
-    oldCurrent.document.notes.later = { id: 'later', floorId: 'blank-floor', editLocked: false, anchor: { type: 'point', positionMm: { x: 15000, y: 15000 } }, kind: 'note', text: 'outside edit', visibility: 'gm' }
-    oldCurrent.document.entityLayers.later = oldCurrent.document.entityLayers.item
-    const historic = native(oldHistoric), current = native(oldCurrent), before = cloneJson(current)
+    const historic = compositionFixture(), current = cloneJson(historic)
+    current.document.props.item.positionMm.x += 400
+    current.document.props.other.rotationDeg = 27
+    current.document.notes.later = { id: 'later', floorId: 'blank-floor', editLocked: false, anchor: { type: 'point', positionMm: { x: 15000, y: 15000 } }, kind: 'note', text: 'outside edit', visibility: 'gm' }
+    current.document.entityLayers.later = current.document.entityLayers.item
+    const before = cloneJson(current)
     const result = buildRestorePlan(current, historic, { ids: ['item'], mode: 'transform' })
-    const expected = buildRestorePlanV6(oldCurrent, oldHistoric, { ids: ['item'], mode: 'transform' })
-    compare(result, expected)
-    expect(result.changes).toEqual(expected.changes)
     expect(result.document.props.item.positionMm).toEqual(historic.document.props.item.positionMm)
     expect(result.document.props.other).toEqual(current.document.props.other)
     expect(result.document.notes).toEqual(current.document.notes)
@@ -193,51 +140,40 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
   })
 
   it('restores persisted outdoor geometry, preserving later notes, objects and paint with the same dependency cost', () => {
-    const oldHistoric = surfaceFixtureV6(), oldCurrent = cloneJson(oldHistoric)
-    oldCurrent.document.terrainAreas.domain.boundaryMm[0].positionMm.x = 900
-    oldCurrent.document.terrainAreas.domain.groundElevationMm = 300
-    oldCurrent.document.props.item.rotationDeg = 25
-    oldCurrent.document.notes.later = { id: 'later', floorId: 'blank-floor', editLocked: false, anchor: { type: 'entity', entityKind: 'prop', entityId: 'item' }, kind: 'note', text: 'later', visibility: 'gm' }
-    oldCurrent.document.entityLayers.later = oldCurrent.document.entityLayers.item
-    const current = native(oldCurrent), result = buildRestorePlan(current, native(oldHistoric), { ids: ['domain'], mode: 'outdoorGeometry' })
-    const expected = buildRestorePlanV6(oldCurrent, oldHistoric, { ids: ['domain'], mode: 'outdoorGeometry' })
-    compare(result, expected)
-    expect(result.affectedIds).toEqual(expected.affectedIds)
+    const historic = surfaceCompositionFixture(), current = cloneJson(historic)
+    current.document.terrainAreas.domain.boundaryMm[0].positionMm.x = 900
+    current.document.terrainAreas.domain.groundElevationMm = 300
+    current.document.props.item.rotationDeg = 25
+    current.document.notes.later = { id: 'later', floorId: 'blank-floor', editLocked: false, anchor: { type: 'entity', entityKind: 'prop', entityId: 'item' }, kind: 'note', text: 'later', visibility: 'gm' }
+    current.document.entityLayers.later = current.document.entityLayers.item
+    const result = buildRestorePlan(current, historic, { ids: ['domain'], mode: 'outdoorGeometry' })
     expect(result.commandCost).toBe(2)
     expect(result.document.notes).toEqual(current.document.notes)
     expect(result.document.props).toEqual(current.document.props)
     expect(result.document.terrainAreas.domain.surfaceStyle).toEqual(current.document.terrainAreas.domain.surfaceStyle)
     const locked = cloneJson(current); locked.document.notes.later.editLocked = true
-    expect(() => buildRestorePlan(locked, native(oldHistoric), { ids: ['domain'], mode: 'outdoorGeometry' })).toThrow(/已锁定：domain/)
-    expect(() => buildRestorePlanV6(legacy(locked), oldHistoric, { ids: ['domain'], mode: 'outdoorGeometry' })).toThrow(/已锁定：domain/)
+    expect(() => buildRestorePlan(locked, historic, { ids: ['domain'], mode: 'outdoorGeometry' })).toThrow(/已锁定：domain/)
   })
 
   it('rebuilds only the explicit historical scatter birth and keeps other deletions and manual exclusions', () => {
-    const document = scatterLayerSceneV3(3); document.scatterGroups.scatter.visibility = 'public'
-    const oldHistoric = createCompositionContentV6(document), historic = native(oldHistoric)
-    const commands: EquivalenceCommand[] = [
+    const document = scatterLayerScene(3); document.scatterGroups.scatter.visibility = 'public'
+    const historic = createCompositionContent(document, fixtureRuntime())
+    const commands: CompositionCommand[] = [
       { type: 'deleteProp', id: 'scatter-item-0' }, { type: 'deleteProp', id: 'scatter-item-1' },
       { type: 'upsertScatterExclusion', groupId: 'scatter', exclusion: { id: 'later-entrance', boundaryMm: [{ x: 10000, y: 10000 }, { x: 10600, y: 10000 }, { x: 10600, y: 10600 }, { x: 10000, y: 10600 }], reason: 'entrance' } },
     ]
-    const actualCommands = applyCompositionCommands(historic, commands, context()), oldCurrent = applyCompositionCommandsV6(oldHistoric, commands)
-    expect(actualCommands.document).toEqual(nativeScene(oldCurrent.document))
-    expect(legacyAppearance(actualCommands.appearance)).toEqual(oldCurrent.appearance)
-    // New exclusion births use each runtime's allocator. Restore the same saved
-    // input on both cores to compare the complete persisted result exactly.
-    const current = native(oldCurrent)
+    const current = applyCompositionCommands(historic, commands, context())
     expect(() => buildRestorePlan(current, historic, { ids: ['scatter-item-0'], mode: 'appearance' })).toThrow(/显式/)
     const result = buildRestorePlan(current, historic, { ids: ['scatter-item-0'], mode: 'scatterMembers' })
-    const expected = buildRestorePlanV6(oldCurrent, oldHistoric, { ids: ['scatter-item-0'], mode: 'scatterMembers' })
-    compare(result, expected)
     expect(result.document.props['scatter-item-1']).toBeUndefined()
     expect(result.historyIdentity.propTokens['scatter-item-0']).toBe(historic.historyIdentity.propTokens['scatter-item-0'])
     expect(result.document.scatterGroups.scatter.exclusions.some(item => item.id === 'later-entrance')).toBe(true)
     // Current restore also accounts for the exact prop birth and removed exclusion.
-    expect(expected.commandCost).toBe(4); expect(result.commandCost).toBe(6)
+    expect(result.commandCost).toBe(6)
   })
 
   it('issues certificates only for the exact owned immutable triad and rejects frozen, accessor and mixed forgeries', () => {
-    const input = native(compositionFixtureV6()), certified = certifyCompositionContent(input)
+    const input = compositionFixture(), certified = certifyCompositionContent(input)
     expect(certified.document).not.toBe(input.document)
     expect(Object.isFrozen(certified.document.props.item.positionMm)).toBe(true)
     expect(Object.isFrozen(certified.historyIdentity.propTokens)).toBe(true)
@@ -265,23 +201,18 @@ describe('M2-0b native history, appearance and finite restore equivalence', () =
   })
 
   it('keeps C2 evidence ephemeral, restores optional note fields as JSON and rejects deletion/recreation even after undo', () => {
-    const oldDocument = compositionFixtureV6().document, layerId = oldDocument.entityLayers.item
+    const oldDocument = compositionFixture().document, layerId = oldDocument.entityLayers.item
     oldDocument.notes.point = { id: 'point', floorId: 'blank-floor', editLocked: false, anchor: { type: 'point', positionMm: { x: 12000, y: 12000 } }, kind: 'note', text: 'historical', visibility: 'gm' }
     oldDocument.entityLayers.point = layerId
-    const oldHistoric = createCompositionContentV6(oldDocument), historic = native(oldHistoric), current = cloneJson(historic)
+    const historic = createCompositionContent(oldDocument, fixtureRuntime()), current = cloneJson(historic)
     current.document.notes.point.anchor = { type: 'point', positionMm: { x: 13000, y: 13000 } }
     current.document.notes.point.title = 'later title'; current.document.notes.point.discovered = true; current.document.notes.point.text = 'later text'
     const session = new StructureContinuitySession()
     session.reset(historic.document); session.recordSnapshot('source', 'hash', historic.document); session.advance(historic.document, current.document)
     const proof = session.prove('source', 'hash', current.document, historic.document), request = { ids: ['point'], mode: 'properties' as const }
     const result = buildStructureRestorePlan(current.document, current.historyIdentity, historic.document, historic.historyIdentity, request, proof)
-    const oldCurrent = legacy(current).document, oldIdentity = createHistoryIdentityV4(oldDocument), oldSession = new StructureContinuitySessionV4()
-    oldSession.reset(oldDocument); oldSession.recordSnapshot('source', 'hash', oldDocument); oldSession.advance(oldDocument, oldCurrent)
-    const expected = buildStructureRestorePlanV4(oldCurrent, oldIdentity, oldDocument, oldIdentity, request, oldSession.prove('source', 'hash', oldCurrent, oldDocument))
-    expect(result.document).toEqual(nativeScene(expected.document))
     expect(result.document.notes.point).toEqual(historic.document.notes.point)
     expect(inspectJsonInput(result.document)).toBeUndefined()
-    expect(result.commandCost).toBe(expected.commandCost)
     expect(() => buildStructureRestorePlan(current.document, current.historyIdentity, historic.document, historic.historyIdentity, request, { snapshotId: 'source' })).toThrow(/连续性证据/)
     const deleted = cloneJson(current.document); delete deleted.notes.point; delete deleted.entityLayers.point
     session.advance(current.document, deleted); session.advance(deleted, current.document)

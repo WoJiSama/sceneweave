@@ -1,21 +1,22 @@
-import { convertDevelopmentProject } from '../../src/shared/migration/development-project.js'
-import { toCurrentSceneDocument } from '../../src/shared/model/current-scene.js'
-import { createC3ProjectV5, c3ImageBlob } from '../c3-fixtures'
-import { createHistoryIdentityV6 } from '../../src/core/v6/identity'
-import { prepareCompositionCommandsV5 } from '../../src/io/v5/prepare'
-import { sha256Bytes } from '../../src/io/v6/resources'
-import { createMemoryResources } from '../../src/shared/project/resources'
-import { validateProjectData } from '../../src/shared/project/validate'
-import type { AssetRecord, ProjectBundle, ProjectData } from '../../src/shared/model/project'
-import type { CompleteProjectV5 } from '../../src/io/v5/types'
+import { emptyProject, fixtureRuntime } from './current-project-fixtures.js'
+import { fromBundle, toBundle } from '../../src/application/workspace/project.js'
+import { prepareAssetImport, prepareCompositionCommands } from '../../src/application/workspace/prepare.js'
+import { createBrowserImagePort } from '../../src/platform/browser/images/index.js'
+import { sha256Bytes } from '../../src/shared/project/binary.js'
+import { createMemoryResources } from '../../src/shared/project/resources.js'
+import { validateProjectData } from '../../src/shared/project/validate.js'
+import type { ProjectBundle } from '../../src/shared/model/project.js'
 
 /** Small original browser images. No user storage, network asset, or decoder double. */
 export async function fixtureImage(type: 'image/png' | 'image/jpeg' | 'image/webp' = 'image/png', color?: string): Promise<Uint8Array> {
-  if (!color) return new Uint8Array(await (await c3ImageBlob(type)).arrayBuffer())
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 8
   try {
     const context = canvas.getContext('2d', { colorSpace: 'srgb' })!
-    context.fillStyle = color; context.fillRect(0, 0, 8, 8)
+    context.fillStyle = color ?? 'rgb(200,100,50)'; context.fillRect(0, 0, 8, 8)
+    if (!color) {
+      context.clearRect(0, 0, 2, 8); context.clearRect(6, 0, 2, 8)
+      context.fillStyle = 'rgba(100,200,50,0.5)'; context.fillRect(6, 0, 2, 8)
+    }
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('Browser fixture encode failed')), type, .95))
     if (blob.type !== type) throw new Error(`Browser did not encode ${type}`)
     return new Uint8Array(await blob.arrayBuffer())
@@ -66,44 +67,51 @@ function profileFreeCanvasBytes(bytes: Uint8Array, type: 'image/jpeg' | 'image/w
   return result
 }
 
-/** Test-only fixture adaptation. Production legacy conversion belongs to M2-0d. */
-async function nativeBundle(legacy: CompleteProjectV5): Promise<ProjectBundle> {
-  const bytes: Record<string, Uint8Array> = {}, assets: Record<string, AssetRecord> = {}
-  for (const [hash, { blob, ...record }] of Object.entries(legacy.assets)) {
-    assets[hash] = record; bytes[hash] = new Uint8Array(await blob.arrayBuffer())
-  }
-  const project: ProjectData = convertDevelopmentProject({
-    format: 'sceneweave-complete-project', schemaVersion: 1,
-    document: { ...structuredClone(legacy.document), format: 'sceneweave-scene', schemaVersion: 1 },
-    historyIdentity: { ...createHistoryIdentityV6(legacy.document), version: 1 }, appearance: structuredClone(legacy.appearance),
-    assets, licenses: structuredClone(legacy.licenses), licenseBindings: structuredClone(legacy.licenseBindings), authoringSources: {},
-  })
-  return { project: validateProjectData(project), resources: createMemoryResources(bytes) }
+async function pngProject(title: string) {
+  const bundle = emptyProject(), runtime = fixtureRuntime(), validation = { images: createBrowserImagePort() }
+  bundle.project.document.title = title
+  bundle.project.document.sceneId = crypto.randomUUID()
+  bundle.project.historyIdentity.rootSceneId = bundle.project.document.sceneId
+  const source = await fromBundle(bundle, validation), bytes = await fixtureImage()
+  const imported = await prepareAssetImport(source, { file: new Blob([bytes.slice().buffer], { type: 'image/png' }), name: '原创测试叶片', kind: 'prop',
+    widthMm: 1400, heightMm: 1400, footprintWidthMm: 1000, footprintHeightMm: 1000, blocksMovement: false, blocksSight: false,
+    licenseText: 'CC0-1.0. Original Sceneweave test artwork.', attribution: 'Sceneweave browser fixture', canEmbed: true }, { validation, runtime })
+  const definition = Object.values(imported.document.propDefinitions)[0]
+  const project = await prepareCompositionCommands(imported, ['c3-left', 'c3-right', 'c3-secret'].map((id, index) => ({ type: 'addProp', id,
+    floorId: 'blank-floor', layerId: 'layer-default-0', definitionRef: { id: definition.id, version: 1 }, positionMm: { x: 4000 + index * 2000, y: 4000 },
+    supportRef: { kind: 'floor', id: 'blank-floor' } })), { validation, runtime })
+  return { project, runtime, validation }
 }
 
-/** Three fixed, licensed definitions keep PNG/JPEG/WebP in the exact closure. */
+/** Three original encoded image types with complete fixed-resource bindings. */
 export async function realImageBundle(): Promise<ProjectBundle> {
-  const legacy = await createC3ProjectV5({ title: 'M2-0c actual byte fixture' })
-  const source = Object.values(legacy.document.assets)[0], definition = Object.values(legacy.document.propDefinitions)[0]
-  const sourceBinding = legacy.licenseBindings.find(binding => binding.subjectKind === 'asset' && binding.subjectId === source.id)!
+  const { project: initial } = await pngProject('Actual image formats'), bundle = toBundle(initial)
+  const project = structuredClone(bundle.project), document = project.document
+  document.props['c3-secret'].visibility = 'gm'
+  document.regions['c3-private-mask'] = { id: 'c3-private-mask', floorId: 'blank-floor', editLocked: false, kind: 'manualMask',
+    visibility: 'gm', boundaryMm: [{ x: 7000, y: 1000 }, { x: 12000, y: 1000 }, { x: 12000, y: 7500 }, { x: 7000, y: 7500 }],
+    blocksMovement: false, movementCostMultiplier: 1 }
+  document.entityLayers['c3-private-mask'] = 'layer-default-0'
+  const source = Object.values(document.assets)[0], definition = Object.values(document.propDefinitions)[0]
+  const sourceBinding = project.licenseBindings.find(binding => binding.subjectKind === 'asset' && binding.subjectId === source.id)!
+  const resources = await resourceBytes(bundle)
   for (const [index, mimeType] of (['image/jpeg', 'image/webp'] as const).entries()) {
-    const bytes = profileFreeCanvasBytes(await fixtureImage(mimeType), mimeType), sha256 = await sha256Bytes(bytes)
-    const assetId = `m20c-format-image-${index}`, definitionId = `m20c-format-definition-${index}`
-    legacy.assets[sha256] = { sha256, mimeType, sizeBytes: bytes.length, pixelWidth: 8, pixelHeight: 8, blob: new Blob([bytes.slice().buffer], { type: mimeType }) }
-    legacy.document.assets[assetId] = { ...structuredClone(source), id: assetId, sha256, mimeType }
-    legacy.document.propDefinitions[definitionId] = { ...structuredClone(definition), id: definitionId, catalogId: definitionId, name: `Original ${mimeType} fixture`,
+    const bytes = profileFreeCanvasBytes(await fixtureImage(mimeType), mimeType), sha256 = sha256Bytes(bytes)
+    const assetId = 'format-image-' + index, definitionId = 'format-definition-' + index
+    resources[sha256] = bytes
+    project.assets[sha256] = { sha256, mimeType, sizeBytes: bytes.length, pixelWidth: 8, pixelHeight: 8 }
+    document.assets[assetId] = { ...source, id: assetId, sha256, mimeType }
+    document.propDefinitions[definitionId] = { ...definition, id: definitionId, catalogId: definitionId, name: 'Original ' + mimeType + ' fixture',
       defaultAppearance: { ...definition.defaultAppearance, kind: 'image', assetId } }
-    legacy.licenseBindings.push({ ...sourceBinding, subjectId: assetId }, { ...sourceBinding, subjectKind: 'propDefinition', subjectId: definitionId })
+    project.licenseBindings.push({ ...sourceBinding, subjectId: assetId }, { ...sourceBinding, subjectKind: 'propDefinition', subjectId: definitionId })
   }
-  return nativeBundle(legacy)
+  return { project: validateProjectData(project), resources: createMemoryResources(resources) }
 }
 
-/** The old pipeline supplies an independently established real parameter output. */
 export async function realDerivedBundle(): Promise<ProjectBundle> {
-  const source = await createC3ProjectV5({ title: 'M2-0c actual parameter pixels' })
-  const derived = await prepareCompositionCommandsV5(source, [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['c3-left'] },
-    adjustment: { id: 'm20c-brightness', kind: 'brightness', value: .5, enabled: true } }])
-  return nativeBundle(derived)
+  const { project, runtime, validation } = await pngProject('Actual parameter pixels')
+  return toBundle(await prepareCompositionCommands(project, [{ type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['c3-left'] },
+    adjustment: { id: 'brightness', kind: 'brightness', value: .5, enabled: true } }], { runtime, validation }))
 }
 
 export async function resourceBytes(bundle: ProjectBundle): Promise<Record<string, Uint8Array>> {

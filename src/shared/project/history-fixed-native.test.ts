@@ -1,7 +1,6 @@
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../appearance/graph.js'
 import type { ProjectData } from '../model/project.js'
 import type { SceneDocument } from '../model/scene.js'
@@ -11,7 +10,7 @@ import { assertFixedProjectCompatible, assertFixedProjectFamilyCompatible, hasAd
 
 let sequence = 0
 function fixture(): ProjectData {
-  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+  const document: SceneDocument = layerScene()
   const content = createCompositionContent(document, { ids: { nextId: () => `history-fixed-${++sequence}` }, clock: { now: () => '2026-10-26T00:00:00.000Z' } })
   return { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }
 }

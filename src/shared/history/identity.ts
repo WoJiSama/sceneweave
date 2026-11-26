@@ -80,7 +80,10 @@ export function outdoorIdentityDescriptors(document: Readonly<SceneDocument>): R
   }
   for (const path of Object.values(document.paths)) add(path.id, 'path', [path.floorId, path.supportRefs])
   for (const group of Object.values(document.scatterGroups)) {
-    add(group.id, 'scatterGroup', [group.floorId, group.domain, group.seed, group.algorithmVersion])
+    // A local clip follows the terrain's coordinates. The carrier identifies
+    // the relationship and keeps the existing whole-area topology hash.
+    const domain = group.domain.kind === 'area' ? { kind: group.domain.kind, areaId: group.domain.areaId } : group.domain
+    add(group.id, 'scatterGroup', [group.floorId, domain, group.seed, group.algorithmVersion])
     for (const exclusion of group.exclusions) add(exclusion.id, 'scatterExclusion', [group.id, exclusion.reason, exclusion.sourceCandidateKey])
   }
   return result

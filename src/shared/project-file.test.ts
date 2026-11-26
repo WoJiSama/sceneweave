@@ -1,21 +1,21 @@
-import { toCurrentSceneDocument } from './model/current-scene.js'
 import { createHash } from 'node:crypto'
 import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { layerSceneV3 } from '../core/v3/test-fixtures'
+import { layerScene } from '../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from './appearance/graph.js'
 import type { SceneDocument } from './model/scene.js'
 import type { ProjectBundle } from './model/project.js'
 import type { CompleteValidationOptions } from './ports/resources.js'
 import { createMemoryResources } from './project/resources.js'
 import type { HistoryArchive } from './project/history.js'
-import { exportHistoryArchive, exportProject, importHistoryArchive, importProject } from './project/file.js'
+import { exportHistoryArchive, exportProject, importHistoryArchive, importProject, importProjectArchive } from './project/file.js'
+import { PROJECT_EXTENSIONS_READER_VERSION, PROJECT_READER_VERSION, PROJECT_WRITER_BUILD, ProjectReaderVersionError } from './project/format.js'
 import { captureBytes, crc32, decodeUtf8, sha256Bytes } from './project/binary.js'
 import { parseBoundedJson } from './project/json.js'
 import { PACKAGE_LIMITS } from './project/limits.js'
 import { inspectZip } from './project/zip.js'
 import { projectContentHash } from './project/validate.js'
-import { canonicalJson, cloneJson, encodeUtf8 } from './validation/json.js'
+import { canonicalJson, encodeUtf8 } from './validation/json.js'
 
 const options: CompleteValidationOptions = { images: {
   async decode() { throw new Error('symbol-only test must not decode') },
@@ -23,7 +23,7 @@ const options: CompleteValidationOptions = { images: {
   async encodePng() { throw new Error('symbol-only test must not encode') },
 } }
 function fixture(): ProjectBundle {
-  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+  const document: SceneDocument = layerScene()
   document.sceneId = 'unified-owner'; document.title = '织境 · ZIP'; document.props.item.visibility = 'gm'
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   let sequence = 0
@@ -57,6 +57,9 @@ describe('complete-v1 native portable container', () => {
     expect(Object.keys(files).sort()).toEqual(['appearance.json', 'identity.json', 'manifest.json', 'scene.json', 'sources.json'])
     expect(manifest).toMatchObject({ format: 'sceneweave-complete-project', schemaVersion: 1, packageMode: 'complete', assetRecords: {}, application: 'Sceneweave' })
     expect(manifest).not.toHaveProperty('containerVersion')
+    expect(manifest.applicationVersion).toBe(PROJECT_WRITER_BUILD)
+    expect(manifest.applicationVersion).not.toBe('development')
+    expect(manifest).not.toHaveProperty('minReaderVersion')
     const imported = await importProject(bytes, options)
     expect(imported.project).toEqual(input.project); expect(imported.project).not.toBe(input.project)
     expect(imported.project.document.props.item.visibility).toBe('gm')
@@ -75,14 +78,60 @@ describe('complete-v1 native portable container', () => {
     const history = await exportHistoryArchive(archiveFixture(), options), complete = await exportProject(fixture(), options)
     await expect(importProject(history, options)).rejects.toThrow(/入口/)
     await expect(importHistoryArchive(complete, options)).rejects.toThrow(/入口/)
+    expect((await importProjectArchive(history, options)).snapshots).toHaveLength(1)
+    expect((await importProjectArchive(complete, options)).snapshots).toEqual([])
   })
-  it('is rejected by every old editable project reader instead of being misread as old v1', async () => {
-    const bytes = await exportProject(fixture(), options), file = new Blob([new Uint8Array(bytes).buffer])
-    const [v1, v2, v3, v4, v5, v6] = await Promise.all([
-      import('../io/project-file'), import('../io/v2/project-file'), import('../io/v3/project-file'),
-      import('../io/v4/project-file'), import('../io/v5/project-file'), import('../io/v6/project-file'),
-    ])
-    for (const read of [v1.readProjectV1, v2.importProjectV2, v3.importProjectV3, v4.importProjectV4, v5.importProjectV5, v6.importProjectV6]) await expect(read(file)).rejects.toThrow()
+  it('negotiates the reader before opening version-specific payloads and strictly validates a supported minimum', async () => {
+    const old = await exportProject(fixture(), options)
+    for (const minReaderVersion of [null, 0, '2', 1.5]) {
+      await expect(importProjectArchive(modify(old, (_, m) => { m.minReaderVersion = minReaderVersion }), options)).rejects.toThrow(/正整数/)
+    }
+    const compatible = modify(old, (_, m) => { m.applicationVersion = 'independent-writer'; m.minReaderVersion = 1 })
+    expect((await importProject(compatible, options)).project).toEqual(fixture().project)
+    const futureHeader = encodeUtf8(JSON.stringify({ format: 'sceneweave-complete-project', schemaVersion: 2, minReaderVersion: 3 }))
+    const future = zipSync({ 'manifest.json': futureHeader, 'sections/': new Uint8Array(), 'sections/new-layout.json': encodeUtf8('new reader payload') })
+    for (const open of [importProject, importHistoryArchive, importProjectArchive]) {
+      await expect(open(future, options)).rejects.toBeInstanceOf(ProjectReaderVersionError)
+      await expect(open(modify(old, (_, m) => { m.minReaderVersion = PROJECT_READER_VERSION + 1 }), options)).rejects.toThrow(/更新织境/)
+    }
+    await expect(importProjectArchive(zipSync({ 'manifest.json': futureHeader, '../bad-path': encodeUtf8('x') }), options)).rejects.toThrow(/不安全路径/)
+    await expect(importProject(modify(compatible, (files) => { files['sections/new-layout.json'] = encodeUtf8('extra') }), options)).rejects.toThrow(/路径/)
+    await expect(importProject(modify(compatible, (_, m) => { m.extra = true }), options)).rejects.toThrow(/字段/)
+  })
+  it('carries opaque private text per project and snapshot, even when only a historical snapshot has extensions', async () => {
+    const input = archiveFixture(), snapshot = input.snapshots[0]
+    const data = '  { "线索" : "地下室🔑" }\r\n'
+    snapshot.bundle.project.extensions = { 'example.org/notes': { schemaVersion: 41, data } }
+    snapshot.contentHash = projectContentHash(snapshot.bundle.project)
+    const bytes = await exportHistoryArchive(input, options), parts = unzipSync(bytes)
+    expect(readJson(parts['manifest.json']).minReaderVersion).toBe(PROJECT_EXTENSIONS_READER_VERSION)
+    expect(parts['extensions.json']).toBeUndefined()
+    expect(readJson(parts['snapshots/00.extensions.json'])).toEqual(snapshot.bundle.project.extensions)
+    const opened = await importHistoryArchive(bytes, options)
+    expect(opened.current.project).not.toHaveProperty('extensions')
+    expect(opened.snapshots[0].bundle.project).toEqual(snapshot.bundle.project)
+    expect(await exportHistoryArchive(opened, options)).toEqual(bytes)
+    input.current.project.extensions = { 'other/notes': { schemaVersion: 2, data: '别的内容' } }
+    const both = await importProjectArchive(await exportHistoryArchive(input, options), options)
+    expect(both.current.project.extensions).toEqual(input.current.project.extensions)
+    expect(both.snapshots[0].bundle.project.extensions).toEqual(snapshot.bundle.project.extensions)
+
+    const complete = await exportProject(snapshot.bundle, options)
+    expect((await importProject(complete, options)).project.extensions).toEqual(snapshot.bundle.project.extensions)
+    await expect(importProject(modify(complete, (_, manifest) => { delete manifest.minReaderVersion }), options)).rejects.toThrow(/最低读取协议/)
+    await expect(importProject(modify(complete, files => { files['extensions.json'][2] ^= 1 }), options)).rejects.toThrow(/SHA-256/)
+  })
+  it('bounds namespace counts, UTF-8 payloads and total serialized bytes and strictly checks each envelope', async () => {
+    const project = fixture(), record = { schemaVersion: 1, data: '' }
+    for (const extensions of [
+      {}, { 'notes': record }, { 'pub/../notes': record }, { 'pub/Notes': record },
+      { 'pub/notes': { ...record, schemaVersion: 0 } }, { 'pub/notes': { ...record, run: true } },
+      { 'pub/notes': { ...record, data: '\ud800' } }, { 'pub/notes': { ...record, data: '界'.repeat(22000) } },
+      Object.fromEntries(Array.from({ length: 33 }, (_, index) => [`pub/p${index}`, record])),
+      Object.fromEntries(Array.from({ length: 4 }, (_, index) => [`pub/p${index}`, { ...record, data: 'x'.repeat(65536) }])),
+    ]) {
+      await expect(exportProject({ ...project, project: { ...project.project, extensions } }, options)).rejects.toThrow(/extensions|扩展/)
+    }
   })
   it('captures caller ZIP bytes synchronously before its first asynchronous read', async () => {
     const bytes = await exportProject(fixture(), options), importing = importProject(bytes, options)

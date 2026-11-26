@@ -6,16 +6,18 @@ import type { CompositionCommand } from '../../../shared/model/appearance.js'
 import type { SceneDocument, SurfaceStyle, VersionRef } from '../../../shared/model/scene.js'
 import { validation } from '../runtime.js'
 import { createFixedCatalogIndex } from './fixed-catalog-index.js'
+import { withBuiltinPropVolumes } from './builtin-prop-volumes.js'
 
 // Only this optional module imports the fixed index. Project files always carry
 // the actual bytes and licenses of every definition they reference.
-export const { items, loadItem } = createFixedCatalogIndex(catalog.project, catalog.paths)
+const template = withBuiltinPropVolumes(catalog.project)
+export const { items, loadItem } = createFixedCatalogIndex(template, catalog.paths)
 const collections = { prop: 'propDefinitions', material: 'materials', prefab: 'prefabDefinitions' } as const
 
 /** Tool selectors may show these choices before the picture is needed. This
  * document is for form inputs only, never for rendering, saving, or AI grants. */
 export function toolChoices(scene: SceneDocument): SceneDocument {
-  const fixed = catalog.project.document
+  const fixed = template.document
   return { ...scene, materials: { ...fixed.materials, ...scene.materials },
     propDefinitions: { ...fixed.propDefinitions, ...scene.propDefinitions } }
 }
@@ -25,7 +27,7 @@ export async function withItems(base: EditableProject, selectors: readonly Catal
   const missing = new Map<string, CatalogSelector>()
   for (const selector of selectors) {
     const collection = collections[selector.kind]
-    if (!Object.hasOwn(base.document[collection], selector.definitionId) && Object.hasOwn(catalog.project.document[collection], selector.definitionId)) {
+    if (!Object.hasOwn(base.document[collection], selector.definitionId) && Object.hasOwn(template.document[collection], selector.definitionId)) {
       missing.set(selector.kind + ':' + selector.definitionId, selector)
     }
   }

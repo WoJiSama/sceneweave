@@ -129,7 +129,9 @@ export function useAutomaticRoad(sketch: OutdoorSketch | null, setSketch: Dispat
     if (!ready || !committed.plan || pending.current?.index !== undefined) return
     const { centerlineMm, supportRefs, roadSurface } = committed.plan
     const automaticRoute: NonNullable<Path['automaticRoute']> = roadSurface
-      ? { algorithm: AUTOMATIC_ROAD_VERSION, fixedPointsMm: fixed, automaticStairs: true, ...(landings.length ? { landings: [...landings] } : {}) }
+      ? { algorithm: AUTOMATIC_ROAD_VERSION, fixedPointsMm: fixed, automaticStairs: true,
+        ...(intent?.algorithm === AUTOMATIC_ROAD_VERSION && intent.alignment ? { alignment: intent.alignment } : {}),
+        ...(landings.length ? { landings: [...landings] } : {}) }
       : { algorithm: intent?.algorithm === 'terrain-road1' ? 'terrain-road1' : 'terrain-road2', fixedPointsMm: fixed, automaticStairs: false }
     const command: SceneCommand = existing
       ? { type: 'updatePath', id: session.id, changes: { centerlineMm, supportRefs, automaticRoute, ...(roadSurface ? { roadSurface } : {}),

@@ -1,7 +1,5 @@
 import Dexie, { type Table, type Transaction } from 'dexie'
-import type { ProjectConversionStore, ReserveConversionJob } from '../../../application/ports/project-conversion-store.js'
 import type { HistoryDirectory, ProjectDirectoryPage, ProjectDirectoryQuery, ProjectDirectoryStore } from '../../../application/ports/project-directory.js'
-export type { ReserveConversionJob } from '../../../application/ports/project-conversion-store.js'
 import type { AutomaticSummary, CreateSnapshotOptions, HistoryOverview, ProjectSaveGuard, ProjectStore, ProjectSummary, SaveProjectOptions, SnapshotReadSession, SourcePreservationGuard, StorageUsage } from '../../../application/ports/project-store.js'
 export type { AutomaticSummary, CreateSnapshotOptions, HistoryOverview, ProjectSaveGuard, ProjectSummary, SaveProjectOptions, SnapshotReadSession, SourcePreservationGuard, StorageUsage } from '../../../application/ports/project-store.js'
 import type { ProjectBundle, ProjectData, ResourceBytePort, SnapshotSummary } from '../../../shared/model/project.js'
@@ -11,7 +9,7 @@ import { checkCancelled } from '../../../shared/ports/resources.js'
 import { mergeIdentityRecords } from '../../../shared/history/identity.js'
 import { assertFixedProjectCompatible, validateSnapshotSummary, validateHistoryArchive, consumeHistoryArchive, type HistoryArchive, type SnapshotBundle } from '../../../shared/project/history.js'
 import { captureProjectBundleInput, createMemoryResources, getVerifiedProjectBundle, tryDerivedProjectBundle, validateProjectBundle, validateProjectSnapshot, validateProjectBundles, type VerifiedProjectBundle } from '../../../shared/project/resources.js'
-import { checkedContentBlock, createProjectMaterializer, isProjectBlockManifest, partitionProjectContent, validateProjectBlockManifest, type ProjectContentBlock } from './content-blocks.js'
+import { checkedContentBlock, createProjectMaterializer, isProjectBlockManifest, validateProjectBlockManifest, type ProjectContentBlock } from './content-blocks.js'
 import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
 import { waitForStorageTransaction } from './transaction-lifetime.js'
 import { canRetainEncodedSnapshot, matchingEncodedSnapshot, pinEncodedSnapshot, prepareEncodedProjectDelta, prepareEncodedSnapshot, releaseEncodedSnapshot, type ContentSlot, type EncodedSnapshot, type PreparedProjectDelta } from './content-context.js'
@@ -20,10 +18,7 @@ import { getProjectLocalTransaction, getProjectTransactionReceipt, projectConten
 import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
 import { projectResourceRecords, projectSourceRecords } from '../../../shared/project/source-resources.js'
 import { captureBytes, sha256Bytes } from '../../../shared/project/binary.js'
-import { parseBoundedJson } from '../../../shared/project/json.js'
-import { canonicalJson, captureJson, cloneJson, encodeUtf8, equalOwnedJson } from '../../../shared/validation/json.js'
-import { assertBackupReceipt } from '../../../shared/migration/set.js'
-import { CONVERTER_VERSION, TARGET_FORMAT, type ConversionJob, type ConversionStage, type ConvertedFamily, type LegacySource } from '../../../shared/migration/types.js'
+import { canonicalJson, captureJson, encodeUtf8, equalOwnedJson } from '../../../shared/validation/json.js'
 import { inspectProjectDatabase, ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT_TABLES, type BindingKind, type StoredAutomatic,
   type StoredBinding, type StoredBytes, type StoredHistoryMetadata, type StoredProject, type StoredSnapshot } from './database.js'
 
@@ -37,7 +32,7 @@ import { collectUnusedResources, type UnusedResourceCollection } from './history
 import { readProjectDirectory, readHistoryDirectory } from './directory.js'
 
 export const PROJECT_STORAGE_LIMITS = Object.freeze({ resourceBytes: 256 * 1024 * 1024, documentBytes: 128 * 1024 * 1024,
-  legacyBytes: 128 * 1024 * 1024, automatic: 20, named: 32, protection: 32, imported: 20 } as const)
+  automatic: 20, named: 32, protection: 32, imported: 20 } as const)
 const hashValue = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 const validId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 256 && value !== '__proto__'
@@ -185,108 +180,14 @@ export interface ProjectRepositoryOptions {
   validation: CompleteValidationOptions
   runtime: PreparationContext
 }
-export interface ConversionRead { job: ConversionJob; family: ConvertedFamily; contentHash: string; metadataVersion: number; historyFingerprint: string }
 interface ResourceAssembly {
   bytes: Map<string, Uint8Array>
   byteLength: number
   resources: ResourceBytePort
   maximumCount?: number
 }
-export class ConversionConflictError extends Error {
-  constructor() { super('转换journal版本、状态或目标已变化；保留已有映射和成果。'); this.name = 'ConversionConflictError' }
-}
-function assertHashRecord(input: Record<string, string>): void {
-  const owned = captureJson(input) as Record<string, string>
-  if (!owned || Array.isArray(owned) || Object.values(owned).some(value => !hashValue(value))) throw new Error('转换内容摘要映射无效。')
-}
-function jobKeyOf(input: Pick<ReserveConversionJob, 'sourceRepository' | 'scopeId' | 'sourceFingerprint'>): string {
-  return sha256Bytes(encodeUtf8(canonicalJson({ sourceRepository: input.sourceRepository, scopeId: input.scopeId,
-    sourceFingerprint: input.sourceFingerprint, converterVersion: CONVERTER_VERSION, targetFormat: TARGET_FORMAT })))
-}
-function assertJob(job: ConversionJob): void {
-  exact(job, ['jobId', 'jobKey', 'sourceRepository', 'scopeId', 'sourceFingerprint', 'converterVersion', 'targetFormat', 'targetSceneId', 'snapshotIds',
-    'stage', 'jobVersion', 'createdAt', 'updatedAt', 'backupReceipt', 'sourceContentHashes', 'targetContentHashes', 'contentHash', 'metadataVersion', 'failure'])
-  id(job.jobId); id(job.sourceRepository); id(job.scopeId); id(job.targetSceneId); time(job.createdAt); time(job.updatedAt)
-  if (!hashValue(job.jobKey) || !hashValue(job.sourceFingerprint) || job.jobKey !== jobKeyOf(job) || job.converterVersion !== CONVERTER_VERSION || job.targetFormat !== TARGET_FORMAT
-    || !['captured', 'backup-verified', 'prepared', 'committed', 'verified', 'failed', 'cancelled'].includes(job.stage) || !integer(job.jobVersion)
-    || job.contentHash !== null && !hashValue(job.contentHash) || job.metadataVersion !== null && !integer(job.metadataVersion)
-    || job.failure !== null && (typeof job.failure !== 'string' || job.failure.length > 1024)) throw new Error('转换journal字段损坏。')
-  const mappings = captureJson(job.snapshotIds) as Record<string, string>
-  if (!mappings || Array.isArray(mappings) || Object.values(mappings).some(value => !validId(value)) || new Set(Object.values(mappings)).size !== Object.values(mappings).length
-    || Object.keys(mappings).some(key => !key || key.length > 16_384 || key === '__proto__')) throw new Error('转换固定ID映射损坏。')
-  assertHashRecord(job.sourceContentHashes); assertHashRecord(job.targetContentHashes)
-  if (job.backupReceipt !== null) {
-    exact(job.backupReceipt, ['setId', 'sourceFingerprint', 'indexHash', 'volumeHashes'])
-    id(job.backupReceipt.setId)
-    if (job.backupReceipt.sourceFingerprint !== job.sourceFingerprint || !hashValue(job.backupReceipt.indexHash) || !Array.isArray(job.backupReceipt.volumeHashes)
-      || job.backupReceipt.volumeHashes.length > 512 || job.backupReceipt.volumeHashes.some(value => {
-        exact(value, ['path', 'sha256'])
-        return !/^part-\d{4}\.sceneweave-migration-part$/.test(value.path) || !hashValue(value.sha256)
-      })) throw new Error('转换保全receipt摘要损坏。')
-  }
-  if (['backup-verified', 'prepared', 'committed', 'verified'].includes(job.stage) && !job.backupReceipt) throw new Error('转换journal缺少已重读保全记录。')
-  if (['prepared', 'committed', 'verified'].includes(job.stage) && (job.contentHash === null || job.metadataVersion === null)) throw new Error('转换journal缺少目标摘要。')
-}
-function assertLegacyNodes(nodes: LegacySource[], blobs: { sha256: string; bytes: Uint8Array }[], owner: string): void {
-  if (nodes.length > 64 || blobs.length > 64) throw new Error('旧原件来源节点超过保护值。')
-  const byId = new Map<string, LegacySource>(), hashes = new Set<string>()
-  for (const blob of blobs) {
-    const bytes = bytesOf(blob, PROJECT_STORAGE_LIMITS.legacyBytes)
-    if (hashes.has(blob.sha256) || !bytes.length) throw new Error('旧原件重复或为空。')
-    hashes.add(blob.sha256)
-  }
-  for (const node of nodes) {
-    exact(node, ['ownerSceneId', 'nodeId', 'previousNodeId', 'sourceSchemaVersion', 'sourceSceneId', 'sourceRevision', 'sourceHash', 'migratorVersion', 'migratedAt'])
-    id(node.nodeId); id(node.sourceSceneId); id(node.migratorVersion); time(node.migratedAt)
-    if (node.ownerSceneId !== owner || byId.has(node.nodeId) || ![1, 2, 3, 4, 5, 6].includes(node.sourceSchemaVersion) || !integer(node.sourceRevision)
-      || !hashValue(node.sourceHash) || !hashes.has(node.sourceHash) || node.previousNodeId !== null && !validId(node.previousNodeId)) throw new Error('旧原件来源节点身份、字节或前序损坏。')
-    byId.set(node.nodeId, node)
-  }
-  if ([...hashes].some(hash => !nodes.some(node => node.sourceHash === hash))) throw new Error('旧原件字节没有真实来源节点。')
-  for (const node of nodes) {
-    const seen = new Set<string>()
-    let current: LegacySource | undefined = node
-    while (current) {
-      if (seen.has(current.nodeId)) throw new Error('旧原件来源链循环。')
-      seen.add(current.nodeId)
-      if (current.previousNodeId === null) break
-      const previous = byId.get(current.previousNodeId)
-      if (!previous || previous.sourceSchemaVersion >= current.sourceSchemaVersion) throw new Error('旧原件前序缺失或版本顺序无效。')
-      current = previous
-    }
-  }
-}
-function captureFamily(input: ConvertedFamily): ConvertedFamily {
-  exact(input, ['current', 'snapshots', 'importedSnapshots', 'legacySources', 'legacyBlobs', 'sourceContentHashes'])
-  const captureSnapshots = (rows: SnapshotBundle[], imported: boolean): SnapshotBundle[] => {
-    if (!Array.isArray(rows) || Object.getPrototypeOf(rows) !== Array.prototype || rows.length > (imported ? 20 : 64)
-      || Reflect.ownKeys(rows).length !== rows.length + 1) throw new Error('转换历史数组超过范围或包含额外字段。')
-    const result: SnapshotBundle[] = []
-    for (let index = 0; index < rows.length; index++) {
-      const descriptor = Object.getOwnPropertyDescriptor(rows, String(index))
-      if (!descriptor?.enumerable || !('value' in descriptor)) throw new Error('转换历史数组不能含空洞或访问器。')
-      const row = descriptor.value as SnapshotBundle
-      exact(row, ['id', 'ownerSceneId', 'lineageId', 'sourceRevision', 'name', 'kind', 'createdAt', 'contentHash', 'bundle'])
-      const summary = validateSnapshotSummary(summaryOf(row))
-      if ((summary.kind === 'imported-auto') !== imported) throw new Error('来源自动快照与命名/保护类别不符。')
-      result.push({ ...summary, bundle: captureProjectBundleInput(row.bundle) })
-    }
-    return result
-  }
-  if (!Array.isArray(input.legacyBlobs) || input.legacyBlobs.length > 64 || Reflect.ownKeys(input.legacyBlobs).length !== input.legacyBlobs.length + 1) throw new Error('旧原件数组无效。')
-  const legacyBlobs = []
-  for (let index = 0; index < input.legacyBlobs.length; index++) {
-    const descriptor = Object.getOwnPropertyDescriptor(input.legacyBlobs, String(index))
-    if (!descriptor?.enumerable || !('value' in descriptor)) throw new Error('旧原件数组不能含空洞或访问器。')
-    const row = descriptor.value
-    exact(row, ['sha256', 'bytes']); legacyBlobs.push({ sha256: row.sha256 as string, bytes: captureBytes(row.bytes as Uint8Array, PROJECT_STORAGE_LIMITS.legacyBytes) })
-  }
-  return { current: captureProjectBundleInput(input.current), snapshots: captureSnapshots(input.snapshots, false), importedSnapshots: captureSnapshots(input.importedSnapshots, true),
-    legacySources: captureJson(input.legacySources) as LegacySource[], legacyBlobs, sourceContentHashes: captureJson(input.sourceContentHashes) as Record<string, string> }
-}
-
 /** One native repository, independent of every legacy writer. Reads and public saves verify real bytes. */
-export class ProjectRepository implements ProjectStore, ProjectConversionStore, ProjectDirectoryStore {
+export class ProjectRepository implements ProjectStore, ProjectDirectoryStore {
   readonly database: ProjectDatabase
   private opening: Promise<void> | null = null
   private invalidated = false
@@ -446,25 +347,12 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     id(ownerSceneId); await this.ensureHistory(ownerSceneId)
     const overview = await this.database.transaction('r', PROJECT_TABLES, () => waitForStorageTransaction(withTransactionContentChecks(async () => {
       const current = await this.database.projects.get(ownerSceneId)
-      if (!current || current.status !== 'ready') throw new Error('原件所属工程不存在或尚未完成转换。')
+      if (!current || current.status !== 'ready') throw new Error('当前工程不存在。')
       assertCurrent(current)
       const head = await this.history.head(ownerSceneId)
       if (!head || head.status !== 'ready' || head.savedRevision !== current.revision || head.contentHash !== current.contentHash) throw new Error('当前保存与历史活动版本不一致。')
       const versions = await this.history.versions(ownerSceneId)
       const usage = await this.usageInTransaction(ownerSceneId)
-      const sources = await this.database.legacySources.where('ownerSceneId').equals(ownerSceneId).toArray()
-      if (sources.length > 64) throw new Error('旧原件来源节点超过保护值。')
-      const blobs = new Map<string, Uint8Array>()
-      let total = 0
-      for (const hash of new Set(sources.map(source => source.sourceHash))) {
-        const stored = await this.database.legacyBlobs.get(hash)
-        if (!stored) throw new Error('迁移原件字节缺失；不会导出不完整原件。')
-        const bytes = bytesOf(stored, PROJECT_STORAGE_LIMITS.legacyBytes)
-        total += bytes.length
-        if (total > PROJECT_STORAGE_LIMITS.legacyBytes) throw new Error('迁移原件累计字节超过保护值。')
-        blobs.set(hash, bytes)
-      }
-      assertLegacyNodes(sources, [...blobs].map(([sha256, bytes]) => ({ sha256, bytes })), ownerSceneId)
       const versionById = new Map(versions.map(version => [version.id, version]))
       const pins: SnapshotSummary[] = []
       for (const row of await this.database.historyPins.where('ownerSceneId').equals(ownerSceneId).toArray()) {
@@ -476,7 +364,6 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
       return {
         snapshots: pins.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id)),
         usage,
-        legacySources: sources.sort((a, b) => b.sourceSchemaVersion - a.sourceSchemaVersion || a.nodeId.localeCompare(b.nodeId)),
         history: { activeVersionId: head.activeVersionId, versions },
       }
     })))
@@ -674,13 +561,11 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     if (table === 'projects') assertCurrent(runtimeRecord(value) as StoredProject, content)
     else if (table === 'automaticSnapshots') assertAutomatic(runtimeRecord(value) as StoredAutomatic, content)
     else if (table === 'snapshots' || table === 'importedSnapshots') assertSnapshot(runtimeRecord(value) as StoredSnapshot, table === 'importedSnapshots', content)
-    else if (table === 'nativeUpgradeCapsules') throw new Error('旧升级原件仅归独立迁入保全库，不能写入当前工程库。')
     else if (table === 'historyVersions') size = this.history.versionBytes(value)
     else if (table === 'historyHeads') size = historyHeadBytes(value)
     else if (table === 'historyPins') size = historyPinBytes(value)
     else if (table === 'projectContentBlocks') return { kind: 'documentBytes', bytes: checkedContentBlock(value).bytes.length }
-    else if (table === 'resources' || table === 'legacyBlobs') return { kind: table === 'resources' ? 'resourceBytes' : 'legacyBytes',
-      bytes: bytesOf(value as StoredBytes, table === 'resources' ? 20 * 1024 * 1024 : PROJECT_STORAGE_LIMITS.legacyBytes).length }
+    else if (table === 'resources') return { kind: 'resourceBytes', bytes: bytesOf(value as StoredBytes).length }
     else if (table === 'licenseTexts') {
       exact(value, ['sha256', 'text'])
       if (!hashValue(value.sha256) || typeof value.text !== 'string') throw new Error('库中许可正文hash损坏。')
@@ -691,8 +576,8 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     return { kind: 'documentBytes', bytes: size }
   }
   private async scanTotals(): Promise<StorageTotals> {
-    const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
-    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
+    const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0 }
+    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'historyHeads', 'historyPins', 'projectContentBlocks']) {
       await scanRows(this.database.table(table), row => { const cost = this.rowCost(table, row); if (cost && !Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals[cost.kind] += cost.bytes })
       if (Object.hasOwn(CONTENT_PAYLOAD_FIELDS, table)) totals.documentBytes += await this.database.rawJsonBytes(table)
     }
@@ -717,7 +602,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
    * immutable block closure and every owner/branch without holding a DB lock.
    * The final transaction must compare all captured rows and actual bytes. */
   private async auditCapturedTotals(rows: ReadonlyMap<string, readonly unknown[]>, signal: CancellationSignal): Promise<StorageTotals> {
-    const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0, legacyBytes: 0 }
+    const totals: StorageTotals = { documentBytes: 0, resourceBytes: 0 }
     // These loops no longer get cursor event boundaries from a live database
     // transaction. Yield between actual records so resolved promises cannot
     // turn the entire captured database into one long main-thread task.
@@ -757,7 +642,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
       } else if (project?.document?.aggregateCoordinates?.encoding === 'local') project = decodeProjectCoordinates(project)
       return { ...row, [field]: project }
     }
-    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'legacyBlobs', 'nativeUpgradeCapsules', 'historyHeads', 'historyPins']) {
+    for (const table of ['projects', 'automaticSnapshots', 'snapshots', 'importedSnapshots', 'resources', 'licenseTexts', 'historyHeads', 'historyPins']) {
       const actual: unknown[] = []; readRows.set(table, actual)
       for (const raw of rows.get(table) ?? []) {
         checkCancelled(signal)
@@ -819,7 +704,7 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
   }
   private async assertBudgets(ownerSceneId: string): Promise<void> {
     const usage = await this.usageInTransaction(ownerSceneId)
-    if (usage.resourceBytes > PROJECT_STORAGE_LIMITS.resourceBytes || usage.documentBytes > PROJECT_STORAGE_LIMITS.documentBytes || usage.legacyBytes > PROJECT_STORAGE_LIMITS.legacyBytes) throw new Error('整个新工程库超过资源、文档或旧原件累计预算；事务未采用。')
+    if (usage.resourceBytes > PROJECT_STORAGE_LIMITS.resourceBytes || usage.documentBytes > PROJECT_STORAGE_LIMITS.documentBytes) throw new Error('整个新工程库超过资源或文档累计预算；事务未采用。')
     if (usage.namedCount > 32 || usage.protectionCount > 32 || usage.importedCount > 20) throw new Error('命名/保护/来源历史超过保留上限；事务未采用。')
   }
   async usage(ownerSceneId: string): Promise<StorageUsage> {
@@ -863,9 +748,9 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
     await this.database.resourceBindings.put(binding(project, owner, 'current', 'current'))
     await this.history.append(row, previous, this.options.runtime.ids.nextId(), parentId, localSource, preparedDelta)
   }
-  private async installFamily(bundle: ProjectBundle, hash: string, savedAt: string, status: StoredProject['status'], conversionJobId: string | null, snapshots: readonly SnapshotBundle[]): Promise<void> {
+  private async installFamily(bundle: ProjectBundle, hash: string, savedAt: string, snapshots: readonly SnapshotBundle[]): Promise<void> {
     const owner = bundle.project.document.sceneId
-    const current: StoredProject = { sceneId: owner, revision: bundle.project.document.revision, savedAt, contentHash: hash, status, conversionJobId, project: bundle.project }
+    const current: StoredProject = { sceneId: owner, revision: bundle.project.document.revision, savedAt, contentHash: hash, status: 'ready', conversionJobId: null, project: bundle.project }
     await this.database.projects.add(current)
     await this.database.resourceBindings.add(binding(bundle.project, owner, 'current', 'current'))
     const named: StoredSnapshot[] = [], imported: StoredSnapshot[] = []
@@ -1039,48 +924,16 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
           || await this.database.automaticSnapshots.where('ownerSceneId').equals(owner).count()
           || await this.database.snapshots.where('ownerSceneId').equals(owner).count()
           || await this.database.importedSnapshots.where('ownerSceneId').equals(owner).count()
-          || await this.database.resourceBindings.where('ownerSceneId').equals(owner).count()
-          || await this.database.legacySources.where('ownerSceneId').equals(owner).count()) throw new Error('导入的新工程身份已占用，未覆盖任何成果。')
+          || await this.database.resourceBindings.where('ownerSceneId').equals(owner).count()) throw new Error('导入的新工程身份已占用，未覆盖任何成果。')
         pinEncodedSnapshot(Dexie.currentTransaction!.idbtrans, 'result', encodedSnapshot)
         await this.putResources([project, ...snapshots.map(snapshot => snapshot.bundle)], options)
         await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
-        await this.installFamily(project, encodedSnapshot.encoded.contentHash, savedAt, 'ready', null, snapshots)
+        await this.installFamily(project, encodedSnapshot.encoded.contentHash, savedAt, snapshots)
         await this.assertBudgets(owner)
       })
       retained = this.retainSavedEncoding(encodedSnapshot, saveEpoch)
     } finally { if (!retained) releaseEncodedSnapshot(encodedSnapshot) }
     return { project, snapshots: snapshots.map(summaryOf) }
-  }
-  private async readLegacyOriginals(ownerSceneId: string): Promise<{ sources: LegacySource[]; blobs: Map<string, Uint8Array> }> {
-    id(ownerSceneId); await this.open()
-    return this.database.transaction('r', PROJECT_TABLES, async () => {
-      const current = await this.database.projects.get(ownerSceneId)
-      if (!current || current.status !== 'ready') throw new Error('原件所属工程不存在或尚未完成转换。')
-      assertCurrent(current)
-      const sources = await this.database.legacySources.where('ownerSceneId').equals(ownerSceneId).toArray(), blobs = new Map<string, Uint8Array>()
-      if (sources.length > 64) throw new Error('旧原件来源节点超过保护值。')
-      let total = 0
-      for (const hash of new Set(sources.map(source => source.sourceHash))) {
-        const stored = await this.database.legacyBlobs.get(hash)
-        if (!stored) throw new Error('迁移原件字节缺失；不会导出不完整原件。')
-        const bytes = bytesOf(stored, PROJECT_STORAGE_LIMITS.legacyBytes)
-        total += bytes.length
-        if (total > PROJECT_STORAGE_LIMITS.legacyBytes) throw new Error('迁移原件累计字节超过保护值。')
-        blobs.set(hash, bytes)
-      }
-      assertLegacyNodes(sources, [...blobs].map(([sha256, bytes]) => ({ sha256, bytes })), ownerSceneId)
-      return { sources, blobs }
-    })
-  }
-  async listLegacySources(ownerSceneId: string): Promise<LegacySource[]> {
-    const { sources } = await this.readLegacyOriginals(ownerSceneId)
-    return sources.sort((a, b) => b.sourceSchemaVersion - a.sourceSchemaVersion || a.nodeId.localeCompare(b.nodeId))
-  }
-  async loadLegacyOriginal(ownerSceneId: string, nodeId: string): Promise<{ source: LegacySource; bytes: Uint8Array }> {
-    id(nodeId)
-    const { sources, blobs } = await this.readLegacyOriginals(ownerSceneId), source = sources.find(row => row.nodeId === nodeId)
-    if (!source) throw new Error('此原件不属于当前工程。')
-    return { source, bytes: blobs.get(source.sourceHash)!.slice() }
   }
   async listSnapshots(ownerSceneId: string): Promise<SnapshotSummary[]> {
     await this.ensureHistory(ownerSceneId)
@@ -1303,348 +1156,5 @@ export class ProjectRepository implements ProjectStore, ProjectConversionStore, 
       await this.assertBudgets(owner)
       return result
     }, true)
-  }
-  async getJob(jobId: string): Promise<ConversionJob | null> {
-    id(jobId); await this.open()
-    const row = await this.database.conversionJobs.get(jobId)
-    if (!row) return null
-    assertJob(row); return row
-  }
-  async reserveJob(input: ReserveConversionJob, options: ResourceOptions = {}): Promise<ConversionJob> {
-    const captured = captureJson(input) as ReserveConversionJob
-    exact(captured, ['sourceRepository', 'scopeId', 'sourceFingerprint', 'snapshotKeys', 'sourceContentHashes'])
-    id(captured.sourceRepository); id(captured.scopeId); assertHashRecord(captured.sourceContentHashes)
-    if (!hashValue(captured.sourceFingerprint) || !Array.isArray(captured.snapshotKeys) || captured.snapshotKeys.length > 84
-      || new Set(captured.snapshotKeys).size !== captured.snapshotKeys.length || captured.snapshotKeys.some(key => typeof key !== 'string' || !key || key.length > 16_384 || key === '__proto__')) throw new Error('转换源指纹或历史键范围无效。')
-    const key = jobKeyOf(captured)
-    return this.atomic(options, async () => {
-      const existing = await this.database.conversionJobs.where('jobKey').equals(key).first()
-      if (existing) {
-        assertJob(existing)
-        if (canonicalJson(existing.sourceContentHashes) !== canonicalJson(captured.sourceContentHashes)
-          || canonicalJson(Object.keys(existing.snapshotIds).sort()) !== canonicalJson([...captured.snapshotKeys].sort())) throw new Error('相同转换指纹对应不同源内容或历史键，不能重用。')
-        return existing
-      }
-      const jobId = this.options.runtime.ids.nextId(), targetSceneId = this.options.runtime.ids.nextId(), now = this.options.runtime.clock.now()
-      id(jobId); id(targetSceneId); time(now)
-      const snapshotIds = Object.fromEntries([...captured.snapshotKeys].sort().map(key => [key, this.options.runtime.ids.nextId()]))
-      const journal: ConversionJob = { jobId, jobKey: key, sourceRepository: captured.sourceRepository, scopeId: captured.scopeId, sourceFingerprint: captured.sourceFingerprint,
-        converterVersion: CONVERTER_VERSION, targetFormat: TARGET_FORMAT, targetSceneId, snapshotIds, stage: 'captured', jobVersion: 0, createdAt: now, updatedAt: now,
-        backupReceipt: null, sourceContentHashes: captured.sourceContentHashes, targetContentHashes: {}, contentHash: null, metadataVersion: null, failure: null }
-      assertJob(journal)
-      if (await this.database.projects.get(targetSceneId)) throw new Error('转换新目标身份已被占用。')
-      await this.database.conversionJobs.add(journal)
-      return journal
-    })
-  }
-  private async jobCAS(jobId: string, expectedVersion: number, stage?: ConversionStage): Promise<ConversionJob> {
-    const job = await this.database.conversionJobs.get(jobId)
-    if (!job) throw new ConversionConflictError()
-    assertJob(job)
-    if (!integer(expectedVersion) || job.jobVersion !== expectedVersion || job.jobVersion === Number.MAX_SAFE_INTEGER || stage !== undefined && job.stage !== stage) throw new ConversionConflictError()
-    return job
-  }
-  private nextJob(job: ConversionJob, stage: ConversionStage, patch: Partial<ConversionJob> = {}): ConversionJob {
-    const updatedAt = this.options.runtime.clock.now(); time(updatedAt)
-    const next = { ...job, ...patch, stage, jobVersion: job.jobVersion + 1, updatedAt }; assertJob(next)
-    return next
-  }
-  async advanceJob(jobId: string, expectedVersion: number, stage: 'backup-verified' | 'failed' | 'cancelled',
-    patch: { backupReceipt?: unknown; failure?: string } = {}, options: ResourceOptions = {}): Promise<ConversionJob> {
-    id(jobId)
-    if (!['backup-verified', 'failed', 'cancelled'].includes(stage)) throw new Error('转换阶段须通过专用准备、提交或发布入口推进。')
-    // Never clone a receipt before checking its process-local identity.
-    exact(patch, Object.keys(patch))
-    if (Object.keys(patch).some(key => !['backupReceipt', 'failure'].includes(key))) throw new Error('转换阶段补丁包含未知字段。')
-    const receiptInput = patch.backupReceipt
-    const failure = patch.failure ?? (stage === 'cancelled' ? '用户取消转换。' : null)
-    if (failure !== null && (typeof failure !== 'string' || failure.length > 1024)) throw new Error('转换失败原因超出范围。')
-    return this.atomic(options, async () => {
-      const job = await this.jobCAS(jobId, expectedVersion)
-      if (job.stage === 'verified' || stage === 'backup-verified' && job.stage !== 'captured'
-        || stage !== 'backup-verified' && ['failed', 'cancelled'].includes(job.stage)) throw new ConversionConflictError()
-      const receipt = stage === 'backup-verified' ? cloneJson(assertBackupReceipt(receiptInput, { setId: job.jobId, sourceFingerprint: job.sourceFingerprint })) : job.backupReceipt
-      const next = this.nextJob(job, stage, { backupReceipt: receipt, failure: stage === 'backup-verified' ? null : failure })
-      await this.database.conversionJobs.put(next)
-      return next
-    })
-  }
-  private async checkedFamily(input: ConvertedFamily, job: ConversionJob, options: ResourceOptions): Promise<ConvertedFamily> {
-    const family = captureFamily(input), current = family.current.project, owner = current.document.sceneId
-    if (owner !== job.targetSceneId || current.document.revision !== 0 || canonicalJson(family.sourceContentHashes) !== canonicalJson(job.sourceContentHashes)) throw new Error('转换目标身份、revision0或源内容摘要与固定journal不符。')
-    const summaries = [...family.snapshots, ...family.importedSnapshots], all = [family.current, ...summaries.map(row => row.bundle)]
-    const ids = new Set<string>(), reserved = new Set(Object.values(job.snapshotIds))
-    for (const snapshot of summaries) {
-      const project = snapshot.bundle.project
-      if (ids.has(snapshot.id) || !reserved.has(snapshot.id) || snapshot.ownerSceneId !== owner || snapshot.contentHash !== projectContentHash(project)
-        || snapshot.sourceRevision !== project.document.revision || snapshot.lineageId !== project.historyIdentity.lineageId) throw new Error('转换历史ID、归属或内容摘要不符。')
-      ids.add(snapshot.id)
-    }
-    if (['v6', 'file-v6', 'sceneweave-m1-outdoor'].includes(job.sourceRepository) && (ids.size !== reserved.size || [...reserved].some(value => !ids.has(value)))) throw new Error('v6转换必须完整迁入固定映射的全部命名、保护和来源自动历史。')
-    if (job.sourceRepository === 'v6' || job.sourceRepository === 'file-v6') {
-      const byId = new Map(summaries.map(snapshot => [snapshot.id, snapshot]))
-      for (const [key, mappedId] of Object.entries(job.snapshotIds)) {
-        const source = parseBoundedJson(encodeUtf8(key), { values: 0 })
-        exact(source, ['repository', 'ownerSceneId', 'kind', 'id'])
-        if (canonicalJson(source) !== key || source.repository !== job.sourceRepository || source.ownerSceneId !== job.scopeId
-          || !['named', 'protection', 'automatic'].includes(source.kind as string) || !validId(source.id) || !Object.hasOwn(job.sourceContentHashes, key)) throw new Error('v6历史规范源键与固定journal范围不符。')
-        const snapshot = byId.get(mappedId)!
-        if (snapshot.kind !== (source.kind === 'automatic' ? 'imported-auto' : source.kind)) throw new Error('v6历史快照类别与规范源键不符。')
-        if (source.kind === 'automatic' && (!/^(0|[1-9]\d*)$/.test(source.id) || !integer(Number(source.id)) || snapshot.sourceRevision !== Number(source.id))) throw new Error('v6来源自动快照修订与规范源键不符。')
-      }
-    }
-    if (family.snapshots.filter(row => row.kind === 'named').length > 32 || family.snapshots.filter(row => row.kind === 'protection').length > 32) throw new Error('转换命名/保护快照超过32+32限制。')
-    if (canonicalJson(mergeIdentityRecords(current.historyIdentity, summaries.map(row => row.bundle.project.historyIdentity))) !== canonicalJson(current.historyIdentity)) throw new Error('转换当前身份未完整保留家族出生/墓碑。')
-    let jsonBytes = 0
-    const imageRecords = new Map<string, ProjectData['assets'][string]>(), licenses = new Map<string, string>(), sourceRecords = new Map<string, number>()
-    for (let index = 0; index < all.length; index++) {
-      const project = all[index].project
-      jsonBytes += encodeUtf8(canonicalJson(project)).length
-      for (let previous = 0; previous < index; previous++) assertFixedProjectCompatible(all[previous].project, project)
-      for (const [hash, record] of Object.entries(project.assets)) {
-        if (imageRecords.has(hash) && canonicalJson(imageRecords.get(hash)) !== canonicalJson(record)) throw new Error('转换家族相同图片hash的元数据冲突。')
-        imageRecords.set(hash, record)
-      }
-      for (const [hash, size] of projectSourceRecords(project)) {
-        if (sourceRecords.has(hash) && sourceRecords.get(hash) !== size) throw new Error('转换家族相同SVG源hash的字节声明冲突。')
-        sourceRecords.set(hash, size)
-      }
-      for (const [hash, license] of Object.entries(project.licenses)) {
-        if (licenses.has(hash) && licenses.get(hash) !== license.text) throw new Error('转换家族相同许可hash的正文冲突。')
-        licenses.set(hash, license.text)
-      }
-    }
-    const imageBytes = [...imageRecords.values()].reduce((sum, value) => sum + value.sizeBytes, 0), licenseBytes = [...licenses.values()].reduce((sum, value) => sum + encodeUtf8(value).length, 0)
-    const sourceBytes = [...sourceRecords.values()].reduce((sum, size) => sum + size, 0)
-    if (imageRecords.size > 256 || [...imageRecords.values()].reduce((sum, value) => sum + value.pixelWidth * value.pixelHeight, 0) > 64_000_000
-      || sourceRecords.size > 512 || sourceBytes > 32 * 1024 * 1024 || jsonBytes > 128 * 1024 * 1024
-      || jsonBytes + imageBytes + sourceBytes + licenseBytes > 300 * 1024 * 1024) throw new Error('转换家族完整图片/源/像素/文档或展开字节超过保护预算。')
-    assertLegacyNodes(family.legacySources, family.legacyBlobs, owner)
-    if (family.legacyBlobs.reduce((sum, value) => sum + value.bytes.length, 0) > PROJECT_STORAGE_LIMITS.legacyBytes) throw new Error('转换原件累计超过128MiB。')
-    const verified = await validateProjectBundles(all, this.validation(options))
-    family.current = verified[0]
-    summaries.forEach((row, index) => { row.bundle = verified[index + 1] })
-    checkCancelled(options.signal)
-    return family
-  }
-  private targetHashes(family: ConvertedFamily): Record<string, string> {
-    return Object.fromEntries([['current', projectContentHash(family.current.project)],
-      ...[...family.snapshots, ...family.importedSnapshots].map(row => [canonicalJson([row.kind, row.id]), row.contentHash]),
-      ...family.legacySources.map(row => [canonicalJson(['legacy-source', row.nodeId]), sha256Bytes(encodeUtf8(canonicalJson(row)))]),
-      ...family.legacyBlobs.map(row => [canonicalJson(['legacy-blob', row.sha256]), row.sha256])])
-  }
-  private async projectedBudgets(family: ConvertedFamily): Promise<void> {
-    const usage = await this.usageInTransaction(family.current.project.document.sceneId)
-    let resources = usage.resourceBytes, documents = usage.documentBytes, legacy = usage.legacyBytes
-    const all = [family.current, ...family.snapshots.map(row => row.bundle), ...family.importedSnapshots.map(row => row.bundle)]
-    // Preflight only a lower bound for new immutable content. Current and
-    // checkpoint share blocks; counting complete logical copies would reject
-    // valid imports. Actual manifests, graph rows and blocks are all charged
-    // by the final in-transaction assertBudgets before publication.
-    const blocks = new Map<string, Uint8Array>()
-    const assets = new Set<string>(), licenses = new Set<string>(), originals = new Set<string>()
-    for (const bundle of all) {
-      for (const block of partitionProjectContent(bundle.project).blocks) blocks.set(block.sha256, block.bytes)
-      for (const [hash, size] of projectResourceRecords(bundle.project)) if (!assets.has(hash)) {
-        assets.add(hash)
-        if (!(await this.database.resources.get(hash))) resources += size
-      }
-      for (const [hash, license] of Object.entries(bundle.project.licenses)) if (!licenses.has(hash)) {
-        licenses.add(hash)
-        if (!(await this.database.licenseTexts.get(hash))) resources += encodeUtf8(license.text).length
-      }
-    }
-    for (const [hash, bytes] of blocks) {
-      const existing = await this.database.projectContentBlocks.get(hash)
-      if (existing) checkedContentBlock(existing, { sha256: hash, byteLength: bytes.length })
-      else documents += bytes.length
-    }
-    for (const blob of family.legacyBlobs) if (!originals.has(blob.sha256)) {
-      originals.add(blob.sha256)
-      if (!(await this.database.legacyBlobs.get(blob.sha256))) legacy += blob.bytes.length
-    }
-    if (resources > PROJECT_STORAGE_LIMITS.resourceBytes || documents > PROJECT_STORAGE_LIMITS.documentBytes || legacy > PROJECT_STORAGE_LIMITS.legacyBytes) throw new Error('转换后整个新主库超过资源、文档或旧原件预算。')
-  }
-  async prepareConversion(jobId: string, expectedVersion: number, input: ConvertedFamily, options: ResourceOptions = {}): Promise<ConversionJob> {
-    const captured = captureFamily(input)
-    const job = await this.getJob(jobId)
-    if (!job || job.stage !== 'backup-verified' || job.jobVersion !== expectedVersion) throw new ConversionConflictError()
-    const family = await this.checkedFamily(captured, job, options)
-    await this.open()
-    await this.database.transaction('r', PROJECT_TABLES, () => this.projectedBudgets(family))
-    const hashes = this.targetHashes(family)
-    return this.atomic(options, async () => {
-      const current = await this.jobCAS(jobId, expectedVersion, 'backup-verified')
-      if (await this.database.projects.get(current.targetSceneId)) throw new ConversionConflictError()
-      const next = this.nextJob(current, 'prepared', { targetContentHashes: hashes, contentHash: hashes.current, metadataVersion: 0, failure: null })
-      await this.database.conversionJobs.put(next)
-      return next
-    })
-  }
-  async commitConversion(jobId: string, expectedVersion: number, input: ConvertedFamily, options: ResourceOptions = {}): Promise<ConversionJob> {
-    const captured = captureFamily(input)
-    const job = await this.getJob(jobId)
-    if (!job || job.stage !== 'prepared' || job.jobVersion !== expectedVersion) throw new ConversionConflictError()
-    const family = await this.checkedFamily(captured, job, options), hashes = this.targetHashes(family)
-    if (canonicalJson(hashes) !== canonicalJson(job.targetContentHashes) || hashes.current !== job.contentHash || job.metadataVersion !== 0) throw new Error('转换候选与prepared记录不一致。')
-    const savedAt = this.options.runtime.clock.now(); time(savedAt)
-    return this.atomic(options, async () => {
-      const current = await this.jobCAS(jobId, expectedVersion, 'prepared'), owner = current.targetSceneId
-      if (await this.database.projects.get(owner) || await this.database.historyMetadata.get(owner) || await this.database.automaticSnapshots.where('ownerSceneId').equals(owner).count()
-        || await this.database.snapshots.where('ownerSceneId').equals(owner).count() || await this.database.importedSnapshots.where('ownerSceneId').equals(owner).count()
-        || await this.database.resourceBindings.where('ownerSceneId').equals(owner).count() || await this.database.legacySources.where('ownerSceneId').equals(owner).count()) throw new ConversionConflictError()
-      await this.projectedBudgets(family)
-      const all = [family.current, ...family.snapshots.map(row => row.bundle), ...family.importedSnapshots.map(row => row.bundle)]
-      await this.putResources(all, options)
-      await this.database.historyMetadata.add({ ownerSceneId: owner, metadataVersion: 0 })
-      await this.installFamily(family.current, hashes.current, savedAt, 'preparing', jobId, [...family.snapshots, ...family.importedSnapshots])
-      for (const blob of family.legacyBlobs) {
-        const existing = await this.database.legacyBlobs.get(blob.sha256)
-        if (existing) {
-          const bytes = bytesOf(existing, PROJECT_STORAGE_LIMITS.legacyBytes)
-          if (bytes.length !== blob.bytes.length || !bytes.every((value, index) => value === blob.bytes[index])) throw new Error('旧原件已有字节冲突。')
-        } else await this.database.legacyBlobs.add(blob)
-      }
-      for (const node of family.legacySources) await this.database.legacySources.add(node)
-      await this.assertBudgets(owner)
-      const next = this.nextJob(current, 'committed')
-      // The reservation already exists; this updates it in the same transaction as every new record.
-      await this.database.conversionJobs.put(next)
-      return next
-    })
-  }
-  /** Internal preparation read; preparing projects remain hidden from ordinary load/list APIs. */
-  async readConversion(jobId: string, options: ResourceOptions = {}): Promise<ConversionRead> {
-    id(jobId); checkCancelled(options.signal); await this.open()
-    const captured = await this.database.transaction('r', PROJECT_TABLES, async () => {
-      const job = await this.database.conversionJobs.get(jobId)
-      if (!job) throw new ConversionConflictError()
-      assertJob(job)
-      if (!['committed', 'verified', 'failed', 'cancelled'].includes(job.stage)) throw new ConversionConflictError()
-      const row = await this.database.projects.get(job.targetSceneId)
-      if (!row) throw new Error('转换目标缺失；不会静默重建。')
-      assertCurrent(row)
-      if (row.conversionJobId !== jobId || job.stage !== 'verified' && (row.status !== 'preparing' || row.revision !== 0 || row.contentHash !== job.contentHash)) throw new Error('转换目标状态或内容与journal不符。')
-      const metadata = await this.database.historyMetadata.get(row.sceneId); assertMetadata(metadata, row.sceneId)
-      // One readonly transaction observes one immutable resource store. Capture
-      // each hash once across all historical states, without a full byte copy
-      // per snapshot. Only the private port escapes this scope, and every read
-      // still returns a copy; final validation creates per-project scoped ports.
-      const bytes = new Map<string, Uint8Array>()
-      const shared: ResourceAssembly = { bytes, byteLength: 0, resources: Object.freeze({ async read(hash: string) {
-        const value = bytes.get(hash)
-        if (!value) throw new Error('转换冷读所需资源字节缺失。')
-        return value.slice()
-      } }) }
-      if (job.stage !== 'verified') {
-        const head = await this.history.head(row.sceneId)
-        if (head?.status === 'ready') {
-          const automatic = await this.history.readVersion(row.sceneId, head.activeVersionId)
-          if (!automatic || head.savedRevision !== 0 || head.contentHash !== row.contentHash || automatic.version.contentHash !== row.contentHash
-            || canonicalJson(automatic.project) !== canonicalJson(row.project)) throw new Error('转换首份自动历史与当前内容不符。')
-          await this.assembledUnbound(automatic.project, shared)
-        } else {
-          const automatic = await this.database.automaticSnapshots.where('ownerSceneId').equals(row.sceneId).toArray()
-          if (automatic.length !== 1) throw new Error('转换首份自动历史缺失或重复。')
-          assertAutomatic(automatic[0])
-          if (automatic[0].revision !== 0 || automatic[0].contentHash !== row.contentHash || canonicalJson(automatic[0].project) !== canonicalJson(row.project)) throw new Error('转换首份自动历史与当前内容不符。')
-          await this.assembled(automatic[0].project, row.sceneId, 'automatic', '0', shared)
-        }
-      }
-      const family: ConvertedFamily = { current: await this.assembled(row.project, row.sceneId, 'current', 'current', shared), snapshots: [], importedSnapshots: [],
-        legacySources: await this.database.legacySources.where('ownerSceneId').equals(row.sceneId).toArray(), legacyBlobs: [], sourceContentHashes: job.sourceContentHashes }
-      const head = await this.history.head(row.sceneId)
-      const historical: StoredSnapshot[] = []
-      if (head?.status === 'ready') {
-        for (const pin of await this.history.pins(row.sceneId)) {
-          const snapshot = await this.history.readPin(row.sceneId, pin.id, row)
-          if (!snapshot) throw new Error('转换当前历史引用缺失。')
-          historical.push(snapshot)
-        }
-      } else historical.push(...await this.database.snapshots.where('ownerSceneId').equals(row.sceneId).toArray(), ...await this.database.importedSnapshots.where('ownerSceneId').equals(row.sceneId).toArray())
-      for (const snapshot of historical) {
-        assertSnapshot(snapshot, snapshot.kind === 'imported-auto')
-        const full = { ...summaryOf(snapshot), bundle: await this.assembled(snapshot.project, row.sceneId, snapshot.kind, snapshot.id, shared) }
-        ;(snapshot.kind === 'imported-auto' ? family.importedSnapshots : family.snapshots).push(full)
-      }
-      for (const hash of new Set(family.legacySources.map(node => node.sourceHash))) {
-        const blob = await this.database.legacyBlobs.get(hash)
-        if (!blob) throw new Error('转换旧原件字节缺失。')
-        family.legacyBlobs.push({ sha256: hash, bytes: bytesOf(blob, PROJECT_STORAGE_LIMITS.legacyBytes) })
-      }
-      return { job, family, contentHash: row.contentHash, metadataVersion: metadata.metadataVersion,
-        historyFingerprint: await this.historyCopyFingerprint(row.sceneId) }
-    })
-    if (captured.job.stage === 'verified') {
-      // Once opened, user edits are authoritative. Validate their full current/history content without imposing r0.
-      const all = [captured.family.current, ...captured.family.snapshots.map(row => row.bundle), ...captured.family.importedSnapshots.map(row => row.bundle)]
-      const verified = await validateProjectBundles(all, this.validation(options))
-      captured.family.current = verified[0]
-      ;[...captured.family.snapshots, ...captured.family.importedSnapshots].forEach((row, index) => { row.bundle = verified[index + 1] })
-      assertLegacyNodes(captured.family.legacySources, captured.family.legacyBlobs, captured.job.targetSceneId)
-      return captured
-    }
-    captured.family = await this.checkedFamily(captured.family, captured.job, options)
-    if (captured.contentHash !== captured.job.contentHash || captured.metadataVersion !== captured.job.metadataVersion
-      || canonicalJson(this.targetHashes(captured.family)) !== canonicalJson(captured.job.targetContentHashes)) throw new Error('冷读转换内容、历史或元数据不符，工程继续保持未开放。')
-    return captured
-  }
-  async publishConversion(jobId: string, expectedVersion: number, options: ResourceOptions = {}): Promise<ProjectBundle> {
-    const initial = await this.getJob(jobId)
-    if (!initial) throw new ConversionConflictError()
-    if (initial.stage === 'verified') {
-      const current = await this.load(initial.targetSceneId, options)
-      if (!current) throw new Error('已开放转换目标缺失或不可读；不会覆盖已有结果。')
-      return current
-    }
-    if (initial.stage !== 'committed' || initial.jobVersion !== expectedVersion) throw new ConversionConflictError()
-    const cold = await this.readConversion(jobId, options)
-    await this.atomic(options, async () => {
-      const job = await this.jobCAS(jobId, expectedVersion, 'committed'), row = await this.database.projects.get(job.targetSceneId)
-      if (!row) throw new ConversionConflictError()
-      assertCurrent(row)
-      const metadata = await this.database.historyMetadata.get(row.sceneId); assertMetadata(metadata, row.sceneId)
-      if (row.status !== 'preparing' || row.conversionJobId !== jobId || row.revision !== 0 || row.contentHash !== cold.contentHash
-        || row.contentHash !== job.contentHash || metadata.metadataVersion !== cold.metadataVersion || metadata.metadataVersion !== job.metadataVersion
-        || await this.historyCopyFingerprint(row.sceneId) !== cold.historyFingerprint) throw new ConversionConflictError()
-      await this.database.projects.put({ ...row, status: 'ready' })
-      await this.database.conversionJobs.put(this.nextJob(job, 'verified'))
-    })
-    return cold.family.current
-  }
-  async retryJob(jobId: string, expectedVersion: number, options: ResourceOptions = {}): Promise<ConversionJob> {
-    const initial = await this.getJob(jobId)
-    if (!initial || initial.jobVersion !== expectedVersion) throw new ConversionConflictError()
-    if (initial.stage === 'verified') {
-      if (!(await this.load(initial.targetSceneId, options))) throw new Error('已开放目标损坏或缺失。')
-      return initial
-    }
-    if (!['failed', 'cancelled'].includes(initial.stage)) throw new ConversionConflictError()
-    const row = await this.database.projects.get(initial.targetSceneId)
-    if (row) {
-      assertCurrent(row)
-      if (row.status === 'ready') {
-        if (row.conversionJobId !== jobId || !(await this.load(row.sceneId, options))) throw new Error('已开放转换目标缺失、归属不符或不可读。')
-        return this.atomic(options, async () => {
-          const job = await this.jobCAS(jobId, expectedVersion), target = await this.database.projects.get(row.sceneId)
-          if (!['failed', 'cancelled'].includes(job.stage) || !target || target.status !== 'ready' || target.conversionJobId !== jobId
-            || target.revision !== row.revision || target.contentHash !== row.contentHash) throw new ConversionConflictError()
-          assertCurrent(target)
-          const next = this.nextJob(job, 'verified', { failure: null })
-          await this.database.conversionJobs.put(next)
-          return next
-        })
-      }
-      await this.readConversion(jobId, options)
-    }
-    return this.atomic(options, async () => {
-      const current = await this.jobCAS(jobId, expectedVersion)
-      if (!['failed', 'cancelled'].includes(current.stage)) throw new ConversionConflictError()
-      const target = await this.database.projects.get(current.targetSceneId)
-      if (target && (target.status !== 'preparing' || target.revision !== 0 || target.contentHash !== current.contentHash)) throw new ConversionConflictError()
-      const next = this.nextJob(current, target ? 'committed' : 'captured', { failure: null })
-      await this.database.conversionJobs.put(next)
-      return next
-    })
   }
 }

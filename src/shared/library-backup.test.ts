@@ -1,10 +1,6 @@
-import { topDownPresentation } from './appearance/presentation.js'
-import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it, vi } from 'vitest'
-import { outdoorProject } from '../io/v6/test-fixtures'
-import type { ProjectBundle } from './model/project.js'
+import { outdoorProject } from '../../tests/helpers/current-project-fixtures.js'
 import type { CompleteValidationOptions } from './ports/resources.js'
-import { createMemoryResources } from './project/resources.js'
 import { decodeUtf8 } from './project/binary.js'
 import { encodeUtf8 } from './validation/json.js'
 import { exportLibraryBackup, importLibraryBackup } from './library/backup.js'
@@ -22,11 +18,7 @@ const validation: CompleteValidationOptions = { images: {
 const organization: CatalogOrganization = { tags: ['  森林 ', 'Ｍap  Pack'], colors: ['棕', '绿'], favorite: true }
 const detachedKey = JSON.stringify([1, '0'.repeat(64), 'prop', 'not-installed', 1, '1'.repeat(64)])
 async function entryFixture() {
-  const old = await outdoorProject(1)
-  const bundle: ProjectBundle = { project: { format: 'sceneweave-complete-project', schemaVersion: 1,
-    document: toCurrentSceneDocument({ ...old.document, format: 'sceneweave-scene' }), historyIdentity: { ...old.historyIdentity, version: 5, generationTokens: {}, regionalTokens: {}, presentationTokens: {}, terrainTokens: {}, decorationTokens: {}, surfaceRuleTokens: {} }, appearance: { ...old.appearance, version: 2, presentations: Object.fromEntries(Object.values(old.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) },
-    assets: {}, licenses: old.licenses, licenseBindings: old.licenseBindings, authoringSources: {},
-  }, resources: createMemoryResources({}) }
+  const bundle = outdoorProject(1)
   return prepareLibraryEntry(bundle, { kind: 'prop', definitionId: 'scatter-definition' }, validation)
 }
 

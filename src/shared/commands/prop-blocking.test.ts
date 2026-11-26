@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fixture, runtime } from '../../application/workspace/test-fixtures.js'
-import { groupLayerSceneV3, scatterLayerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { groupLayerScene, scatterLayerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import type { SceneDocument } from '../model/scene.js'
 import { cloneJson } from '../validation/json.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
@@ -10,8 +9,8 @@ import { applyCommands, applySnapshotCommands, type SceneCommand } from './comma
 import { previewOutdoorCommands } from './outdoor.js'
 
 const blocking = (id: string, blocksMovement = true): SceneCommand => ({ type: 'setPropBlocking', id, blocksMovement })
-const scatter = (count = 1) => toCurrentSceneDocument({ ...scatterLayerSceneV3(count), format: 'sceneweave-scene' })
-const group = () => toCurrentSceneDocument({ ...groupLayerSceneV3(), format: 'sceneweave-scene' })
+const scatter = (count = 1) => scatterLayerScene(count)
+const group = () => groupLayerScene()
 function notes(scene: SceneDocument, propId: string) {
   scene.notes.first = { id: 'first', floorId: 'blank-floor', editLocked: false, anchor: { type: 'entity', entityKind: 'prop', entityId: propId }, kind: 'note', text: 'first', visibility: 'gm' }
   scene.notes.second = { id: 'second', floorId: 'blank-floor', editLocked: true, anchor: { type: 'entity', entityKind: 'note', entityId: 'first' }, kind: 'note', text: 'second', visibility: 'gm' }

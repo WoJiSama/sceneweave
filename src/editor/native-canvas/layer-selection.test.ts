@@ -1,18 +1,14 @@
-import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
 import { describe, expect, it } from 'vitest'
+import { blankScene, sampleScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { selectionScene as toGeometryDocumentV2 } from './selection-scene'
-import { migrateSceneV2 as legacyLayers } from '../../core/v3/migration'
-import type { SceneDocumentV2 } from '../../core/v2/types'
-function migrateSceneV2(input: SceneDocumentV2, options: Parameters<typeof legacyLayers>[1]): SceneDocumentV3 { return toCurrentSceneDocument({ ...legacyLayers(input, options), format: 'sceneweave-scene', schemaVersion: 1 }) }
 import { validateSceneSnapshot as validateSceneSnapshotV3 } from '../../shared/validation/snapshots.js'
 import type { SceneDocument as SceneDocumentV3 } from '../../shared/model/scene.js'
-import { createBlankDocumentV2 } from '../v2/blank-project'
-import { createIslandDocument, ISLAND_IDS } from '../v2/island-sample'
-import { createStudyDocument, STUDY_IDS } from '../v2/study-sample'
 import { projectEditorScene as projectEditorSceneV3 } from '../../shared/projection/projection.js'
 import { wallGeometryV3 } from '../../platform/browser/render/renderer'
 import { hiddenEntitiesV3, scopedHiddenEntitiesV3, hitTestLayersV3, selectInBoundsLayersV3, selectionGeometryLayersV3, summarizeSelectionLayersV3 } from './layer-view'
 
+const STUDY_IDS = { floor: 'study-floor', room: 'study-room', terrace: 'terrace-area' }
+const ISLAND_IDS = { high: 'island-high', connection: 'island-stairs' }
 const stamp = '2026-10-21T00:00:00.000Z'
 const corner = { x: 3700, y: 3700 }
 const cornerBox = { x: 3680, y: 3680, width: 40, height: 40 }
@@ -23,10 +19,11 @@ function layer(scene: SceneDocumentV3): string {
   return id
 }
 function joinedWalls(): SceneDocumentV3 {
-  const source = createBlankDocumentV2({ title: '原生墙体选择', widthMm: 20000, heightMm: 20000, preset: 'investigation', sceneId: 'source', now: stamp })
+  const source = blankScene({ title: '原生墙体选择', sceneId: 'native-wall-copy', now: stamp })
   for (const [id, xMm, yMm] of [['shared', 4000, 4000], ['east', 8000, 4000], ['south', 4000, 8000]] as const) source.vertices[id] = { id, floorId: 'blank-floor', editLocked: false, xMm, yMm }
   for (const [id, endVertexId] of [['horizontal', 'east'], ['vertical', 'south']] as const) source.walls[id] = { id, floorId: 'blank-floor', editLocked: false, startVertexId: 'shared', endVertexId, thicknessMm: 1000, blocksMovement: true, blocksSight: true, topStyle: null }
-  const scene = migrateSceneV2(source, { sceneId: 'native-wall-copy', now: stamp })
+  const scene = source
+  for (const id of [...Object.keys(scene.vertices), ...Object.keys(scene.walls)]) scene.entityLayers[id] = 'layer-default-0'
   // Geometric order is horizontal first. Native user order reverses it, and
   // therefore assigns the exterior join to the vertical wall instead.
   scene.entityLayers.horizontal = layer(scene)
@@ -40,7 +37,7 @@ function addConnectionLabels(scene: SceneDocumentV3, connectionId: string): void
 }
 /** Reference-only fixture for defensive hiding branches; never used by strict selection/rendering. */
 function unopenedRoomConnectionReferences(): SceneDocumentV3 {
-  const scene = migrateSceneV2(createStudyDocument({ sceneId: 'source', now: stamp }), { sceneId: 'room-reference-copy', now: stamp })
+  const scene = sampleScene('study')
   scene.terrainAreas[STUDY_IDS.terrace].groundElevationMm = 1000
   scene.terrainConnections['room-step'] = { id: 'room-step', floorId: STUDY_IDS.floor, editLocked: false, visibility: 'public', kind: 'stairs',
     from: { surfaceRef: { kind: 'room', id: STUDY_IDS.room }, positionMm: { x: 8500, y: 4500 } },
@@ -112,7 +109,7 @@ describe('native complete-v1 layer selection', () => {
   })
 
   it('picks a ground prop above its supporting room even when the room has a higher user layer', () => {
-    const scene = migrateSceneV2(createStudyDocument({ now: stamp }), { sceneId: 'ground-layer-copy', now: stamp })
+    const scene = sampleScene('study')
     scene.entityLayers[STUDY_IDS.room] = layer(scene)
     const ids = hitTestLayersV3(scene)(domain(scene), scene.props['study-rug'].positionMm, 0)
     expect(ids).toContain(STUDY_IDS.room)
@@ -120,7 +117,7 @@ describe('native complete-v1 layer selection', () => {
   })
 
   it('omits a valid B3 terrain connection and labels from native projection, point picking and marquee when its source is hidden', () => {
-    const scene = migrateSceneV2(createIslandDocument({ sceneId: 'source', now: stamp }), { sceneId: 'native-connection-copy', now: stamp }), hiddenLayer = layer(scene)
+    const scene = sampleScene('island'), hiddenLayer = layer(scene)
     addConnectionLabels(scene, ISLAND_IDS.connection)
     scene.entityLayers[ISLAND_IDS.high] = hiddenLayer
     const geometry = domain(scene), point = { x: 14500, y: 10000 }, box = { x: 14450, y: 9950, width: 100, height: 100 }

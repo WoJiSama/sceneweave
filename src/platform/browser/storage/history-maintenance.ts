@@ -98,7 +98,7 @@ export async function collectUnusedResources(database: ProjectDatabase, checks: 
   await scanRows(database.historyVersions, row => { if (!owners.has(row.ownerSceneId)) throw new Error('历史维护增量历史缺少活动分支。') })
   await scanRows(database.historyPins, row => { if (!owners.has(row.ownerSceneId)) throw new Error('历史维护增量快照缺少活动分支。') })
 
-  if (await database.nativeUpgradeCapsules.count()) throw new Error('旧升级原件只应保存在独立迁入保全库。')
+  if (await database.table('nativeUpgradeCapsules').count()) throw new Error('库中含独立保全记录，资源整理未执行。')
 
   const unusedResources: string[] = [], unusedLicenses: string[] = []
   const result: UnusedResourceCollection = { resourceCount: 0, resourceBytes: 0, licenseCount: 0, licenseBytes: 0 }

@@ -1,11 +1,10 @@
 import type { ProjectBundle, SnapshotSummary } from '../../shared/model/project.js'
-import type { LegacySource } from '../../shared/migration/types.js'
 import type { ResourceOptions } from '../../shared/ports/resources.js'
 import type { HistoryArchive, SnapshotBundle } from '../../shared/project/history.js'
 
 export interface ProjectSummary { sceneId: string; title: string; revision: number; savedAt: string; conversionJobId: string | null }
 export interface AutomaticSummary { ownerSceneId: string; revision: number; savedAt: string; contentHash: string }
-export interface StorageUsage { resourceBytes: number; documentBytes: number; legacyBytes: number; metadataVersion: number; namedCount: number; protectionCount: number; importedCount: number }
+export interface StorageUsage { resourceBytes: number; documentBytes: number; metadataVersion: number; namedCount: number; protectionCount: number; importedCount: number }
 export interface HistoryVersionSummary {
   id: string
   ownerSceneId: string
@@ -19,7 +18,6 @@ export interface HistoryVersionSummary {
 export interface HistoryOverview {
   snapshots: SnapshotSummary[]
   usage: StorageUsage
-  legacySources: LegacySource[]
   history: { activeVersionId: string | null; versions: HistoryVersionSummary[] }
 }
 

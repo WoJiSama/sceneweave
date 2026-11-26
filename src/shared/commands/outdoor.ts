@@ -52,6 +52,10 @@ export const outdoorCommandSchemas = [
   z.object({ type: z.literal('createPath'), ...base, ...pathFields.omit({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).shape,
     ...pathFields.pick({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).partial().shape, materialRef: version.optional() }).strict(),
   z.object({ type: z.literal('updatePath'), id, changes: pathFields.partial().extend({ widthSections: pathFields.shape.widthSections.nullable(), staircase: staircaseSchema.nullable().optional() }).strict() }).strict(),
+  z.object({ type: z.literal('rerouteTerrainPath'), id, areaId: id, relief: areaFields.shape.relief.unwrap(),
+    changes: z.object({ centerlineMm: pathFields.shape.centerlineMm, widthMm: pathFields.shape.widthMm,
+      supportRefs: pathFields.shape.supportRefs, roadSurface: pathFields.shape.roadSurface.unwrap(),
+      automaticRoute: pathFields.shape.automaticRoute.unwrap() }).strict() }).strict(),
   z.object({ type: z.literal('createRegion'), ...base, boundaryMm: z.array(point).min(3).max(512), kind: regionKind, name: regionFields.shape.name, visibility: visibility.optional(), blocksMovement: z.boolean().optional(), movementCostMultiplier: z.number().finite().min(1).max(100).optional() }).strict(),
   z.object({ type: z.literal('updateRegion'), id, changes: regionFields.partial().strict() }).strict(),
   z.object({ type: z.literal('createScatter'), ...base, ...scatterFields.omit({ visibility: true, gridOriginMm: true, densityFactor: true, minDistanceMm: true, rotationRangeDeg: true }).shape,
@@ -374,6 +378,7 @@ function referenced(scene: SceneDocument, value: string): string[] {
   return [...refs].sort()
 }
 function rootsFor(command: OutdoorCommand): string[] {
+  if (command.type === 'rerouteTerrainPath') return [command.id, command.areaId]
   if (command.type === 'moveTerrainPoint') return [command.areaId]
   if (command.type === 'detachScatterMember') return [command.groupId, command.propId]
   if (command.type === 'upsertScatterExclusion' || command.type === 'removeScatterExclusion') return [command.groupId]
@@ -396,6 +401,7 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
         coveragePriority: command.coveragePriority ?? 1, surfaceStyle: cloneJson(command.surfaceStyle === undefined ? styleFor(scene, command.materialRef, 'terrain') : command.surfaceStyle), blocksMovement: command.blocksMovement ?? false, blocksSight: command.blocksSight ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1,
         ...(command.boundaryBlendMm !== undefined ? { boundaryBlendMm: command.boundaryBlendMm } : {}),
         ...(command.relief ? { relief: cloneJson(command.relief) } : {}),
+        ...(command.reliefFinish ? { reliefFinish: command.reliefFinish } : {}),
         ...(command.facade ? { facade: cloneJson(command.facade) } : {}) }
       scene.entityLayers[command.id] = layer; break
     }
@@ -451,6 +457,17 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       else if (widthSections) path.widthSections = cloneJson(widthSections)
       if (staircase === null) delete path.staircase
       else if (staircase) path.staircase = cloneJson(staircase)
+      break
+    }
+    case 'rerouteTerrainPath': {
+      const path = required(scene.paths, command.id, '道路'), area = required(scene.terrainAreas, command.areaId, '地形')
+      const support = { kind: 'terrainArea', id: area.id }
+      if (area.floorId !== path.floorId || !area.relief || area.rockBody || !path.roadSurface || path.assembly
+        || !equal(path.supportRefs, [support]) || !equal(command.changes.supportRefs, [support])) {
+        throw new Error('同事务改线只支持一块起伏地形和由它独立承托的自动道路。')
+      }
+      area.relief = cloneJson(command.relief)
+      Object.assign(path, cloneJson(command.changes))
       break
     }
     case 'createRegion': {
@@ -560,13 +577,15 @@ function assertRockCrownJoins(before: SceneDocument, previous: TerrainArea, curr
 }
 
 /** Detached draft mutation; the native command entry validates the complete batch once. */
-export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorCommand, context: PreparationContext, budget?: CommandBudgetProfile): OutdoorImpact {
+export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorCommand, context: PreparationContext, budget?: CommandBudgetProfile,
+  terrainPairAccounting?: import('../budget/task-budget.js').TerrainPairAccounting): OutdoorImpact {
   if ((command.type === 'removeTerrainConnection' || command.type === 'deleteOutdoorEntity' && command.kind === 'terrainConnection') && scene.terrainConnections[command.id]?.terrainInlay) throw new Error('跨台山路须显式恢复原连接及源地形，不能隐式删除填切结果。')
   if ((command.type === 'removeTerrainConnection' || command.type === 'deleteOutdoorEntity' && command.kind === 'terrainConnection') && scene.terrainConnections[command.id]?.carvedStrip) throw new Error('连续山路的移除须明确选择回填源岩体。')
   if (budget) parseCommandBudgetProfile(budget)
   const before = cloneJson(scene), roots = rootsFor(command)
   mutate(scene, command, context)
   if (command.type === 'updateTerrainArea' && command.changes.relief) assertRockCrownJoins(before, before.terrainAreas[command.id], scene.terrainAreas[command.id])
+  if (command.type === 'rerouteTerrainPath') assertRockCrownJoins(before, before.terrainAreas[command.areaId], scene.terrainAreas[command.areaId])
   const derived = refreshScene5TransitionsAfterPhysicalEdit(before, scene)
   const impact = diffImpact(before, scene, roots)
   impact.commandCost += derived.commandCost
@@ -590,7 +609,7 @@ export function applyOutdoorCommand(scene: SceneDocument, command: OutdoorComman
   assertUnlocked(before, lockIds)
   assertUnlocked(before, [...outdoorDependencies(before, derived.affectedIds), ...outdoorDependencies(scene, derived.affectedIds)])
   if (!budget && impact.commandCost > COMMAND_LIMIT) throw new OperationRejected('operation_budget', '展开后的室外事务超过256条操作预算，不能拆批绕过。')
-  if (budget) assertCommandBudget(budget, measureCommandBudget(before, scene, undefined, undefined, budget))
+  if (budget) assertCommandBudget(budget, measureCommandBudget(before, scene, undefined, undefined, budget, terrainPairAccounting))
   return impact
 }
 

@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toCurrentSceneDocument } from '../model/current-scene.js'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
-import { cloneJson } from '../validation/json.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { applyCompositionCommands } from '../appearance/commands.js'
 import { createCompositionContent } from '../appearance/graph.js'
 import { applyCommands, createPlacedProp } from '../commands/commands.js'
@@ -10,7 +8,7 @@ import { resolveFloorOutput } from './output.js'
 
 const runtime = () => { let sequence = 0; return { ids: { nextId: () => `floor-place-${++sequence}` }, clock: { now: () => '2026-11-10T00:00:00.000Z' } } }
 function source() {
-  const scene = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' }), prop = scene.props.item
+  const scene = layerScene(), prop = scene.props.item
   scene.propDefinitions.chair = { id: 'chair', version: 1, catalogId: 'test.floor-place', licenseRef: 'MIT', origin: { kind: 'original', attribution: 'test', canEmbed: true }, name: '测试椅', tags: [],
     defaultAppearance: prop.appearance, defaultVisualBoundsMm: prop.visualBoundsMm, defaultFootprintMm: prop.footprintMm, defaultFootprintOffsetMm: prop.footprintOffsetMm,
     defaultBlocksMovement: false, defaultBlocksSight: false, defaultRenderLayer: 'object', defaultShadowClass: 'none' }

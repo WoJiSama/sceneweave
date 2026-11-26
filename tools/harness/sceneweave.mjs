@@ -4,12 +4,14 @@ import { fileURLToPath } from 'node:url'
 import { performance } from 'node:perf_hooks'
 import { chromium } from '@playwright/test'
 import { assert, digest, MAX_ARCHIVE_BYTES, parseArguments, readBounded, readRequest, replaceResult, usage, writeVerified } from './io.mjs'
-import { startHarnessTooling } from './tooling.mjs'
+import { openHarnessContext, startHarnessTooling } from './tooling.mjs'
 import { generateInBrowser, repairInBrowser, verifyDiskDelivery } from './browser.mjs'
+import { runMapCli } from './map.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 async function run(args) {
+  if (args[0] === 'map') { await runMapCli(args.slice(1)); return }
   if (args.length === 1 && ['--help', '-h'].includes(args[0])) { process.stdout.write(`${usage}\n`); return }
   const options = parseArguments(args), started = performance.now()
   let tooling, browser, context, record, output, stopReason, timer, publicationComplete = false
@@ -59,16 +61,9 @@ async function run(args) {
     const browserStarted = performance.now()
     browser = await chromium.launch({ headless: true, ...(process.env.SCENEWEAVE_BROWSER_CHANNEL ? { channel: process.env.SCENEWEAVE_BROWSER_CHANNEL } : {}) })
     assert(!stopReason, stopReason)
-    context = await browser.newContext({ serviceWorkers: 'block' })
-    const browserErrors = []
-    context.on('page', page => page.on('pageerror', error => browserErrors.push(error.message)))
-    await context.route('**/*', route => route.request().url().startsWith(`${tooling.origin}/`) ? route.continue() : route.abort('blockedbyclient'))
-    await context.addInitScript(() => {
-      // Importing runtime modules may construct repositories; opening or changing
-      // any database is forbidden for this file-only adapter.
-      IDBFactory.prototype.open = () => { throw new Error('Local harness cannot open browser databases') }
-      IDBFactory.prototype.deleteDatabase = () => { throw new Error('Local harness cannot delete browser databases') }
-    })
+    const isolated = await openHarnessContext(browser, tooling.origin)
+    context = isolated.context
+    const browserErrors = isolated.errors
     const page = await context.newPage()
     await page.goto(tooling.url)
     const generated = repairing

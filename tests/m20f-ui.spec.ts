@@ -185,7 +185,7 @@ test('native history refresh waits for its tab and preserves a form across inact
   await openWorkspaceModule(page, '历史')
   await expect.poll(reads).toBeGreaterThan(before)
   expect(await usageReads()).toBe(0)
-  await page.getByRole('button', { name: '检查容量与迁移原件', exact: true }).click()
+  await page.getByRole('button', { name: '检查容量', exact: true }).click()
   await expect(page.locator('.history-usage')).toBeVisible()
   expect(await usageReads()).toBe(1)
   await expect(page.getByLabel('命名快照名称', { exact: true })).toHaveValue('保留中的历史表单')

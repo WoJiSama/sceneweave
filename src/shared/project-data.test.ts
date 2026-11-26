@@ -1,8 +1,7 @@
-import { toCurrentSceneDocument } from './model/current-scene.js'
 import { visualBase } from './visual/base.js'
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
-import { layerSceneV3 } from '../core/v3/test-fixtures'
+import { layerScene } from '../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from './appearance/graph.js'
 import { inspectDependencies } from './geometry/dependencies.js'
 import { certifyProjectData, PROJECT_DATA_LIMITS, projectContentHash, projectDataSchema, validateProjectData } from './project/validate.js'
@@ -17,7 +16,7 @@ const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 function fixture(image = false): ProjectData {
   let next = 0
   const context: PreparationContext = { ids: { nextId: () => `project-token-${++next}` }, clock: { now: () => '2026-10-24T00:00:00.000Z' } }
-  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+  const document: SceneDocument = layerScene()
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   if (image) {
     const prop = document.props.item, sha256 = digest('metadata fixture; intentionally not decoded pixels')

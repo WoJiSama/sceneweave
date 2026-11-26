@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isPackageNamespace } from '../assets/package-identity.js'
 import { nativeSceneSchema } from '../validation/scene.js'
 import { nativeHistoryIdentitySchema } from '../history/identity.js'
 import { nativeAppearanceGraphSchema, certifyCompositionContent, getCertifiedCompositionContent, getPropUpdateCompositionTransaction, getCompositionRevisionTransaction, getCompositionCommitTransaction, validateCompositionContent } from '../validation/content.js'
@@ -12,6 +13,7 @@ import { canonicalJson, captureJson, cloneJson, encodeUtf8, equalOwnedJson, free
 import type { ProjectData } from '../model/project.js'
 import { STATIC_SVG_LIMITS, CANONICAL_SVG_PROCESSOR } from '../ai/svg.js'
 import { PACKAGE_LIMITS } from './limits.js'
+import { PROJECT_FORMAT, PROJECT_SCHEMA_VERSION } from './format.js'
 import { projectSourceRecords } from './source-resources.js'
 import { legacyTerrainView } from '../terrain-generation/composition-contracts.js'
 import { canonicalProjectCoordinates, decodeProjectCoordinates } from '../aggregates/scene-coordinates.js'
@@ -36,10 +38,30 @@ const svgSchema = z.discriminatedUnion('processorVersion', [
       moduleSha256: z.literal(CANONICAL_SVG_PROCESSOR.rasterizer.moduleSha256) }).strict(),
     pixelFormat: z.literal(CANONICAL_SVG_PROCESSOR.pixelFormat) }).strict(),
 ])
-export const projectDataSchema: z.ZodType<ProjectData> = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.literal(1),
+const extensionNamespace = z.string().refine(isPackageNamespace, '扩展须使用发布者/包标识。')
+const extensionRecord = z.object({
+  schemaVersion: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  data: z.string().refine(value => value.length <= PACKAGE_LIMITS.extensionDataBytes
+    && !/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(value)
+    && encodeUtf8(value).length <= PACKAGE_LIMITS.extensionDataBytes, '扩展正文须为最多64KiB的有效UTF-8文本。'),
+}).strict()
+const extensionsSchema = z.record(extensionNamespace, extensionRecord).refine(value => {
+  const keys = Object.keys(value)
+  if (!keys.length || keys.length > PACKAGE_LIMITS.extensionNamespaces) return false
+  let bytes = 1 // One closing brace. Each entry includes its opening brace or preceding comma.
+  for (const key of keys) {
+    if (key.length > 129 || value[key].data.length > PACKAGE_LIMITS.extensionDataBytes) return false
+    bytes += ownedJsonByteLength(key) + ownedJsonByteLength(value[key]) + 2
+    if (bytes > PACKAGE_LIMITS.extensionsBytes) return false
+  }
+  return true
+}, '工程扩展区须含1–32项，编码后的总量最多256KiB。')
+
+export const projectDataSchema: z.ZodType<ProjectData> = z.object({ format: z.literal(PROJECT_FORMAT), schemaVersion: z.literal(PROJECT_SCHEMA_VERSION),
   document: nativeSceneSchema, historyIdentity: nativeHistoryIdentitySchema, appearance: nativeAppearanceGraphSchema,
   assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
   licenseBindings: z.array(nativeLicenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
+  extensions: extensionsSchema.optional(),
 }).strict().superRefine((project, ctx) => {
   if(project.historyIdentity.version!==5||project.appearance.version!==2)ctx.addIssue({code:'custom',message:'完整工程、历史身份和外观图版本须匹配。'})
   if (project.schemaVersion !== project.document.schemaVersion) ctx.addIssue({ code: 'custom', path: ['schemaVersion'], message: '完整工程与场景契约版本必须一致。' })
@@ -47,10 +69,11 @@ export const projectDataSchema: z.ZodType<ProjectData> = z.object({ format: z.li
 // Keep the exported complete schema unchanged. Runtime validation delegates the
 // three domain branches to their strict validators, avoiding recursive parsing
 // of the scene and identity in both the envelope and the domain boundary.
-const projectEnvelopeSchema = z.object({ format: z.literal('sceneweave-complete-project'), schemaVersion: z.literal(1),
+const projectEnvelopeSchema = z.object({ format: z.literal(PROJECT_FORMAT), schemaVersion: z.literal(PROJECT_SCHEMA_VERSION),
   document: z.unknown(), historyIdentity: z.unknown(), appearance: z.unknown(),
   assets: z.record(hash, assetRecordSchema), licenses: z.record(hash, z.object({ sha256: hash, text: z.string().min(1) }).strict()),
   licenseBindings: z.array(nativeLicenseBindingSchema).max(PROJECT_DATA_LIMITS.bindings), authoringSources: z.record(id, svgSchema),
+  extensions: extensionsSchema.optional(),
 }).strict()
 
 interface ProjectSizeProof { documentBytes: number; expandedBytes: number }
@@ -176,7 +199,7 @@ function readProjectData(input: unknown, certifyContent: boolean, replayOwned = 
     hashes.add(asset.sha256)
   }
   if (Object.keys(project.assets).some(key => !hashes.has(key)) || hashes.size > PROJECT_DATA_LIMITS.images) throw new Error('图片元数据必须恰好覆盖依赖闭包，最多256张。')
-  let pixels = 0, expanded = 0
+  let pixels = 0, expanded = project.extensions ? ownedJsonByteLength(project.extensions) : 0
   for (const [key, record] of Object.entries(project.assets)) {
     const count = record.pixelWidth * record.pixelHeight
     if (record.sha256 !== key || count > PROJECT_DATA_LIMITS.imagePixels || (pixels += count) > PROJECT_DATA_LIMITS.totalImagePixels) throw new Error('图片元数据hash或累计像素预算无效。')

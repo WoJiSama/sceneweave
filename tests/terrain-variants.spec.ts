@@ -115,7 +115,7 @@ test('twelve original terrain variants retain real alpha, fixed roots and comple
       entries.push(await catalog.prepareCatalogEntry(provider, { kind: 'prop', definitionId: spec.definitionId }))
     }
     const backup = await catalog.exportCatalogBackup(entries.map((entry: any) => ({ entry, organization: { tags: ['地形变体'], colors: [], favorite: false } }))), restored = await catalog.readCatalogBackup(new File([backup], 'terrain-variants.zip'))
-    const repo = new LibraryRepository({ name: `variant-proof-${crypto.randomUUID()}`, runtime, validation })
+    const repo = new LibraryRepository({ name: `variant-proof-${crypto.randomUUID()}`, validation })
     try {
       const empty = await repo.read(); if (empty.entries.length) throw new Error('Target library must be empty')
       await repo.commit(empty.revision, { put: restored.records.map((record: any) => record.entry), organization: restored.records.map((record: any) => ({ key: record.entry.item.identity.key, value: record.organization })) })

@@ -51,7 +51,8 @@ function simple() {
     surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
   scene.paths.road = { id: 'road', floorId, editLocked: false, visibility: 'public', centerlineMm: [{ x: 5000, y: 9000 }, { x: 10000, y: 9000 }],
     widthMm: 400, supportRefs: [{ kind: 'terrainArea', id: 'ground' }], surfaceStyle: null, movementCostMultiplier: 1, renderOrder: 0 }
-  scene.scatterGroups.scatter = { id: 'scatter', floorId, editLocked: false, visibility: 'public', domain: { kind: 'area', areaId: 'ground' },
+  scene.scatterGroups.scatter = { id: 'scatter', floorId, editLocked: false, visibility: 'public', domain: { kind: 'area', areaId: 'ground',
+    boundaryMm: [{ x: 4000, y: 4000 }, { x: 10000, y: 4000 }, { x: 10000, y: 10000 }, { x: 4000, y: 10000 }] },
     palette: [{ key: 'item', propDefinitionRef: { id: 'definition', version: 1 }, weight: 1 }], seed: 'keep-real-results', algorithmVersion: 'scatter-cell-v1',
     gridOriginMm: { x: 4000, y: 4000 }, cellSizeMm: 1000, densityFactor: .5, minDistanceMm: 100, rotationRangeDeg: { min: 0, max: 359 },
     members: { ['d'.repeat(64)]: { propId: 'item', state: 'manual', overrideFields: ['positionMm'] }, ['e'.repeat(64)]: { propId: null, state: 'deleted', overrideFields: [] },
@@ -75,6 +76,7 @@ describe('natural aggregate rigid transformations', () => {
     expect(result.scatterGroups.scatter.members).toEqual(scene.scatterGroups.scatter.members)
     expect(result.decorationClusters.cluster.members).toEqual(scene.decorationClusters.cluster.members)
     expect(result.scatterGroups.scatter.exclusions[0].boundaryMm).not.toEqual(scene.scatterGroups.scatter.exclusions[0].boundaryMm)
+    expect(result.scatterGroups.scatter.domain).not.toEqual(scene.scatterGroups.scatter.domain)
     for (const field of ['terrainAreas', 'paths', 'props', 'decorations', 'decorationClusters', 'scatterGroups'] as const) expect(encoded[field]).toEqual(local[field])
     expect(result.notes).toEqual(scene.notes)
     expect(decodeSceneCoordinates(encoded)).toEqual(result)

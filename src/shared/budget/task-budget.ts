@@ -7,6 +7,7 @@ import { visualBase } from '../visual/base.js'
 import { canonicalJson, captureJson, encodeUtf8, equalCheckedJson, equalOwnedJson, freezeJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
 import { isCertifiedSceneSnapshot } from '../validation/snapshots.js'
+import { indexEdges, type SegmentMm } from '../geometry/edge-index.js'
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 export const BudgetUsageSchema = z.object({ semanticTargets: count, geometryPoints: count, geometrySegments: count,
@@ -271,10 +272,60 @@ export function measureBudgetDependencies(value: unknown): number {
 }
 
 /** Geometry delta, retained references and resources shared by both budget policies. */
-export function measureDocumentBudget(before: SceneDocument, after: SceneDocument, metadata?: Partial<TaskBudgetMetadata['after']>): BudgetUsage {
+export type TerrainPairAccounting = 'spatial-v1'
+export function captureGeometryPairBudget(profile: TaskBudgetProfile) {
+  let pairs = 0
+  return {
+    add(count: number) {
+      pairs += count
+      if (pairs > profile.limits.intersectionPairs) throw new OperationRejected('operation_budget',
+        `任务预算超限[intersectionPairs]：已检查 ${pairs}/${profile.limits.intersectionPairs} 对，保留当前成果。`)
+    },
+    count: () => pairs,
+  }
+}
+
+function spatialTerrainPairs(before: SceneDocument, after: SceneDocument, equal: (a: unknown, b: unknown) => boolean) {
+  const old = before.terrainAreas, next = after.terrainAreas
+  // Rock shells and cut geometry keep the general enclosure estimate.
+  if ([...Object.values(old), ...Object.values(next)].some(row => row.rockBody || row.facade)) return 0
+  const edges = (row: SceneDocument['terrainAreas'][string]) => row.boundaryMm.map((point, i): SegmentMm =>
+    [point.positionMm, row.boundaryMm[(i + 1) % row.boundaryMm.length].positionMm])
+  const retained = new Map<string, SegmentMm[]>(), changed = new Map<string, SegmentMm[]>()
+  const append = (target: Map<string, SegmentMm[]>, row: SceneDocument['terrainAreas'][string]) => {
+    const list = target.get(row.floorId) ?? []
+    list.push(...edges(row)); target.set(row.floorId, list)
+  }
+  let changedCount = 0, retainedCount = 0
+  for (const row of Object.values(next)) { append(retained, row); retainedCount += row.boundaryMm.length }
+  for (const id of new Set([...Object.keys(old), ...Object.keys(next)])) {
+    const previous = old[id], current = next[id]
+    if (equal(previous, current)) continue
+    changedCount += Math.max(previous?.boundaryMm.length ?? 0, current?.boundaryMm.length ?? 0)
+    if (previous && (!current || !equal(previous.boundaryMm, current.boundaryMm))) append(changed, previous)
+    if (current) append(changed, current)
+  }
+  const broadEstimate = changedCount * (changedCount + retainedCount)
+  if (!broadEstimate) return 0
+  let candidates = 0
+  for (const [floor, rows] of changed) {
+    const find = indexEdges([...rows, ...(retained.get(floor) ?? [])])
+    for (const [a, b] of rows) {
+      candidates += find(a, b, 1e-7).length
+      if (candidates >= broadEstimate) return 0
+    }
+  }
+  return Math.max(0, broadEstimate - candidates)
+}
+
+export function measureDocumentBudget(before: SceneDocument, after: SceneDocument, metadata?: Partial<TaskBudgetMetadata['after']>,
+  terrainPairAccounting?: TerrainPairAccounting): BudgetUsage {
   const usage = emptyBudgetUsage()
   const equal = isCertifiedSceneSnapshot(before) && isCertifiedSceneSnapshot(after)
     ? (first: unknown, second: unknown) => equalOwnedJson(first ?? null, second ?? null) : same
+  const paintEdges = (area: SceneDocument['terrainAreas'][string] | undefined) =>
+    area?.surfaceStyle?.overlays.reduce((sum, patch) => sum + patch.boundaryMm.length, 0) ?? 0
+  let changedPaintEdges = 0, retainedPaintEdges = 0, paintSelfPairs = 0
 
   const addChanged=(first:unknown,second:unknown)=>{
     if(equal(first,second))return
@@ -288,6 +339,19 @@ export function measureDocumentBudget(before: SceneDocument, after: SceneDocumen
   let retainedSegments=0
   for (const collection of LAYER_ENTITY_COLLECTIONS) for (const id of new Set([...Object.keys(before[collection]),...Object.keys(after[collection])])) {
     addChanged(before[collection][id],after[collection][id]);retainedSegments+=measureBudgetGeometry(after[collection][id]).geometrySegments
+    if (terrainPairAccounting === 'spatial-v1' && collection === 'terrainAreas') {
+      const previous = before.terrainAreas[id], current = after.terrainAreas[id]
+      const oldPaint = paintEdges(previous), newPaint = paintEdges(current)
+      retainedPaintEdges += newPaint
+      if ((oldPaint || newPaint) && !equal(previous, current)) {
+        const a = measureBudgetGeometry(previous).geometrySegments, b = measureBudgetGeometry(current).geometrySegments
+        changedPaintEdges += Math.max(a, b) - Math.max(a - oldPaint, b - newPaint)
+        for (const row of [previous, current]) for (const patch of row?.surfaceStyle?.overlays ?? []) {
+          const count = patch.boundaryMm.length
+          paintSelfPairs += count * (count - 1) / 2
+        }
+      }
+    }
   }
   for (const collection of DECORATION_COLLECTIONS) for (const id of new Set([...Object.keys(before[collection] ?? {}), ...Object.keys(after[collection] ?? {})])) {
     addChanged(before[collection]?.[id], after[collection]?.[id]); retainedSegments += measureBudgetGeometry(after[collection]?.[id]).geometrySegments
@@ -322,6 +386,12 @@ export function measureDocumentBudget(before: SceneDocument, after: SceneDocumen
   // geometry. Executors add repeated clipping/search/validation work through
   // executionUsage; this bound is independent of the editable target count.
   usage.intersectionPairs=usage.geometrySegments*(retainedSegments+usage.geometrySegments)
+  if (terrainPairAccounting === 'spatial-v1') {
+    // Paint masks are checked for simple geometry, but neither resolve
+    // support nor intersect with each other in the physical validator.
+    const changed = usage.geometrySegments - changedPaintEdges, retained = retainedSegments - retainedPaintEdges
+    usage.intersectionPairs = changed * (retained + changed) + paintSelfPairs - spatialTerrainPairs(before, after, equal)
+  }
   usage.dependencyRefs = measureBudgetDependencies(after) + measureBudgetDependencies(metadata?.historyIdentity)
     + measureBudgetDependencies(metadata?.appearance)
   const assets=metadata?.assets
@@ -339,8 +409,9 @@ export function accountBudgetExecution(usage: BudgetUsage, execution: Partial<Bu
   return freezeJson(BudgetUsageSchema.parse(usage))
 }
 /** Task policy counts all retained metadata and its own semantic targets. */
-export function measureTaskBudget(before: SceneDocument, after: SceneDocument, metadata?: TaskBudgetMetadata, execution: Partial<BudgetUsage> = {}): BudgetUsage {
-  const usage = measureDocumentBudget(before, after, metadata?.after)
+export function measureTaskBudget(before: SceneDocument, after: SceneDocument, metadata?: TaskBudgetMetadata, execution: Partial<BudgetUsage> = {},
+  terrainPairAccounting?: TerrainPairAccounting): BudgetUsage {
+  const usage = measureDocumentBudget(before, after, metadata?.after, terrainPairAccounting)
   usage.semanticTargets = taskSemanticTargets(before, after).length
   const tree = (value:unknown) => {
     if(!value||typeof value!=='object')return

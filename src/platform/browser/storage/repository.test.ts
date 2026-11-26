@@ -1,26 +1,20 @@
 import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { layerSceneV3 } from '../../../core/v3/test-fixtures'
-import { imageProject } from '../../../io/v3/test-fixtures'
+import { imageProject, layerScene } from '../../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
-import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
-import type { ProjectBundle, ProjectData } from '../../../shared/model/project.js'
+import type { ProjectBundle } from '../../../shared/model/project.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
-import type { ConversionJob, ConvertedFamily } from '../../../shared/migration/types.js'
-import { CONVERTER_VERSION } from '../../../shared/migration/types.js'
-import { exportMigrationSet, importMigrationSet } from '../../../shared/migration/set.js'
 import { createMemoryResources, validateProjectBundle } from '../../../shared/project/resources.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import * as binaryHash from '../../../shared/project/binary.js'
 import { canonicalJson, cloneJson, encodeUtf8 } from '../../../shared/validation/json.js'
 import { ProjectDatabase, PROJECT_DATABASE_NAME, PROJECT_TABLES } from './database.js'
-import { ConversionConflictError, HistoryMetadataConflictError, ProjectConflictError, ProjectRepository, PROJECT_STORAGE_LIMITS } from './repository.js'
+import { HistoryMetadataConflictError, ProjectConflictError, ProjectRepository, PROJECT_STORAGE_LIMITS } from './repository.js'
 import { historyPinBytes } from './incremental-history.js'
 import { canonicalProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
-import { partitionProjectContent } from './content-blocks.js'
 
 const NOW = '2026-10-24T00:00:00.000Z'
 const repositories: ProjectRepository[] = [], names = new Set<string>()
@@ -37,19 +31,12 @@ function repository(name = `m20d-project-${crypto.randomUUID()}`): ProjectReposi
   repositories.push(repository); return repository
 }
 function fixture(): ProjectBundle {
-  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
+  const document: SceneDocument = layerScene()
   document.sceneId = 'old-owner'; document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const content = createCompositionContent(document, { ids: { nextId: () => `stable-token-${++sequence}` }, clock: { now: () => NOW } })
   return { project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {}, licenses: {}, licenseBindings: [], authoringSources: {} }, resources: createMemoryResources({}) }
 }
-async function imageFixture(): Promise<ProjectBundle> {
-  const old = await imageProject(), document: SceneDocument = toCurrentSceneDocument({ ...old.document, format: 'sceneweave-scene', schemaVersion: 1 })
-  const content = createCompositionContent(document, { ids: { nextId: () => `image-token-${++sequence}` }, clock: { now: () => NOW } })
-  const pairs = await Promise.all(Object.entries(old.assets).map(async ([hash, asset]) => [hash, new Uint8Array(await asset.blob.arrayBuffer())] as const))
-  return { project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content,
-    assets: Object.fromEntries(Object.entries(old.assets).map(([hash, { blob: _blob, ...record }]) => [hash, record])),
-    licenses: old.licenses, licenseBindings: old.licenseBindings, authoringSources: {} }, resources: createMemoryResources(new Map(pairs)) }
-}
+const imageFixture = imageProject
 function revision(input: ProjectBundle, value: number): ProjectBundle {
   const project = cloneJson(input.project); project.document.revision = value; project.document.title = `Revision ${value}`
   return { project, resources: input.resources }
@@ -68,26 +55,6 @@ async function nativeDocumentBytes(repo: ProjectRepository): Promise<number> {
   })))
   return totals.reduce((sum, value) => sum + value, 0)
 }
-async function reserve(repo: ProjectRepository, snapshotKeys: string[] = []): Promise<ConversionJob> {
-  return repo.reserveJob({ sourceRepository: 'sceneweave-m1-outdoor', scopeId: 'old-owner', sourceFingerprint: 'a'.repeat(64), snapshotKeys, sourceContentHashes: { current: 'b'.repeat(64) } })
-}
-async function receipt(job: ConversionJob) {
-  const bytes = encodeUtf8('{"captured":"unit fixture"}')
-  const files = await exportMigrationSet({ setId: job.jobId, createdAt: NOW, converterVersion: CONVERTER_VERSION,
-    scope: { kind: 'project-family', repository: job.sourceRepository, sourceSceneId: job.scopeId }, sourceFingerprint: job.sourceFingerprint,
-    records: [{ role: 'current', recordKey: job.scopeId, sourceFormat: 'legacy-v6', contentHash: job.sourceContentHashes.current, bytes }] })
-  return (await importMigrationSet(files.index, files.volumes)).receipt
-}
-function family(job: ConversionJob, source = fixture()): ConvertedFamily {
-  const current = { project: cloneJson(source.project), resources: source.resources }; current.project.document.sceneId = job.targetSceneId
-  return { current, snapshots: [], importedSnapshots: [], legacySources: [], legacyBlobs: [], sourceContentHashes: cloneJson(job.sourceContentHashes) }
-}
-async function prepared(repo: ProjectRepository, source?: ProjectBundle, keys: string[] = []) {
-  let job = await reserve(repo, keys)
-  job = await repo.advanceJob(job.jobId, job.jobVersion, 'backup-verified', { backupReceipt: await receipt(job) })
-  const converted = family(job, source)
-  return { job, converted }
-}
 afterEach(async () => {
   vi.restoreAllMocks()
   for (const repo of repositories.splice(0)) repo.close()
@@ -95,7 +62,7 @@ afterEach(async () => {
   names.clear(); decodedTransactions.length = 0
 })
 
-describe('native complete-v1 project repository and two-phase conversion', () => {
+describe('complete-v1 project repository', () => {
   it('waits for an in-progress schema upgrade when a second opener sees the native handle', async () => {
     const repo = repository()
     let second: Promise<boolean> | undefined
@@ -204,7 +171,7 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     expect(await repo.database.automaticSnapshots.count()).toBe(0)
     const usage = await repo.usage(owner)
     expect(usage).toEqual({ documentBytes: await nativeDocumentBytes(repo),
-      resourceBytes: 0, legacyBytes: 0, metadataVersion: 2, namedCount: 1, protectionCount: 1, importedCount: 0 })
+      resourceBytes: 0, metadataVersion: 2, namedCount: 1, protectionCount: 1, importedCount: 0 })
     expect(usage.documentBytes - before.documentBytes).toBe(pins.reduce((sum, pin) => sum + historyPinBytes(pin), 0))
     expect(scanning).not.toHaveBeenCalled()
     const cold = repository(repo.database.name), coldScan = vi.spyOn(cold as unknown as { auditCapturedTotals(): Promise<unknown> }, 'auditCapturedTotals')
@@ -403,12 +370,10 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     expect(after).toEqual({ ...before, documentBytes: await nativeDocumentBytes(repo) })
     expect(after.documentBytes).toBeGreaterThan(before.documentBytes)
   })
-  it('rereads historical content, resources, licenses and originals changed by another connection after a successful scan', async () => {
+  it('rereads historical content, resources and licenses changed by another connection after a successful scan', async () => {
     const repo = repository(), input = await imageFixture(), owner = input.project.document.sceneId
     await repo.save(input, null)
     const named = await repo.createSnapshot(input, '跨事务保护', { expectedRevision: 0, expectedMetadataVersion: 0 })
-    const original = encodeUtf8('retained original bytes'), originalHash = sha256Bytes(original)
-    await repo.database.legacyBlobs.put({ sha256: originalHash, bytes: original })
     await repo.usage(owner)
     const other = repository(repo.database.name); await other.open()
     const pin = (await other.database.historyPins.get([owner, named.id]))!
@@ -437,10 +402,6 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     await expect(repo.usage(owner)).rejects.toThrow(/许可正文hash/)
     await other.database.licenseTexts.put(license)
     await repo.usage(owner)
-    await other.database.legacyBlobs.put({ sha256: originalHash, bytes: new Uint8Array([9]) })
-    await expect(repo.usage(owner)).rejects.toThrow(/资源字节hash/)
-    await other.database.legacyBlobs.put({ sha256: originalHash, bytes: original })
-    expect((await repo.usage(owner)).legacyBytes).toBe(original.length)
   })
   it('uses one transaction revision CAS across connections and refuses equal or decreasing revisions', async () => {
     const first = repository(), second = repository(first.database.name), input = fixture(); await first.save(input, null)
@@ -517,172 +478,5 @@ describe('native complete-v1 project repository and two-phase conversion', () =>
     next.project.document.props.item.appearance.opacity = .5
     await expect(repo.save(next, 0)).rejects.toThrow(/固定来源/)
     expect((await repo.load(valid.project.document.sceneId))!.project.document.revision).toBe(0)
-  })
-  it('reserves unique fixed mappings across concurrent requests and retries stopped jobs without new IDs', async () => {
-    const repo = repository(), second = repository(repo.database.name)
-    const [a, b] = await Promise.all([reserve(repo, ['named/one']), reserve(second, ['named/one'])])
-    expect(a).toEqual(b); expect(a.jobVersion).toBe(0); expect(await repo.database.conversionJobs.count()).toBe(1)
-    const failed = await repo.advanceJob(a.jobId, 0, 'failed', { failure: 'test failure' })
-    await expect(repo.retryJob(a.jobId, 0)).rejects.toBeInstanceOf(ConversionConflictError)
-    const retry = await repo.retryJob(a.jobId, failed.jobVersion)
-    expect(retry).toMatchObject({ stage: 'captured', targetSceneId: a.targetSceneId, snapshotIds: a.snapshotIds, jobVersion: 2 })
-  })
-  it('requires the real reread receipt bound to both source fingerprint and this reserved job', async () => {
-    const repo = repository(), job = await reserve(repo), proof = await receipt(job)
-    await expect(repo.advanceJob(job.jobId, 0, 'backup-verified', { backupReceipt: structuredClone(proof) })).rejects.toThrow(/receipt/i)
-    const other = { ...job, jobId: 'another-job' }, anotherProof = await receipt(other)
-    await expect(repo.advanceJob(job.jobId, 0, 'backup-verified', { backupReceipt: anotherProof })).rejects.toThrow(/receipt/i)
-    const backed = await repo.advanceJob(job.jobId, 0, 'backup-verified', { backupReceipt: proof })
-    expect(backed.stage).toBe('backup-verified'); expect(backed.jobVersion).toBe(1)
-  })
-  it('atomically commits all history as hidden preparing, then cold-reads/publishes and preserves later manual edits', async () => {
-    const repo = repository(), input = await imageFixture(), preparedInput = await prepared(repo, input, ['named/one', 'automatic/7'])
-    let { job } = preparedInput; const converted = preparedInput.converted, owner = job.targetSceneId
-    const historical = { project: cloneJson(input.project), resources: input.resources }; historical.project.document.revision = 7
-    for (const [key, kind] of [['named/one', 'named'], ['automatic/7', 'imported-auto']] as const) {
-      const snapshot = { id: job.snapshotIds[key], ownerSceneId: owner, lineageId: historical.project.historyIdentity.lineageId, sourceRevision: 7,
-        kind, name: key, createdAt: NOW, contentHash: projectContentHash(historical.project), bundle: historical }
-      ;(kind === 'named' ? converted.snapshots : converted.importedSnapshots).push(snapshot)
-    }
-    const original = encodeUtf8('Opaque already-validated legacy bytes retained exactly'), sourceHash = sha256Bytes(original)
-    converted.legacyBlobs = [{ sha256: sourceHash, bytes: original }]
-    converted.legacySources = [{ ownerSceneId: owner, nodeId: 'original-node', previousNodeId: null, sourceSchemaVersion: 1,
-      sourceSceneId: 'original-scene', sourceRevision: 2, sourceHash, migratorVersion: 'old-migrator', migratedAt: NOW }]
-    job = await repo.prepareConversion(job.jobId, job.jobVersion, converted)
-    job = await repo.commitConversion(job.jobId, job.jobVersion, converted)
-    expect(job.stage).toBe('committed'); expect(await repo.list()).toEqual([]); expect(await repo.load(owner)).toBeNull()
-    const reopened = repository(repo.database.name), resourceReads = vi.spyOn(reopened.database.resources, 'get'), decodesBefore = decodedTransactions.length
-    const cold = await reopened.readConversion(job.jobId)
-    // Shared hashes are captured once while each complete current/history state
-    // still goes through actual byte/hash/image validation outside the transaction.
-    expect(resourceReads).toHaveBeenCalledTimes(Object.keys(input.project.assets).length)
-    expect(decodedTransactions.length - decodesBefore).toBe(Object.keys(input.project.assets).length * 3)
-    resourceReads.mockRestore()
-    expect(cold.family.legacyBlobs[0].bytes).toEqual(original); expect(cold.family.importedSnapshots[0].bundle.project.document.sceneId).toBe(input.project.document.sceneId)
-    const current = await reopened.publishConversion(job.jobId, job.jobVersion)
-    expect((await reopened.list())[0].sceneId).toBe(owner); expect((await reopened.getJob(job.jobId))!.stage).toBe('verified')
-    expect(await reopened.usage(owner)).toMatchObject({ importedCount: 1, namedCount: 1, metadataVersion: 0 })
-    await expect(reopened.deleteSnapshot(owner, converted.importedSnapshots[0].id, converted.importedSnapshots[0].contentHash, 0)).rejects.toBeInstanceOf(HistoryMetadataConflictError)
-    await reopened.save(revision(current, 1), 0)
-    const repeated = await reopened.publishConversion(job.jobId, job.jobVersion)
-    expect(repeated.project.document.revision).toBe(1)
-    expect(await reopened.database.conversionJobs.count()).toBe(1)
-  })
-  it('resumes the same committed target after cancellation and never creates a second project', async () => {
-    const repo = repository(); let { job, converted } = await prepared(repo)
-    job = await repo.prepareConversion(job.jobId, job.jobVersion, converted)
-    job = await repo.commitConversion(job.jobId, job.jobVersion, converted)
-    job = await repo.advanceJob(job.jobId, job.jobVersion, 'cancelled')
-    const retry = await repo.retryJob(job.jobId, job.jobVersion)
-    expect(retry.stage).toBe('committed'); expect(retry.targetSceneId).toBe(job.targetSceneId)
-    await repo.publishConversion(retry.jobId, retry.jobVersion)
-    expect(await repo.database.projects.count()).toBe(1)
-  })
-  it('requires every v6 reserved historical ID and its true source kind/revision at prepare and commit', async () => {
-    const repo = repository(), source = fixture()
-    const sourceKey = (kind: 'named' | 'protection' | 'automatic', id: string) => canonicalJson({ repository: 'v6', ownerSceneId: 'old-owner', kind, id })
-    const keys = [sourceKey('named', 'named-original'), sourceKey('protection', 'protection-original'), sourceKey('automatic', '7')]
-    let job = await repo.reserveJob({ sourceRepository: 'v6', scopeId: 'old-owner', sourceFingerprint: 'a'.repeat(64), snapshotKeys: keys,
-      sourceContentHashes: { current: 'b'.repeat(64), ...Object.fromEntries(keys.map(key => [key, 'c'.repeat(64)])) } })
-    job = await repo.advanceJob(job.jobId, job.jobVersion, 'backup-verified', { backupReceipt: await receipt(job) })
-    const converted = family(job, source), historical = { project: cloneJson(source.project), resources: source.resources }
-    historical.project.document.revision = 7
-    for (const [index, kind] of ['named', 'protection', 'imported-auto'].entries()) {
-      const snapshot = { id: job.snapshotIds[keys[index]], ownerSceneId: job.targetSceneId, lineageId: historical.project.historyIdentity.lineageId,
-        sourceRevision: 7, kind: kind as 'named' | 'protection' | 'imported-auto', name: kind, createdAt: NOW, contentHash: projectContentHash(historical.project), bundle: historical }
-      ;(kind === 'imported-auto' ? converted.importedSnapshots : converted.snapshots).push(snapshot)
-    }
-    const missingNamed = { ...converted, snapshots: converted.snapshots.slice(1) }, missingAutomatic = { ...converted, importedSnapshots: [] }
-    await expect(repo.prepareConversion(job.jobId, job.jobVersion, missingNamed)).rejects.toThrow(/全部/)
-    await expect(repo.prepareConversion(job.jobId, job.jobVersion, missingAutomatic)).rejects.toThrow(/全部/)
-    const changedKind = { ...converted, snapshots: converted.snapshots.map((row, index) => index ? row : { ...row, kind: 'protection' as const }) }
-    await expect(repo.prepareConversion(job.jobId, job.jobVersion, changedKind)).rejects.toThrow(/类别/)
-    const newerAutomatic = { project: cloneJson(historical.project), resources: historical.resources }; newerAutomatic.project.document.revision = 8
-    const changedRevision = { ...converted, importedSnapshots: converted.importedSnapshots.map(row => ({ ...row, sourceRevision: 8, contentHash: projectContentHash(newerAutomatic.project), bundle: newerAutomatic })) }
-    await expect(repo.prepareConversion(job.jobId, job.jobVersion, changedRevision)).rejects.toThrow(/自动快照修订/)
-    job = await repo.prepareConversion(job.jobId, job.jobVersion, converted)
-    await expect(repo.commitConversion(job.jobId, job.jobVersion, missingNamed)).rejects.toThrow(/全部/)
-    await expect(repo.commitConversion(job.jobId, job.jobVersion, missingAutomatic)).rejects.toThrow(/全部/)
-    expect(await repo.database.projects.count()).toBe(0)
-    job = await repo.commitConversion(job.jobId, job.jobVersion, converted)
-    await repo.publishConversion(job.jobId, job.jobVersion)
-    expect(await repo.listSnapshots(job.targetSceneId)).toHaveLength(3)
-  })
-  it('rejects damaged cold-read bytes and missing retained lineage before any project becomes visible', async () => {
-    const repo = repository(), input = await imageFixture(); let { job, converted } = await prepared(repo, input)
-    job = await repo.prepareConversion(job.jobId, job.jobVersion, converted); job = await repo.commitConversion(job.jobId, job.jobVersion, converted)
-    const hash = Object.keys(input.project.assets)[0]
-    await repo.database.resources.put({ sha256: hash, bytes: new Uint8Array([1, 2, 3]) })
-    await expect(repo.publishConversion(job.jobId, job.jobVersion)).rejects.toThrow(/hash/)
-    expect(await repo.list()).toEqual([]); expect((await repo.getJob(job.jobId))!.stage).toBe('committed')
-  })
-  it('binds conversion publication to every cold-read version body and collection', async () => {
-    const repo = repository(), input = await imageFixture()
-    let { job, converted } = await prepared(repo, input)
-    job = await repo.prepareConversion(job.jobId, job.jobVersion, converted)
-    job = await repo.commitConversion(job.jobId, job.jobVersion, converted)
-    const read = repo.readConversion.bind(repo)
-    vi.spyOn(repo, 'readConversion').mockImplementationOnce(async (...args) => {
-      const cold = await read(...args)
-      const root = (await repo.database.historyVersions.toArray())[0], changed = cloneJson(root)
-      changed.checkpoint!.document.title = 'changed after conversion cold read'
-      await new Promise<void>((resolve, reject) => {
-        const transaction = repo.database.backendDB().transaction('historyVersions', 'readwrite')
-        transaction.objectStore('historyVersions').put(changed)
-        transaction.oncomplete = () => resolve()
-        transaction.onabort = () => reject(transaction.error)
-        transaction.onerror = () => reject(transaction.error)
-      })
-      return cold
-    })
-    await expect(repo.publishConversion(job.jobId, job.jobVersion)).rejects.toThrow(/hash/)
-    expect(await repo.list()).toEqual([])
-    expect((await repo.getJob(job.jobId))!.stage).toBe('committed')
-    expect((await repo.database.projects.get(job.targetSceneId))!.status).toBe('preparing')
-  })
-  it('admits shared conversion blocks near the document limit and checks actual manifests before committing', async () => {
-    for (const fits of [true, false]) {
-      const repo = repository(), input = fixture()
-      input.project.document.title = 'Shared conversion content '.repeat(8_000)
-      let { job, converted } = await prepared(repo, input)
-      const project = converted.current.project
-      const uniqueBytes = partitionProjectContent(project).blocks.reduce((sum, block) => sum + block.bytes.length, 0)
-      const fullBytes = encodeUtf8(canonicalProjectCoordinates(project)).length
-      // Model a nearly full library. The roomy case fits the real block closure
-      // and manifest rows, but not duplicate complete current/checkpoint JSON.
-      // The tight case fits new blocks alone, so final row accounting must abort.
-      const remaining = fits ? Math.floor(fullBytes * 1.5) : uniqueBytes
-      expect(remaining).toBeLessThan(fullBytes * 2)
-      const base = PROJECT_STORAGE_LIMITS.documentBytes - remaining
-      vi.spyOn(repo as unknown as { scanTotals(): Promise<unknown> }, 'scanTotals').mockResolvedValue({ documentBytes: base, resourceBytes: 0, legacyBytes: 0 })
-      ;(repo as unknown as { accounting: { invalidate(): void } }).accounting.invalidate()
-      job = await repo.prepareConversion(job.jobId, job.jobVersion, converted)
-      expect(job.stage).toBe('prepared')
-      const beforeEpoch = await repo.database.storageState.get('epoch')
-      if (fits) {
-        job = await repo.commitConversion(job.jobId, job.jobVersion, converted)
-        expect(job.stage).toBe('committed')
-        const actual = await nativeDocumentBytes(repo)
-        expect(actual).toBeLessThan(remaining)
-        expect((await repo.usage(job.targetSceneId)).documentBytes).toBe(base + actual)
-        expect((await repo.database.projects.get(job.targetSceneId))!.status).toBe('preparing')
-        expect(await repo.database.historyVersions.count()).toBe(1)
-      } else {
-        await expect(repo.commitConversion(job.jobId, job.jobVersion, converted)).rejects.toThrow(/累计预算/)
-        expect((await repo.getJob(job.jobId))!.stage).toBe('prepared')
-        expect(await repo.database.projects.count()).toBe(0)
-        expect(await repo.database.historyVersions.count()).toBe(0)
-        expect(await repo.database.projectContentBlocks.count()).toBe(0)
-        expect(await repo.database.storageState.get('epoch')).toEqual(beforeEpoch)
-      }
-    }
-  })
-  it('preflights target cumulative budgets and leaves the reservation/backup intact on rejection', async () => {
-    const repo = repository(), input = await imageFixture(), { job, converted } = await prepared(repo, input)
-    const usage = { resourceBytes: PROJECT_STORAGE_LIMITS.resourceBytes, documentBytes: 0, legacyBytes: 0, metadataVersion: 0, namedCount: 0, protectionCount: 0, importedCount: 0 }
-    // Inject an already-full database usage; no artificial enormous browser allocation or quota claim.
-    vi.spyOn(repo as unknown as { usageInTransaction(owner: string): Promise<typeof usage> }, 'usageInTransaction').mockResolvedValue(usage)
-    await expect(repo.prepareConversion(job.jobId, job.jobVersion, converted)).rejects.toThrow(/整个新主库/)
-    expect((await repo.getJob(job.jobId))!.stage).toBe('backup-verified'); expect(await repo.database.projects.count()).toBe(0)
   })
 })

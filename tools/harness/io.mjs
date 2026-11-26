@@ -3,18 +3,21 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 
 export const MAX_REQUEST_BYTES = 64 * 1024
+export const MAX_MAP_REQUEST_BYTES = 256 * 1024
 export const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 export const digest = bytes => createHash('sha256').update(bytes).digest('hex')
 export const assert = (condition, message) => { if (!condition) throw new Error(message) }
 
 export const usage = `Usage:
+  node tools/harness/sceneweave.mjs map --help
   node tools/harness/sceneweave.mjs capabilities
   node tools/harness/sceneweave.mjs example
   node tools/harness/sceneweave.mjs workflows [--query TEXT | --id WORKFLOW_ID [--definition-hash SHA256] [--step STEP_ID | --effects | --schema]]
   node tools/harness/sceneweave.mjs generate --input ABS_JSON --output NEW_ABS_DIR --allow forest-building --budget small|standard|expanded
   node tools/harness/sceneweave.mjs repair-furniture --input ABS_SCENEWEAVE --room ROOM_ID --output NEW_ABS_DIR --allow forest-building --budget small|standard|expanded
 
-Generation creates an independent project from the explicitly authorized built-in
+The map subcommand exposes shared generation, composition, inspection and local editing.
+The forest-building commands create an independent project from the explicitly authorized built-in
 forest-building catalogue. Input JSON supplies semantic parameters only. Output
 must not exist and its parent must exist. Actual image/pixel checks and rendering
 use isolated Chromium; install it with npx playwright install chromium, or set
@@ -85,8 +88,8 @@ export async function readBounded(file, maximumBytes) {
   } finally { await handle.close() }
 }
 
-export async function readRequest(file) {
-  const bytes = await readBounded(file, MAX_REQUEST_BYTES)
+export async function readRequest(file, maximumBytes = MAX_REQUEST_BYTES) {
+  const bytes = await readBounded(file, maximumBytes)
   try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
   catch { throw new Error('Input must be valid UTF-8 JSON') }
 }

@@ -1,6 +1,6 @@
 import { toCurrentSceneDocument } from '../../shared/model/current-scene.js'
 import { describe, expect, it } from 'vitest'
-import { groupLayerSceneV3, layerSceneV3 } from '../../core/v3/test-fixtures'
+import { groupLayerScene, layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import type { SceneDocument } from '../../shared/model/scene.js'
 import { validateSceneSnapshot } from '../../shared/validation/snapshots.js'
 import { selectionScene } from './selection-scene'
@@ -15,7 +15,7 @@ import { applyCompositionCommands } from '../../shared/appearance/commands'
 import { createFurnitureRoomQuery } from '../../shared/geometry/furniture-room'
 import { planFurnitureMove } from '../../shared/furnishing/room-move'
 
-const native = (scene = layerSceneV3()): SceneDocument => toCurrentSceneDocument({ ...structuredClone(scene), format: 'sceneweave-scene', schemaVersion: 1 })
+const native = (scene = layerScene()): SceneDocument => toCurrentSceneDocument({ ...structuredClone(scene), format: 'sceneweave-scene', schemaVersion: 1 })
 
 describe('native complete-v1 member and batch selection', () => {
   it('moves a selected host and child across a room boundary once in either selection order', () => {
@@ -38,7 +38,7 @@ describe('native complete-v1 member and batch selection', () => {
     }
   })
   it('hits actual member outlines and never a gap, collapses group/member duplicates and preserves explicit member mode', () => {
-    const scene = native(groupLayerSceneV3())
+    const scene = native(groupLayerScene())
     expect(hitTestAll(scene, { x: 7000, y: 4000 }, 3000)).not.toContain('group')
     expect(hitTestAll(scene, { x: 6000, y: 4000 }, 0)).toEqual(['group'])
     expect(hitTestAll(scene, { x: 6000, y: 4000 }, 0, { memberMode: true })).toEqual(['left'])
@@ -60,7 +60,7 @@ describe('native complete-v1 member and batch selection', () => {
   })
 
   it('retains layer membership, applies native layer locks to inspectors and leaves locked objects inspectable', () => {
-    const input = native(groupLayerSceneV3()), layerId = input.entityLayers.group
+    const input = native(groupLayerScene()), layerId = input.entityLayers.group
     input.userLayers[layerId].editLocked = true
     const scene = selectionScene(input, { effectiveLocks: true, layerOrder: true })
     expect(scene.format).toBe('sceneweave-scene'); expect(scene.schemaVersion).toBe(1)
@@ -73,7 +73,7 @@ describe('native complete-v1 member and batch selection', () => {
   })
 
   it('keeps batch commands bounded and refuses copying a member without changing its retained group record', () => {
-    const input = native(groupLayerSceneV3()), checked = validateSceneSnapshot(input)
+    const input = native(groupLayerScene()), checked = validateSceneSnapshot(input)
     if (!checked.ok) throw new Error('Native fixture must validate')
     const scene = checked.document, original = structuredClone(scene.prefabInstances.group)
     expect(() => selectionCommands(scene, ['left'], 'copy')).toThrow(/独立物件/)

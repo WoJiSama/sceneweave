@@ -1,15 +1,10 @@
-import { topDownPresentation } from './appearance/presentation.js'
-import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it } from 'vitest'
-import { scatterLayerSceneV3, symbolPropV3 } from '../core/v3/test-fixtures.js'
-import { createCompositionContentV6 } from '../core/v6/graph.js'
-import { compositionFixtureV6, imageFixtureV6 } from '../core/v6/test-fixtures.js'
-import type { CompositionContentV6 } from '../core/v6/types.js'
+import { compositionFixture, fixtureRuntime, imageCompositionFixture, scatterLayerScene, symbolProp } from '../../tests/helpers/current-project-fixtures.js'
 import { applyCompositionCommands, applyCompositionDraftCommands } from './appearance/commands.js'
 import { createCompositionContent, resolveAppearance, syncAppearanceGraph, syncAppearanceGraphSnapshot } from './appearance/graph.js'
 import { applySnapshotCommands } from './commands/commands.js'
 import { assertOutdoorContinuity } from './history/identity.js'
-import type { CompositionCommand, CompositionContent } from './model/appearance.js'
+import type { CompositionCommand } from './model/appearance.js'
 import type { SceneDocument } from './model/scene.js'
 import type { PreparationContext } from './ports/runtime.js'
 import { certifyCompositionContent, certifyCompositionDraft, getCertifiedCompositionContent, getCertifiedCompositionDraft, validateCompositionContent, validateCompositionDraft } from './validation/content.js'
@@ -20,11 +15,7 @@ const context = (): PreparationContext => {
   let allocated = 0
   return { ids: { nextId: () => `draft-proof-${++allocated}` }, clock: { now: () => '2026-10-25T00:00:00.000Z' } }
 }
-const native = (input: CompositionContentV6): CompositionContent => ({
-  document: toCurrentSceneDocument({ ...cloneJson(input.document), format: 'sceneweave-scene' }),
-  historyIdentity: { ...cloneJson(input.historyIdentity), version: 5, generationTokens: {}, regionalTokens: {}, presentationTokens: {}, terrainTokens: {}, decorationTokens: {}, surfaceRuleTokens: {} }, appearance: { ...cloneJson(input.appearance), version: 2, presentations: Object.fromEntries(Object.values(input.appearance.sources).filter(source => source.kind === 'prop').map(source => [source.id, topDownPresentation()])) },
-})
-const sourceContent = () => certifyCompositionContent(native(compositionFixtureV6()))
+const sourceContent = () => certifyCompositionContent(compositionFixture())
 const change: CompositionCommand[] = [{ type: 'updateProp', id: 'item', changes: { rotationDeg: 35 } }]
 
 describe('internal immutable composition draft ownership', () => {
@@ -123,7 +114,7 @@ describe('internal immutable composition draft ownership', () => {
     expect(pending.document.props.item.rotationDeg).toBe(0)
     const resolved = certifyCompositionContent(resolveAppearance(pending))
     expect(resolved.document.props.item.appearance.opacity).toBe(.4)
-    const imageSource = certifyCompositionContent(native(imageFixtureV6()))
+    const imageSource = certifyCompositionContent(imageCompositionFixture())
     const missingRaster = applyCompositionDraftCommands(imageSource, [{
       type: 'setAppearanceAdjustment', scope: { kind: 'targets', ids: ['item'] },
       adjustment: { id: 'draft-tint', kind: 'tint', enabled: true, value: '#AA8844' },
@@ -163,7 +154,7 @@ describe('internal immutable composition draft ownership', () => {
   })
 
   it('observes both topology steps even when the scene JSON returns to its original value', () => {
-    const source = certifyCompositionContent(native(createCompositionContentV6(scatterLayerSceneV3(0))))
+    const source = certifyCompositionContent(createCompositionContent(scatterLayerScene(0), fixtureRuntime()))
     const seed = source.document.scatterGroups.scatter.seed
     const next = applyCompositionDraftCommands(source, [
       { type: 'configureScatter', id: 'scatter', changes: { seed: `${seed}-changed` } },
@@ -177,7 +168,7 @@ describe('internal immutable composition draft ownership', () => {
   })
 
   it('matches public changed-entity accounting for nested arrays, missing optional fields and equal numeric values', () => {
-    const source = certifyCompositionContent(native(createCompositionContentV6(scatterLayerSceneV3(0))))
+    const source = certifyCompositionContent(createCompositionContent(scatterLayerScene(0), fixtureRuntime()))
     const area = source.document.terrainAreas.domain, boundaryMm = [...area.boundaryMm.slice(1), area.boundaryMm[0]]
     const commands: CompositionCommand[] = [
       { type: 'updateTerrainArea', id: area.id, changes: { boundaryMm } },
@@ -196,7 +187,7 @@ describe('internal immutable composition draft ownership', () => {
   })
 
   it('keeps snapshot observers detached from the returned parsed scene and retains public no-op identity', () => {
-    const source = certifyCompositionContent(native(createCompositionContentV6(scatterLayerSceneV3(0)))).document
+    const source = certifyCompositionContent(createCompositionContent(scatterLayerScene(0), fixtureRuntime())).document
     const seen: Readonly<SceneDocument>[] = [], seed = source.scatterGroups.scatter.seed
     const next = applySnapshotCommands(source, [{ type: 'configureScatter', id: 'scatter', changes: { seed: `${seed}-changed` } }], context(), { onOutdoorDraft: draft => seen.push(draft) })
     expect(seen).toHaveLength(1)
@@ -217,13 +208,13 @@ describe('internal immutable composition draft ownership', () => {
   it('retains command budgets, edit locks and complete geometric dependencies', () => {
     const source = sourceContent(), commands: CompositionCommand[] = Array.from({ length: 257 }, () => change[0])
     expect(() => applyCompositionDraftCommands(source, commands, context())).toThrow(/256/)
-    const largeInput = compositionFixtureV6(), layerId = largeInput.document.entityLayers.item
+    const largeInput = compositionFixture(), layerId = largeInput.document.entityLayers.item
     for (let index = 0; index < 255; index++) {
       const id = `draft-budget-${index}`
-      largeInput.document.props[id] = symbolPropV3(id, 8000 + index, 8000)
+      largeInput.document.props[id] = symbolProp(id, 8000 + index, 8000)
       largeInput.document.entityLayers[id] = layerId
     }
-    const large = certifyCompositionContent(native(createCompositionContentV6(largeInput.document)))
+    const large = certifyCompositionContent(createCompositionContent(largeInput.document, fixtureRuntime()))
     expect(() => applyCompositionDraftCommands(large, [{ type: 'setAppearanceAdjustment', scope: { kind: 'layer', layerId },
       adjustment: { id: 'draft-expanded-budget', kind: 'opacity', enabled: true, value: .5 } }], context())).toThrow(/256/)
     const locked = cloneJson(source); locked.document.userLayers[locked.document.entityLayers.item].editLocked = true

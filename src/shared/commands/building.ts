@@ -30,7 +30,7 @@ import { followingAttachmentProps } from '../attachments/dependencies.js'
 import { followAttachments } from '../attachments/state.js'
 
 export type BuildingCommand =
-  | { type: 'createRoom'; id: string; floorId: string; boundaryMm: PointMm[]; thicknessMm: number; layerId?: string; purpose?: string; visibility?: Room['visibility']; accessExpectation?: Room['accessExpectation']; supportRef?: GroundSurfaceRef; materialRef?: VersionRef }
+  | { type: 'createRoom'; id: string; floorId: string; boundaryMm: PointMm[]; thicknessMm: number; wallHeightMm?: number; layerId?: string; purpose?: string; visibility?: Room['visibility']; accessExpectation?: Room['accessExpectation']; supportRef?: GroundSurfaceRef; materialRef?: VersionRef }
   | { type: 'updateRoom'; id: string; changes: Partial<Pick<Room, 'purpose' | 'visibility' | 'accessExpectation' | 'furnishingPlan'>> }
   | { type: 'deleteRoom'; id: string; removeOrphanWalls?: boolean }
   | { type: 'deleteWall'; id: string }
@@ -56,7 +56,7 @@ const visibility = z.enum(['public', 'gm']), access = z.enum(['unspecified', 're
 const quarterTurnsSchema = z.number().int().min(0).max(3) as z.ZodType<0 | 1 | 2 | 3>
 const openingFields = { wallId: id, offsetReferenceVertexId: id, offsetMm: nonnegative, widthMm: positive, kind: z.enum(['door', 'window']), state: z.enum(['open', 'closed']), locked: z.boolean(), secret: z.boolean(), revealed: z.boolean() }
 export const buildingCommandSchemas = [
-  z.object({ type: z.literal('createRoom'), id, floorId: id, boundaryMm: z.array(point).min(3).max(256), thicknessMm: positive, layerId: id.optional(), purpose: z.string().max(1000).optional(), visibility: visibility.optional(), accessExpectation: access.optional(),
+  z.object({ type: z.literal('createRoom'), id, floorId: id, boundaryMm: z.array(point).min(3).max(256), thicknessMm: positive, wallHeightMm: wallHeightSchema.optional(), layerId: id.optional(), purpose: z.string().max(1000).optional(), visibility: visibility.optional(), accessExpectation: access.optional(),
     supportRef: z.object({ kind: z.enum(['floor', 'terrainArea']), id }).strict().optional(), materialRef: z.object({ id, version: positive }).strict().optional() }).strict(),
   z.object({ type: z.literal('updateRoom'), id, changes: z.object({ purpose: z.string().max(1000).optional(), visibility: visibility.optional(), accessExpectation: access.optional(), furnishingPlan: roomFurnishingPlanSchema.optional() }).strict() }).strict(),
   z.object({ type: z.literal('deleteRoom'), id, removeOrphanWalls: z.boolean().optional() }).strict(),
@@ -473,6 +473,9 @@ function transformBuilding(scene: SceneDocument, command: Extract<BuildingComman
     const scatter = own(scene.scatterGroups, id)
     if (scatter) {
       scatter.gridOriginMm = transformPoint(scatter.gridOriginMm, command.pivotMm, command.offsetMm, command.quarterTurns)
+      if (scatter.domain.kind === 'area' && scatter.domain.boundaryMm) {
+        scatter.domain.boundaryMm = scatter.domain.boundaryMm.map(point => transformPoint(point, command.pivotMm, command.offsetMm, command.quarterTurns))
+      }
       for (const exclusion of scatter.exclusions) exclusion.boundaryMm = exclusion.boundaryMm.map(point => transformPoint(point, command.pivotMm, command.offsetMm, command.quarterTurns))
     }
     const cluster = own(decorationClusterRecords(scene), id)
@@ -806,6 +809,7 @@ function createRoom(scene: SceneDocument, command: Extract<BuildingCommand, { ty
       continue
     }
     const id = makeWallId(), wall: Wall = { id, floorId: command.floorId, editLocked: false, startVertexId, endVertexId, thicknessMm: command.thicknessMm, blocksMovement: true, blocksSight: true, topStyle: null }
+    if (command.wallHeightMm !== undefined) wall.heightMm = command.wallHeightMm
     scene.walls[id] = wall; scene.entityLayers[id] = layerId; wallByEdge.set(edgeKey(startVertexId, endVertexId), wall)
   }
   let floorStyle: SurfaceStyle | null = null

@@ -2,7 +2,7 @@ import { projectScene } from '../../../shared/projection/projection.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { zlibSync } from 'fflate'
-import { layerSceneV3 } from '../../../core/v3/test-fixtures'
+import { layerScene } from '../../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import { inspectDependencies } from '../../../shared/geometry/dependencies.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
@@ -34,7 +34,7 @@ function pixelPng(width = 1, height = 1, metadata?: string, uncompressed = false
 }
 
 function fixture(): ProjectBundle {
-  const document: SceneDocument = toCurrentSceneDocument({ ...structuredClone(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
+  const document: SceneDocument = toCurrentSceneDocument({ ...structuredClone(layerScene()), format: 'sceneweave-scene', schemaVersion: 1 })
   document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   document.units.gridVisible = false
   const bytes = pixelPng(), hash = sha256Bytes(bytes), origin = { kind: 'original' as const, attribution: 'Native renderer unit fixture', canEmbed: true }

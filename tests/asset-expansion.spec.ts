@@ -1,11 +1,13 @@
 import { test, expect } from '@playwright/test'
 import { writeFile, readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { zipSync } from 'fflate'
 import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, keyboardResourceHashes, selectKeyboardProp, openKeyboardPanel } from './keyboard-ux-helpers'
 import { openWorkspaceModule } from './workspace-navigation-helpers'
 import { mapExportButton } from './workspace-ux-helpers'
 import { acknowledgeAssetQuality } from './asset-quality-helpers'
 import { THEME_PACK_CATALOGS } from '../src/shared/assets/theme-pack-catalogs'
+import { canonicalJson } from '../src/shared/validation/json'
 
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 60"><rect x="8" y="6" width="64" height="48" rx="6" fill="#92724c"/><path d="M14 16L66 16M14 30L66 30M14 44L66 44" stroke="#43392b" stroke-width="3"/></svg>'
 const credit = 'Sceneweave original import fixtures'
@@ -44,16 +46,20 @@ test('manifest names and semantics survive atomic adoption, undo, cold project a
   const library = page.getByRole('region', { name: '组件素材库', exact: true })
   await library.getByRole('button', { name: '导入/管理', exact: true }).click()
   const form = library.locator('.asset-batch-import'); await form.locator(':scope > summary').click()
+  const sourceSha256 = createHash('sha256').update(svg).digest('hex')
   const manifest = { format: 'sceneweave-asset-pack', schemaVersion: 1,
-    pack: { id: 'import-fixtures', name: '完整导入样例', version: 1, style: '手绘', scenes: ['室内'] },
+    pack: { publisher: 'sceneweave.test', id: 'import-fixtures', name: '完整导入样例', version: 1, style: '手绘', scenes: ['室内'] },
     licenses: [{ id: 'original', text: license, attribution: credit }],
     items: [{ path: 'desk.svg', name, kind: 'prop', widthMm: 1200, heightMm: 900, footprintWidthMm: 800, footprintHeightMm: 500,
       rootAnchorMm: { x: 350, y: 800 }, footprintOffsetMm: { x: -50, y: 100 }, renderLayer: 'ground', shadowClass: 'none',
-      blocksMovement: false, blocksSight: true, tags: [' 标签,保持原文 '], licenseId: 'original' },
-    { path: 'floor.svg', name: '  木地板_01 ', kind: 'material', widthMm: 1000, heightMm: 2000, applicableSurfaces: ['room', 'terrain'], licenseId: 'original' }] }
+      blocksMovement: false, blocksSight: true, tags: [' 标签,保持原文 '], licenseId: 'original', sourceSha256 },
+    { path: 'floor.svg', name: '  木地板_01 ', kind: 'material', widthMm: 1000, heightMm: 2000, applicableSurfaces: ['room', 'terrain'], licenseId: 'original', sourceSha256 }] }
   await form.getByLabel('素材ZIP', { exact: true }).setInputFiles({ name: 'pack.zip', mimeType: 'application/zip',
     buffer: Buffer.from(zipSync({ 'pack/sceneweave-assets.json': Buffer.from(JSON.stringify(manifest)), 'pack/desk.svg': Buffer.from(svg), 'pack/floor.svg': Buffer.from(svg) })) })
   await expect(form).toContainText('已读取素材清单「完整导入样例」')
+  await form.getByText('核对素材包版本', { exact: true }).click()
+  await expect(form.getByText('sceneweave.test/import-fixtures', { exact: true })).toBeVisible()
+  await expect(form.getByText(createHash('sha256').update(canonicalJson(manifest)).digest('hex'), { exact: true })).toBeVisible()
   const desk = form.getByRole('article', { name: '批量素材 pack/desk.svg', exact: true })
   await desk.getByText('名称、尺寸、根锚与许可', { exact: true }).click()
   await expect(desk.getByLabel('pack/desk.svg名称', { exact: true })).toHaveValue(name)
@@ -67,6 +73,7 @@ test('manifest names and semantics survive atomic adoption, undo, cold project a
   await form.getByRole('button', { name: '预览所选 2 项素材', exact: true }).click()
   await expect(page.getByRole('button', { name: '采用所选素材', exact: true })).toBeVisible({ timeout: 60_000 })
   await expect(form.locator('img')).toHaveCount(2)
+  await expect(page.getByRole('region', { name: '素材质量初筛', exact: true })).toBeVisible()
   await acknowledgeAssetQuality(page)
   await page.getByRole('button', { name: '采用所选素材', exact: true }).click(); await keyboardWorkspaceSaved(page)
   await openWorkspaceModule(page, '素材')
@@ -89,6 +96,7 @@ test('manifest names and semantics survive atomic adoption, undo, cold project a
   expect(cold.hashes).toEqual(redone.hashes)
   expect(keyboardResourceHashes(cold.hashes)).toEqual(keyboardResourceHashes(adopted.hashes))
   await openWorkspaceModule(page, '素材')
+  await library.getByLabel('素材来源', { exact: true }).selectOption('project')
   await library.getByLabel('搜索组件素材', { exact: true }).fill('木桌_02')
   await library.locator(`[data-definition-id="${props[0].id}"]`).getByRole('checkbox').check()
   await library.getByRole('button', { name: /^导入\/管理/ }).click()
@@ -100,7 +108,7 @@ test('manifest names and semantics survive atomic adoption, undo, cold project a
   const backup = await downloaded; await backup.saveAs(info.outputPath('custom.sceneweave-library'))
   const libraryData = JSON.parse(await readFile(info.outputPath('custom.sceneweave-library'), 'utf8'))
   expect(libraryData.records[0].item.name).toBe(name)
-  const context = await browser.newContext(), other = await context.newPage()
+  const context = await browser.newContext({ baseURL: new URL('./', page.url()).href }), other = await context.newPage()
   try {
     await createKeyboardProject(other, '空个人库回读'); await openWorkspaceModule(other, '素材')
     const target = other.getByRole('region', { name: '组件素材库', exact: true })

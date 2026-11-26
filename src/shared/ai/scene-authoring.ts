@@ -16,6 +16,7 @@ import { wallMovementPolygons } from '../geometry/doorway-clearance.js'
 import { corridor, openingEndpoints, pathPolygon, pointInPolygon, polygonDistance, polygonsOverlap, propFootprint, roomPoints, terrainPoints } from '../geometry/geometry.js'
 import { createPublicVisibility } from '../geometry/visibility.js'
 import type { AppearanceSource, CompositionCommand, CompositionContent } from '../model/appearance.js'
+import { defaultBuildingWallHeight, defaultOpeningHeight } from '../model/building-height.js'
 import type { ProjectData } from '../model/project.js'
 import { collectionFor, LAYER_ENTITY_COLLECTIONS, type BoundsMm, type Editable, type PointMm, type Prop, type SceneDocument, type SurfaceRef, type SurfaceStyle } from '../model/scene.js'
 import type { PreparationContext } from '../ports/runtime.js'
@@ -89,7 +90,7 @@ function shapes(scene: SceneDocument, id: string, visited = new Set<string>(), p
     if (scene.prefabInstances[id]) points.push([scene.prefabInstances[id].anchorMm])
     else {
       const domain = scene.scatterGroups[id].domain
-      points.push(...(domain.kind === 'area' ? [terrainPoints(scene.terrainAreas[domain.areaId])] : domain.kind === 'path' ? [pathPolygon(scene.paths[domain.pathId])] : [edgeShape(scene, domain.edgeId, domain.widthMm)]))
+      points.push(...(domain.kind === 'area' ? [domain.boundaryMm ?? terrainPoints(scene.terrainAreas[domain.areaId])] : domain.kind === 'path' ? [pathPolygon(scene.paths[domain.pathId])] : [edgeShape(scene, domain.edgeId, domain.widthMm)]))
     }
     return points
   }
@@ -251,7 +252,9 @@ function commandsFor(project: ProjectData, scope: SceneScope, operation: SceneAu
     case 'room': {
       fresh(operation.id)
       if (operation.supportRef) support(operation.supportRef)
-      return [{ type: 'createRoom', id: operation.id, ...common, boundaryMm: operation.boundaryMm, thicknessMm: operation.thicknessMm, purpose: operation.purpose ?? 'AI 房间', ...(operation.supportRef ? { supportRef: operation.supportRef } : {}), ...material(operation.materialId, 'room') }]
+      const purpose = operation.purpose ?? 'AI 房间'
+      return [{ type: 'createRoom', id: operation.id, ...common, boundaryMm: operation.boundaryMm, thicknessMm: operation.thicknessMm,
+        wallHeightMm: defaultBuildingWallHeight([purpose]), purpose, ...(operation.supportRef ? { supportRef: operation.supportRef } : {}), ...material(operation.materialId, 'room') }]
     }
     case 'wall': {
       required(operation.id); if (!scene.walls[operation.id]) deny('目标不是墙体。')
@@ -265,7 +268,8 @@ function commandsFor(project: ProjectData, scope: SceneScope, operation: SceneAu
     case 'opening':
       fresh(operation.id); required(operation.wallId); required(operation.offsetReferenceVertexId)
       if (!scene.walls[operation.wallId] || !scene.vertices[operation.offsetReferenceVertexId]) deny('门窗须使用授权墙及稳定端点。')
-      return [{ type: 'addOpening', id: operation.id, wallId: operation.wallId, offsetReferenceVertexId: operation.offsetReferenceVertexId, offsetMm: operation.offsetMm, widthMm: operation.widthMm, kind: operation.openingKind, state: operation.state ?? 'closed', secret: false, revealed: false, locked: false, layerId: scope.layerId }]
+      return [{ type: 'addOpening', id: operation.id, wallId: operation.wallId, offsetReferenceVertexId: operation.offsetReferenceVertexId, offsetMm: operation.offsetMm, widthMm: operation.widthMm, kind: operation.openingKind, state: operation.state ?? 'closed', secret: false, revealed: false, locked: false, layerId: scope.layerId,
+        vertical: defaultOpeningHeight(scene.walls[operation.wallId], operation.openingKind) }]
     case 'entrance':
       operation.openingIds.forEach(id => { required(id); if (!scene.openings[id] || scene.openings[id].kind !== 'door') deny('入口必须是授权门。') })
       return [{ type: 'setEntranceOpenings', ids: operation.openingIds }]

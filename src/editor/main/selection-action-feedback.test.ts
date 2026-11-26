@@ -1,13 +1,13 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { groupLayerSceneV3, scatterLayerSceneV3 } from '../../core/v3/test-fixtures'
+import { groupLayerScene, scatterLayerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import * as presentation from '../../shared/appearance/presentation'
 import { toCurrentSceneDocument } from '../../shared/model/current-scene'
 import { selectionActionBehavior } from '../native-canvas/selection-actions'
 import SelectionInspector from './SelectionInspector'
 
-const native = (scene = groupLayerSceneV3()) => toCurrentSceneDocument({ ...structuredClone(scene), format: 'sceneweave-scene', schemaVersion: 1 })
+const native = (scene = groupLayerScene()) => toCurrentSceneDocument({ ...structuredClone(scene), format: 'sceneweave-scene', schemaVersion: 1 })
 afterEach(() => vi.restoreAllMocks())
 
 describe('batch action feedback', () => {
@@ -25,7 +25,7 @@ describe('batch action feedback', () => {
   })
 
   it('keeps ordinary locks immediate and scatter group or member locks in preview', () => {
-    const scene = native(scatterLayerSceneV3()), before = structuredClone(scene)
+    const scene = native(scatterLayerScene()), before = structuredClone(scene)
     for (const action of ['lock', 'unlock'] as const) {
       expect(selectionActionBehavior(scene, ['item'], action)).toEqual({ decorationEdit: false, scatterEdit: false, requiresPreview: false })
       for (const ids of [['scatter'], ['scatter-item-0'], ['item', 'scatter-item-0']]) {

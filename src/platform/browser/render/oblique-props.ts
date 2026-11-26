@@ -54,17 +54,47 @@ function silhouetteHeights(profile: ReturnType<typeof textureProfile>, divisions
   return values.map(value => value / summit)
 }
 
+function woodSide(profile: ReturnType<typeof textureProfile>, canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext('2d')!, { crop, pixels, color, width, height } = profile
+  const size = ctx.createImageData(canvas.width, canvas.height)
+  const bottom = Math.floor((crop.y + crop.height * .93) * height)
+  const count = Math.max(1, Math.round(crop.height * height * .14))
+  for (let x = 0; x < canvas.width; x++) {
+    const sourceX = Math.min(width - 1, Math.floor((crop.x + (x + .5) / canvas.width * crop.width) * width))
+    const sums = [0, 0, 0]
+    let samples = 0
+    for (let y = Math.max(0, bottom - count); y < bottom; y++) {
+      const i = (y * width + sourceX) * 4
+      if (pixels[i + 3] < 180) continue
+      for (let channel = 0; channel < 3; channel++) sums[channel] += pixels[i + channel]
+      samples++
+    }
+    for (let y = 0; y < canvas.height; y++) {
+      const v = y / (canvas.height - 1), i = (y * canvas.width + x) * 4
+      const light = 1.05 - v * .19 - (v < .06 || v > .94 ? .10 : 0)
+      for (let channel = 0; channel < 3; channel++) {
+        const mean = color[channel] * 255, column = samples ? sums[channel] / samples : mean
+        size.data[i + channel] = (column * .58 + mean * .42) * light
+      }
+      size.data[i + 3] = 255
+    }
+  }
+  ctx.putImageData(size, 0, 0)
+  return canvas
+}
+
 export async function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySet<string>, signal?: AbortSignal, yieldControl?: () => Promise<void>) {
   const { projection, mesh, privacy, zOffset, images, ground, temporaryCanvas } = input
   const miniature = temporaryCanvas(32, 32).getContext('2d', { willReadFrequently: true })!
   const profiles = new Map<HTMLCanvasElement | ImageBitmap, ReturnType<typeof textureProfile>>()
+  const woodSides = new Map<HTMLCanvasElement | ImageBitmap, HTMLCanvasElement>()
   const silhouetteProfiles = new Map<HTMLCanvasElement | ImageBitmap, Float32Array>()
   const shadow = temporaryCanvas(48, 48), shadowCtx = shadow.getContext('2d')!
   const gradient = shadowCtx.createRadialGradient(24, 24, 1, 24, 24, 24)
   gradient.addColorStop(0, '#1e190fe0'); gradient.addColorStop(.57, '#211c1598'); gradient.addColorStop(1, '#201a1100')
   shadowCtx.fillStyle = gradient; shadowCtx.fillRect(0, 0, 48, 48)
-  const contact: MeshMaterial = { image: shadow, unlit: true, opacity: .59, privacy }
-  const brushContact: MeshMaterial = { ...contact, opacity: .45, alphaCutoff: .008 }
+  const contact: MeshMaterial = { image: shadow, unlit: true, opacity: .42, privacy }
+  const brushContact: MeshMaterial = { ...contact, opacity: .36, alphaCutoff: .008 }
   const bridgeColors = new Map<string, SpatialColor>()
   const divisions = projection.props.length > 1200 ? 4 : projection.props.length > 300 ? 6 : 10
   let nextYield = performance.now() + 16
@@ -103,7 +133,14 @@ export async function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySe
     if (kind === 'rail') bridgeColors.set(prop.supportRef.id, wood)
     const face: MeshMaterial = { image, color: tint ?? (image ? undefined : wood), opacity: appearance.opacity, privacy, unlit: !!appearance.glow }
     const side: MeshMaterial = { color: scaleColor(wood, .94), opacity: appearance.opacity, privacy }
-    const sideImage = volume.sideAssetId ? images.get(volume.sideAssetId) : undefined
+    let sideImage = volume.sideAssetId ? images.get(volume.sideAssetId) : undefined
+    if (!sideImage && kind === 'box' && brush === 'wood' && image && profile) {
+      sideImage = woodSides.get(image)
+      if (!sideImage) {
+        sideImage = woodSide(profile, temporaryCanvas(64, 64))
+        woodSides.set(image, sideImage)
+      }
+    }
     const sideTexture: MeshMaterial | undefined = sideImage ? { image: sideImage, color: tint, opacity: appearance.opacity, privacy } : undefined
     const trim: MeshMaterial = { ...side, color: scaleColor(wood, .64) }
     const layer = (material: MeshMaterial, rect: BoundsMm, a: number, b: number, cap = true) =>
@@ -221,13 +258,30 @@ export async function addSpatialProps(input: SurfaceMeshes, decalIds: ReadonlySe
     }
     if (image) capQuad(face, bounds, top, !!appearance.mirrorY)
   }
-  for (const value of projection.decorations ?? []) {
+  for (const [index, value] of (projection.decorations ?? []).entries()) {
+    if (index % 128 === 0) {
+      signal?.throwIfAborted()
+      if (yieldControl && performance.now() > nextYield) { await yieldControl(); nextYield = performance.now() + 16 }
+    }
     const image = images.get(value.assetId)
     if (!image) continue
-    const vertices = rectangle(value.visualBoundsMm).map(p => transformAttachmentPoint(p, value.positionMm, value.rotationDeg))
-    mesh.cap({ image, opacity: value.opacity, privacy }, [vertices], p => ground.groundAt(p) + 8, p => {
+    const { visualBoundsMm: bounds, moundHeightMm } = value
+    const pose = (p: PointMm) => transformAttachmentPoint(p, value.positionMm, value.rotationDeg)
+    const face = { image, opacity: value.opacity, privacy }
+    const vertices = rectangle(bounds).map(pose)
+    if (moundHeightMm) {
+      const peak = pose({ x: bounds.x + bounds.width * .46, y: bounds.y + bounds.height * .47 })
+      const rim = vertices.map(p => atHeight(p, ground.groundAt(p) + 8)), top = atHeight(peak, ground.groundAt(peak) + moundHeightMm)
+      const uv: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]]
+      for (let i = 0; i < rim.length; i++) {
+        const next = (i + 1) % rim.length
+        mesh.triangle(face, [rim[i], rim[next], top], [uv[i], uv[next], [.46, .47]])
+      }
+      continue
+    }
+    mesh.cap(face, [vertices], p => ground.groundAt(p) + 8, p => {
       const local = transformAttachmentPoint({ x: p.x - value.positionMm.x, y: p.y - value.positionMm.y }, { x: 0, y: 0 }, -value.rotationDeg)
-      return [(local.x - value.visualBoundsMm.x) / value.visualBoundsMm.width, (local.y - value.visualBoundsMm.y) / value.visualBoundsMm.height]
+      return [(local.x - bounds.x) / bounds.width, (local.y - bounds.y) / bounds.height]
     })
   }
 }

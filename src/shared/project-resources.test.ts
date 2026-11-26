@@ -1,8 +1,7 @@
-import { toCurrentSceneDocument } from './model/current-scene.js'
 import { createHash } from 'node:crypto'
 import { zlibSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
-import { layerSceneV3 } from '../core/v3/test-fixtures'
+import { layerScene } from '../../tests/helpers/current-project-fixtures.js'
 import { bitmapVariant, createCompositionContent } from './appearance/graph.js'
 import { inspectDependencies } from './geometry/dependencies.js'
 import type { AssetRecord, ProjectBundle, ProjectData } from './model/project.js'
@@ -40,7 +39,7 @@ function metadata(document: SceneDocument, pixels: ReadonlyMap<string, Uint8Arra
     licenseBindings: subjects.map(subject => ({ ...subject, licensePath: `licenses/${hash}.txt`, embedding: 'allowed' })), authoringSources: {} }
 }
 function fixture(pixel?: number[]): { bundle: ProjectBundle; bytes: Map<string, Uint8Array>; pixels: Map<string, Uint8ClampedArray> } {
-  const document: SceneDocument = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+  const document: SceneDocument = layerScene()
   document.sceneId = 'resource-owner'; document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   const bytes = new Map<string, Uint8Array>(), pixels = new Map<string, Uint8ClampedArray>()
   if (pixel) {

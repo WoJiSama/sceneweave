@@ -3,12 +3,10 @@ import Dexie from 'dexie'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { outdoorProject } from '../../../io/v6/test-fixtures.js'
+import { fixtureRuntime, outdoorProject } from '../../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
-import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
-import { createMemoryResources } from '../../../shared/project/resources.js'
 import { LibraryRepository } from '../library/repository.js'
 import { installSavedImageImportItems } from './image-import-library.js'
 import { artworkValidation } from '../../../../tests/helpers/m24-artwork-fixtures.js'
@@ -30,14 +28,11 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const runtime = { ids: { nextId: () => crypto.randomUUID() }, clock: { now: () => '2026-11-10T00:00:00.000Z' } }
-  const source = await outdoorProject(1), document = toCurrentSceneDocument({ ...structuredClone(source.document), format: 'sceneweave-scene', schemaVersion: 1 })
+  const bundle = outdoorProject(1), document = bundle.project.document
   for (const prop of Object.values(document.props)) prop.definitionRef = { id: 'scatter-definition', version: 1 }
   document.presetSnapshot.presetId = 'image-import-manual'
-  const content = createCompositionContent(document, runtime)
-  const bundle: ProjectBundle = { project: { format: 'sceneweave-complete-project', schemaVersion: 1, ...content, assets: {},
-    licenses: source.licenses, licenseBindings: source.licenseBindings, authoringSources: {} }, resources: createMemoryResources({}) }
-  const library = new LibraryRepository({ name: `image-import-library-test-${crypto.randomUUID()}`, runtime, validation })
+  bundle.project = { ...bundle.project, ...createCompositionContent(document, fixtureRuntime()) }
+  const library = new LibraryRepository({ name: `image-import-library-test-${crypto.randomUUID()}`, validation })
   repositories.push(library)
   const projects = { load: vi.fn(async () => bundle as ProjectBundle | null) }
   return { stores: { projects, library, validation }, sceneId: document.sceneId, propId: Object.keys(document.props)[0] }
@@ -60,7 +55,7 @@ describe('adopted image items in the native personal library', () => {
       licenseText: 'Original vector test fixture. Embedding and modification allowed.', attribution: 'Original vector test author' }, undefined, capabilities)
     const projectName = `image-import-vector-library-source-${crypto.randomUUID()}`
     const projects = new ProjectRepository({ name: projectName, runtime, validation: capabilities })
-    const library = new LibraryRepository({ name: `image-import-vector-library-${crypto.randomUUID()}`, runtime, validation: capabilities })
+    const library = new LibraryRepository({ name: `image-import-vector-library-${crypto.randomUUID()}`, validation: capabilities })
     repositories.push(library)
     try {
       await projects.save(toBundle(project), null)

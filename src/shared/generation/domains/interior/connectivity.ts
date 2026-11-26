@@ -11,6 +11,7 @@ import { rankExteriorEntranceProposals } from './entrance-selection.js'
 import type { BuildingEntranceApproach, InteriorGenerationInput, InteriorLayout } from './contracts.js'
 import { replanInteriorRoomRoute } from './connectivity-routing.js'
 import { checkFloorEdgeDoorRoute, floorEdgeDoorStart, roomOwnsInteriorWall } from './entrance-clearance.js'
+import { defaultOpeningHeight } from '../../../model/building-height.js'
 
 export interface InteriorCirculationRoute {
   id: string
@@ -243,7 +244,8 @@ export function arrangeInteriorConnections(document: SceneDocument, input: Inter
     const id = interiorEntityId(next.sceneId, input.seed, `door:${wall.id}`)
     const offset = offsetMm ?? Math.floor((length - arrangement.doorWidthMm) / 2)
     const result = applyCommands(next, [{ type: 'addOpening', id, wallId: wall.id, offsetReferenceVertexId: wall.startVertexId, offsetMm: offset, widthMm: arrangement.doorWidthMm,
-      kind: 'door', state: 'open', locked: false, secret: false, revealed: false, layerId: p.layerId }], { ids: { nextId: () => id }, clock: { now: () => document.updatedAt } }, { budget: options.profile })
+      kind: 'door', state: 'open', locked: false, secret: false, revealed: false, layerId: p.layerId,
+      ...(p.wallHeightMm === undefined ? {} : { vertical: defaultOpeningHeight(wall, 'door') }) }], { ids: { nextId: () => id }, clock: { now: () => document.updatedAt } }, { budget: options.profile })
     return { id, document: result }
   }
   const createDoor = (wall: Wall): string | null => {

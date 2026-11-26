@@ -121,7 +121,7 @@ export function decorationProtectedGeometry(scene: SceneDocument, cluster: Pick<
 export interface DecorationGeneration { cluster: DecorationCluster; props: Prop[]; decorations: Decoration[]; removePropIds: string[]; removeDecorationIds: string[] }
 /** current resolved rule geometry is disposable; only its rule owns painted regions. */
 export interface SurfaceGenerationRegion { polygons: PolygonWithHoles[]; coveragePpm: number }
-export function estimateSurfaceRegionInstances(scene: SceneDocument, palette: DecorationCluster['palette'], region: SurfaceGenerationRegion): number {
+export function countSurfaceRegionInstances(scene: SceneDocument, palette: DecorationCluster['palette'], region: SurfaceGenerationRegion): number {
   let weightedArea = 0n, weight = 0n
   for (const item of palette) {
     const definition = scene.propDefinitions[item.definitionRef.id]
@@ -131,7 +131,13 @@ export function estimateSurfaceRegionInstances(scene: SceneDocument, palette: De
   }
   if (!weight || !Number.isSafeInteger(region.coveragePpm) || region.coveragePpm < 0 || region.coveragePpm > 1_000_000) throw new Error('植被区域素材及覆盖目标无效。')
   const count = Number(canopyAreaMm2(region.polygons) * BigInt(region.coveragePpm) * weight / (weightedArea * 1_000_000n))
-  if (!Number.isSafeInteger(count) || count > 64) throw new Error('植被目标预计超过单区64件保护上限；请缩小区域或降低覆盖率。')
+  if (!Number.isSafeInteger(count)) throw new Error('植被目标数量超过安全整数范围。')
+  return count
+}
+
+export function estimateSurfaceRegionInstances(scene: SceneDocument, palette: DecorationCluster['palette'], region: SurfaceGenerationRegion): number {
+  const count = countSurfaceRegionInstances(scene, palette, region)
+  if (count > 64) throw new Error('植被目标预计超过单区64件保护上限；请缩小区域或降低覆盖率。')
   return count
 }
 /** Deterministic bounded proposal; all output coordinates and manual slots persist. */

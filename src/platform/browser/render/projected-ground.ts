@@ -1,7 +1,7 @@
 import { pointInPolygon } from '../../../shared/geometry/geometry.js'
 import { reliefBounds, sampleTerrainRelief } from '../../../shared/geometry/terrain-relief.js'
 import type { PointMm } from '../../../shared/model/scene.js'
-import type { ProjectedSurface, Projection } from '../../../shared/projection/types.js'
+import type { ProjectedSurface, ProjectedWall, Projection } from '../../../shared/projection/types.js'
 
 const inside = (p: PointMm, area: ProjectedSurface) => area.regionsMm
   ? area.regionsMm.some(row => pointInPolygon(p, row.outerMm) && !row.holesMm.some(hole => pointInPolygon(p, hole)))
@@ -30,4 +30,16 @@ export function projectGround(projection: Projection, zOffset = 0) {
     return elevation(surfaceAt(p), p)
   }
   return { all, levels, boxes, elevation, groundAt, surfaceAt }
+}
+
+export function spatialWallFrame(projection: Projection, ground: ReturnType<typeof projectGround>, wall: ProjectedWall) {
+  const center = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 }
+  const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y, span = Math.hypot(dx, dy)
+  const nx = -dy / span, ny = dx / span, distance = wall.thicknessMm / 2 + 8
+  const neighbours = [-1, 1].map(side => projection.rooms.find(room => pointInPolygon({ x: center.x + nx * distance * side, y: center.y + ny * distance * side }, room.points)))
+  const sign = neighbours[0] ? 1 : -1
+  const room = neighbours[0] ?? neighbours[1]
+  const floor = room ? ground.elevation(room, center) : ground.groundAt(center)
+  const fade = Boolean(neighbours[0]) !== Boolean(neighbours[1]) ? { center, nearSide: { x: nx * sign, y: ny * sign } } : undefined
+  return { floor, fade }
 }

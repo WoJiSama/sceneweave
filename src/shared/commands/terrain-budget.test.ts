@@ -1,7 +1,6 @@
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import type { SceneDocument } from '../model/scene.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
@@ -12,7 +11,7 @@ import { applyCommands, applySnapshotCommands, type SceneCommand } from './comma
 let token = 0
 const runtime = () => ({ ids: { nextId: () => `budget-token-${++token}` }, clock: { now: () => '2026-10-26T00:00:00.000Z' } })
 function scene(): SceneDocument {
-  return toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+  return layerScene()
 }
 function managedScene(): SceneDocument {
   const source = scene(), generation = getLegacyGeneration(source)!, floorId = source.props.item.floorId, layerId = source.entityLayers.item
@@ -40,8 +39,9 @@ function area(source: SceneDocument): SceneCommand {
 
 describe('current complete-v1 cumulative actual command budget', () => {
   it('adds preceding no-ops to a real terrain point/segment expansion at exactly 256 and rejects 257 atomically', () => {
-    const source = scene(), create = area(source), standalone = applyCommands(source, [create], runtime())
-    const actual = terrainCommandCost(source, standalone).total
+    const source = scene(), create = area(source), baseline = applyCommands(source, [noop(source)], runtime())
+    const standalone = applyCommands(baseline, [create], runtime())
+    const actual = terrainCommandCost(baseline, standalone).total
     expect(actual).toBe(82)
     const accepted = Array.from({ length: 256 - actual }, () => noop(source))
     expect(applyCommands(source, [...accepted, create], runtime()).terrainAreas['cost-area']).toBeDefined()

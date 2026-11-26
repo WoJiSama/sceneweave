@@ -6,7 +6,7 @@ import './terrain-generation.css'
 import './forest-generation.css'
 
 import type { ForestGenerationUiRequest } from '../../application/workspace/generation-intent.js'
-import { defaultWoodlandCoverages } from '../../application/workspace/woodland-distribution.js'
+import { defaultForestCampCoverages } from '../../application/workspace/woodland-distribution.js'
 export type { ForestGenerationUiRequest } from '../../application/workspace/generation-intent.js'
 
 const initialClearings = (): ForestGenerationUiRequest['clearings'] => [
@@ -32,7 +32,7 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
   } }))
   const [entranceSide, setEntranceSide] = useState<ForestGenerationUiRequest['entranceSide']>('west')
   const [routeWidthMm, setRouteWidthMm] = useState(1800)
-  const coverages = defaultWoodlandCoverages({ width: widthMm, height: heightMm })
+  const coverages = defaultForestCampCoverages({ width: widthMm, height: heightMm })
   const [treeCoverage, setTreeCoveragePpm] = useState<number>(), [shrubCoverage, setShrubCoveragePpm] = useState<number>(), [grassCoverage, setGrassCoveragePpm] = useState<number>()
   const treeCoveragePpm = treeCoverage ?? coverages.tree, shrubCoveragePpm = shrubCoverage ?? coverages.shrub, grassCoveragePpm = grassCoverage ?? coverages.grass
   const [woodlandDistribution, setWoodlandDistribution] = useState<NonNullable<ForestGenerationUiRequest['woodlandDistribution']>>('auto')
@@ -67,7 +67,7 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
   return <section className="terrain-generation-panel forest-generation-panel" aria-label="森林与营地生成">
     <h2>森林与营地</h2>
     <p>先留出活动空地与入口路线，再在真实地面上布置树木、灌木和草簇。</p>
-    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">生成会在实际树群下铺苔地，用磨损土面连接入口和空地。路径以完整净宽校验。候选详情会显示覆盖目标、实际数量和缺项。</p></details>
+    <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">树群和林下草灌按各片区的空间布置。树下有苔地，开阔处有深浅草甸和细砾，裸土沿路肩过渡到活动空地。覆盖目标会按可用空间和生成容量折算。候选详情列出实际数量和缺项，路线按完整净宽校验。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
     <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, clearings: clearings.map(row => ({ ...row, boundsMm: { ...row.boundsMm } })), entranceSide, routeWidthMm, treeCoveragePpm, shrubCoveragePpm, grassCoveragePpm, woodlandDistribution }) }}>
       <fieldset disabled={locked}>
@@ -105,13 +105,13 @@ export default function ForestGenerationPanel({ busy, disabled, error, candidate
         <label>路线净宽（米）<input aria-label="森林路线净宽米" type="number" min="0.1" max="10" step="0.1" value={routeWidthMm / 1000} onChange={event => change(() => setRouteWidthMm(mm(event.target.value)))}/></label>
         <h3>植被覆盖目标</h3>
         <label>植被分布<select aria-label="森林植被分布" value={woodlandDistribution} onChange={event => change(() => setWoodlandDistribution(event.target.value as NonNullable<ForestGenerationUiRequest['woodlandDistribution']>))}><option value="auto">自动适配林地</option><option value="uniform">均匀散布</option><option value="copses">疏密林地</option></select></label>
-        {woodlandDistribution === 'copses' && <p className="asset-muted">把同一目标数量集中到两片不规则树群，外围布置灌木和草簇。活动空地与路线继续保留；目标过高或区域不足时会说明，实际数量以候选为准。</p>}
+        {woodlandDistribution === 'copses' && <p className="asset-muted">在不规则林斑里集中树群和林下灌草，保留片区之间的开阔地。实际数量以候选为准。</p>}
         <label>树木（%）<input aria-label="森林树木覆盖百分比" type="number" min="0" max="100" step="0.1" value={treeCoveragePpm / 10000} onChange={event => change(() => setTreeCoveragePpm(ppm(event.target.value)))}/></label>
         <div className="forest-field-pair">
           <label>灌木（%）<input aria-label="森林灌木覆盖百分比" type="number" min="0" max="100" step="0.1" value={shrubCoveragePpm / 10000} onChange={event => change(() => setShrubCoveragePpm(ppm(event.target.value)))}/></label>
           <label>草簇（%）<input aria-label="森林草簇覆盖百分比" type="number" min="0" max="100" step="0.1" value={grassCoveragePpm / 10000} onChange={event => change(() => setGrassCoveragePpm(ppm(event.target.value)))}/></label>
         </div>
-        <p className="asset-muted">覆盖目标按所用素材尺寸换算。实际布置还受支撑、占地与净空影响；超出生成容量时会明确说明。</p>
+        <p className="asset-muted">候选数量按素材尺寸、可用片区和本次生成容量换算。实际布置受支撑、占地与净空影响。</p>
         {!candidate && validationReason && <p id={validationId} className="asset-form-error" role="status">{validationReason}</p>}
         <button className="primary asset-wide" type="submit" disabled={!valid} aria-describedby={!candidate && validationReason ? validationId : undefined}>{busy ? '正在准备森林与营地…' : '预览森林与营地'}</button>
       </fieldset>

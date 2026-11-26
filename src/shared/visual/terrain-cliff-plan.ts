@@ -20,6 +20,13 @@ export const isWeatheredCliffProfile = (profile: VisualEdgeLook['renderProfile']
 export const isHeightCliffProfile = (profile: VisualEdgeLook['renderProfile']) => profile === TERRAIN_CLIFF_PROFILE || profile === NATURAL_TERRAIN_CLIFF_PROFILE
   || profile === LAYERED_TERRAIN_CLIFF_PROFILE || profile === SCULPTED_TERRAIN_CLIFF_PROFILE || profile === STRATIFIED_CLIFF_PROFILE || isWeatheredCliffProfile(profile)
 
+/** Choose geometry for the saved paint profile without rewriting its ID. */
+export function spatialCliffProfile(profile: VisualEdgeLook['renderProfile']) {
+  if (isWeatheredCliffProfile(profile) || profile === STRATIFIED_CLIFF_PROFILE) return profile
+  if (profile === NATURAL_TERRAIN_CLIFF_PROFILE || profile === LAYERED_TERRAIN_CLIFF_PROFILE || profile === SCULPTED_TERRAIN_CLIFF_PROFILE) return WEATHERED_CLIFF_PROFILE
+  return STRATIFIED_CLIFF_PROFILE
+}
+
 /** The lip and debris apron swell at different scales. World-space samples
  * keep a rock spur continuous across the tessellation of its source curve. */
 export function weatheredCliffWidth(look: Pick<VisualEdgeLook, 'seed' | 'widthMm' | 'repeatMm'>, point: PointMm, riseMm: number) {

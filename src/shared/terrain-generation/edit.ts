@@ -18,6 +18,7 @@ import { terrainCommandCost } from './cost.js'
 import { constraintInputHash, deletionExclusionId, generationInputHash, managedOutputHash, materializedBoundaryHash, resolveGenerationEntity, resolveGenerationTarget } from './integrity.js'
 import { terrainTopologyRequestSchema, type GenerationReference, type GenerationSystem2, type GenerationSystem3, type GenerationSystem4, type TerrainTopologyRequest } from './contracts.js'
 import { applyTerrainTopology } from './topology.js'
+import { supportsProfiledTerrainEdit } from './recipe-capabilities.js'
 import { normalizeTerrainStroke, terrainStrokePolygon } from './stroke.js'
 export { normalizeTerrainStroke } from './stroke.js'
 
@@ -118,10 +119,7 @@ export function finalizeTerrainEditDocument(scene: SceneDocument, before: SceneD
     // Refreshing a hash is not an implementation of an arbitrary dependent algorithm.
     const supportedTerrainAlgorithm = recipe.algorithmId === 'terrain-scene' && [1, 2, 3].includes(recipe.algorithmVersion)
       || recipe.algorithmId === 'terrain-scene-t3' && recipe.algorithmVersion === 1
-      || !!budget && ['terrain-scene','terrain-scene-t3'].includes(recipe.algorithmId) && [4,5].includes(recipe.algorithmVersion) && recipe.recipeVersion === recipe.algorithmVersion
-      || !!budget && recipe.algorithmId==='terrain-scene-t3' && recipe.algorithmVersion===8 && recipe.recipeVersion===8 && recipe.parameters.terrainKind==='forest'
-      || !!budget && recipe.algorithmId==='terrain-scene' && recipe.algorithmVersion===9 && recipe.recipeVersion===9 && recipe.parameters.terrainKind==='coast'
-      || !!budget && recipe.algorithmId==='terrain-scene' && [10,11,12].includes(recipe.algorithmVersion) && recipe.recipeVersion===recipe.algorithmVersion && ['island','coast'].includes(recipe.parameters.terrainKind)
+      || !!budget && supportsProfiledTerrainEdit(recipe)
     if(inputHash!==rule.inputHash||rule.kind!=='terrain'||!supportedTerrainAlgorithm)fail(`相关规则须独立重算，当前局部编辑不支持：${rule.id}。`)
     rule.managedOutputHash=outputHash
   }

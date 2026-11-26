@@ -1,9 +1,5 @@
-import { toCurrentSceneDocument } from './model/current-scene.js'
 import { describe, expect, it } from 'vitest'
-import { applyCommandsV3, createPlacedPropV3, type SceneCommandV3 } from '../core/v3/commands.js'
-import { openingEndpointsV2 } from '../core/v2/geometry.js'
-import { groupLayerSceneV3, layerSceneV3, scatterLayerSceneV3, symbolPropV3 } from '../core/v3/test-fixtures.js'
-import type { SceneDocumentV3 } from '../core/v3/types.js'
+import { groupLayerScene, layerScene, scatterLayerScene, symbolProp } from '../../tests/helpers/current-project-fixtures.js'
 import { applyCommands, applySnapshotCommands, createPlacedProp, type SceneCommand } from './commands/commands.js'
 import { previewLayerMove } from './commands/layers.js'
 import { previewBuildingCommands } from './commands/building.js'
@@ -20,18 +16,15 @@ const context = (): PreparationContext => {
   return { ids: { nextId: () => `prepared-${next++}` }, clock: { now: () => '2026-10-24T00:00:00.000Z' } }
 }
 
-/** Test-only fixture adaptation; production conversion is a later M2-0 slice. */
-const native = (legacy: SceneDocumentV3): SceneDocument => toCurrentSceneDocument({ ...structuredClone(legacy), format: 'sceneweave-scene' })
 const apply = (scene: SceneDocument, ...commands: SceneCommand[]) => applyCommands(scene, commands, context())
-const legacyApply = (scene: SceneDocumentV3, ...commands: SceneCommandV3[]) => applyCommandsV3(scene, commands)
 const rectangle = (x = 1000, y = 1000, width = 6000, height = 6000): PointMm[] => [
   { x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height },
 ]
 const createRoom = (id: string, boundaryMm = rectangle(), layerId?: string): Extract<SceneCommand, { type: 'createRoom' }> => ({
   type: 'createRoom', id, floorId, boundaryMm, thicknessMm: 200, ...(layerId === undefined ? {} : { layerId }),
 })
-function blank(): SceneDocumentV3 {
-  const scene = layerSceneV3()
+function blank(): SceneDocument {
+  const scene = layerScene()
   delete scene.props.item
   delete scene.entityLayers.item
   return scene
@@ -42,7 +35,7 @@ function verticalWall(scene: SceneDocument, x: number): Wall {
   return wall
 }
 function fullPrefab(): SceneDocument {
-  const old = groupLayerSceneV3(), layerId = old.entityLayers.group
+  const old = groupLayerScene(), layerId = old.entityLayers.group
   const template = structuredClone(old.prefabDefinitions.definition.members[0].propTemplate)
   delete old.props.left
   delete old.props.right
@@ -54,52 +47,51 @@ function fullPrefab(): SceneDocument {
     const key = `member-${index}`, propId = `prefab-prop-${index}`
     old.prefabDefinitions.definition.members.push({ key, propTemplate: structuredClone(template) })
     old.prefabInstances.group.members[key] = { propId, overrideFields: ['positionMm'] }
-    old.props[propId] = symbolPropV3(propId, 4000 + index % 16 * 300, 6000 + Math.floor(index / 16) * 300)
+    old.props[propId] = symbolProp(propId, 4000 + index % 16 * 300, 6000 + Math.floor(index / 16) * 300)
     old.entityLayers[propId] = layerId
   }
-  return native(old)
+  return old
 }
 
-describe('M2-0b native scene command equivalence and atomic boundaries', () => {
-  it('matches legacy prop move/copy/delete fields and preserves the input and revision', () => {
-    const old = layerSceneV3(), source = native(old), before = structuredClone(source)
-    const commands: SceneCommandV3[] = [
+describe('Complete-v1 scene command and atomic boundaries', () => {
+  it('applies prop move, copy and delete atomically and preserves the input and revision', () => {
+    const source = layerScene(), before = structuredClone(source)
+    const commands: SceneCommand[] = [
       { type: 'updateProp', id: 'item', changes: { positionMm: { x: 5000, y: 5000 }, rotationDeg: 45 } },
       { type: 'copyProp', id: 'item', newId: 'copy', offsetMm: { x: 1200, y: 0 } },
       { type: 'deleteProp', id: 'item' },
     ]
     const next = applyCommands(source, commands, context())
-    expect(next).toEqual(native(legacyApply(old, ...commands)))
+    expect(next.props.copy).toMatchObject({ positionMm: { x: 6200, y: 5000 }, rotationDeg: 45 })
+    expect(next.props.item).toBeUndefined()
     expect(next.revision).toBe(source.revision)
     expect(next.entityLayers.copy).toBe(source.entityLayers.item)
     expect(next.entityLayers).not.toHaveProperty('item')
     expect(source).toEqual(before)
   })
 
-  it('matches complete layer organization and expands a member move to the intact private group', () => {
-    let old = groupLayerSceneV3(), current = native(old)
-    const organization: SceneCommandV3[] = [
+  it('preserves layer organization and expands a member move to the intact private group', () => {
+    const source = groupLayerScene()
+    const organization: SceneCommand[] = [
       { type: 'createLayer', id: 'target', floorId, name: '  道具  ' },
       { type: 'renameLayer', id: 'target', name: '组合' },
-      { type: 'reorderLayers', floorId, ids: ['target', old.entityLayers.group] },
+      { type: 'reorderLayers', floorId, ids: ['target', source.entityLayers.group] },
     ]
-    old = legacyApply(old, ...organization)
-    current = applyCommands(current, organization, context())
-    expect(current).toEqual(native(old))
+    const current = applyCommands(source, organization, context())
+    expect(current.userLayers.target).toMatchObject({ name: '组合', order: 0 })
     const preview = previewLayerMove(current, ['left'], 'target')
     expect(preview.reason).toBeNull()
     expect(preview.expandedIds).toEqual(['group', 'left', 'right'])
-    const command: SceneCommandV3 = { type: 'moveEntitiesToLayer', ids: ['left'], layerId: 'target' }
+    const command: SceneCommand = { type: 'moveEntitiesToLayer', ids: ['left'], layerId: 'target' }
     const next = apply(current, command)
-    expect(next).toEqual(native(legacyApply(old, command)))
+    expect(['group', 'left', 'right'].map(id => next.entityLayers[id])).toEqual(['target', 'target', 'target'])
     expect(next.prefabInstances.group.visibility).toBe('gm')
     expect(next.prefabInstances.group.members.removed).toEqual(current.prefabInstances.group.members.removed)
   })
 
-  it('matches two adjacent rooms with one common wall and unchanged shared vertex identities', () => {
+  it('builds two adjacent rooms with one common wall and unchanged shared vertex identities', () => {
     const old = blank(), commands = [createRoom('a'), createRoom('b', rectangle(7000, 1000))]
-    const next = apply(native(old), ...commands)
-    expect(next).toEqual(native(legacyApply(old, ...commands)))
+    const next = apply(old, ...commands)
     expect(Object.keys(next.rooms)).toHaveLength(2)
     expect(Object.keys(next.walls)).toHaveLength(7)
     expect(Object.keys(next.vertices)).toHaveLength(6)
@@ -109,38 +101,36 @@ describe('M2-0b native scene command equivalence and atomic boundaries', () => {
     expect(validateSceneDocument(next).ok).toBe(true)
   })
 
-  it('matches partial common-wall splitting and preserves actual secret-door endpoints', () => {
-    let old = legacyApply(blank(), createRoom('a', rectangle(1000, 1000, 6000, 12000)))
-    const wall = verticalWall(native(old), 7000)
-    old = legacyApply(old, { type: 'addOpening', id: 'door', wallId: wall.id, offsetReferenceVertexId: wall.endVertexId,
+  it('handles partial common-wall splitting and preserves actual secret-door endpoints', () => {
+    let old = apply(blank(), createRoom('a', rectangle(1000, 1000, 6000, 12000)))
+    const wall = verticalWall(old, 7000)
+    old = apply(old, { type: 'addOpening', id: 'door', wallId: wall.id, offsetReferenceVertexId: wall.endVertexId,
       offsetMm: 5000, widthMm: 1200, kind: 'door', state: 'open', locked: true, secret: true, revealed: true })
-    const source = native(old), command = createRoom('b', rectangle(7000, 4000, 6000, 6000))
+    const source = old, command = createRoom('b', rectangle(7000, 4000, 6000, 6000))
     const preview = previewBuildingCommands(source, [command]), next = apply(source, command)
     expect(preview.reason).toBeNull()
     expect(preview.changedIds).toContain('a')
-    expect(next).toEqual(native(legacyApply(old, command)))
-    const after = openingEndpoints(next, next.openings.door), before = openingEndpointsV2(old, old.openings.door)
+    const after = openingEndpoints(next, next.openings.door), before = openingEndpoints(old, old.openings.door)
     after.forEach((point, index) => { expect(point.x).toBeCloseTo(before[index].x, 6); expect(point.y).toBeCloseTo(before[index].y, 6) })
     expect(next.openings.door).toMatchObject({ state: 'open', locked: true, secret: true, revealed: true })
   })
 
   it('rejects a later invalid operation without exposing the earlier successful draft edit', () => {
-    const old = layerSceneV3(), source = native(old), before = structuredClone(source)
-    const commands: SceneCommandV3[] = [
+    const source = layerScene(), before = structuredClone(source)
+    const commands: SceneCommand[] = [
       { type: 'updateProp', id: 'item', changes: { rotationDeg: 90 } },
       { type: 'deleteProp', id: 'missing' },
     ]
     expect(() => applyCommands(source, commands, context())).toThrow(/不存在/)
-    expect(() => legacyApply(old, ...commands)).toThrow(/不存在/)
     expect(source).toEqual(before)
-    expect(old.props.item.rotationDeg).toBe(0)
+    expect(source.props.item.rotationDeg).toBe(0)
     expect(() => apply(source, { type: 'updateProp', id: 'item', changes: { rotationDeg: 45 }, hiddenOperation: 'delete' } as unknown as SceneCommand)).toThrow(/指令无效/)
     expect(source).toEqual(before)
   })
 
   it('keeps entity unlocking, layer unlocking and content editing in separate atomic batches', () => {
-    const old = layerSceneV3(), source = native(old), layerId = source.entityLayers.item
-    const batches: SceneCommandV3[][] = [
+    const old = layerScene(), source = old, layerId = source.entityLayers.item
+    const batches: SceneCommand[][] = [
       [{ type: 'setEditLock', kind: 'prop', id: 'item', locked: false }, { type: 'updateProp', id: 'item', changes: { rotationDeg: 90 } }],
       [{ type: 'setLayerLock', id: layerId, locked: false }, { type: 'deleteProp', id: 'item' }],
       [{ type: 'renameLayer', id: layerId, name: '新名称' }, { type: 'deleteProp', id: 'item' }],
@@ -148,22 +138,20 @@ describe('M2-0b native scene command equivalence and atomic boundaries', () => {
     const before = structuredClone(source)
     for (const commands of batches) {
       expect(() => applyCommands(source, commands, context())).toThrow(/独立/)
-      expect(() => legacyApply(old, ...commands)).toThrow(/独立/)
     }
     expect(source).toEqual(before)
   })
 
   it('retains recursive cross-layer note locks and never persists synthetic entity lock flags', () => {
-    const old = legacyApply(layerSceneV3(), { type: 'createLayer', id: 'notes-layer', floorId, name: '注记' })
+    const old = apply(layerScene(), { type: 'createLayer', id: 'notes-layer', floorId, name: '注记' })
     old.notes.first = { id: 'first', floorId, editLocked: false, visibility: 'gm', kind: 'note', text: 'first', anchor: { type: 'entity', entityKind: 'prop', entityId: 'item' } }
     old.notes.second = { id: 'second', floorId, editLocked: false, visibility: 'gm', kind: 'note', text: 'second', anchor: { type: 'entity', entityKind: 'note', entityId: 'first' } }
     old.entityLayers.first = old.entityLayers.item
     old.entityLayers.second = 'notes-layer'
     old.userLayers['notes-layer'].editLocked = true
-    const source = native(old), before = structuredClone(source)
-    const move: SceneCommandV3 = { type: 'updateProp', id: 'item', changes: { rotationDeg: 90 } }
+    const source = old, before = structuredClone(source)
+    const move: SceneCommand = { type: 'updateProp', id: 'item', changes: { rotationDeg: 90 } }
     expect(() => apply(source, move)).toThrow(/锁定/)
-    expect(() => legacyApply(old, move)).toThrow(/锁定/)
     expect(source).toEqual(before)
     const unlocked = apply(source, { type: 'setLayerLock', id: 'notes-layer', locked: false })
     const next = apply(unlocked, move)
@@ -173,30 +161,26 @@ describe('M2-0b native scene command equivalence and atomic boundaries', () => {
   })
 
   it('blocks a shared-wall edit when supported furniture on another layer is locked', () => {
-    let old = legacyApply(blank(), createRoom('a'), createRoom('b', rectangle(7000, 1000)))
-    old = legacyApply(old, { type: 'createLayer', id: 'furniture', floorId, name: '家具' })
-    old.props.supported = { ...symbolPropV3('supported', 4000, 4000), supportRef: { kind: 'room', id: 'a' }, roomId: 'a' }
+    let old = apply(blank(), createRoom('a'), createRoom('b', rectangle(7000, 1000)))
+    old = apply(old, { type: 'createLayer', id: 'furniture', floorId, name: '家具' })
+    old.props.supported = { ...symbolProp('supported', 4000, 4000), supportRef: { kind: 'room', id: 'a' }, roomId: 'a' }
     old.entityLayers.supported = 'furniture'
     old.userLayers.furniture.editLocked = true
-    const source = native(old), before = structuredClone(source), wall = verticalWall(source, 7000)
+    const source = old, before = structuredClone(source), wall = verticalWall(source, 7000)
     expect(validateSceneDocument(source).ok).toBe(true)
-    const command: SceneCommandV3 = { type: 'setWallThickness', id: wall.id, thicknessMm: 300 }
+    const command: SceneCommand = { type: 'setWallThickness', id: wall.id, thicknessMm: 300 }
     expect(() => apply(source, command)).toThrow(/锁定/)
-    expect(() => legacyApply(old, command)).toThrow(/锁定/)
     expect(source).toEqual(before)
   })
 
   it('uses injected placement IDs and checks the explicit support layer independently from the target layer', () => {
-    const old = legacyApply(scatterLayerSceneV3(0), { type: 'createLayer', id: 'target', floorId, name: '放置' })
-    const source = native(old), options = { layerId: 'target', supportRef: { kind: 'terrainArea' as const, id: 'domain' } }
+    const old = apply(scatterLayerScene(0), { type: 'createLayer', id: 'target', floorId, name: '放置' })
+    const source = old, options = { layerId: 'target', supportRef: { kind: 'terrainArea' as const, id: 'domain' } }
     const ghost = createPlacedProp(source, 'scatter-definition', { x: 3000, y: 3000 }, context(), options)
     expect(ghost.id).toBe('prepared-0')
-    expect(ghost).toEqual(createPlacedPropV3(old, 'scatter-definition', ghost.positionMm, { ...options, id: ghost.id }))
     source.userLayers[source.entityLayers.domain].editLocked = true
-    old.userLayers[old.entityLayers.domain].editLocked = true
     const before = structuredClone(source)
     expect(() => createPlacedProp(source, 'scatter-definition', ghost.positionMm, context(), options)).toThrow(/锁定/)
-    expect(() => createPlacedPropV3(old, 'scatter-definition', ghost.positionMm, options)).toThrow(/锁定/)
     expect(source).toEqual(before)
   })
 
@@ -215,15 +199,14 @@ describe('M2-0b native scene command equivalence and atomic boundaries', () => {
     expect(source).toEqual(before)
   })
 
-  it('matches outdoor geometry changes and exposes native intermediate drafts without losing layers', () => {
-    const old = blank(), source = native(old), observations: SceneDocument[] = []
-    const commands: SceneCommandV3[] = [
+  it('applies outdoor geometry changes and exposes native intermediate drafts without losing layers', () => {
+    const source = blank(), observations: SceneDocument[] = []
+    const commands: SceneCommand[] = [
       { type: 'createTerrainArea', id: 'area', floorId, boundaryMm: rectangle(1000, 1000, 8000, 8000) },
       { type: 'createPath', id: 'path', floorId, centerlineMm: [{ x: 2500, y: 3000 }, { x: 7500, y: 3000 }], widthMm: 400, supportRefs: [{ kind: 'terrainArea', id: 'area' }] },
       { type: 'moveTerrainPoint', areaId: 'area', pointId: 'area:point:1', positionMm: { x: 9500, y: 1000 } },
     ]
     const next = applyCommands(source, commands, context(), { onOutdoorDraft: draft => observations.push(structuredClone(draft)) })
-    expect(next).toEqual(native(legacyApply(old, ...commands)))
     expect(observations).toHaveLength(3)
     for (const draft of observations) {
       expect(draft).toMatchObject({ format: 'sceneweave-scene', schemaVersion: 1 })
@@ -238,7 +221,7 @@ describe('M2-0b native scene command equivalence and atomic boundaries', () => {
   })
 
   it('keeps native no-op snapshot identity and deterministic scatter births while retaining manual records', () => {
-    const old = scatterLayerSceneV3(1), source = native(old), before = structuredClone(source)
+    const source = scatterLayerScene(1), before = structuredClone(source)
     const checked = validateSceneSnapshot(source)
     if (!checked.ok) throw new Error(checked.errors.map(issue => issue.message).join('; '))
     expect(applySnapshotCommands(checked.document, [], context())).toBe(checked.document)

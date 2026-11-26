@@ -30,6 +30,12 @@ jobs:
         run: npm ci
       - name: Verify shared runtime
         run: npm run check:shared
+      - name: Verify stored projects, portable archives and content package contracts
+        run: >-
+          npm test -- src/platform/browser/storage/release-compatibility.test.ts src/shared/project-file.test.ts
+          src/shared/assets/import-manifest.test.ts src/platform/browser/assets/batch-source.test.ts
+          src/shared/extensions/host.test.ts
+          src/application/workspace/current-authoring.test.ts src/application/workspace/terrain-task-budget.test.ts
       - name: Validate public AI endpoint
         env:
           VITE_SCENEWEAVE_AI_URL: ${{ vars.VITE_SCENEWEAVE_AI_URL }}
@@ -46,7 +52,7 @@ jobs:
       - name: Install Chromium for browser regression
         run: npx playwright install --with-deps chromium
       - name: Verify editing, recovery and privacy on the Pages build
-        run: npm run test:e2e:production -- tests/complete-journey-ux.spec.ts tests/export-privacy-ux.spec.ts tests/room-privacy-ux.spec.ts --project=chromium --reporter=list
+        run: npm run test:e2e:production -- tests/release-compatibility.spec.ts tests/complete-journey-ux.spec.ts tests/export-privacy-ux.spec.ts tests/room-privacy-ux.spec.ts --project=chromium --reporter=list
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

@@ -39,7 +39,7 @@ export function selectBrowserGenerationBudget(input: { widthMm: number; heightMm
   const selected = selectTaskBudget({ task: 'generation', widthMm: input.widthMm, heightMm: input.heightMm, quality: input.quality,
     device })
   if (input.surfaceRecipe === 1 && selected.profileId === 'small') {
-    if (device === 'constrained') throw new Error('本机自动检测暂不能为岸岩层次选择标准容量；可选择经典外观，或手动选择标准/扩展容量后预览。')
+    if (device === 'constrained') throw new Error('本机自动检测暂不能为此配方选择标准容量。可改用「轻量底图」，或手动选择标准容量或扩展容量。')
     return taskBudgetProfile('standard')
   }
   return selected

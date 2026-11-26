@@ -17,13 +17,19 @@ import { propSightLine } from './sight-occluder.js'
 import { AUTOMATIC_ROAD_VERSION, roadSurfaceFrame } from './road-surface.js'
 import { validateAdoptedRoad } from './road-domain.js'
 import { isFlatCanvasGround, isFloorSizedCanvasGround } from '../model/canvas-ground.js'
+import { indexEdges, observeGeometryPairs } from './edge-index.js'
+import { reliefBounds } from './terrain-relief.js'
 
 const EPS = 1e-7
 const own = <T>(record: Record<string, T>, id: string): T | undefined => Object.hasOwn(record, id) ? record[id] : undefined
 const same = (a: PointMm, b: PointMm) => a.x === b.x && a.y === b.y
 const cross = (a: PointMm, b: PointMm, c: PointMm): number => {
-  if ([a.x, a.y, b.x, b.y, c.x, c.y].every(Number.isSafeInteger)) return Number((BigInt(b.x) - BigInt(a.x)) * (BigInt(c.y) - BigInt(a.y)) - (BigInt(b.y) - BigInt(a.y)) * (BigInt(c.x) - BigInt(a.x)))
-  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+  const bx = b.x - a.x, by = b.y - a.y, cx = c.x - a.x, cy = c.y - a.y
+  if (Math.max(Math.abs(bx), Math.abs(by), Math.abs(cx), Math.abs(cy)) > 2 ** 25
+    && [a.x, a.y, b.x, b.y, c.x, c.y].every(Number.isSafeInteger)) {
+    return Number((BigInt(b.x) - BigInt(a.x)) * (BigInt(c.y) - BigInt(a.y)) - (BigInt(b.y) - BigInt(a.y)) * (BigInt(c.x) - BigInt(a.x)))
+  }
+  return bx * cy - by * cx
 }
 const area = (points: PointMm[]): number => {
   if (points.every(p => Number.isSafeInteger(p.x) && Number.isSafeInteger(p.y))) {
@@ -74,10 +80,19 @@ export function pointInPolygon(p: PointMm, polygon: PointMm[], includeBoundary =
 export function polygonValid(points: PointMm[], positive: boolean): boolean {
   if (points.length < 3 || new Set(points.map(p => `${p.x}\0${p.y}`)).size !== points.length || (positive ? area(points) <= 0 : area(points) === 0)) return false
   const segments = edges(points)
+  const candidates = points.length > 16 ? indexEdges(segments) : undefined
   for (let i = 0; i < segments.length; i++) {
     const [a, b] = segments[i], c = points[(i + 2) % points.length]
     if (same(a, b) || (cross(a, b, c) === 0 && (b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y) < 0)) return false
-    for (let j = i + 1; j < segments.length; j++) if (j !== i + 1 && !(i === 0 && j === segments.length - 1) && meet(a, b, ...segments[j])) return false
+    const nearby = candidates?.(a, b, EPS)
+    if (nearby) {
+      const possible = nearby.filter(j => j > i + 1 && !(i === 0 && j === segments.length - 1))
+      observeGeometryPairs(possible.length)
+      if (possible.some(j => meet(a, b, ...segments[j]))) return false
+    } else {
+      observeGeometryPairs(Math.max(0, segments.length - i - (i === 0 ? 3 : 2)))
+      for (let j = i + 2; j < segments.length; j++) if (!(i === 0 && j === segments.length - 1) && meet(a, b, ...segments[j])) return false
+    }
   }
   return true
 }
@@ -88,9 +103,24 @@ const scanIntervals = (polygon: PointMm[], y: number): [number, number][] => {
 /** Positive area overlap includes coincident/contained polygons; boundary touching is allowed. */
 export function polygonsOverlap(a: PointMm[], b: PointMm[]): boolean {
   if (!a.length || !b.length) return false
-  if (Math.max(...a.map(p => p.x)) <= Math.min(...b.map(p => p.x)) || Math.max(...b.map(p => p.x)) <= Math.min(...a.map(p => p.x)) || Math.max(...a.map(p => p.y)) <= Math.min(...b.map(p => p.y)) || Math.max(...b.map(p => p.y)) <= Math.min(...a.map(p => p.y))) return false
-  for (const [a1, a2] of edges(a)) for (const [b1, b2] of edges(b)) if (properCross(a1, a2, b1, b2)) return true
-  const ys = [...new Set([...a, ...b].map(p => p.y))].sort((x, y) => x - y)
+  const aY = a.map(p => p.y), bY = b.map(p => p.y)
+  const fromY = Math.max(Math.min(...aY), Math.min(...bY)), toY = Math.min(Math.max(...aY), Math.max(...bY))
+  if (fromY >= toY) return false
+  const aX = a.map(p => p.x), bX = b.map(p => p.x)
+  if (Math.max(...aX) <= Math.min(...bX) || Math.max(...bX) <= Math.min(...aX)) return false
+  const other = edges(b), candidates = Math.max(a.length, b.length) > 16 ? indexEdges(other) : undefined
+  for (const [a1, a2] of edges(a)) {
+    if (candidates) {
+      const possible = candidates(a1, a2, EPS)
+      observeGeometryPairs(possible.length)
+      if (possible.some(i => properCross(a1, a2, ...other[i]))) return true
+    } else {
+      observeGeometryPairs(other.length)
+      if (other.some(([b1, b2]) => properCross(a1, a2, b1, b2))) return true
+    }
+  }
+  // Containment and coincident edges can only share area within both y ranges.
+  const ys = [...new Set([fromY, toY, ...aY.filter(y => y > fromY && y < toY), ...bY.filter(y => y > fromY && y < toY)])].sort((x, y) => x - y)
   for (let i = 1; i < ys.length; i++) {
     const y = (ys[i - 1] + ys[i]) / 2
     for (const [x1, x2] of scanIntervals(a, y)) for (const [z1, z2] of scanIntervals(b, y)) if (Math.min(x2, z2) > Math.max(x1, z1) + EPS) return true
@@ -100,7 +130,12 @@ export function polygonsOverlap(a: PointMm[], b: PointMm[]): boolean {
 export function segmentCuts(a: PointMm, b: PointMm, boundaries: [PointMm, PointMm][]): number[] {
   const result = [0, 1], dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy
   if (!length2) return result
+  const minX = Math.min(a.x, b.x) - EPS, maxX = Math.max(a.x, b.x) + EPS
+  const minY = Math.min(a.y, b.y) - EPS, maxY = Math.max(a.y, b.y) + EPS
+  let compared = 0
   for (const [c, d] of boundaries) {
+    if (Math.min(c.x, d.x) > maxX || Math.max(c.x, d.x) < minX || Math.min(c.y, d.y) > maxY || Math.max(c.y, d.y) < minY) continue
+    compared++
     const ex = d.x - c.x, ey = d.y - c.y, determinant = dx * ey - dy * ex
     if (determinant !== 0) {
       const t = ((c.x - a.x) * ey - (c.y - a.y) * ex) / determinant
@@ -111,6 +146,7 @@ export function segmentCuts(a: PointMm, b: PointMm, boundaries: [PointMm, PointM
       if (t > 0 && t < 1) result.push(t)
     }
   }
+  observeGeometryPairs(compared)
   return [...new Set(result)].sort((x, y) => x - y)
 }
 export function polygonInside(subject: PointMm[], container: PointMm[]): boolean {
@@ -341,6 +377,7 @@ export function coveredEverywhere(polygon: PointMm[], boundaries: PointMm[][], p
   if (!polygon.length) return false
   if (polygon.some(p => !predicate(p))) return false
   const allEdges = [...edges(polygon), ...boundaries.flatMap(edges)]
+  const edgeIndex = allEdges.length > 20 ? indexEdges(allEdges) : undefined
   const maxOffset = 0.1
   // A sample can reach at most maxOffset from its midpoint. Edges more than
   // four times that distance from the midpoint cannot reduce its offset.
@@ -355,12 +392,15 @@ export function coveredEverywhere(polygon: PointMm[], boundaries: PointMm[][], p
     && Math.max(a.y, b.y) >= minY - padding && Math.min(a.y, b.y) <= maxY + padding)
   for (const [a, b] of nearby) {
     // Distant intersections can still split a long edge. Keep its full cuts.
-    const cuts = segmentCuts(a, b, allEdges), length = Math.hypot(b.x - a.x, b.y - a.y)
+    const cuts = segmentCuts(a, b, edgeIndex ? edgeIndex(a, b, EPS).map(index => allEdges[index]) : allEdges)
+    const length = Math.hypot(b.x - a.x, b.y - a.y)
     if (!length) continue
     for (let i = 1; i < cuts.length; i++) {
       const midpoint = at(a, b, (cuts[i - 1] + cuts[i]) / 2)
       let offset = Math.min(maxOffset, length * (cuts[i] - cuts[i - 1]) / 10)
-      for (const [c, d] of nearby) { const distance = distanceToSegment(midpoint, c, d); if (distance > EPS) offset = Math.min(offset, distance / 4) }
+      const local = edgeIndex ? edgeIndex(midpoint, midpoint, padding).map(index => allEdges[index]) : nearby
+      observeGeometryPairs(local.length)
+      for (const [c, d] of local) { const distance = distanceToSegment(midpoint, c, d); if (distance > EPS) offset = Math.min(offset, distance / 4) }
       for (const sign of [-1, 1]) {
         const p = { x: midpoint.x - (b.y - a.y) / length * offset * sign, y: midpoint.y + (b.x - a.x) / length * offset * sign }
         if (pointInPolygon(p, polygon, false) && !predicate(p)) return false
@@ -392,7 +432,10 @@ function validateQueriedPropGeometry(scene: SceneDocument, props: readonly Prop[
     const attached = Object.values(scene.attachments ?? {}).some(row => row.child.kind === 'prop' && row.child.id === prop.id)
     if (attached) {
       try { resolvePropContact(scene, prop.id) } catch (cause) { error('PROP_SUPPORT', cause instanceof Error ? cause.message : '附着物件实际接触校验失败。', prop.id) }
-    } else if (!polygonOnQueriedSurface(scene, physical, prop.supportRef, prop.floorId, queries.get(prop.floorId), true)) error('PROP_SUPPORT', '完整旋转占地须位于声明的有效支撑面内。', prop.id)
+    } else if (!polygonOnQueriedSurface(scene, physical, prop.supportRef, prop.floorId, queries.get(prop.floorId), true)) {
+      const detail = prop.visibility === 'public' ? ` 物件「${prop.id}」的锚点为 (${prop.positionMm.x},${prop.positionMm.y}) mm。` : ''
+      error('PROP_SUPPORT', `完整旋转占地须位于声明的有效支撑面内。${detail}`, prop.id)
+    }
   }
   return errors
 }
@@ -465,20 +508,39 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (a.area.floorId === b.area.floorId && a.triangles.some(face => b.triangles.some(other => polygonsOverlap(face, other)))) error('ROCK_SHELL_OVERLAP', '不同岩体的实际外侧壳不可互相侵入。', b.area.id)
   }
   const bridgeDecks = bridgeDeckIds(scene)
+  const terrainTopology = validAreas.map(area => {
+    const points = terrainPoints(area), segments = edges(points)
+    return { points, segments, candidates: indexEdges(segments), bounds: reliefBounds(points) }
+  })
   for (let i = 0; i < validAreas.length; i++) for (let j = i + 1; j < validAreas.length; j++) {
-    const a = validAreas[i], b = validAreas[j], ap = terrainPoints(a), bp = terrainPoints(b)
+    const a = validAreas[i], b = validAreas[j], left = terrainTopology[i], right = terrainTopology[j]
     if (a.floorId !== b.floorId) continue
-    if (a.coveragePriority === b.coveragePriority && polygonsOverlap(ap, bp)) error('TERRAIN_PRIORITY_OVERLAP', '同覆盖优先级地形不可正面积重叠。', b.id)
+    const l = left.bounds, r = right.bounds
+    if (l.x > r.x + r.width + EPS || r.x > l.x + l.width + EPS || l.y > r.y + r.height + EPS || r.y > l.y + l.height + EPS) continue
+    if (a.coveragePriority === b.coveragePriority && polygonsOverlap(left.points, right.points)) {
+      const detail = a.visibility === 'public' && b.visibility === 'public' ? ` 地形「${a.id}」和「${b.id}」的优先级同为 ${a.coveragePriority}。` : ''
+      error('TERRAIN_PRIORITY_OVERLAP', `同覆盖优先级地形不可正面积重叠。${detail}`, b.id)
+    }
     // A deck crosses independent ground boundaries without sharing their segments.
     const floor = scene.floors[a.floorId]
     if (bridgeDecks.has(a.id) || bridgeDecks.has(b.id) || floor && (isFloorSizedCanvasGround(a, floor) || isFloorSizedCanvasGround(b, floor))) continue
-    for (const [a1, a2] of edges(ap)) for (const [b1, b2] of edges(bp)) {
-      if (!meet(a1, a2, b1, b2)) continue
-      const sharedFull = (same(a1, b1) && same(a2, b2)) || (same(a1, b2) && same(a2, b1))
-      const sharedEndpoint = [a1, a2].some(p => same(p, b1) || same(p, b2))
-      const collinear = cross(a1, a2, b1) === 0 && cross(a1, a2, b2) === 0
-      const partialOverlap = collinear && !sharedFull && ((onSegment(b1, a1, a2) && !same(b1, a1) && !same(b1, a2)) || (onSegment(b2, a1, a2) && !same(b2, a1) && !same(b2, a2)) || (onSegment(a1, b1, b2) && !same(a1, b1) && !same(a1, b2)))
-      if ((!sharedEndpoint && !sharedFull) || partialOverlap) error('UNSPLIT_TERRAIN_INTERSECTION', '地形交点及共边端点必须显式分段，不能靠隐式求交修补。', b.id)
+    terrainPair: for (const [edge, [a1, a2]] of left.segments.entries()) {
+      const candidates = right.candidates(a1, a2, EPS)
+      observeGeometryPairs(candidates.length)
+      for (const other of candidates) {
+        const [b1, b2] = right.segments[other]
+        if (!meet(a1, a2, b1, b2)) continue
+        const sharedFull = (same(a1, b1) && same(a2, b2)) || (same(a1, b2) && same(a2, b1))
+        const sharedEndpoint = [a1, a2].some(p => same(p, b1) || same(p, b2))
+        const collinear = cross(a1, a2, b1) === 0 && cross(a1, a2, b2) === 0
+        const partialOverlap = collinear && !sharedFull && ((onSegment(b1, a1, a2) && !same(b1, a1) && !same(b1, a2)) || (onSegment(b2, a1, a2) && !same(b2, a1) && !same(b2, a2)) || (onSegment(a1, b1, b2) && !same(a1, b1) && !same(a1, b2)))
+        if ((!sharedEndpoint && !sharedFull) || partialOverlap) {
+          const detail = a.visibility === 'public' && b.visibility === 'public'
+            ? ` 地形「${a.id}」第 ${edge + 1} 段与「${b.id}」第 ${other + 1} 段在 (${a1.x},${a1.y})–(${a2.x},${a2.y}) 附近。` : ''
+          error('UNSPLIT_TERRAIN_INTERSECTION', `地形交点及共边端点必须显式分段。${detail}`, b.id)
+          break terrainPair
+        }
+      }
     }
   }
   const terrainBoundariesByFloor = new Map<string,PointMm[][]>()
@@ -493,6 +555,10 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
   }
   const terrainBoundaries = (floorId: string): PointMm[][] => terrainBoundariesByFloor.get(floorId)??[]
   const groundEdgeQueries = new Map<string, ReturnType<typeof createSupportQuery>>()
+  const floorEdgeIndexes = new Map([...terrainBoundariesByFloor].map(([id, rings]) => {
+    const segments = rings.flatMap(edges)
+    return [id, { segments, find: indexEdges(segments) }] as const
+  }))
   const edgeSources = new Set<string>()
   for (const edge of Object.values(scene.terrainEdges)) {
     styleGeometry(edge.surfaceStyle)
@@ -505,7 +571,15 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     const a = source.boundaryMm[index].positionMm, b = source.boundaryMm[(index + 1) % source.boundaryMm.length].positionMm, midpoint = at(a, b, 0.5), length = Math.hypot(b.x - a.x, b.y - a.y)
     if (!length) continue
     let offset = Math.min(0.1, length / 100)
-    for (const boundary of terrainBoundaries(edge.floorId)) for (const [c, d] of edges(boundary)) { const distance = distanceToSegment(midpoint, c, d); if (distance > EPS) offset = Math.min(offset, distance / 4) }
+    const local = floorEdgeIndexes.get(edge.floorId)
+    if (local) {
+      const nearby = local.find(midpoint, midpoint, offset * 4 + EPS)
+      observeGeometryPairs(nearby.length)
+      for (const i of nearby) {
+        const distance = distanceToSegment(midpoint, ...local.segments[i])
+        if (distance > EPS) offset = Math.min(offset, distance / 4)
+      }
+    }
     let query = supportQueries.get(edge.floorId)
     if (bridgeDecks.size && !bridgeDecks.has(source.id)) {
       query = groundEdgeQueries.get(edge.floorId)
@@ -767,7 +841,17 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (path.widthSections?.length && (path.assembly?.bridge || Object.values(scene.pathAttachments ?? {}).some(row => row.pathId === path.id))) {
       error('PATH_WIDTH_DEPENDENCY', '桥面或门口接点当前使用等宽的道路。', path.id)
     }
-    if (!coveredEverywhere(band, [...terrainBoundaries(path.floorId), ...validRooms.filter(item=>item.room.floorId===path.floorId).map(item => item.points)], p => path.supportRefs.some(ref => pointOnQueriedSurface(scene, p, ref, path.floorId, supportQueries.get(path.floorId), true)))) error('PATH_SUPPORT', '整条方端帽/转角带区须位于声明支撑面并集内。', path.id)
+    let failedSupport: PointMm | undefined
+    const supported = coveredEverywhere(band, [...terrainBoundaries(path.floorId), ...validRooms.filter(item => item.room.floorId === path.floorId).map(item => item.points)], p => {
+      if (path.supportRefs.some(ref => pointOnQueriedSurface(scene, p, ref, path.floorId, supportQueries.get(path.floorId), true))) return true
+      failedSupport = p
+      return false
+    })
+    if (!supported) {
+      const location = failedSupport && `，检查点在 (${Math.round(failedSupport.x)},${Math.round(failedSupport.y)}) mm`
+      const detail = path.visibility === 'public' ? ` 道路「${path.id}」${location ?? ''}。` : ''
+      error('PATH_SUPPORT', `整条方端帽/转角带区须位于声明支撑面并集内。${detail}`, path.id)
+    }
     let previousPathSurface: SurfaceRef | null = null
     const localWidths = path.widthSections?.length ? routeWidthFrame(path.centerlineMm, path.widthMm, path.widthSections) : null
     for (let i = 1; i < path.centerlineMm.length; i++) {
@@ -804,6 +888,10 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     const domain = group.domain.kind === 'area' ? own(scene.terrainAreas, group.domain.areaId) : undefined
     const edge = group.domain.kind === 'edgeBand' ? own(scene.terrainEdges, group.domain.edgeId) : undefined
     let domainPolygon = domain ? terrainPoints(domain) : group.domain.kind === 'path' ? pathPolygons.get(group.domain.pathId) : undefined
+    if (group.domain.kind === 'area' && group.domain.boundaryMm) {
+      domainPolygon = group.domain.boundaryMm
+      if (polygon(domainPolygon, group.id, false)) withinFloor(domainPolygon, group.floorId, group.id)
+    }
     if (edge && group.domain.kind === 'edgeBand') {
       const area = own(scene.terrainAreas, edge.source.areaId), index = area?.boundaryMm.findIndex(p => p.segmentId === edge.source.segmentId) ?? -1
       if (area && index >= 0) domainPolygon = corridor(area.boundaryMm[index].positionMm, area.boundaryMm[(index + 1) % area.boundaryMm.length].positionMm, group.domain.widthMm)

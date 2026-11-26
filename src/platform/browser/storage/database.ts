@@ -1,7 +1,6 @@
 import { currentDatabaseNames } from './current-databases.js'
 import Dexie, { type Table, type Transaction } from 'dexie'
 import type { LicenseBinding, LicenseTextRecord, ProjectData, SnapshotSummary } from '../../../shared/model/project.js'
-import type { ConversionJob, LegacySource } from '../../../shared/migration/types.js'
 import type { HistoryHead, HistoryPin, HistoryVersion } from './incremental-history.js'
 import { decodeProjectCoordinates, encodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
 import { canonicalJson } from '../../../shared/validation/json.js'
@@ -9,7 +8,6 @@ import { contentBlockMiddleware, type ContentBlockWrite } from './content-block-
 import type { ProjectContentBlock } from './content-blocks.js'
 import { exactEncodedSnapshot, matchingEncodedSnapshot } from './content-context.js'
 
-export const LEGACY_DEVELOPMENT_PROJECT_DATABASE = 'sceneweave-projects'
 export const PROJECT_DATABASE_NAME = currentDatabaseNames().projects
 export const PROJECT_STORES_V1 = {
   projects: 'sceneId, savedAt, status, conversionJobId',
@@ -19,6 +17,7 @@ export const PROJECT_STORES_V1 = {
   resources: 'sha256', licenseTexts: 'sha256',
   resourceBindings: '[ownerSceneId+kind+recordId], ownerSceneId, kind',
   historyMetadata: 'ownerSceneId',
+  // Reserved physical stores. Keep the existing IndexedDB layout without opening a conversion path.
   legacyBlobs: 'sha256', legacySources: '[ownerSceneId+nodeId], ownerSceneId',
   conversionJobs: 'jobId, &jobKey, targetSceneId, stage',
 } as const
@@ -220,10 +219,6 @@ export class ProjectDatabase extends Dexie {
   licenseTexts!: Table<LicenseTextRecord, string>
   resourceBindings!: Table<StoredBinding, [string, BindingKind, string]>
   historyMetadata!: Table<StoredHistoryMetadata, string>
-  legacyBlobs!: Table<StoredBytes, string>
-  legacySources!: Table<LegacySource, [string, string]>
-  conversionJobs!: Table<ConversionJob, string>
-  nativeUpgradeCapsules!: Table<Record<string, unknown>, string>
   historyVersions!: Table<HistoryVersion, [string, string]>
   historyHeads!: Table<HistoryHead, string>
   historyPins!: Table<HistoryPin, [string, string]>

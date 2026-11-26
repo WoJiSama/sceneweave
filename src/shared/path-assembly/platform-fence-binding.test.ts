@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { applyCompositionCommands, applyCompositionDraftCommands } from '../appearance/commands.js'
 import { createCompositionContent, resolveAppearance } from '../appearance/graph.js'
 import { propPaintPolygon } from '../appearance/presentation.js'
 import { applyCommands, type SceneCommand } from '../commands/commands.js'
 import { polygonsOverlap, propFootprint, supportedPolygon } from '../geometry/geometry.js'
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import type { PointMm, SceneDocument } from '../model/scene.js'
 import { projectScene } from '../projection/projection.js'
 import { validateCompositionContent } from '../validation/content.js'
@@ -35,7 +34,7 @@ const context = { ids: { nextId: () => `fence-test-${++serial}` }, clock: { now:
 const edit = (scene: SceneDocument, ...commands: SceneCommand[]) => applyCommands(scene, commands, context)
 
 function blank(widthMm = 20000, heightMm = 20000) {
-  const scene = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+  const scene = layerScene()
   delete scene.props.item
   delete scene.entityLayers.item
   scene.floors[floorId].boundsMm = scene.exportBoundsMm = { x: 0, y: 0, width: widthMm, height: heightMm }

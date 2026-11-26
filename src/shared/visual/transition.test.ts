@@ -1,6 +1,6 @@
 import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
-import { symbolPropV3 } from '../../core/v3/test-fixtures.js'
+import { symbolProp } from '../../../tests/helpers/current-project-fixtures.js'
 import { tryApplyPropUpdatesSnapshot, validateSceneSnapshot } from '../validation/snapshots.js'
 import { applyCommands } from '../commands/commands.js'
 import type { SceneDocument } from '../model/scene.js'
@@ -40,7 +40,7 @@ describe('T10 terrain transitions', () => {
     const scene = fixture()
     scene.assets.asset = { id: 'asset', mimeType: 'image/png', sha256: hash, pixelWidth: 1, pixelHeight: 1, logicalSizeMm: { width: 1000, height: 1000 }, licenseRef: 'lic', origin: { kind: 'original', attribution: 'fixture', canEmbed: true } }
     scene.entityLayers.sand = scene.entityLayers.water = scene.entityLayers.item = 'layer'
-    scene.props.item = { ...symbolPropV3('item', 7600, 7600), floorId: 'floor', blocksMovement: true, supportRef: { kind: 'floor', id: 'floor' } }
+    scene.props.item = { ...symbolProp('item', 7600, 7600), floorId: 'floor', blocksMovement: true, supportRef: { kind: 'floor', id: 'floor' } }
     const row = materializeTerrainTransition(scene, { id: 'shore-transition', boundaryId: 'coast', kind: 'shore', side: 'left', widthMm: 400, clipMm: { x: 1000, y: 1000, width: 6000, height: 6000 } })
     scene.visual.transitions[row.id] = row
     const validated = validateSceneSnapshot(scene)

@@ -20,8 +20,9 @@ import type { GenerationFieldGroup, GenerationRecipe, GenerationReference, Gener
 import { GenerationRegistry, runGeneration } from '../../orchestrator.js'
 import { generationCreationWrites } from '../../materialization.js'
 import { hashGenerationValue, type ArtifactInput, type GenerationCandidate, type GenerationRequest, type JsonValue } from '../../contracts.js'
-import { forestGenerationInputSchema, forestMaterialBindings, ForestGenerationError, type ForestGenerationInput, type ForestSupport } from './contracts.js'
+import { forestGenerationInputSchema, forestMaterialBindings, forestPropBindings, ForestGenerationError, type ForestGenerationInput, type ForestSupport } from './contracts.js'
 import { paintWoodlandFloor, woodlandGroundStyle, woodlandTrailFinish } from './ground-finish.js'
+import { dressForestCampGround } from './camp-ground.js'
 
 export * from './contracts.js'
 export interface ForestReport {
@@ -38,6 +39,7 @@ export function normalizeForestInput(raw: unknown): ForestGenerationInput {
   let input: ForestGenerationInput
   try { input = forestGenerationInputSchema.parse(captureJson(raw)) } catch (error) { throw new ForestGenerationError('invalid-input', `森林输入无效：${String(error)}`) }
   const p = input.parameters
+  if (p.groundFinish?.kind === 'woodland-v2' && p.ground.kind !== 'new') throw new ForestGenerationError('unsupported', '营地地表过渡需要独立生成的新地面。')
   for (const rows of [p.zones, p.clearings, p.entrances, p.routes]) if (new Set(rows.map(row => row.id)).size !== rows.length) throw new ForestGenerationError('invalid-input', '同类森林需求ID不能重复。')
   if (![p.boundsMm.x + p.boundsMm.width, p.boundsMm.y + p.boundsMm.height].every(Number.isSafeInteger)) throw new ForestGenerationError('invalid-input', '森林范围超出安全整数。')
   for (const row of [...p.zones, ...p.clearings]) {
@@ -67,7 +69,7 @@ export function normalizeForestInput(raw: unknown): ForestGenerationInput {
 export function forestFixedBindings(input: ForestGenerationInput) {
   const p = input.parameters
   const materials = ordered([...new Map(forestMaterialBindings(p).map(row => [canonicalJson(row), row])).values()])
-  const props = ordered([...new Map(p.zones.flatMap(zone => zone.vegetation.flatMap(row => row.palette.map(item => ({ role: row.role, ref: item.definitionRef })))).map(row => [canonicalJson(row), row])).values()])
+  const props = ordered([...new Map(forestPropBindings(p).map(row => [canonicalJson(row), row])).values()])
   return { materials, props }
 }
 function support(input: ForestGenerationInput, sceneId: string, ref: ForestSupport): SurfaceRef & { kind: 'terrainArea' } {
@@ -101,7 +103,8 @@ function assertBase(document: SceneDocument, input: ForestGenerationInput): void
     const definition = document.propDefinitions[row.ref.id]
     if (!definition || definition.version !== row.ref.version || definition.defaultAppearance.kind !== 'image') throw new ForestGenerationError('invalid-input', '森林植被须引用确切固定图片定义。')
     if (row.role === 'tree' && !definition.tags.some(tag => /tree|树/i.test(tag))) throw new ForestGenerationError('invalid-input', '树角色须明确绑定树木定义。')
-    if (row.role !== 'tree' && (definition.defaultBlocksMovement || definition.defaultBlocksSight || definition.defaultAppearance.tint !== null)) throw new ForestGenerationError('invalid-input', '草灌轻量装饰不能包含隐含阻挡或运行时着色。')
+    if (row.role === 'ground-detail' && definition.defaultRenderLayer !== 'ground') throw new ForestGenerationError('invalid-input', '森林细砾须采用平贴地面的固定物件。')
+    if (row.role !== 'tree' && (definition.defaultBlocksMovement || definition.defaultBlocksSight || definition.defaultAppearance.tint !== null)) throw new ForestGenerationError('invalid-input', '草灌与地表细节不能包含隐含阻挡或运行时着色。')
   }
 }
 const boundsOf = (regions: PolygonWithHoles[]) => {
@@ -271,7 +274,8 @@ export function runForestGeneration(base: SceneDocument, raw: unknown, options: 
           if (placed < requested) report.notes.push(`林区${zone.id}的${vegetation.role}目标${requested}件，实际${placed}件；其余受固定尺寸、支撑、通路/空地保留和有限位置搜索限制。`)
         }
       }
-      paintWoodlandFloor(document, p, report, input.seed, id, meter, context.checkCancelled)
+      if (p.groundFinish?.kind === 'woodland-v2') dressForestCampGround(document, p, report, input.seed, id, meter, context.checkCancelled)
+      else paintWoodlandFloor(document, p, report, input.seed, id, meter, context.checkCancelled)
       checkForestResult(document, input, report, appearance)
       detachChangedOutputs(before as SceneDocument, document)
       persist(document, source, input); return document

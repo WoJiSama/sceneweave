@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
 export const productionOnlySpecs = [
+  '**/release-compatibility.spec.ts',
   '**/complete-journey-ux.spec.ts',
   '**/core-convergence-journey.spec.ts',
   '**/startup-loading.spec.ts',

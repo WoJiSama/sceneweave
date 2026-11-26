@@ -203,7 +203,7 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
     if (cluster) return Object.values(cluster.members).flatMap(member => member.entityId === null || member.state === 'detached' ? [] : geometry(member.entityId))
     const scatter = own(scene.scatterGroups, id)
     if (scatter) {
-      if (scatter.domain.kind === 'area') return geometry(scatter.domain.areaId)
+      if (scatter.domain.kind === 'area') return scatter.domain.boundaryMm ? [clonePoints(scatter.domain.boundaryMm)] : geometry(scatter.domain.areaId)
       if (scatter.domain.kind === 'path') return geometry(scatter.domain.pathId)
       const edgeGeometry = geometry(scatter.domain.edgeId)[0]
       return edgeGeometry?.length === 2 ? [corridor(edgeGeometry[0], edgeGeometry[1], scatter.domain.widthMm)] : []
@@ -278,7 +278,9 @@ function buildSelectionIndex(scene: SceneDocumentV2) {
       const memberBounds = members.flatMap(memberId => coarseBounds(memberId) ?? [])
       if (memberBounds.length) bounds = pointsBounds(memberBounds.flatMap(box => [{ x: box.x, y: box.y }, { x: box.x + box.width, y: box.y + box.height }]))
       else if (scatter) {
-        const domain = scatter.domain, source = coarseBounds(domain.kind === 'area' ? domain.areaId : domain.kind === 'path' ? domain.pathId : domain.edgeId)
+        const domain = scatter.domain
+        const source = domain.kind === 'area' && domain.boundaryMm ? pointsBounds(domain.boundaryMm)
+          : coarseBounds(domain.kind === 'area' ? domain.areaId : domain.kind === 'path' ? domain.pathId : domain.edgeId)
         const padding = domain.kind === 'edgeBand' ? domain.widthMm : 0
         if (source) bounds = { x: source.x - padding, y: source.y - padding, width: source.width + padding * 2, height: source.height + padding * 2 }
       }

@@ -4,7 +4,7 @@ import { encodeUtf8 } from '../../../shared/validation/json.js'
 import { sha256Bytes } from '../../../shared/validation/hash.js'
 import { ASSET_PACK_MANIFEST_FILENAME, ASSET_PACK_MANIFEST_LIMITS } from '../../../shared/assets/import-manifest.js'
 import { inspectBoundedZip, inspectZip } from '../../../shared/project/zip.js'
-import { ASSET_BATCH_LIMITS, collectAssetFiles } from './batch-source.js'
+import { ASSET_BATCH_LIMITS, assetImportExtensionHost, collectAssetFiles } from './batch-source.js'
 
 const bytes = (text = 'not yet decoded') => new Uint8Array(encodeUtf8(text))
 const image = (name = 'tree.png') => new File([bytes()], name, { type: 'image/png' })
@@ -102,7 +102,78 @@ describe('owned batch source selection', () => {
   })
 })
 
+describe('extension selection at the asset import boundary', () => {
+  const source = bytes('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>')
+  const pack = packManifest([{ ...packManifest().items[0], path: 'tree.svg', sourceSha256: sha256Bytes(source) }])
+  const published = { ...pack, pack: { ...pack.pack, publisher: 'open.table' } }
+  // A v1 author's pin, computed independently of the current reader and writer.
+  const reference = { publisher: 'open.table', id: 'forest', version: 1, contentSha256: '2c514c618abd4bb63d62efdf97bab4286411c7200b1313659d354e4ffd6ace1c' }
+  const contribution = { id: 'trees', point: 'sceneweave/asset-pack', apiVersion: 1, data: reference }
+  const selection = (selected: unknown = contribution) => ({
+    manifest: packBytes({ format: 'sceneweave-extension', schemaVersion: 1, namespace: 'example.org/scenery', version: 12,
+      contributions: [{ id: 'marks', point: 'example.org/overlay', apiVersion: 2, data: {} }, selected] }),
+    contributionId: 'trees',
+  })
+  const zip = (metadata: unknown = published, artwork = source) =>
+    archive({ [ASSET_PACK_MANIFEST_FILENAME]: packBytes(metadata), 'tree.svg': artwork })
+
+  it.each(['folder', 'zip'] as const)('reads a selected reference through the existing %s import path', async sourceKind => {
+    const extension = selection()
+    expect(assetImportExtensionHost.points).toEqual([{ point: 'sceneweave/asset-pack', versions: [1] }])
+    expect(assetImportExtensionHost.inspect(extension.manifest).contributions.map(row => row.status)).toEqual(['unknown-point', 'compatible'])
+    const files = sourceKind === 'folder' ? [fileAt('art/' + ASSET_PACK_MANIFEST_FILENAME, packBytes(published)), fileAt('art/tree.svg', source)] : [zip()]
+    const pending = collectAssetFiles(files, { source: sourceKind, extension })
+    extension.manifest.fill(0)
+    extension.contributionId = 'marks'
+    const found = await pending
+    expect(found.packReference).toEqual(reference)
+    expect(found.entries).toHaveLength(1)
+    expect(new Uint8Array(await found.entries[0].file.arrayBuffer())).toEqual(source)
+    expect(found.entries[0].license).toEqual(pack.licenses[0])
+    expect(found.entries[0].license).not.toHaveProperty('canEmbed')
+  })
+
+  it('requires a supported selection and validates its payload before collecting any assets', async () => {
+    const collect = (extension: ReturnType<typeof selection>) => collectAssetFiles([zip()], { source: 'zip', extension })
+    await expect(collect({ ...selection(), contributionId: 'missing' })).rejects.toThrow(/没有扩展项/)
+    await expect(collect({ ...selection(), contributionId: 'marks' })).rejects.toThrow(/未注册/)
+    await expect(collect(selection({ ...contribution, apiVersion: 2 }))).rejects.toThrow(/v2.*版本 1/)
+    await expect(collect(selection({ ...contribution, data: { ...reference, canEmbed: true } }))).rejects.toThrow(/预期素材包/)
+    const getter = Object.defineProperty(selection(), 'manifest', { get() { throw new Error('getter ran') } })
+    await expect(collect(getter)).rejects.toThrow(/访问器/)
+    await expect(collectAssetFiles([image()], { extension: selection() })).rejects.toThrow(/须携带清单/)
+  })
+
+  it('checks an extension pin against both the release metadata and original image bytes', async () => {
+    const options = { source: 'zip' as const, extension: selection() }
+    await expect(collectAssetFiles([zip()], { ...options, expectedPack: reference })).resolves.toMatchObject({ packReference: reference })
+    await expect(collectAssetFiles([zip({ ...published, licenses: [{ ...pack.licenses[0], text: 'changed' }] })], options)).rejects.toThrow(/摘要不符/)
+    await expect(collectAssetFiles([zip(published, bytes('changed'))], options)).rejects.toThrow(/原始字节/)
+    await expect(collectAssetFiles([zip()], { ...options, expectedPack: { ...reference, version: 2 } })).rejects.toThrow(/指定/)
+  })
+})
+
 describe('raw asset-pack manifest collection', () => {
+  it('pins the same release across folder and ZIP transport and verifies both metadata and source bytes', async () => {
+    const source = bytes('fixed image'), manifest = packManifest([{ ...packManifest().items[0], sourceSha256: sha256Bytes(source) }])
+    const scoped = { ...manifest, pack: { ...manifest.pack, publisher: 'open.table' } }
+    const folder = await collectAssetFiles([fileAt('outer/' + ASSET_PACK_MANIFEST_FILENAME, packBytes(scoped)), fileAt('outer/tree.png', source)], { source: 'folder' })
+    const expectedPack = folder.packReference!
+    expect(expectedPack).toMatchObject({ publisher: 'open.table', id: scoped.pack.id, version: scoped.pack.version, contentSha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
+    expect(Object.isFrozen(expectedPack)).toBe(true)
+    const zip = (metadata: unknown, image = source) => archive({ 'tree.png': image, [ASSET_PACK_MANIFEST_FILENAME]: bytes(JSON.stringify(metadata, null, 2)) }, 6)
+    const callerPin = { ...expectedPack }
+    const pending = collectAssetFiles([zip(scoped)], { source: 'zip', expectedPack: callerPin })
+    callerPin.version++
+    expect((await pending).packReference).toEqual(expectedPack)
+    for (const pinned of [{ ...expectedPack, publisher: 'other' }, { ...expectedPack, id: 'other' }, { ...expectedPack, version: 2 }, { ...expectedPack, contentSha256: '0'.repeat(64) }]) {
+      await expect(collectAssetFiles([zip(scoped)], { source: 'zip', expectedPack: pinned })).rejects.toThrow(/指定/)
+    }
+    await expect(collectAssetFiles([zip({ ...scoped, licenses: [{ ...scoped.licenses[0], text: 'changed' }] })], { source: 'zip', expectedPack })).rejects.toThrow(/摘要/)
+    await expect(collectAssetFiles([zip(scoped, bytes('changed image'))], { source: 'zip', expectedPack })).rejects.toThrow(/原始字节/)
+    await expect(collectAssetFiles([zip(manifest)], { source: 'zip', expectedPack })).rejects.toThrow(/指定/)
+    await expect(collectAssetFiles([image()], { expectedPack })).rejects.toThrow(/须携带清单/)
+  })
   it('accepts a folder-root manifest and fills immutable draft metadata without confirming permission', async () => {
     const metadata = packBytes(), result = await collectAssetFiles([
       fileAt(`forest/${ASSET_PACK_MANIFEST_FILENAME}`, metadata), fileAt('forest/tree.png', bytes()), fileAt('forest/README.txt', bytes('instructions')),

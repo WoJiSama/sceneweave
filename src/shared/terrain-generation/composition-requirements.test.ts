@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
-import { symbolPropV3 } from '../../core/v3/test-fixtures.js'
+import { symbolProp } from '../../../tests/helpers/current-project-fixtures.js'
 import type { PointMm, SceneDocument } from '../model/scene.js'
 import { canonicalJson } from '../validation/json.js'
 import { sha256Text } from '../validation/hash.js'
@@ -29,7 +29,7 @@ function fixture(water=true):Fixture {
 const channel:TerrainRequirement={id:'channel',compositionId,kind:'channelWidth',strength:'hard',pointsMm:[{x:3000,y:9000},{x:21000,y:9000}],minWidthMm:2000}
 const evaluate=(scene:SceneDocument)=>evaluateTerrainRequirement(scene,channel)
 function prop(scene:SceneDocument,x=12000,y=9000){
-  scene.props.blocker={...symbolPropV3('blocker',x,y),floorId,supportRef:{kind:'terrainArea',id:'surface'},blocksMovement:true}
+  scene.props.blocker={...symbolProp('blocker',x,y),floorId,supportRef:{kind:'terrainArea',id:'surface'},blocksMovement:true}
   scene.entityLayers.blocker=layerId
   return scene.props.blocker
 }

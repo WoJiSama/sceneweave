@@ -1,6 +1,6 @@
 import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import type { CompositionContent } from '../model/appearance.js'
 import type { SceneDocument } from '../model/scene.js'
 import { cloneJson } from '../validation/json.js'
@@ -11,7 +11,7 @@ import { assertTerrainBudget, compositionRecordExpansion, terrainCommandCost, ty
 type Scene4 = SceneDocument
 const p=(x:number,y:number)=>({x,y})
 function scene():Scene4 {
-  return toCurrentSceneDocument({...cloneJson(layerSceneV3()),format:'sceneweave-scene',schemaVersion: 1,mapMode:'scene',regional:null,
+  return toCurrentSceneDocument({...cloneJson(layerScene()),format:'sceneweave-scene',schemaVersion: 1,mapMode:'scene',regional:null,
     generation:createEmptyGeneration5(),visual:{version:3,base:{version:2,base:emptyVisualSystem(),materializedEdges:{}},transitions:{}}})
 }
 function content():Pick<CompositionContent,'historyIdentity'|'appearance'> {

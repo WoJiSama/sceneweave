@@ -48,9 +48,13 @@ describe('cross-project complete room templates', () => {
       { type: 'bindPropAttachment', id: 'lamp-support', childId: 'other', surfaceId: 'tabletop', mode: 'support', follow: 'follow', anchorState: 'manual',
         anchor: { kind: 'horizontal', localMm: { x: 200, y: 0 }, heightOffsetMm: 0, rotationOffsetDeg: 0 } },
     ], runtime))
+    original.project.extensions = { 'example.org/notes': { schemaVersion: 3, data: '主持人私有状态' } }
     const request = { name: '带桌灯的书房', roomIds: ['room'], maskIds: ['mask'] }, before = canonicalJson(original.project)
     expect(inspectSceneTemplate(original.project.document, request)).toMatchObject({ attachmentSurfaceIds: ['tabletop'], attachmentIds: ['lamp-support'] })
     const entry = await prepareSceneTemplate(original, request, options), capsule = await loadSceneTemplate(entry.bytes, validation)
+    expect(capsule.project.extensions).toBeUndefined()
+    const privateCopy = await exportProject({ project: { ...capsule.project, extensions: original.project.extensions }, resources: capsule.resources }, validation)
+    await expect(loadSceneTemplate(privateCopy, validation)).rejects.toThrow(/范围外工程状态/)
     const capturedLink = Object.values(capsule.project.document.attachments!)[0]
     expect(capturedLink.id).not.toBe('lamp-support')
     expect(capturedLink.proofs.lineageId).toBe(capsule.project.historyIdentity.lineageId)

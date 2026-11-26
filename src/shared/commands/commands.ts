@@ -103,6 +103,7 @@ export interface ApplyCommandsOptions {
   finalizeNativeDraft?: (before: SceneDocument, after: SceneDocument) => HistoryIdentity
   /** Explicit transaction envelope; omission retains the legacy expanded budget. */
   budget?: CommandBudgetProfile
+  terrainPairAccounting?: import('../budget/task-budget.js').TerrainPairAccounting
   /** Internal complete owner supplies the unspent expanded-operation budget. */
   remainingOperationBudget?: () => number
   /** Internal complete-composition semantics for explicit group rotations. */
@@ -416,7 +417,7 @@ function applyContent(scene: SceneDocument, commands: readonly SceneCommand[], c
           detached.dependencyIds.forEach(id => attachmentDependencies.add(id))
         }
       }
-      const impact = applyOutdoorCommand(next, command, context, options?.budget)
+      const impact = applyOutdoorCommand(next, command, context, options?.budget, options?.terrainPairAccounting)
       commandCost = impact.commandCost + attachmentCost + bridgeLinkCost
       scope = bridgeLinkCost ? undefined : { owner: 'outdoor', affectedIds: [...new Set([...impact.affectedIds, ...attachmentDependencies])].sort() }
       options?.onOutdoorDraft?.(next, command)
@@ -611,7 +612,7 @@ function assertSceneCommandBudget(before: SceneDocument, after: SceneDocument, o
     assertCommandBudget(budget, measureCommandBudget(first.document, second.document, { before: first, after: second }, undefined, budget))
     return
   }
-  assertCommandBudget(budget, measureCommandBudget(before, after, undefined, undefined, budget))
+  assertCommandBudget(budget, measureCommandBudget(before, after, undefined, undefined, budget, options?.terrainPairAccounting))
 }
 /** Detached mutable candidate; all-or-nothing native scene validation. Revision is committed by Workspace. */
 export function applyCommands(scene: SceneDocument, commands: readonly SceneCommand[], context: PreparationContext, options?: ApplyCommandsOptions): SceneDocument {

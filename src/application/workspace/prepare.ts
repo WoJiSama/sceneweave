@@ -2,6 +2,7 @@ import { LINE_STYLE_LICENSE_REF, LINE_STYLE_LICENSE_TEXT } from '../../shared/pa
 import { catalogAdditionCost, CATALOG_ADOPTION_LIMIT } from './catalog-budget.js'
 import { inspectAggregateEdit } from './aggregate-boundary.js'
 import { inspectDependencies } from '../../shared/geometry/dependencies.js'
+import { withGeometryPairCounter } from '../../shared/geometry/edge-index.js'
 import { applyFloorArtwork } from '../../shared/floors/commands.js'
 import type { Floor, FloorArtwork } from '../../shared/model/scene.js'
 import type { AggregateEditBoundaryImpact } from './aggregate-boundary.js'
@@ -44,6 +45,8 @@ export interface PrepareOptions {
   baseline?: EditableProject
   /** Explicit registered envelope for new task paths; absent keeps legacy256. */
   budget?: CommandBudgetProfile
+  terrainPairAccounting?: import('../../shared/budget/task-budget.js').TerrainPairAccounting
+  onGeometryPairs?: (count: number) => void
   onBudgetUsage?: (usage: CommandBudgetUsage) => void
   /** Internal accounting for fixed sources added in this same transaction. */
   initialOperationCost?: number
@@ -128,8 +131,9 @@ const preparedBudgetMeasurements = new WeakMap<EditableProject, WeakMap<Editable
 
 /** Reuse the document delta only for exact validated projects and a registered
  * manual policy. Preparation work and the admission check are applied separately. */
-export function measurePreparedCommandBudget(before: EditableProject, after: EditableProject, profile: CommandBudgetProfile): CommandBudgetUsage {
-  const measure = () => measureCommandBudget(before.document, after.document, { before, after }, undefined, profile)
+export function measurePreparedCommandBudget(before: EditableProject, after: EditableProject, profile: CommandBudgetProfile,
+  terrainPairAccounting?: PrepareOptions['terrainPairAccounting']): CommandBudgetUsage {
+  const measure = () => measureCommandBudget(before.document, after.document, { before, after }, undefined, profile, terrainPairAccounting)
   if (!isManualTransactionBudget(profile) || !Object.values(MANUAL_TRANSACTION_BUDGETS).includes(profile)
     || !getVerifiedEditableProject(before) || !getVerifiedEditableProject(after)) return measure()
   let byBaseline = preparedBudgetMeasurements.get(after)
@@ -145,7 +149,7 @@ export function measurePreparedCommandBudget(before: EditableProject, after: Edi
 }
 
 function assertPreparationBudget(before: EditableProject, after: EditableProject, options: PrepareOptions): void {
-  if (options.budget) assertCommandBudget(options.budget, measurePreparedCommandBudget(before, after, options.budget))
+  if (options.budget) assertCommandBudget(options.budget, measurePreparedCommandBudget(before, after, options.budget, options.terrainPairAccounting))
   else assertTerrainBudget(before.document, after.document, { before, after })
 }
 
@@ -293,13 +297,13 @@ export async function prepareCompositionCommands(input: EditableProject, command
   } : undefined
   let execution: TransactionReceipt | undefined
   const applyDraft = () => applyCompositionDraftCommands(contentOf(project), capturedCommands, options.runtime,
-    { initialOperationCost: initialCost, budget: options.budget,
+    { initialOperationCost: initialCost, budget: options.budget, terrainPairAccounting: options.terrainPairAccounting,
       onOperationCost: cost => { operationCost = cost }, onTransactionReceipt: receipt => { execution = receipt },
       ...(observeStep ? { onTransactionStep: observeStep } : {}) })
   const draft = manual ? withExecutionWorkObserver(delta => {
     for (const [key, amount] of Object.entries(delta) as [keyof BudgetUsage, number][]) observedWork[key] += amount
     assertCommandBudget(options.budget!, observedWork)
-  }, applyDraft) : applyDraft()
+  }, applyDraft) : options.onGeometryPairs ? withGeometryPairCounter(options.onGeometryPairs, applyDraft) : applyDraft()
   const prepared = await materializeProject({ ...project, ...draft, schemaVersion: draft.document.schemaVersion }, { ...options, baseline: project })
   checkCancelled(checked.signal)
   // Use this execution's handle: the same result snapshot can retain a

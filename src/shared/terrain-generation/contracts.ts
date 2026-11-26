@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { volcanoParametersSchema } from '../generation/domains/volcano/contracts.js'
 import { interiorLayoutParametersSchema, interiorFurnitureRoleSchema, interiorMaterialRoleSchema, supportedInteriorParametersSchema, approachedInteriorParametersSchema, directedInteriorLayoutParametersSchema, directedApproachedInteriorParametersSchema } from '../generation/domains/interior/contracts.js'
-import { forestParametersSchema, forestPaletteRoleSchema } from '../generation/domains/forest/contracts.js'
+import { forestParametersSchema, forestFixedPropRoleSchema } from '../generation/domains/forest/contracts.js'
 import { mixedParametersSchema, mixedMaterialRoleSchema, mixedPropRoleSchema } from '../generation/domains/mixed/contracts.js'
 
 /** Strict persisted terrain contracts. Algorithms, platform IO and scene validation are separate. */
@@ -100,8 +100,8 @@ export const supportedInteriorGenerationRecipeSchema = z.union([supportedInterio
 const forestGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('forest'), recipeVersion: z.literal(1), algorithmId: z.literal('forest-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: forestParametersSchema,
-  materials: z.array(z.object({ role: z.enum(['ground', 'path']), ref: versionRef }).strict()).max(19).refine(unique),
-  props: z.array(z.object({ role: forestPaletteRoleSchema, ref: versionRef }).strict()).max(64).refine(unique),
+  materials: z.array(z.object({ role: z.enum(['ground', 'path']), ref: versionRef }).strict()).max(21).refine(unique),
+  props: z.array(z.object({ role: forestFixedPropRoleSchema, ref: versionRef }).strict()).max(65).refine(unique),
 }).strict()
 const forestGenerationRecipeV2Schema = forestGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
 export const forestGenerationRecipeSchema = z.union([forestGenerationRecipeV1Schema, forestGenerationRecipeV2Schema])

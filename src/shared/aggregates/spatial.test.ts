@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { fixture as workspaceFixture } from '../../application/workspace/test-fixtures.js'
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { cloneJson } from '../validation/json.js'
 import { WALL_RELIEF_MATERIAL_ID } from '../appearance/wall-edge-profile.js'
 import nativeScenes from '../../platform/browser/content/scenes-data.json'
@@ -11,7 +10,7 @@ import {
 } from './spatial.js'
 
 function fixture() {
-  const scene = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+  const scene = layerScene()
   scene.paths['long-route'] = { id: 'long-route', floorId: 'blank-floor', editLocked: false, visibility: 'public',
     centerlineMm: [{ x: 1000, y: 10000 }, { x: 19000, y: 10000 }], widthMm: 800,
     supportRefs: [{ kind: 'floor', id: 'blank-floor' }], surfaceStyle: null, movementCostMultiplier: 1, renderOrder: 0 }

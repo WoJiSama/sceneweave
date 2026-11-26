@@ -15,6 +15,7 @@ export interface ProjectedSurface { id: string; points: PointMm[]; style: Surfac
   bridgeSupport?: true
   waterSurface?: import('../ocean/contracts.js').WaterSurface
   relief?: import('../geometry/terrain-relief.js').TerrainRelief
+  reliefFinish?: import('../model/scene.js').TerrainArea['reliefFinish']
   /** Actual audience-owned top after visible cuts; source footprint stays in points for selection. */
   regionsMm?: { outerMm: PointMm[]; holesMm: PointMm[][] }[]
 }
@@ -81,7 +82,8 @@ export interface ProjectedDoorThreshold {
 export interface ProjectedPath {
   id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle; bridge?: ProjectedBridge
   gradedSurface?: import('../geometry/road-surface.js').RoadSurfaceGeometry
-  gradedFinish?: { material: import('../stairs/contracts.js').StaircaseMaterialId; covers: import('../stairs/geometry.js').StaircaseGeometry['covers'] }
+  gradedFinish?: { preset: import('../stairs/contracts.js').StaircasePresetId; material: import('../stairs/contracts.js').StaircaseMaterialId
+    covers: import('../stairs/geometry.js').StaircaseGeometry['covers'] }
   /** Inward paint blend over the already audience-filtered ground. */
   groundBlendMm?: number
   groundBlendEnds?: { point: PointMm; inward: PointMm; widthMm: number }[]
@@ -124,6 +126,8 @@ export interface ProjectedRegion { id: string; points: PointMm[]; kind: 'terrain
 export interface ProjectedDecoration {
   id: string; positionMm: PointMm; rotationDeg: number; visualBoundsMm: BoundsMm
   assetId: string; opacity: number; renderLayer: Prop['renderLayer']; renderOrder: number
+  /** Explicit low foliage relief, evaluated only for the spatial renderer. */
+  moundHeightMm?: number
 }
 export interface ProjectedRegionalArea { id: string; points: PointMm[]; kind: 'land' | 'water' | 'forest' | 'hill'; style: { fill: string; stroke: string; strokeWidthMm: number; opacity: number }; relativeElevationMm: number | null }
 export interface ProjectedRegionalLine { id: string; points: PointMm[]; kind: 'river' | 'ridge' | 'road'; displayWidthMm: number; actualWidthMm: number | null; style: { fill: string; stroke: string; strokeWidthMm: number; opacity: number } }

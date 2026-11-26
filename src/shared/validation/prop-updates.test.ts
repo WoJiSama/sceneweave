@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { groupLayerSceneV3, layerSceneV3, scatterLayerSceneV3 } from '../../core/v3/test-fixtures.js'
-import { imageFixtureV6 } from '../../core/v6/test-fixtures.js'
+import { groupLayerScene, imageCompositionFixture, layerScene, scatterLayerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { applyCompositionCommands, applyCompositionDraftCommands } from '../appearance/commands.js'
 import { createCompositionContent, propAppearanceSnapshot } from '../appearance/graph.js'
 import { inheritPropUpdatePresentations, presentationSourceId, propPresentation, scenePresentation } from '../appearance/presentation.js'
@@ -14,13 +13,13 @@ import { validateSceneDocument } from './scene.js'
 let sequence = 0
 const runtime = { ids: { nextId: () => `prop-proof-${++sequence}` }, clock: { now: () => '2026-11-06T00:00:00.000Z' } }
 const move = (x: number, id = 'item') => ({ type: 'updateProp' as const, id, changes: { positionMm: { x, y: 4000 } } })
-function source(document = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })) {
+function source(document = layerScene()) {
   return certifyCompositionContent(createCompositionContent(document, runtime))
 }
 
 describe('controlled position and rotation transaction proofs', () => {
   it('retains certified complete branches and produces actual writes for independent and grouped Props', () => {
-    const document = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+    const document = layerScene()
     document.props.other = { ...cloneJson(document.props.item), id: 'other', positionMm: { x: 7000, y: 4000 } }
     document.entityLayers.other = document.entityLayers.item
     document.aggregateCoordinates = { encoding: 'world', groups: { group: { id: 'group', floorId: 'blank-floor', parentId: null, frame: { translationMm: { x: 1000, y: 2000 }, quarterTurns: 1 }, members: [{ kind: 'prop', id: 'item' }], editLocked: false } } }
@@ -103,7 +102,7 @@ describe('controlled position and rotation transaction proofs', () => {
   })
 
   it('keeps prefab and scatter manual records on the complete fallback path', () => {
-    for (const fixture of [groupLayerSceneV3(), scatterLayerSceneV3(1)]) {
+    for (const fixture of [groupLayerScene(), scatterLayerScene(1)]) {
       const before = source(toCurrentSceneDocument({ ...cloneJson(fixture), format: 'sceneweave-scene' }))
       const id = before.document.props.left ? 'left' : 'scatter-item-0', commands = [move(6500, id)]
       expect(tryApplyPropUpdateCompositionTransaction(before, commands)).toBeUndefined()
@@ -121,7 +120,7 @@ describe('controlled position and rotation transaction proofs', () => {
   })
 
   it('inherits fixed near-side presentation and rejects rotations without promoting an invalid complete proof', () => {
-    const document = toCurrentSceneDocument({ ...cloneJson(imageFixtureV6().document), format: 'sceneweave-scene' }), draft = createCompositionContent(document, runtime)
+    const document = imageCompositionFixture().document, draft = createCompositionContent(document, runtime)
     const old = draft.appearance.sources[draft.appearance.propSources.item]
     if (old.kind !== 'prop') throw new Error('fixture')
     draft.document.props.item.footprintOffsetMm = { x: 0, y: 0 }

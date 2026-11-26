@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../../shared/appearance/graph'
 import { toCurrentSceneDocument } from '../../shared/model/current-scene'
 import type { EditableProject } from '../../application/workspace/project'
@@ -7,7 +7,7 @@ import { captureSceneClipboard, pasteSceneClipboard } from './scene-clipboard'
 
 function project() {
   let next = 0
-  const document = toCurrentSceneDocument({ ...structuredClone(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
+  const document = toCurrentSceneDocument({ ...structuredClone(layerScene()), format: 'sceneweave-scene', schemaVersion: 1 })
   return { ...createCompositionContent(document, { ids: { nextId: () => `clipboard-${++next}` }, clock: { now: () => '2026-11-06T00:00:00.000Z' } }) } as EditableProject
 }
 

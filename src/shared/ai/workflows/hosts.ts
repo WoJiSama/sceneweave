@@ -6,6 +6,11 @@ const available = (entry: string, toolNames?: string[]): WorkflowCapability => (
 /** Page operations remain user actions. A connected chat cannot inherit them. */
 export function pageWorkflowHost(): WorkflowHost {
   return { name: 'page', tools: [], capabilities: {
+    'map-discovery': page('外部助手调用资料', '本机 CLI 或 MCP 可以调用通用制图入口。'),
+    'map-generate': page('生成 → 预览', '页面使用现有生成和绘制工具；外部调用通过本机 harness。'),
+    'map-inspect': page('选择并查看场景对象', '页面通过画布与详情检查候选。'),
+    'map-edit': page('打开工程文件 → 编辑', '在页面审阅工程副本后可继续编辑。'),
+    'map-verify': page('打开工程文件 → 导入核对', '本机制图工具可独立复核保存的候选及预览。'),
     'forest-parameters': available('生成 → 混合场景 → 林中建筑'),
     'forest-generation': available('混合场景 → 预览'), 'project-preview': available('混合场景候选预览'),
     'project-delivery': available('保存为新工程 → 保存/导出 → 重开'),
@@ -26,6 +31,11 @@ export function pageWorkflowHost(): WorkflowHost {
 
 export function harnessWorkflowHost(): WorkflowHost {
   return { name: 'harness', tools: [], capabilities: {
+    'map-discovery': available('sceneweave.mjs map capabilities / map example / map schema'),
+    'map-generate': available('sceneweave.mjs map generate'),
+    'map-inspect': available('sceneweave.mjs map inspect'),
+    'map-edit': available('sceneweave.mjs map edit'),
+    'map-verify': available('sceneweave.mjs map verify'),
     'forest-parameters': available('sceneweave.mjs example / capabilities'),
     'forest-generation': available('sceneweave.mjs generate --input ABS_JSON --output NEW_ABS_DIR --allow forest-building --budget small|standard|expanded'),
     'project-preview': available('生成输出 preview.png；视觉读取由外部助手实际能力决定'),
@@ -35,6 +45,20 @@ export function harnessWorkflowHost(): WorkflowHost {
     'floor-navigation': page('场景 → 楼层入口与定位', '楼层入口在页面编辑，当前CLI没有对应执行命令。'),
     'image-read': { state: 'not-connected', entry: 'tools/image-import/server.mjs', reason: '地图CLI未加载图片源；请显式启动图片MCP宿主。' },
   } }
+}
+
+export function mapMcpWorkflowHost(tools: WorkflowHost['tools']): WorkflowHost {
+  const names = new Set(tools.map(tool => tool.name))
+  const entries = {
+    'map-discovery': 'sceneweave_map_example', 'map-generate': 'sceneweave_map_generate',
+    'map-inspect': 'sceneweave_map_inspect', 'map-edit': 'sceneweave_map_edit', 'map-verify': 'sceneweave_map_verify',
+    'project-preview': 'sceneweave_map_preview', 'project-delivery': 'sceneweave_map_generate',
+  } as const
+  const capabilities: WorkflowHost['capabilities'] = { 'page-adopt': page('普通页面导入并审阅', 'MCP 交付独立工程。') }
+  for (const [requirement, tool] of Object.entries(entries) as Array<[keyof typeof entries, string]>) {
+    if (names.has(tool)) capabilities[requirement] = available(tool, [tool])
+  }
+  return { name: 'map-mcp', tools, capabilities }
 }
 
 const requirementsWithImageItem = new Set<WorkflowRequirement>([

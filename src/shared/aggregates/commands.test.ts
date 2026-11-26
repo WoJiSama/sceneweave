@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import type { AggregateGroup } from '../model/aggregate.js'
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import type { SceneDocument } from '../model/scene.js'
 import { canonicalJson, cloneJson } from '../validation/json.js'
 import { validateSceneDocument } from '../validation/scene.js'
@@ -10,7 +9,7 @@ import { aggregateWorldFrames } from './state.js'
 import { decodeSceneCoordinates, encodeSceneCoordinates } from './scene-coordinates.js'
 
 function fixture(): SceneDocument {
-  const scene = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' })
+  const scene = layerScene()
   scene.props.other = { ...cloneJson(scene.props.item), id: 'other', positionMm: { x: 6000, y: 5000 } }
   scene.entityLayers.other = scene.entityLayers.item
   return scene

@@ -6,6 +6,7 @@ const point = z.object({ x: mm, y: mm }).strict()
 const ref = z.object({ id: z.string().min(1).max(256).refine(value => value !== '__proto__'), version: positive }).strict()
 const ring = z.array(point).min(3).max(128)
 export const forestPaletteRoleSchema = z.enum(['tree', 'shrub', 'grass'])
+export const forestFixedPropRoleSchema = z.enum(['tree', 'shrub', 'grass', 'ground-detail'])
 export const forestSupportSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('generated-ground') }).strict(),
   z.object({ kind: z.literal('terrainArea'), id: ref.shape.id }).strict(),
@@ -23,7 +24,10 @@ export const forestParametersSchema = z.object({
     z.object({ kind: z.literal('new'), elevationMm: mm.min(-100_000).max(100_000), materialRef: ref.nullable() }).strict(),
     z.object({ kind: z.literal('existing') }).strict(),
   ]),
-  groundFinish: z.object({ kind: z.literal('woodland-v1'), mossMaterialRef: ref, soilMaterialRef: ref }).strict().optional(),
+  groundFinish: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('woodland-v1'), mossMaterialRef: ref, soilMaterialRef: ref }).strict(),
+    z.object({ kind: z.literal('woodland-v2'), mossMaterialRef: ref, soilMaterialRef: ref, meadowMaterialRef: ref, gravelMaterialRef: ref, stoneDefinitionRef: ref }).strict(),
+  ]).optional(),
   zones: z.array(z.object({ id, supportRef: forestSupportSchema, boundaryMm: ring, vegetation: z.array(forestVegetationSchema).min(1).max(3) }).strict()).min(1).max(8),
   clearings: z.array(z.object({ id, supportRef: forestSupportSchema, boundaryMm: ring, anchorMm: point, clearanceMm: mm.min(0).max(10_000) }).strict()).max(16),
   entrances: z.array(z.object({ id, supportRef: forestSupportSchema, positionMm: point, directionDeg: z.number().finite().min(0).lt(360), widthMm: positive.max(10_000) }).strict()).max(16),
@@ -35,10 +39,18 @@ export const forestGenerationInputSchema = z.object({ version: z.literal(1), alg
 export type ForestGenerationInput = z.infer<typeof forestGenerationInputSchema>
 export type ForestParameters = z.infer<typeof forestParametersSchema>
 export function forestMaterialBindings(p: ForestParameters) {
+  const finish = p.groundFinish
   return [
     ...(p.ground.kind === 'new' && p.ground.materialRef ? [{ role: 'ground' as const, ref: p.ground.materialRef }] : []),
-    ...(p.groundFinish ? [p.groundFinish.mossMaterialRef, p.groundFinish.soilMaterialRef].map(ref => ({ role: 'ground' as const, ref })) : []),
+    ...(finish ? [finish.mossMaterialRef, finish.soilMaterialRef, ...(finish.kind === 'woodland-v2' ? [finish.meadowMaterialRef, finish.gravelMaterialRef] : [])]
+      .map(ref => ({ role: 'ground' as const, ref })) : []),
     ...p.routes.flatMap(row => row.materialRef ? [{ role: 'path' as const, ref: row.materialRef }] : []),
+  ]
+}
+export function forestPropBindings(p: ForestParameters) {
+  return [
+    ...p.zones.flatMap(zone => zone.vegetation.flatMap(row => row.palette.map(item => ({ role: row.role, ref: item.definitionRef })))),
+    ...(p.groundFinish?.kind === 'woodland-v2' ? [{ role: 'ground-detail' as const, ref: p.groundFinish.stoneDefinitionRef }] : []),
   ]
 }
 export type ForestSupport = z.infer<typeof forestSupportSchema>

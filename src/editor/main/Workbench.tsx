@@ -61,6 +61,7 @@ import { createPlacedProp, type SceneCommand } from '../../shared/commands/comma
 import { inspectBuildingChanges, roomMoveParts } from '../../shared/commands/building'
 import { effectiveEditLocked } from '../../shared/commands/layers'
 import type { BoundsMm, Path, SceneDocument, PointMm, Prop, SurfaceRef } from '../../shared/model/scene'
+import { defaultBuildingWallHeight, defaultOpeningHeight } from '../../shared/model/building-height'
 import { attachmentLocalPoint } from '../../shared/attachments/contact'
 import { bindPropTopSnap, propTopSnap } from '../../shared/attachments/prop-top-snap'
 import { createFurnitureRoomQuery, furnitureRoom } from '../../shared/geometry/furniture-room'
@@ -574,7 +575,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     width: Math.min(generationFloor.boundsMm.width, generationTask.size[0]),
     height: Math.min(generationFloor.boundsMm.height, generationTask.size[1]),
   } : undefined
-  const beginCanvasDrawing = () => { setGenerationDialogOpen(false); enterCanvas() }
+  const beginCanvasDrawing = () => { setMessage(null); setGenerationDialogOpen(false); enterCanvas() }
   useEffect(() => { setGenerationBounds(null); setGenerationPick(null); setGenerationDialogOpen(false) }, [completeProject?.document.sceneId, activeFloorId])
   const canvasGenerationTarget = (width: number, height: number): CanvasGenerationTarget | undefined => generationFloor ? {
     floorId: activeFloorId, layerId: currentLayerId, boundsMm: {
@@ -1101,14 +1102,9 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     if (terrainOperations.getSnapshot().generation.preview) cancelTerrain()
     const reason = terrainTransitionReason('generation')
     if (reason) { terrainOperations.reportError('generation', reason); return }
-    const pending = terrain.prepareGeneration(intent, baseMapSettings, canvasGenerationTarget(intent.input.widthMm, intent.input.heightMm))
-    if (terrainOperations.getSnapshot().generation.phase === 'preparing') beginCanvasDrawing()
-    const preview = await pending
-    if (!preview) {
-      if (terrainOperations.getSnapshot().generation.error && activeRef.current) setGenerationDialogOpen(true)
-      return
-    }
-    candidateSelection.set([]); setAudience('gm'); setGenerationDialogOpen(false)
+    const preview = await terrain.prepareGeneration(intent, baseMapSettings, canvasGenerationTarget(intent.input.widthMm, intent.input.heightMm))
+    if (!preview) return
+    candidateSelection.set([]); setAudience('gm'); beginCanvasDrawing()
     if (!terrain.placementFor(preview)) {
       setHiddenLayerIds(new Set()); setSoloLayerId(null); setCurrentOnly(false); setFitRequest(value => value + 1)
     }
@@ -2177,6 +2173,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     ? defaultDisplayFloorId(visibleProject.document) ?? '' : activeFloorId
   const visibleFloor = visibleProject?.document.floors[visibleFloorId]
   const activeGeneration = domainOperations.active()
+  const preparingDomain = activeGeneration?.phase === 'preparing' && activeGeneration.domain !== 'local' ? activeGeneration.domain : null
   const activeGenerationState = activeGeneration && domainOperationState[activeGeneration.domain]
   const drawingState = activeGenerationState?.drawing ? activeGenerationState : terrain.state.generation
   const drawingHasCandidate = drawingState.phase === 'review'
@@ -2335,6 +2332,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     updateExtension({ depthMm })
     previewBuilding([{ type: 'createRoom', id: newId(), floorId: room.floorId, layerId: currentLayerId, boundaryMm: extensionBoundary(wall, depthMm),
       purpose: extension.purpose, thicknessMm: wall.thicknessMm, supportRef: room.supportRef, visibility: room.visibility,
+      wallHeightMm: completeProject.document.walls[wall.id]?.heightMm ?? defaultBuildingWallHeight([room.purpose, extension.purpose]),
       ...(room.floorStyle ? { materialRef: room.floorStyle.base.materialRef } : {}) }], `沿${room.purpose || '房间'}外墙新建${extension.purpose || '房间'}`, { ...extension, depthMm })
   }
   const extensionTool: CanvasWorldTool | null = extension && completeProject && audience === 'gm' ? {
@@ -2375,7 +2373,8 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     if (!completeProject) return
     try {
       const attachment = openingAtPoint(completeProject.document, point, openingTool.widthMm, scopedHiddenIds)
-      previewBuilding([{ type: 'addOpening', id: newId(), ...attachment, kind: openingTool.kind, state: 'closed', locked: false, secret: false, revealed: false, layerId: currentLayerId }], `新增${openingTool.kind === 'door' ? '门' : '窗'}`, 'openingTool')
+      const vertical = defaultOpeningHeight(completeProject.document.walls[attachment.wallId], openingTool.kind)
+      previewBuilding([{ type: 'addOpening', id: newId(), ...attachment, kind: openingTool.kind, vertical, state: 'closed', locked: false, secret: false, revealed: false, layerId: currentLayerId }], `新增${openingTool.kind === 'door' ? '门' : '窗'}`, 'openingTool')
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) }
   } } : null
   const cancelElevation = () => { elevationEpoch.current++; setElevationSession(null); finishFormDraft('elevationForm', true); setMessage('已取消高程草稿，工程未修改。') }
@@ -2685,7 +2684,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     }
     setGenerationDialogOpen(false)
   }
-  const draftControls = <>{(editingBlocked || hasDraft) && !placedPreview && transitionReason && <p className="asset-muted" role="status">
+  const draftControls = <>{(editingBlocked || hasDraft) && !placedPreview && !preparingDomain && transitionReason && <p className="asset-muted" role="status">
     {openingTool ? '请选择一面墙放置门窗，或退出门窗工具。' : transitionReason}
   </p>}
           {(placement || prefabPlacement || sketch || outdoorSketch || openingTool) && !editingBlocked && <div className="building-sketch-status" role="group" aria-label="当前工具">
@@ -2729,7 +2728,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
   const generationTools = <section aria-label="生成地图">
     <TaskPicker label="生成场景类型" value={generationTab} onChange={chooseGeneration} choices={generationTasks}/>
     {generationSummary.hasDraft && !generationDialogOpen && !generationPick && <button className="secondary asset-wide workspace-generation-resume" onClick={resumeDraft}>继续填写生成设置</button>}
-    <details className="workspace-advanced workspace-generation-settings" onToggle={event => setGenerationSettingsOpen(event.currentTarget.open)}><summary>生成设置 · 执行位置与画面细节</summary>
+    <details className="workspace-advanced workspace-generation-settings" onToggle={event => setGenerationSettingsOpen(event.currentTarget.open)}><summary>生成设置 · 配方、执行位置与细节</summary>
       <DeferredPanel open={generationSettingsOpen} name="生成设置"><GenerationExecutionSettings value={domainSettings} disabled={editDisabled} onChange={value => { for (const domain of GENERATION_DOMAINS) cancelDomain(domain, false); setDomainSettings(value) }}/><BaseMapGenerationSettings value={baseMapSettings} disabled={editDisabled} onChange={setBaseMapSettings}/></DeferredPanel>
     </details>
 
@@ -3073,8 +3072,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     : forestPreview ? { adopt: adoptForest, discard: cancelForest, task: 'forest' as const }
     : volcanoPreview ? { adopt: adoptVolcano, discard: cancelVolcano, task: 'volcano' as const }
     : mixedPreview ? { adopt: adoptMixed, discard: cancelMixed, task: 'mixed' as const } : null : null
-  const preparingDomain = activeGeneration?.phase === 'preparing' && activeGeneration.domain !== 'local' ? activeGeneration.domain : null
-  const preparingTask = generationTasks.find(task => task.id === (preparingDomain ?? (terrain.state.generation.phase === 'preparing' ? generationTab : null)))
+  const preparingTask = generationTasks.find(task => task.id === preparingDomain)
   const activeBoundaryEditor = audience === 'gm' && outdoorBoundaryEditor && (detailMode === 'outdoor' || detailMode === 'selection' || formDrafts[outdoorBoundaryEditor.owner])
     ? outdoorBoundaryEditor : audience === 'gm' && boundaryEditor && (detailMode === 'visual' || formDrafts.visualForm)
       ? { ...boundaryEditor, owner: 'visualForm' as const } : null
@@ -3083,7 +3081,6 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
             <span role="status" aria-label={`${preparingTask.label}候选状态`}>正在准备{preparingTask.label}…</span>
             <button className="secondary" type="button" onClick={() => {
               if (preparingDomain) cancelDomain(preparingDomain, false, preparingDomain === 'mixed')
-              else cancelTerrain()
               setGenerationDialogOpen(false)
             }}>取消{preparingTask.label}预览</button>
           </div>}
@@ -3172,8 +3169,8 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
                 enterCanvas()
               }}>起伏笔刷</button></div>)}
           <div className={`asset-stage${generationDrawing ? ' generation-sketch-stage' : ''}`} tabIndex={generationDrawing ? -1 : undefined}>
-            {generationDrawing && !generationFloor && !drawingHasCandidate ? <div className="generation-sketch-standalone">
-              <GenerationSketch playback={generationDrawing} onComplete={finishDrawing}/>
+            {!generationFloor && !drawingHasCandidate && (generationDrawing || preparingDomain) ? <div className="generation-sketch-standalone">
+              {generationDrawing && <GenerationSketch playback={generationDrawing} onComplete={finishDrawing}/>}
             </div> : visibleProject && visibleFloor ? <AssetCanvas floorId={visibleFloorId} key={panelKey} groundView={groundView} toolControlsTarget={toolControlsTarget} viewControlsTarget={viewControlsTarget}
             generationPlayback={generationDrawing && { playback: generationDrawing, complete: drawingHasCandidate,
               baseline: placedPreview && completeProject?.document, onComplete: finishDrawing }}

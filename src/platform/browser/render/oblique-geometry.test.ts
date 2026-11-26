@@ -15,6 +15,7 @@ import { projectGround } from './projected-ground.js'
 import { createReliefBrush } from '../../../shared/geometry/terrain-relief-edit.js'
 import { createTerrainRelief, reliefBounds } from '../../../shared/geometry/terrain-relief.js'
 import { createSupportQuery } from '../../../shared/geometry/support-sample.js'
+import { wallGeometry } from '../../../shared/geometry/wall-paint-geometry.js'
 
 const floorId = 'blank-floor'
 const drawOnly = () => undefined
@@ -40,7 +41,7 @@ const meshed = (projection: Projection) => {
   const surfaces = { mesh, projection, ground: projectGround(projection), blankGround: true, zOffset: 0,
     earthenSteps: new Map(), images: new Map(), texture: canvas(1, 1), temporaryCanvas: canvas }
   addWorldSurfaces(surfaces)
-  addWorldWalls(surfaces)
+  addWorldWalls(surfaces, wallGeometry(projection.walls))
   return mesh
 }
 const vertices = (mesh: ObliqueMesh) => [...mesh.batches.values()].flatMap(values =>

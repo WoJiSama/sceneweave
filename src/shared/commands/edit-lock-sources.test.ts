@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fixture, runtime } from '../../application/workspace/test-fixtures.js'
-import { groupLayerSceneV3, scatterLayerSceneV3 } from '../../core/v3/test-fixtures.js'
-import { toCurrentSceneDocument } from '../model/current-scene.js'
+import { groupLayerScene, scatterLayerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { cloneJson } from '../validation/json.js'
 import { entityEditLockBlockerIds, isEntityEditLocked } from './base.js'
 import { applyCommands } from './commands.js'
@@ -20,7 +19,7 @@ describe('selection edit-lock sources', () => {
   })
 
   it('identifies both parent and member locks, while each independent unlock preserves the other', () => {
-    const scene = toCurrentSceneDocument({ ...groupLayerSceneV3(), format: 'sceneweave-scene' })
+    const scene = groupLayerScene()
     scene.prefabInstances.group.editLocked = true; scene.props.left.editLocked = true
     expect(entityEditLockBlockerIds(scene, 'left')).toEqual(['left', 'group'])
     expect(new Set(entityEditLockSources(scene, 'group').entityIds)).toEqual(new Set(['left', 'group']))
@@ -53,7 +52,7 @@ describe('selection edit-lock sources', () => {
   })
 
   it('uses the actual terrain closure without inventing a prop support lock', () => {
-    const scene = toCurrentSceneDocument({ ...scatterLayerSceneV3(1), format: 'sceneweave-scene' })
+    const scene = scatterLayerScene(1)
     scene.terrainAreas.domain.editLocked = true
     expect(entityEditLockSources(scene, 'item')).toEqual({ entityIds: [], layerIds: [] })
     expect(entityEditLockSources(scene, 'domain-point-0')).toEqual({ entityIds: ['domain'], layerIds: [] })

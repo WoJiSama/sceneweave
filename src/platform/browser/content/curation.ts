@@ -1,4 +1,4 @@
-import data from '../../../catalog/curation-data.json'
+import data from './curation-data.json'
 import { validateCatalogCuration, catalogCurationFor as findCuration } from '../../../shared/library/curation.js'
 import type { CatalogCurationIndex } from '../../../shared/library/curation.js'
 import type { CatalogItem } from '../../../shared/library/types.js'

@@ -41,6 +41,7 @@ for (const touch of [false, true]) test.describe(touch ? '窄屏触摸' : '桌�
     expect(Object.keys(first.document.rooms)).toHaveLength(1)
     expect(first.document.revision).toBe(original.document.revision + 1)
     const initialWalls = Object.values(first.document.walls)
+    expect(initialWalls.every(wall => wall.heightMm !== undefined)).toBe(true)
     const right = initialWalls.find(w => first.document.vertices[w.startVertexId].xMm === first.document.vertices[w.endVertexId].xMm &&
       first.document.vertices[w.startVertexId].xMm > 6000)!
     const a = first.document.vertices[right.startVertexId], b = first.document.vertices[right.endVertexId]
@@ -97,7 +98,7 @@ for (const touch of [false, true]) test.describe(touch ? '窄屏触摸' : '桌�
     await actions.getByRole('button', { name: '摆放单件' }).click()
     const library = page.getByRole('region', { name: '组件素材库', exact: true })
     await library.getByLabel('搜索组件素材').fill('铜色桌灯')
-    await library.getByRole('button', { name: '放置组件 铜色桌灯' }).click()
+    await library.getByRole('button', { name: '放置组件 铜色桌灯 · 立体版', exact: true }).click()
     await expect(page.getByRole('button', { name: '取消当前放置工具', exact: true })).toBeVisible()
     await closeWorkspaceDrawers(page)
     await tap(x + 2000, y)
@@ -106,9 +107,14 @@ for (const touch of [false, true]) test.describe(touch ? '窄屏触摸' : '桌�
     const rooms = Object.values(result.document.rooms), store = rooms.find(room => room.purpose === '储藏室')!
     expect(rooms).toHaveLength(2)
     expect(Object.keys(result.document.walls)).toHaveLength(7)
+    expect(result.document.walls[right.id].heightMm).toBe(right.heightMm)
     expect(rooms.every(room => [a.id, b.id].every(id => room.boundaryVertexIds.includes(id)))).toBe(true)
     expect(Object.values(result.document.openings).map(door => door.wallId)).toEqual([right.id])
+    expect(Object.values(result.document.openings)[0].vertical).toEqual({ sillMm: 0, heightMm: 2100 })
     expect(Object.values(result.document.props).map(prop => prop.supportRef)).toEqual([{ kind: 'room', id: store.id }])
+    const definition = Object.values(result.document.props)[0].definitionRef!
+    expect(definition.version).toBe(2)
+    expect(result.document.propDefinitions[definition.id].defaultVolume).toEqual({ kind: 'lamp', heightMm: 430 })
     await page.getByRole('button', { name: '撤销编辑', exact: true }).click()
     await keyboardWorkspaceSaved(page)
     const undone = await keyboardProjectBackup(page, info.outputPath('undone.sceneweave'))

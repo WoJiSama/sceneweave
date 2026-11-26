@@ -20,7 +20,7 @@ export function projectPath(path: Path, theme: Projection['theme'], masks: Point
   if (path.roadSurface) {
     result.gradedSurface = buildRoadSurface(path, path.roadSurface)
     result.points = result.gradedSurface.coreMm
-    if (path.staircase) result.gradedFinish = { material: path.staircase.material,
+    if (path.staircase) result.gradedFinish = { preset: path.staircase.preset, material: path.staircase.material,
       covers: planStaircase(path.centerlineMm, path.widthMm, { ...path.staircase, layout: { kind: 'stretch', stepCount: 1 } }, path.widthSections).covers }
   } else if (path.automaticRoute && !path.assembly?.bridge) {
     result.groundBlendMm = Math.min(150, Math.round(Math.min(path.widthMm, ...(path.widthSections ?? []).map(row => row.widthMm)) / 9))

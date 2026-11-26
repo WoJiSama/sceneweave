@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { Prop } from '../../../shared/model/scene.js'
-import { createBlankDocumentV2 } from '../../../editor/v2/blank-project'
-import { migrateSceneV2 } from '../../../core/v3/migration'
+import { blankScene } from '../../../../tests/helpers/current-project-fixtures.js'
 import { projectScene } from '../../../shared/projection/projection.js'
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { edgeLookPaintPadding } from '../../../shared/visual/paint-envelopes.js'
@@ -11,14 +9,15 @@ import { terrainTransitionStrokePolygon } from '../../../shared/visual/transitio
 import { createEditorRenderPlan as createEditorRenderPlanV2, editorPaintBounds as editorPaintBoundsV2 } from './editor-render-plan'
 
 function projection() {
-  const scene = createBlankDocumentV2({ title: 'editor plan', widthMm: 10000, heightMm: 8000, preset: 'investigation', sceneId: 'editor-plan', now: '2026-10-21T00:00:00.000Z' })
+  const scene = blankScene({ title: 'editor plan', widthMm: 10000, heightMm: 8000, sceneId: 'editor-plan', now: '2026-10-21T00:00:00.000Z' })
   const prop: Prop = { id: 'item', floorId: 'blank-floor', editLocked: false, definitionRef: null,
     appearance: { kind: 'symbol', symbol: 'table', tint: null, opacity: 1 }, visualBoundsMm: { x: -50, y: -50, width: 100, height: 100 },
     positionMm: { x: 1000, y: 1000 }, rotationDeg: 0, footprintMm: { width: 100, height: 100 }, footprintOffsetMm: { x: 0, y: 0 },
     blocksMovement: false, blocksSight: false, visibility: 'public', supportRef: { kind: 'floor', id: 'blank-floor' }, renderLayer: 'object', renderOrder: 0,
     shadowClass: 'none', shadowOverride: null }
   scene.props.item = prop
-  return projectScene(toCurrentSceneDocument({ ...migrateSceneV2(scene, { sceneId: `${scene.sceneId}-native`, now: scene.updatedAt }), format: 'sceneweave-scene', schemaVersion: 1 }), 'gm')
+  scene.entityLayers.item = 'layer-default-0'
+  return projectScene(scene, 'gm')
 }
 
 describe('editor-only prop rendering plan', () => {

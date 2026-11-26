@@ -7,6 +7,8 @@ import './workflow-guide.css'
 const labels = { available: '本入口可用', 'page-only': '页面操作', 'not-connected': '尚未接线', 'missing-input': '缺少输入', 'not-authorized': '尚未授权', 'budget-exhausted': '预算已用完' }
 const effectLabels = { historical: '历史冻结证据', partial: '有限效果，仍需审阅', unverified: '效果未验收' }
 const capabilityLabels: Record<WorkflowRequirement, string> = {
+  'map-discovery': '查看通用助手入口', 'map-generate': '生成可编辑地图', 'map-inspect': '读取公开地图对象', 'map-edit': '修改工程副本',
+  'map-verify': '复核已保存工程和图片',
   'forest-parameters': '准备林中建筑参数', 'forest-generation': '生成林中建筑', 'project-preview': '查看工程候选',
   'project-delivery': '保存与交付工程', 'draft-read': '读取授权草稿', 'draft-edit': '修改授权草稿',
   'draft-check': '检查草稿', 'page-adopt': '审阅并采用', 'image-read': '读取原图与断点',

@@ -13,6 +13,7 @@ import { createRefinedCoastDocument } from './refined-coast.js'
 import { createRefinedInteriorDocument } from './refined-interior.js'
 import { createVisualBlankDocument } from './visual-samples.js'
 import { materializeVisualArt } from './visual-art-project.js'
+import { addBuiltinPropVolumes } from './builtin-prop-volumes.js'
 
 const paletteSchema = z.enum(['island', 'coast', 'interior'])
 export type RefinedVisualPalette = z.infer<typeof paletteSchema>
@@ -46,6 +47,7 @@ export function createRefinedBlankDocument(palette: RefinedVisualPalette, option
 export async function createRefinedBlankProject(palette: RefinedVisualPalette, options: BlankOptions, signal?: AbortSignal): Promise<EditableProject> {
   signal?.throwIfAborted()
   const key = paletteSchema.parse(palette), selected = palettes[key], scene = createRefinedBlankDocument(key, options)
+  addBuiltinPropVolumes(scene)
   scene.artStyle = newMapArtStyle()
   return materializeVisualArt(scene, selected.art, selected.license, key => `refined-art-${key}`, signal)
 }

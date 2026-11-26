@@ -1,6 +1,7 @@
 import { STATIC_SVG_LIMITS } from '../../../shared/ai/svg.js'
-import { ASSET_PACK_MANIFEST_FILENAME, ASSET_PACK_MANIFEST_LIMITS, createAssetPathRegistry, parseAssetPackManifest,
-  type AssetPackItem, type AssetPackLicense, type AssetPackManifest } from '../../../shared/assets/import-manifest.js'
+import { ASSET_PACK_EXTENSION_POINT, ASSET_PACK_MANIFEST_FILENAME, ASSET_PACK_MANIFEST_LIMITS, assetPackReference, captureAssetPackReference, createAssetPathRegistry, parseAssetPackManifest,
+  type AssetPackItem, type AssetPackLicense, type AssetPackManifest, type AssetPackReference } from '../../../shared/assets/import-manifest.js'
+import { createExtensionHost } from '../../../shared/extensions/host.js'
 import { inspectBoundedZip, type BoundedZip } from '../../../shared/project/zip.js'
 import { sha256Bytes, sha256Text } from '../../../shared/validation/hash.js'
 import { checkCancelled, type CancellationSignal } from '../../../shared/ports/resources.js'
@@ -28,13 +29,20 @@ export interface AssetFileCollection {
   readonly entries: readonly CollectedAssetFile[]
   readonly skipped: readonly SkippedAssetFile[]
   readonly manifest?: AssetPackManifest
+  readonly packReference?: AssetPackReference
   /** Admitted material source bytes plus the optional manifest; ignored sidecars are excluded. */
   readonly totalBytes: number
   readonly inputBytes: number
   /** All ZIP entries, including verified sidecars, or all directly selected files. */
   readonly expandedBytes: number
 }
-export interface CollectAssetFilesOptions { source?: AssetFileSource; signal?: CancellationSignal }
+export const assetImportExtensionHost = createExtensionHost([ASSET_PACK_EXTENSION_POINT])
+export interface CollectAssetFilesOptions {
+  source?: AssetFileSource
+  signal?: CancellationSignal
+  expectedPack?: AssetPackReference
+  extension?: { readonly manifest: Uint8Array; readonly contributionId: string }
+}
 interface CapturedFile { path: string; file: Blob; size: number }
 
 const fileSize = Object.getOwnPropertyDescriptor(Blob.prototype, 'size')!.get!
@@ -96,17 +104,39 @@ function captureFiles(input: readonly Blob[], source?: AssetFileSource): Capture
 }
 
 function freezeCollection(source: AssetFileSource, entries: CollectedAssetFile[], skipped: SkippedAssetFile[], inputBytes: number, expandedBytes: number,
-  manifest?: AssetPackManifest, manifestBytes = 0): AssetFileCollection {
+  manifest?: AssetPackManifest, manifestBytes = 0, packReference?: AssetPackReference): AssetFileCollection {
   return Object.freeze({ source, entries: Object.freeze(entries.map(row => Object.freeze(row))), skipped: Object.freeze(skipped.map(row => Object.freeze(row))),
-    ...(manifest ? { manifest } : {}), totalBytes: manifestBytes + entries.reduce((sum, row) => sum + fileSize.call(row.file), 0), inputBytes, expandedBytes })
+    ...(manifest ? { manifest } : {}), ...(packReference ? { packReference } : {}),
+    totalBytes: manifestBytes + entries.reduce((sum, row) => sum + fileSize.call(row.file), 0), inputBytes, expandedBytes })
 }
 
-function captureOptions(options: CollectAssetFilesOptions): CollectAssetFilesOptions {
+function optionFields(options: unknown, allowed: readonly string[]): PropertyDescriptorMap {
   if (!options || typeof options !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(options))) fail('来源选项必须是普通数据对象。')
   const fields = Object.getOwnPropertyDescriptors(options)
-  for (const key of Reflect.ownKeys(options)) if (typeof key !== 'string' || !['source', 'signal'].includes(key)
+  for (const key of Reflect.ownKeys(fields)) if (typeof key !== 'string' || !allowed.includes(key)
     || !fields[key]?.enumerable || !('value' in fields[key])) fail('来源选项包含未知字段或访问器。')
-  return { source: fields.source?.value, signal: fields.signal?.value }
+  return fields
+}
+
+function requirePack(expected: AssetPackReference, actual: AssetPackReference | undefined): void {
+  if (!actual || expected.publisher !== actual.publisher || expected.id !== actual.id
+    || expected.version !== actual.version || expected.contentSha256 !== actual.contentSha256) fail('素材包与指定的发布者、标识、版本或内容摘要不符。')
+}
+
+function captureOptions(options: CollectAssetFilesOptions): Omit<CollectAssetFilesOptions, 'extension'> {
+  const fields = optionFields(options, ['source', 'signal', 'expectedPack', 'extension'])
+  const expected = fields.expectedPack?.value
+  let expectedPack = expected === undefined ? undefined : captureAssetPackReference(expected)
+  if (fields.extension?.value !== undefined) {
+    checkCancelled(fields.signal?.value)
+    const selection = optionFields(fields.extension.value, ['manifest', 'contributionId'])
+    if (!selection.manifest || !selection.contributionId) fail('请提供扩展清单字节和所选扩展项标识。')
+    const inspected = assetImportExtensionHost.inspect(selection.manifest.value)
+    const pack = captureAssetPackReference(inspected.readContribution(selection.contributionId.value, ASSET_PACK_EXTENSION_POINT))
+    if (expectedPack) requirePack(expectedPack, pack)
+    expectedPack = pack
+  }
+  return { source: fields.source?.value, signal: fields.signal?.value, expectedPack }
 }
 
 /** Input collection only. Rendering, SVG parsing, licences and atomic adoption
@@ -143,12 +173,18 @@ export async function collectAssetFiles(input: readonly Blob[], options: Collect
     entries.push({ key: `asset-file-${sha256Text(path)}`, path, file: Object.freeze(owned), format })
   }
   const finish = async (expandedBytes: number): Promise<AssetFileCollection> => {
-    if (!manifestSource) return freezeCollection(source, entries, skipped, inputBytes, expandedBytes)
+    const expected = ownedOptions.expectedPack
+    if (!manifestSource) {
+      if (expected) fail('指定发布版本的素材包须携带清单。')
+      return freezeCollection(source, entries, skipped, inputBytes, expandedBytes)
+    }
     const manifestBytes = fileSize.call(manifestSource.file)
     if (manifestBytes + entries.reduce((sum, row) => sum + fileSize.call(row.file), 0) > ASSET_BATCH_LIMITS.sourceTotalBytes) fail('素材与清单累计超过64MiB。')
     checkCancelled(signal)
     const manifest = parseAssetPackManifest(new Uint8Array(await Blob.prototype.arrayBuffer.call(manifestSource.file)))
     checkCancelled(signal)
+    const reference = assetPackReference(manifest)
+    if (expected) requirePack(expected, reference)
     const root = manifestSource.path.slice(0, -ASSET_PACK_MANIFEST_FILENAME.length), byPath = new Map(entries.map(row => [row.path, row]))
     const licenseById = new Map(manifest.licenses.map(license => [license.id, license]))
     const mapped = new Map<string, { metadata: AssetPackItem; license: AssetPackLicense }>()
@@ -164,7 +200,7 @@ export async function collectAssetFiles(input: readonly Blob[], options: Collect
       mapped.set(path, { metadata: item, license: licenseById.get(item.licenseId)! })
     }
     if (mapped.size !== entries.length) fail('素材包清单须在共同根目录精确列出每份受支持图片；存在未列出的素材。')
-    return freezeCollection(source, entries.map(row => ({ ...row, ...mapped.get(row.path)! })), skipped, inputBytes, expandedBytes, manifest, manifestBytes)
+    return freezeCollection(source, entries.map(row => ({ ...row, ...mapped.get(row.path)! })), skipped, inputBytes, expandedBytes, manifest, manifestBytes, reference)
   }
   if (source !== 'zip') {
     for (const row of captured) { checkCancelled(signal); register(row.path, false); add(row.path, row.file) }

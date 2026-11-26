@@ -2,6 +2,7 @@ import type { PointMm } from '../../../shared/model/scene.js'
 import type { ProjectedVisualBoundary } from '../../../shared/projection/types.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { visualSampleAtDistance } from '../../../shared/visual/geometry.js'
+import { horizontalDirectionToLight } from '../../../shared/visual/directional-light.js'
 import { cliffReliefV3, type CliffReliefV3, type CliffReliefV3Options } from './cliff-relief-v3.js'
 import { variableOffsetPolyline, visualRandom } from './visual-geometry.js'
 
@@ -37,7 +38,7 @@ export function cliffReliefV4(boundary: ProjectedVisualBoundary, look: VisualEdg
   const base = cliffReliefV3(boundary, look, side, options)
   const output: CliffReliefV4 = { ...base, version: 4, baseOpacity: .5, shadeCells: [] }
   if (!base.faceRings.length) return output
-  const angle = options.lightDirectionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }
+  const light = horizontalDirectionToLight(options.lightDirectionDeg)
   const phase = visualRandom(look.seed, 0, 18) * Math.PI * 2, length = boundary.lengthMm
   const widthAt = (distance: number) => look.widthMm * (.68 + .13 * Math.sin(distance / length * Math.PI * 6 + phase)
     + .08 * Math.cos(distance / length * Math.PI * 14 + phase * 1.7))

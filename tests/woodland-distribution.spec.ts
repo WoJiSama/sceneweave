@@ -32,8 +32,15 @@ for (const domain of ['forest', 'mixed'] as const) test(`${domain} copse choice 
   const zones = recipe.parameters.zones as { boundaryMm: { x: number; y: number }[]; vegetation: { role: string }[] }[]
   expect(zones).toHaveLength(4)
   expect(zones.every(zone => zone.boundaryMm.length === 12)).toBe(true)
-  expect(zones.filter(zone => zone.vegetation.some(row => row.role === 'tree'))).toHaveLength(2)
-  expect(zones.filter(zone => zone.vegetation.some(row => row.role === 'shrub'))).toHaveLength(2)
+  if (domain === 'forest') {
+    expect(recipe.parameters).toMatchObject({ groundFinish: { kind: 'woodland-v2' } })
+    expect(zones.filter(zone => zone.vegetation.some(row => row.role === 'tree')).length).toBeGreaterThanOrEqual(2)
+    expect(zones.filter(zone => zone.vegetation.some(row => row.role === 'shrub')).length).toBeGreaterThanOrEqual(2)
+    expect(Object.values(adopted.document.surfaceRules).some(rule => rule.field === 'material' && rule.paint.materialRef.id.includes('forest-loam'))).toBe(true)
+  } else {
+    expect(zones.filter(zone => zone.vegetation.some(row => row.role === 'tree'))).toHaveLength(2)
+    expect(zones.filter(zone => zone.vegetation.some(row => row.role === 'shrub'))).toHaveLength(2)
+  }
   await page.goto('./#home')
   await page.reload()
   const home = page.getByTestId('workspace-home')

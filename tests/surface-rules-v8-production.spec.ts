@@ -88,7 +88,7 @@ test('normal production UI negotiates the v6 selector and saves a current v1 sur
   await openGenerationTask(page, '自然地形')
   await openGenerationSettings(page)
   await page.getByLabel('程序底图生成位置', { exact: true }).selectOption('server')
-  await page.getByLabel('程序底图地表外观', { exact: true }).selectOption('surface-rules')
+  await page.getByLabel('程序底图生成配方', { exact: true }).selectOption('surface-rules')
   await page.getByLabel('程序底图后端地址', { exact: true }).fill(backendUrl)
   await page.getByLabel('程序底图应用访问凭据', { exact: true }).fill(token)
   await expect(page.getByText('规则地表会保存连续材质覆盖与区域植物簇；生成前校验素材、许可和预算。自动模式至少使用标准容量。', { exact: true })).toBeVisible()

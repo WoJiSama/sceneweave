@@ -1,4 +1,5 @@
 import type { AssetRecord, ProjectBundle, ProjectData, ResourceBytePort } from '../model/project.js'
+import { projectDataFields } from '../model/project.js'
 import type { BitmapParameters, CompleteValidationOptions, ImageProcessingPort, RasterImage, ResourceOptions, SvgProcessingPort } from '../ports/resources.js'
 import { CancelledOperationError, checkCancelled, ImageCapabilityError, SvgCapabilityError, LegacySvgCapabilityError } from '../ports/resources.js'
 import { normalizeStaticSvg, CANONICAL_SVG_PROCESSOR, LEGACY_SVG_PROCESSOR } from '../ai/svg.js'
@@ -31,7 +32,6 @@ const maxCapabilityFacts = 4
 declare const verifiedBundle: unique symbol
 /** Only the private certificate map, never this type assertion, grants reuse. */
 export type VerifiedProjectBundle = ProjectBundle & { readonly [verifiedBundle]: true }
-const projectFields = ['format', 'schemaVersion', 'document', 'historyIdentity', 'appearance', 'assets', 'licenses', 'licenseBindings', 'authoringSources'] as const
 const proofBranches = ['assets', 'licenses', 'licenseBindings', 'authoringSources'] as const
 // Shared across simultaneous save/render validations. Weights conservatively
 // account for intermediate RGBA arrays; an oversized check runs on its own.
@@ -66,7 +66,7 @@ async function validatePixels(tasks: Iterable<PixelTask>, concurrent: boolean, s
 function dataFields(input: unknown, keys: readonly string[]): Record<string, PropertyDescriptor> {
   if (!input || typeof input !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) throw new Error('完整工程包装必须是普通数据对象。')
   const fields = Object.getOwnPropertyDescriptors(input)
-  if (Reflect.ownKeys(input).length !== keys.length || !keys.every(key => fields[key]?.enumerable && 'value' in fields[key])) throw new Error('完整工程包装含未知、访问器、隐藏或Symbol字段。')
+  if (Reflect.ownKeys(fields).length !== keys.length || !keys.every(key => fields[key]?.enumerable && 'value' in fields[key])) throw new Error('完整工程包装含未知、访问器、隐藏或Symbol字段。')
   return fields
 }
 
@@ -531,8 +531,10 @@ export function tryDerivedProjectBundle(input: ProjectBundle, baseline: ProjectB
   try {
     const inputFields = dataFields(input, ['project', 'resources'])
     if (inputFields.resources.value !== base.resources) return undefined
+    const projectFields = projectDataFields(base.project)
     const candidateFields = dataFields(inputFields.project.value, projectFields)
     const baseFields = dataFields(base.project, projectFields)
+    if (candidateFields.extensions?.value !== base.project.extensions) return undefined
     if(candidateFields.schemaVersion.value !== baseFields.schemaVersion.value) return undefined
     for (const key of proofBranches) {
       const candidate = candidateFields[key].value, original = baseFields[key].value

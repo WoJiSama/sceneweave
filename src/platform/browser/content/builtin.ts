@@ -20,6 +20,13 @@ export function builtinIdentityAudit(bundle: ProjectBundle): { items: number; im
 }
 /** Standalone complete-v1 provider. Every call captures and validates actual source image bytes. */
 export async function loadBuiltinCatalog(validation: CompleteValidationOptions, onProgress?: ContentLoadOptions['onProgress']): Promise<VerifiedProjectBundle> {
+  const verified = await loadBuiltinCatalogContent(validation, onProgress)
+  builtinIdentityAudit(verified)
+  return verified
+}
+
+/** The curation generator reads the same verified content before building the index. */
+export async function loadBuiltinCatalogContent(validation: CompleteValidationOptions, onProgress?: ContentLoadOptions['onProgress']): Promise<VerifiedProjectBundle> {
   checkCancelled(validation.signal)
   const { default: data } = await import('./builtin-data.json')
   checkCancelled(validation.signal)
@@ -31,7 +38,7 @@ export async function loadBuiltinCatalog(validation: CompleteValidationOptions, 
   const bundle: ProjectBundle = { project, resources: createMemoryResources(bytes) }
   onProgress?.({ phase: 'validation', completed: 0, total: bytes.size })
   const verified = await validateProjectBundle(bundle, validation)
-  checkCancelled(validation.signal); builtinIdentityAudit(verified)
+  checkCancelled(validation.signal)
   onProgress?.({ phase: 'validation', completed: bytes.size, total: bytes.size })
   checkCancelled(validation.signal)
   return verified

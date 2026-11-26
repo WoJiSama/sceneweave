@@ -8,12 +8,10 @@
 |---|---|
 | `run-current-formal.mjs` | 当前完整工程的容量/正式性能矩阵 |
 | `run-ocean-formal.mjs` | 海洋专项容量和交互；当前海洋会话在使用 |
-| `run-native-m2.mjs` | 原生完整工程的编辑、保存、历史及输出旅程 |
 | `prepare-production-pair.mjs` / `run-production-pair.mjs` | 在隔离副本中准备及运行同输入前后对照 |
 | `run-storage-scale.mjs` | 按工程数、历史长度和资源规模拆分保存成本 |
 | `run-history-cause-analysis.mjs` | 历史/存储组件的粗阶段归因 |
 | `run-content-transaction-analysis.mjs` | 最终写事务、原生事件和缓存诊断 |
-| `run-c5.mjs` / `run-b5.mjs` | 保留的旧合同运行器；不能用其旧格式结果替代当前工作台 |
 
 具体参数、默认值、所需输入及输出目录规则见相应脚本。运行前核对使用的源码、正常产物和真实输入；对照基线补丁只在隔离目录应用，不反向修改日常工作区。
 

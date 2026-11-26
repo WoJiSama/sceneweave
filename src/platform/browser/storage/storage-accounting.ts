@@ -3,7 +3,7 @@ import type { ProjectDatabase } from './database.js'
 import { CONTENT_PAYLOAD_FIELDS } from './content-block-middleware.js'
 import type { StorageAuditPreparation } from './storage-audit.js'
 
-export interface StorageTotals { documentBytes: number; resourceBytes: number; legacyBytes: number }
+export interface StorageTotals { documentBytes: number; resourceBytes: number }
 type Cost = { kind: keyof StorageTotals; bytes: number } | null
 interface Receipt { totals: StorageTotals; epoch: number; generation: number }
 const generations = new Map<string, number>()

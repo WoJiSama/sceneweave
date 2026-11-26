@@ -4,6 +4,7 @@ import { Boxes, DoorOpen, MousePointer2, PencilRuler, Plus, Ruler, Scissors, X }
 import { newId } from './runtime'
 import type { SceneCommand } from '../../shared/commands/commands'
 import type { SceneDocument } from '../../shared/model/scene'
+import { defaultBuildingWallHeight } from '../../shared/model/building-height'
 import { NumberInput } from '../native-canvas/controls'
 import { finishOrthogonalBoundary, formatDistanceMm, parseBoundary, rectangleFromPoints, rectanglePoints, rulerDistance, type BuildingSketch } from '../native-canvas/building-session'
 import { DeferredPanel, lazyPanel } from './deferred-panel'
@@ -56,7 +57,8 @@ export default function BuildingPanel({ scene, layerId, disabled, sketch, onSket
       const boundaryMm = currentShape === 'rectangle' ? rectanglePoints(currentRectangle) : currentShape === 'orthogonal' ? finishOrthogonalBoundary(parseBoundary(currentBoundary)) : parseBoundary(currentBoundary)
       const [kind, id] = support.split(':')
       setError(null)
-      onPreview([{ type: 'createRoom', id: newId(), floorId, boundaryMm, thicknessMm: thickness, layerId, purpose, supportRef: { kind: kind as 'floor' | 'terrainArea', id }, ...(material ? { materialRef: { id: material, version: scene.materials[material].version } } : {}) }], `新建${purpose || '房间'}`, intent)
+      onPreview([{ type: 'createRoom', id: newId(), floorId, boundaryMm, thicknessMm: thickness,
+        wallHeightMm: defaultBuildingWallHeight([purpose]), layerId, purpose, supportRef: { kind: kind as 'floor' | 'terrainArea', id }, ...(material ? { materialRef: { id: material, version: scene.materials[material].version } } : {}) }], `新建${purpose || '房间'}`, intent)
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
   }
   const finishReady = (!split || task === 'room') && !disabled && !layerLocked && !!sketch && sketch.kind !== 'ruler' && (sketch.kind === 'rectangle' ? sketch.points.length === 2 : sketch.points.length >= 3)

@@ -2,7 +2,9 @@ import { cloneJson } from '../validation/json.js'
 import { corridor, pathPolygon, polygonDistance, polygonInside, propFootprint, supportedPolygon, terrainPoints } from './geometry.js'
 import { createPublicVisibility, publicTerrainView } from './visibility.js'
 import type { GroundSurfaceRef, PointMm, Prop, ScatterGroup, SceneDocument, SurfaceRef } from '../model/scene.js'
-import { isSupportedScatterAlgorithm } from './scatter-algorithm.js'
+import { isSupportedScatterAlgorithm, LANDSCAPE_SCATTER_VERSION } from './scatter-algorithm.js'
+import { reliefBounds, sampleTerrainRelief } from './terrain-relief.js'
+import { roadEffectsPolygon } from './road-domain.js'
 
 import { sha256Text } from '../validation/hash.js'
 export { sha256Text } from '../validation/hash.js'
@@ -52,7 +54,7 @@ function scatterDomain(scene: SceneDocument, group: ScatterGroup): { polygon: Po
   if (domain.kind === 'area') {
     const area = scene.terrainAreas[domain.areaId]
     if (!area) throw new Error(`散布地形不存在：${domain.areaId}。`)
-    return { polygon: terrainPoints(area), refs: [{ kind: 'terrainArea', id: area.id }] }
+    return { polygon: domain.boundaryMm ?? terrainPoints(area), refs: [{ kind: 'terrainArea', id: area.id }] }
   }
   if (domain.kind === 'path') {
     const path = scene.paths[domain.pathId]
@@ -108,9 +110,15 @@ export function buildScatterRegeneration(scene: SceneDocument, groupId: string, 
   }
   const obstacles = Object.values(scene.props).filter(prop => prop.floorId === group.floorId && !removed.has(prop.id) && (!publicGroup || visibility.prop(prop))).map(propFootprint)
   const ids = allIds(scene), props: Prop[] = []
+  const natural = group.algorithmVersion === LANDSCAPE_SCATTER_VERSION
+  const carrier = natural && group.domain.kind === 'area' ? supportScene.terrainAreas[group.domain.areaId] : undefined
+  const terrainBounds = carrier?.relief && reliefBounds(terrainPoints(carrier))
+  const roads = natural ? Object.values(supportScene.paths).filter(path => path.floorId === group.floorId
+    && path.supportRefs.some(ref => ref.kind === 'terrainArea' && ref.id === carrier?.id)).map(roadEffectsPolygon) : []
   let liveCount = Object.values(group.members).filter(member => member.propId !== null).length
   for (let row = minimumRow; row <= maximumRow; row++) for (let column = minimumColumn; column <= maximumColumn; column++) {
-    const cell = group.algorithmVersion === 'scatter-cell-v2' ? sampleScatterCellV2(group, column, row) : { ...sampleScatterCellV1(group, column, row), densityThreshold: group.densityFactor }
+    const cell = group.algorithmVersion === 'scatter-cell-v1' ? { ...sampleScatterCellV1(group, column, row), densityThreshold: group.densityFactor }
+      : sampleScatterCellV2(group, column, row)
     if (group.members[cell.candidateKey] || cell.density >= cell.densityThreshold) continue
     const definition = scene.propDefinitions[cell.definitionRef.id]
     if (!definition || definition.version !== cell.definitionRef.version) throw new Error('散布需要已采用的固定版本物件定义。')
@@ -125,6 +133,15 @@ export function buildScatterRegeneration(scene: SceneDocument, groupId: string, 
       prop = { ...cloneJson(scene.props[previousId]), positionMm: cell.positionMm, rotationDeg: cell.rotationDeg }
     }
     const footprint = propFootprint(prop)
+    if (natural) {
+      const rocky = definition.tags.includes('rock') || definition.id.startsWith('natural-stone-')
+      const sample = carrier?.relief && sampleTerrainRelief(carrier.relief, terrainBounds!, prop.positionMm)
+      if (sample && (sample.normal.z < (rocky ? .78 : .91) || !rocky && carrier!.groundElevationMm >= 0
+        && carrier!.groundElevationMm + sample.offsetMm < 430)) continue
+      const visual = propFootprint({ ...prop, footprintMm: { width: prop.visualBoundsMm.width, height: prop.visualBoundsMm.height },
+        footprintOffsetMm: { x: prop.visualBoundsMm.x + prop.visualBoundsMm.width / 2, y: prop.visualBoundsMm.y + prop.visualBoundsMm.height / 2 } })
+      if (roads.some(road => polygonDistance(visual, road) < 230)) continue
+    }
     if (!polygonInside(footprint, polygon) || !visualInsideFloor(scene, prop) || group.exclusions.some(exclusion => polygonDistance(footprint, exclusion.boundaryMm) <= 1e-7)) continue
     const support = refs.find(ref => supportedPolygon(supportScene, footprint, ref, group.floorId))
     if (!support || obstacles.some(other => polygonDistance(footprint, other) + 1e-7 < group.minDistanceMm)) continue

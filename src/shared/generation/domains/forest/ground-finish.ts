@@ -20,7 +20,8 @@ export function woodlandTrailFinish(document: SceneDocument, finish: ForestParam
   if (!finish || !ref || ref.id !== finish.soilMaterialRef.id || ref.version !== finish.soilMaterialRef.version) return
   const material = document.materials[ref.id]
   if (!material || material.version !== ref.version || !material.applicableSurfaces.includes('path')) return
-  const surfaceStyle: SurfaceStyle = { base: { ...defaultMaterialPaint(material, 'path'), tint: trailTint }, overlays: [] }
+  const tint = finish.kind === 'woodland-v2' ? '#E0CDA8' : trailTint
+  const surfaceStyle: SurfaceStyle = { base: { ...defaultMaterialPaint(material, 'path'), tint }, overlays: [] }
   return { surfaceStyle, boundaryBlendMm: 215 }
 }
 

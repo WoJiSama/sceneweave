@@ -14,7 +14,7 @@ import { createMemoryResources } from '../project/resources.js'
 import { fromBundle } from '../../application/workspace/project.js'
 import { materializeProject } from '../../application/workspace/prepare.js'
 import { validation } from '../../application/workspace/test-fixtures.js'
-import { symbolPropV3 } from '../../core/v3/test-fixtures.js'
+import { symbolProp } from '../../../tests/helpers/current-project-fixtures.js'
 import { createEmptyGeneration5, type GenerationSystem5, type VisualSystem3 } from './composition-contracts.js'
 import type { TerrainCompositionReference } from './composition-integrity.js'
 import { compositionInputHash, compositionOutputHash, dependencyInputHash, resolveCompositionTarget, terrainRequirementInputHash, thresholdInputHash } from './composition-integrity.js'
@@ -40,7 +40,7 @@ function fixture(options: { hard?: boolean; propOutput?: boolean; threshold?: bo
   generation.legacy.recipes.recipe = { id: 'recipe', recipeVersion: 1, algorithmId: 'terrain-compose', algorithmVersion: 1, mapMode: 'scene', seed: 'strict', parameters: { terrainKind: 'mixed', seaElevationMm: 0, landElevationMm: 500, plateauElevationMm: 1000, roughness: 0, densityFactor: 0, baySide: 'west' }, materials: [], props: [], precision }
   scene.terrainAreas.land = { id: 'land', floorId: 'floor', editLocked: false, visibility: 'public', boundaryMm: [{ x: 2000, y: 2000 }, { x: 10000, y: 2000 }, { x: 10000, y: 10000 }, { x: 2000, y: 10000 }].map((positionMm, i) => ({ id: `land-p${i}`, segmentId: `land-s${i}`, positionMm })), groundElevationMm: 500, coveragePriority: 1, surfaceStyle: null, blocksMovement: false, blocksSight: false, movementCostMultiplier: 1 }
   scene.entityLayers.land = 'layer'
-  scene.props.item = { ...symbolPropV3('item', 1000, 1000), floorId: 'floor', supportRef: { kind: 'floor', id: 'floor' } }; scene.entityLayers.item = 'layer'
+  scene.props.item = { ...symbolProp('item', 1000, 1000), floorId: 'floor', supportRef: { kind: 'floor', id: 'floor' } }; scene.entityLayers.item = 'layer'
   const outputRefs: TerrainCompositionReference[] = [{ kind: 'terrainArea', entityId: 'land', parentId: null, fieldGroup: 'geometry' }]
   if (options.propOutput) outputRefs.push({ kind: 'prop', entityId: 'item', parentId: null, fieldGroup: 'appearance' })
   const row = generation.compositions.composition = { id: 'composition', floorId: 'floor', layerId: 'layer', visibility: 'public' as const, editLocked: false, recipeRef: { id: 'recipe', version: 1 }, seed: 'strict', boundsMm: cloneJson(bounds), algorithmId: 'terrain-compose' as const, algorithmVersion: 1 as const, precision, baseElevationMm: 500, members: [{ featureId: 'feature', field: 'land' as const, operation: 'add' as const, weightPpm: 1000000 }], thresholdIds: [] as string[], requirementIds: [] as string[], outputRefs, state: 'active' as 'active' | 'paused' | 'detached', inputHash: blankHash, outputHash: blankHash }
@@ -210,7 +210,7 @@ describe('composition manual-edit lifecycle', () => {
     const document = cloneJson(baseline.document)
     for (let i = 0; i < 140; i++) {
       const id = `additional-${i}`
-      document.props[id] = { ...symbolPropV3(id, 1000, 1000), floorId: 'floor', supportRef: { kind: 'floor', id: 'floor' } }; document.entityLayers[id] = 'layer'
+      document.props[id] = { ...symbolProp(id, 1000, 1000), floorId: 'floor', supportRef: { kind: 'floor', id: 'floor' } }; document.entityLayers[id] = 'layer'
     }
     pauseChangedCompositions(baseline.document, document)
     const appearance = createAppearanceGraph(document)

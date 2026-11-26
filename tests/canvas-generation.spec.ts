@@ -111,6 +111,9 @@ test('森林候选可放弃，随后加入小画布并冷打开同一工程', as
   expect(adopted.document.floors).toEqual(blank.document.floors)
   expect(Object.keys(adopted.document.terrainAreas).length).toBeGreaterThan(1)
   expect(Object.keys(adopted.document.paths).length).toBeGreaterThan(0)
+  const paint = Object.values(adopted.document.surfaceRules).find(rule => rule.field === 'material' && rule.paint.materialRef.id.includes('forest-loam'))
+  expect(paint?.supportRef.id).toMatch(/^generated-/)
+  expect(adopted.document.materials['theme-pack-wilderness-material-forest-loam-v2']).toBeDefined()
 })
 
 test('窄屏可从左栏直接在新画布涂绘地表', async ({ page }, info) => {

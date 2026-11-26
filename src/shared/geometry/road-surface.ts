@@ -43,6 +43,7 @@ const roadIntentFields = { fixedPointsMm: z.array(point).min(2).max(AUTOMATIC_RO
 export const automaticRouteSchema = z.discriminatedUnion('algorithm', [
   z.object({ algorithm: z.enum(['terrain-road1', 'terrain-road2']), ...roadIntentFields }).strict(),
   z.object({ algorithm: z.literal(AUTOMATIC_ROAD_VERSION), ...roadIntentFields,
+    alignment: z.literal('anchors-v1').optional(),
     landings: z.array(roadLandingSchema).max(AUTOMATIC_ROAD_MAX_FIXED_POINTS - 2).optional() }).strict(),
 ])
 export type AutomaticRoute = z.infer<typeof automaticRouteSchema>

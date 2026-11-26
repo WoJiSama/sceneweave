@@ -13,7 +13,6 @@ import { applySceneryCandidate, prepareSceneryRegeneration } from '../visual/sce
 import { polygonDistance, polygonInside, propFootprint, terrainPoints, validateGeometry } from './geometry.js'
 import * as scatter from './scatter.js'
 import type { ScatterAlgorithmVersion } from './scatter-algorithm.js'
-import { buildScatterRegenerationV2 } from '../../core/v2/scatter.js'
 
 let sequence=0
 const runtime={ids:{nextId:()=>`scatter-test-${++sequence}`},clock:{now:()=> '2026-10-29T00:00:00.000Z'}}
@@ -41,7 +40,6 @@ describe('explicit scatter-cell-v2 contract',()=>{
   group.seed='sceneweave'
   expect(scatter.sampleScatterCellV1(group,0,0)).toEqual({candidateKey:'90350e626162e91578ab5f3d421f58232ac7e8261f5e94aeac7777c6cc53b07f',density:.3719807300694229,positionMm:{x:819,y:-402},rotationDeg:172.826,paletteKey:'z-tree',definitionRef:{id:'tree',version:1}})
   const scene=applyCommands(fixture(),[create() as never],runtime)
-  expect(canonicalJson(scatter.buildScatterRegeneration(scene,'trees'))).toBe(canonicalJson(buildScatterRegenerationV2(scene as never,'trees')))
   expect(applyCommands(scene,[{type:'regenerateScatter',id:'trees'}],runtime).scatterGroups.trees.algorithmVersion).toBe('scatter-cell-v1')
  })
  it('requires a new-group selector, defaults to v1, and refuses version replacement or unknown creation',()=>{

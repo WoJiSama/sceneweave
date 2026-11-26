@@ -11,7 +11,7 @@ const ref = z.object({ id, version: mm.positive() }).strict()
  * Coordinates, dimensions and fixed references remain user parameters. */
 export const mixedParametersSchema = z.object({
   outdoor: z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('forest'), parameters: forestParametersSchema }).strict(),
+    z.object({ kind: z.literal('forest'), parameters: forestParametersSchema.refine(p => p.groundFinish?.kind !== 'woodland-v2', '营地地表配方用于独立森林生成。') }).strict(),
     z.object({ kind: z.literal('volcano'), parameters: volcanoParametersSchema }).strict(),
   ]),
   building: interiorLayoutParametersSchema,

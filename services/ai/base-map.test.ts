@@ -12,7 +12,7 @@ import { createRefinedBlankDocument } from '../../src/platform/browser/content/r
 import { createShoreBlankDocument } from '../../src/platform/browser/content/shore-blank.js'
 import { checkCoastalTrail, TERRAIN_FIXED_SEEDS } from '../../src/shared/terrain-generation/generate.js'
 import { canonicalJson } from '../../src/shared/validation/json.js'
-import { BASE_MAP_V3_LIMITS, prepareBaseMapRequestV3, executeBaseMapRequestV3, parseBaseMapResponseV3, terrainAlgorithmForPalette } from '../../src/shared/terrain-generation/base-map-v3.js'
+import { BASE_MAP_V3_LIMITS, defaultTerrainAlgorithmVersion, prepareBaseMapRequestV3, executeBaseMapRequestV3, parseBaseMapResponseV3 } from '../../src/shared/terrain-generation/base-map-v3.js'
 import { TASK_BUDGET_PROFILES, captureExecutionBudget } from '../../src/shared/budget/task-budget.js'
 import { AI_LIMITS } from '../../src/shared/ai/protocol.js'
 
@@ -205,7 +205,7 @@ describe('profile-bound v3 base-map HTTP service', () => {
     const base = createShoreBlankDocument(kind, { sceneId, widthMm, heightMm, title: '海岸测试', preset: 'narrative', now: '2026-11-24T00:00:00.000Z' }, false, false, 'naturalStone')
     const input = prepareBaseMapRequestV3({ requestId: 'coastal-request', workspaceSceneId: 'current-workspace', checkpoint: 5, operationEpoch: 1,
       flowId: 'coastal-flow', profile: TASK_BUDGET_PROFILES.standard, base, generation: { kind: 'terrain', input: {
-        sceneId, kind, widthMm, heightMm, seed: 'ocean-final-2', algorithmVersion: terrainAlgorithmForPalette(kind, 5), budgetProfileId: 'standard', quality: 'standard',
+        sceneId, kind, widthMm, heightMm, seed: 'ocean-final-2', algorithmVersion: defaultTerrainAlgorithmVersion(kind), budgetProfileId: 'standard', quality: 'standard',
       } } })
     const capability = await app.request('/v1/capabilities?baseMapSelector=terrain-scene-v13', { headers })
     expect(capability.status).toBe(200)

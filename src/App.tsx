@@ -4,7 +4,6 @@ import { lazyView } from './editor/main-shell/lazy-view'
 import { isHomeSectionHash } from './editor/main-shell/location'
 import type { WorkspaceController, WorkspaceRequest, WorkspaceSessionSummary } from './editor/main-shell/session'
 import type { NewSceneOptions } from './editor/main/NewSceneForm'
-import type { DevelopmentImportPreview } from './platform/browser/storage/development-import'
 import { isTutorialHash } from './tutorial/location'
 
 const WorkspaceHome = lazyView(() => import('./editor/main-shell/WorkspaceHome'),
@@ -21,10 +20,6 @@ const Workbench = lazyView(loadWorkbench,
   ({ onBack }) => <div role="alert"><p>工作区加载失败。请检查网络后刷新页面。</p><button type="button" onClick={onBack}>回到首页</button></div>)
 const TutorialPage = lazyView(() => import('./tutorial/TutorialPage'),
   () => <div role="alert"><p>教程加载失败。请检查网络后刷新页面。</p><a href="#home">回到首页</a></div>)
-const loadDevelopmentImport = () => Promise.all([
-  import('./platform/browser/storage/development-import'),
-  import('./platform/browser/runtime'),
-])
 type Page = 'home' | 'workspace' | 'tutorial'
 const currentPage = (): Page => {
   const hash = window.location.hash
@@ -46,7 +41,6 @@ export default function App() {
   const [preparedWorkbench, setPreparedWorkbench] = useState<typeof import('./editor/main/Workbench')['default'] | null>(null)
   const startupHash = useRef<string | null>(null)
   const [busyLabel, setBusyLabel] = useState('正在检查完整内容…')
-  const [developmentImport, setDevelopmentImport] = useState<DevelopmentImportPreview | null>(null)
   const controller = useRef<WorkspaceController | null>(null), queued = useRef<WorkspaceRequest | null>(null)
   const routeRef = useRef(route), operation = useRef<AbortController | null>(null), changing = useRef(false)
   const projectFile = useRef<HTMLInputElement>(null)
@@ -129,34 +123,6 @@ export default function App() {
     signal.throwIfAborted()
     request({ type: 'open-project', project, saved: true })
   })
-  const closeSession = () => void run(async signal => {
-    if (!await preserveCurrent()) return
-    signal.throwIfAborted()
-    setMounted(false); setStartInBuilding(false); controller.current = null; queued.current = null; setSession(null); setDevelopmentImport(null)
-  }, '正在保存并关闭当前会话…')
-  const inspectDevelopment = () => void run(async signal => {
-    if (session) throw new Error('请先保存并关闭当前编辑会话。')
-    setDevelopmentImport(null)
-    const [{ inspectLocalDevelopmentImport }, { validation }] = await loadDevelopmentImport()
-    signal.throwIfAborted()
-    const preview = await inspectLocalDevelopmentImport({ validation: { ...validation, signal } })
-    signal.throwIfAborted(); setDevelopmentImport(preview)
-  }, '正在只读检查旧开发数据…')
-  const migrateDevelopment = () => void run(async signal => {
-    if (session || !developmentImport) throw new Error('请先关闭编辑会话并检查旧开发数据。')
-    const [{ importLocalDevelopmentData }, { validation }] = await loadDevelopmentImport()
-    signal.throwIfAborted()
-    await importLocalDevelopmentData({ validation: { ...validation, signal } }, developmentImport.sourceFingerprint)
-    window.location.reload()
-  }, '正在迁入并校验完整工程、历史和个人素材…')
-  const developmentTools = <details className="home-development-import">
-    <summary>一次性迁入旧开发数据</summary>
-    <p>读取此站点以前保存的开发工程、全部历史和个人素材，迁入当前完整工程 v1。源数据和原件独立保留，全部校验并冷读成功后切换仓库并刷新页面。</p>
-    {session && <p>请先保存并关闭当前编辑会话。<button type="button" className="secondary" disabled={busy} onClick={closeSession}>保存并关闭会话</button></p>}
-    <div className="home-actions"><button type="button" className="secondary" disabled={busy || !!session} onClick={inspectDevelopment}>检查迁入范围</button>
-      {developmentImport && <button type="button" className="primary" disabled={busy || !!session || !(developmentImport.projectCount || developmentImport.historyVersionCount || developmentImport.libraryEntryCount)} onClick={migrateDevelopment}>迁入并切换到 v1</button>}</div>
-    {developmentImport && <p role="status">检测到 {developmentImport.projectCount} 个工程、{developmentImport.historyVersionCount} 个增量历史版本、{developmentImport.libraryEntryCount} 个个人素材。命名、保护及旧自动快照和原件一并保全。{!(developmentImport.projectCount || developmentImport.historyVersionCount || developmentImport.libraryEntryCount) && '没有可迁入的旧开发数据。'}</p>}
-  </details>
   const cancelStartup = () => {
     startupHash.current = null
     setStartupScene(false)
@@ -181,7 +147,7 @@ export default function App() {
       {notice && <div className="workspace-notice" role="status"><span>{notice}</span><button className="secondary small" onClick={() => setNotice(null)}>关闭提示</button></div>}
       {route === 'home' && <Suspense fallback={<SceneweaveLoading fullScreen label="正在打开首页…"/>}>
         <WorkspaceHome session={session} onContinue={() => setPage('workspace')} onRequest={request} disabled={busy}
-          startupScene={startupScene ? { prepareEditor: prepareStartupEditor, onCreate: createStartupScene, onCancel: cancelStartup } : undefined} developmentTools={developmentTools}/>
+          startupScene={startupScene ? { prepareEditor: prepareStartupEditor, onCreate: createStartupScene, onCancel: cancelStartup } : undefined}/>
       </Suspense>}
       {route === 'tutorial' && <Suspense fallback={<SceneweaveLoading fullScreen label="正在打开使用教程…"/>}><TutorialPage onOpenSample={sample => request({ type: 'showcase', sample })}/></Suspense>}
       {mounted && <div hidden={route !== 'workspace'}><Suspense fallback={<SceneweaveLoading fullScreen label="正在打开统一工作区…"/>}><WorkbenchView active={route === 'workspace'} startInBuilding={startInBuilding} onBack={() => void home()} onController={register} onSession={setSession} onImportFile={handleFile}/></Suspense></div>}

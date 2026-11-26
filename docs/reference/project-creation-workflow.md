@@ -6,6 +6,8 @@
 
 仓库助手先读[AGENTS](../../AGENTS.md)。制作时使用`node tools/harness/sceneweave.mjs workflows`读取简短目录，再按`--id`及`--step`、`--schema`或`--effects`查询相关详情。图片MCP独立核对`sceneweave_workflow`与实际tools/list。
 
+通用助手新建场景时，从 `sceneweave-map-authoring` 的小型可运行示例开始，用主要区域、地标和通行关系生成真实草稿。打开图先核对用户点名的关系。找到可用版本后复核它已保存的工程和图片，再考虑可选细化。CLI 与本机 MCP 的用法见[通用助手制图](../../CONTRIBUTING.md#local-map-harness)。
+
 <a id="shared-workflow-capability-discovery"></a>
 共享流程正文和元数据归[workflows](../../workflows/catalog.json)，应用默认指引归[project-workflow.ts](../../src/shared/ai/project-workflow.ts)。工具schema和权限归执行器，目录不授予新权限。普通应用聊天尚未接线图片执行；没有实际工具或看图能力时准确说明，不能声称已切割、审核或采用。
 

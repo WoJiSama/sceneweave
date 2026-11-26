@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 import { ArrowRight, BookOpen, Download, FileUp, FolderOpen, HardDrive, ImagePlus, Layers3, Map as MapIcon, PencilLine, Plus, RefreshCw, Search } from 'lucide-react'
 import { tutorialHash, tutorialHref } from '../../tutorial/location'
 import type { ProjectDirectoryEntry, ProjectDirectoryCursor, ProjectDirectoryPage, ProjectDirectoryQuery } from '../../application/ports/project-directory'
@@ -30,11 +29,10 @@ async function readProjectDirectory(query: ProjectDirectoryQuery): Promise<Proje
   return projectRepository.projectDirectory(query)
 }
 
-export default function WorkspaceHome({ session, onContinue, onRequest, disabled = false, startupScene, developmentTools }: {
+export default function WorkspaceHome({ session, onContinue, onRequest, disabled = false, startupScene }: {
   session: WorkspaceSessionSummary | null; onContinue: () => void; onRequest: (request: WorkspaceRequest) => void
   disabled?: boolean
   startupScene?: StartupSceneDialogProps
-  developmentTools?: ReactNode
 }) {
   const [entries, setEntries] = useState<ProjectDirectoryEntry[]>([]), [query, setQuery] = useState(''), [refresh, setRefresh] = useState(0)
   const [next, setNext] = useState<ProjectDirectoryCursor | null>(null), [total, setTotal] = useState(0)
@@ -139,7 +137,6 @@ export default function WorkspaceHome({ session, onContinue, onRequest, disabled
         <div className="home-project-list">{filtered.map(value => { const entry = value.summary; return entry ? <article className="home-project-row" key={entry.sceneId} data-project-key={`native:${entry.sceneId}`}><span className="home-file-icon"><Layers3 size={21}/></span><div className="home-project-info"><h3>{entry.title}</h3><p>完整工程 · r{entry.revision} · {new Date(entry.savedAt).toLocaleString('zh-CN')}</p><span className="home-project-identity">{session?.sceneId === entry.sceneId ? '当前会话 · ' : ''}{(titleCounts.get(entry.title) ?? 0) > 1 ? '同名工程 · ' : ''}标识 {entry.sceneId.slice(0, 8)}</span><details className="home-project-id"><summary>完整工程 ID</summary><small>{entry.sceneId}</small></details></div><button className="secondary" title={`${session?.sceneId === entry.sceneId ? '继续编辑' : '打开'}：${entry.title} · ${entry.sceneId.slice(0, 8)}`} disabled={disabled} onClick={() => session?.sceneId === entry.sceneId ? onContinue() : onRequest({ type: 'open', sceneId: entry.sceneId })}>{session?.sceneId === entry.sceneId ? '继续编辑' : '打开'}<ArrowRight size={15}/></button></article> : <article className="home-project-row" key={value.sceneId} data-project-key={`native:${value.sceneId}`}><div className="home-project-info"><h3>工程目录不可读</h3><p role="alert">{value.issue}</p><small>工程 ID：{value.sceneId}</small><p>此记录仍保留，请从备份恢复或检查原数据。</p></div>{session?.sceneId === value.sceneId && <button className="secondary" disabled={disabled} onClick={onContinue}>继续当前编辑</button>}</article> })}</div>
         {next && <button className="secondary" disabled={loading || disabled} onClick={loadMore}>加载更多工程</button>}
       </section>
-      {developmentTools}
       <footer className="home-footer">
         <h2>本地保存与备份</h2>
         <p>已采用的编辑会自动保存到当前站点的浏览器。清除站点数据或更换设备、浏览器或站点地址前，请下载 .sceneweave 备份。通过首页「打开工程文件」恢复。</p>

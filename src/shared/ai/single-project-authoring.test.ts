@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../appearance/graph.js'
 import type { ProjectData } from '../model/project.js'
 import type { SceneDocument } from '../model/scene.js'
@@ -13,7 +13,7 @@ import { CURRENT_AUTHORING_CAPABILITY, assertCurrentAuthoringCapability, assertU
 import { CurrentExtraOperationSchema } from './authoring-protocol-v4.js'
 
 function projectFixture(): ProjectData {
-  const document = { ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1, mapMode: 'scene', regional: null,
+  const document = { ...cloneJson(layerScene()), format: 'sceneweave-scene', schemaVersion: 1, mapMode: 'scene', regional: null,
     generation: createEmptyGeneration5(), visual: { version: 3, base: { version: 2, base: emptyVisualSystem(), materializedEdges: {} }, transitions: {} },
     decorations: {}, decorationClusters: {}, surfaceRules: {}, assets: {}, propDefinitions: {}, materials: {}, styleThemes: {}, activeStyleThemeRef: null } as SceneDocument
   let sequence = 0

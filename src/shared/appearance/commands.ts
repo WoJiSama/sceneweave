@@ -299,6 +299,7 @@ export function applyCompositionCommands(input: CompositionContent, inputCommand
 }
 export interface CompositionOperationAccounting {
   budget?: CommandBudgetProfile
+  terrainPairAccounting?: import('../budget/task-budget.js').TerrainPairAccounting
   /** Internal same-transaction fixed-source additions; never persisted in the document. */
   initialOperationCost?: number
   onOperationCost?: (cost: number) => void
@@ -319,6 +320,7 @@ export function applyCompositionDraftCommands(input: CompositionContent, inputCo
 }
 function applyCompositionCommandsInternal(input: CompositionContent, inputCommands: readonly CompositionCommand[], context: PreparationContext, ownedDraft: boolean, accounting?: CompositionOperationAccounting): CompositionContent {
   const budget = accounting?.budget ? parseCommandBudgetProfile(accounting.budget) : undefined
+  const terrainPairAccounting = accounting?.terrainPairAccounting
   const manual = isManualTransactionBudget(budget)
   const onSceneDraft = accounting?.onSceneDraft
   const onContentDraft = accounting?.onContentDraft
@@ -351,7 +353,8 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       accounting?.onTransactionStep?.(common.steps[index])
     }
     onContentDraft?.(propTransaction.result)
-    if (budget) assertCommandBudget(budget, measureCommandBudget(source.document, propTransaction.result.document, { before: source, after: propTransaction.result }, undefined, budget))
+    if (budget) assertCommandBudget(budget, measureCommandBudget(source.document, propTransaction.result.document,
+      { before: source, after: propTransaction.result }, undefined, budget, terrainPairAccounting))
     accounting?.onOperationCost?.(initialCost + operationCost)
     accounting?.onTransactionReceipt?.(common)
     return propTransaction.result
@@ -390,7 +393,7 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
       ...Object.values(source.document.decorations ?? {}).filter(row => definitionPresentation(source.appearance, row.definitionRef)?.mode === 'nearSide').map(row => row.id),
     ])
     let accounting = source, expandedPreflightCost = initialCost
-    const observer = { budget, fixedUprightPropIds, appearance: source.appearance, historyIdentity: source.historyIdentity,
+    const observer = { budget, terrainPairAccounting, fixedUprightPropIds, appearance: source.appearance, historyIdentity: source.historyIdentity,
       remainingOperationBudget: () => Math.max(0, 256 - expandedPreflightCost),
       finalizeNativeDraft: (before: SceneDocument, after: SceneDocument) => {
         const current = identityTrace.capture(after)
@@ -546,7 +549,8 @@ function applyCompositionCommandsInternal(input: CompositionContent, inputComman
   const result = ownedDraft
     ? commands.every(command => command.type === 'updateProp') ? certifyDerivedCompositionDraft(content, source.document) : certifyCompositionDraft(content)
     : validateCompositionDraft(content)
-  if (budget) assertCommandBudget(budget, measureCommandBudget(source.document, result.document, { before: source, after: result }, undefined, budget))
+  if (budget) assertCommandBudget(budget, measureCommandBudget(source.document, result.document,
+    { before: source, after: result }, undefined, budget, terrainPairAccounting))
   accounting?.onOperationCost?.(initialCost + operationCost)
   if (ownedDraft) {
     observeTransaction(result, undefined, 0)

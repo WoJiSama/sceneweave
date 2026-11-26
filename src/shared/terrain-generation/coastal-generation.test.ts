@@ -5,7 +5,7 @@ import { generateTerrainDocumentV10, generateTerrainDocumentV11, generateTerrain
 import { SHORE_MATERIAL_IDS } from '../visual/shore-art.js'
 import { requiredBaseMapSelector } from '../ai/protocol.js'
 import { taskBudgetProfile } from '../budget/task-budget.js'
-import { executeBaseMapRequestV3, parseBaseMapResponseV3, prepareBaseMapRequestV3, terrainAlgorithmForPalette } from './base-map-v3.js'
+import { defaultTerrainAlgorithmVersion, executeBaseMapRequestV3, parseBaseMapResponseV3, prepareBaseMapRequestV3 } from './base-map-v3.js'
 import { runNaturalGeneration } from '../generation/natural-adapter.js'
 import { pointInPolygon, polygonDistance, polygonInside, polygonsOverlap, propFootprint, pathPolygon, terrainPoints, transformBounds } from '../geometry/geometry.js'
 import { visualBase } from '../visual/base.js'
@@ -43,7 +43,7 @@ describe('initial coastal ascent', () => {
     const base = createShoreBlankDocument('island', { sceneId, widthMm, heightMm, title: '登高路线', preset: 'narrative', now: '2026-11-24T00:00:00.000Z' }, false, false,
       version >= 12 ? 'naturalStone' : false)
     const input = { kind: 'island' as const, seed: 'terrain-v1-0', widthMm, heightMm, sceneId, quality: 'standard',
-      budgetProfileId: 'standard', algorithmVersion: version === 13 ? terrainAlgorithmForPalette('island', 5) : version }
+      budgetProfileId: 'standard', algorithmVersion: version === 13 ? defaultTerrainAlgorithmVersion('island') : version }
     const request = prepareBaseMapRequestV3({ base, profile: taskBudgetProfile('standard'), generation: { kind: 'terrain', input },
       requestId: 'first-ascent', flowId: 'ascent', workspaceSceneId: 'blank', checkpoint: 0, operationEpoch: 1 })
     expect(requiredBaseMapSelector(request.generation)).toEqual(`terrain-scene-v${version}`)

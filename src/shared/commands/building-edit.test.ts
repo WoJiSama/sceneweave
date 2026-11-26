@@ -1,6 +1,6 @@
 import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { describe, expect, it } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { openingEndpoints } from '../geometry/geometry.js'
 import type { Decoration, DecorationCluster, PointMm, Room, SceneDocument, Wall } from '../model/scene.js'
 import { validateSceneDocument } from '../validation/scene.js'
@@ -16,11 +16,11 @@ import nativeScenes from '../../platform/browser/content/scenes-data.json'
 const floorId = 'blank-floor', layerId = 'layer-default-0'
 let sequence = 0
 const runtime = () => ({ ids: { nextId: () => `building-test-${++sequence}` }, clock: { now: () => '2026-11-02T00:00:00.000Z' } })
-function native(scene: ReturnType<typeof layerSceneV3>): SceneDocument {
+function native(scene: ReturnType<typeof layerScene>): SceneDocument {
   return toCurrentSceneDocument({ ...cloneJson(scene), format: 'sceneweave-scene' })
 }
 function fixture(): SceneDocument {
-  const scene = native(layerSceneV3())
+  const scene = native(layerScene())
   delete scene.props.item; delete scene.entityLayers.item
   return scene
 }
@@ -58,7 +58,7 @@ describe('native building edits', () => {
     const withOpenings = apply(base,
       { type: 'addOpening', id: 'door', wallId: shared.id, offsetReferenceVertexId: shared.startVertexId, offsetMm: 1100, widthMm: 1000, kind: 'door', secret: true, locked: true },
       { type: 'addOpening', id: 'window', wallId: shared.id, offsetReferenceVertexId: shared.startVertexId, offsetMm: 3400, widthMm: 800, kind: 'window' })
-    withOpenings.props.item = { ...cloneJson(layerSceneV3().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a' }
+    withOpenings.props.item = { ...cloneJson(layerScene().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a' }
     withOpenings.entityLayers.item = layerId
     const shift = { x: 0, y: 8500 }
     const command = { type: 'moveRoom' as const, id: 'a', offsetMm: shift, splitId: 'move-a', openingsToMove: ['door'] }
@@ -102,7 +102,7 @@ describe('native building edits', () => {
     let source = adjacentRooms()
     const wall = sharedWall(source)
     source = apply(source, { type: 'addOpening', id: 'door', wallId: wall.id, offsetReferenceVertexId: wall.startVertexId, offsetMm: 1000, widthMm: 1200, kind: 'door' })
-    source.props.item = { ...cloneJson(layerSceneV3().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a', positionMm: { x: 4000, y: 4000 } }
+    source.props.item = { ...cloneJson(layerScene().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a', positionMm: { x: 4000, y: 4000 } }
     source.entityLayers.item = layerId
     addNote(source, 'prop-note', 'prop', 'item'); addNote(source, 'note-note', 'note', 'prop-note')
     expect(validateSceneDocument(source).ok).toBe(true)
@@ -123,7 +123,7 @@ describe('native building edits', () => {
 
   it('refuses locked support dependencies and does not mutate the candidate source', () => {
     const source = adjacentRooms()
-    source.props.item = { ...cloneJson(layerSceneV3().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a', positionMm: { x: 4000, y: 4000 }, editLocked: true }
+    source.props.item = { ...cloneJson(layerScene().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a', positionMm: { x: 4000, y: 4000 }, editLocked: true }
     source.entityLayers.item = layerId
     const before = canonicalJson(source)
     const impact = previewBuildingCommands(source, [{ type: 'transformBuilding', id: 'a', offsetMm: { x: 1000, y: 0 }, pivotMm: { x: 0, y: 0 }, quarterTurns: 0 }])
@@ -150,7 +150,7 @@ describe('native building edits', () => {
 
   it('refuses deleting a room with support references and only deletes an orphan wall explicitly', () => {
     let source = adjacentRooms()
-    source.props.item = { ...cloneJson(layerSceneV3().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a', positionMm: { x: 4000, y: 4000 } }
+    source.props.item = { ...cloneJson(layerScene().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a', positionMm: { x: 4000, y: 4000 } }
     source.entityLayers.item = layerId
     addNote(source, 'room-note', 'note', 'room-note-parent')
     source.notes['room-note'].anchor = { type: 'entity', entityKind: 'room', entityId: 'a' }
@@ -290,7 +290,7 @@ describe('native building edits', () => {
 
   it('includes supported decorations, clusters, grouped members and recursive notes in the transform lock/impact closure', () => {
     const scene = adjacentRooms()
-    scene.props.item = { ...cloneJson(layerSceneV3().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a', positionMm: { x: 4000, y: 4000 } }
+    scene.props.item = { ...cloneJson(layerScene().props.item), supportRef: { kind: 'room', id: 'a' }, roomId: 'a', positionMm: { x: 4000, y: 4000 } }
     scene.entityLayers.item = layerId
     const decoration: Decoration = { id: 'grass', floorId, editLocked: false, visibility: 'gm', definitionRef: { id: 'image-definition', version: 1 }, supportRef: { kind: 'room', id: 'a' }, positionMm: { x: 5000, y: 5000 }, rotationDeg: 0, scalePpm: 1000000, renderOrder: 0 }
     const cluster: DecorationCluster = { id: 'cluster', floorId, editLocked: false, visibility: 'gm', supportRef: { kind: 'room', id: 'a' }, boundsMm: { x: 3000, y: 3000, width: 3000, height: 3000 }, seed: 'fixed', algorithmVersion: 'cluster-v1', palette: [], maxInstances: 1, spacingMm: 100, clusterRadiusMm: 500, clearanceMm: 0, members: { slot: { kind: 'decoration', entityId: 'grass', state: 'manual' } } }
@@ -309,7 +309,7 @@ describe('native building edits', () => {
 
   it('rejects transformations whose expanded changes exceed the shared 256-operation bound', () => {
     let scene = apply(fixture(), room('a', [{ x: 2000, y: 2000 }, { x: 8000, y: 2000 }, { x: 8000, y: 8000 }, { x: 2000, y: 8000 }]))
-    const template = cloneJson(layerSceneV3().props.item)
+    const template = cloneJson(layerScene().props.item)
     template.supportRef = { kind: 'room', id: 'a' }; template.roomId = 'a'; template.positionMm = { x: 4000, y: 4000 }
     scene.props.item = template; scene.entityLayers.item = layerId
     for (let index = 0; index < 260; index++) {

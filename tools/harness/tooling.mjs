@@ -13,20 +13,20 @@ async function privatePort() {
 }
 
 /** A private source adapter, never the product page or a user's browser profile. */
-export async function startHarnessTooling(root, listen = false) {
+export async function startHarnessTooling(root, listen = false, editor = false) {
   const pathname = '/__sceneweave_harness__/index.html'
   const cacheDirectory = await mkdtemp(path.join(tmpdir(), 'sceneweave-harness-'))
   let server
   try {
     server = await createServer({
-      root, configFile: false, base: '/', cacheDir: cacheDirectory, logLevel: 'error',
+      // Use the same virtual starter content as the normal editor.
+      root, configFile: path.join(root, 'vite.config.ts'), base: '/', cacheDir: cacheDirectory, logLevel: 'error',
       server: { host: '127.0.0.1', port: listen ? await privatePort() : 0, strictPort: true, hmr: false,
-        // Host-captured inputs, model dependencies and generated evidence are
-        // data, not application modules. Watching them makes each output wake
-        // another source scan during long image workflows.
-        watch: { ignored: ['**/work/**', '**/local-data/**'] },
+        // These short-lived invocations have no live reload.
+        watch: null,
         fs: { strict: true, allow: [root, cacheDirectory] } },
-      optimizeDeps: { noDiscovery: true, include: ['dexie', 'fflate', 'zod', 'polygon-clipping'] },
+      optimizeDeps: { noDiscovery: !editor, include: ['dexie', 'fflate', 'zod', 'polygon-clipping',
+        ...(editor ? ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'konva', 'react-konva', 'zustand', 'lucide-react'] : [])] },
       plugins: [{ name: 'semantic-generation-harness', configureServer(instance) {
         instance.middlewares.use((request, response, next) => {
           if (request.url !== pathname) { next(); return }
@@ -40,13 +40,26 @@ export async function startHarnessTooling(root, listen = false) {
     return {
       origin, url: origin && `${origin}${pathname}`,
       sdk: () => server.ssrLoadModule('/src/application/workspace/semantic-generation.ts'),
+      mapAuthoring: () => server.ssrLoadModule('/src/shared/generation/map-authoring.ts'),
       workflows: () => server.ssrLoadModule('/src/shared/ai/workflows/entry.ts'),
       forestLoop: () => server.ssrLoadModule('/src/shared/ai/forest-loop.ts'),
       budget: () => server.ssrLoadModule('/src/shared/budget/task-budget.ts'),
+      png: () => server.ssrLoadModule('/src/shared/project/png-rgba.ts'),
       close: async () => { try { await server.close() } finally { await rm(cacheDirectory, { recursive: true, force: true }) } },
     }
   } catch (error) {
     try { await server?.close() } finally { await rm(cacheDirectory, { recursive: true, force: true }) }
     throw error
   }
+}
+
+export async function openHarnessContext(browser, origin) {
+  const context = await browser.newContext({ serviceWorkers: 'block' }), errors = []
+  context.on('page', page => page.on('pageerror', error => errors.push(error.message)))
+  await context.route('**/*', route => route.request().url().startsWith(`${origin}/`) ? route.continue() : route.abort('blockedbyclient'))
+  await context.addInitScript(() => {
+    IDBFactory.prototype.open = () => { throw new Error('Local harness cannot open browser databases') }
+    IDBFactory.prototype.deleteDatabase = () => { throw new Error('Local harness cannot delete browser databases') }
+  })
+  return { context, errors }
 }

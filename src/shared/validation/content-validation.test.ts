@@ -1,7 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { layerSceneV3 } from '../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../appearance/graph.js'
-import { toCurrentSceneDocument } from '../model/current-scene.js'
 import { certifyCompositionContent, validateCompositionContent } from './content.js'
 import { cloneJson, freezeJson } from './json.js'
 import { isCertifiedSceneSnapshot } from './snapshots.js'
@@ -10,7 +9,7 @@ import * as scene from './scene.js'
 let sequence = 0
 const runtime = { ids: { nextId: () => `content-validation-${++sequence}` }, clock: { now: () => '2026-11-12T00:00:00.000Z' } }
 function input() {
-  return createCompositionContent(toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene' }), runtime)
+  return createCompositionContent(layerScene(), runtime)
 }
 afterEach(() => vi.restoreAllMocks())
 

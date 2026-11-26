@@ -1,5 +1,8 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import type { ProjectData } from '../src/shared/model/project'
+import type { ObliquePreparationMetrics } from '../src/platform/browser/render/oblique-renderer'
 import { createKeyboardProject, keyboardProjectBackup, keyboardWorkspaceSaved, selectKeyboardProp } from './keyboard-ux-helpers'
 import { openOutdoorTask, openWorkspaceModule } from './workspace-navigation-helpers'
 import { openDetailsBySummary } from './workspace-ux-helpers'
@@ -78,10 +81,139 @@ test('outward wall faces respond to the same world light heading as the terrain'
   expect(pixels.front - pixels.back).toBeGreaterThan(25)
 })
 
-test('3D PNG pixels are independent of earlier preview zoom and texture detail', async ({ page }) => {
+test('baked shadows follow the light, the receiving height and an open doorway', async ({ page }) => {
+  await page.goto('./#home')
+  const shadows = await page.evaluate(async () => {
+    const shadowPath = '/src/platform/browser/render/oblique-shadows.ts', wallPath = '/src/shared/geometry/wall-paint-geometry.ts'
+    const groundPath = '/src/platform/browser/render/projected-ground.ts'
+    const [{ bakeObliqueShadows }, { wallGeometry }, { projectGround }] = await Promise.all([import(shadowPath), import(wallPath), import(groundPath)])
+    const rect = (x: number, y: number, w: number, h: number) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }]
+    const bounds = { x: 0, y: 0, width: 10000, height: 8000 }
+    const wall = { start: { x: 3000, y: 1000 }, end: { x: 3000, y: 7000 }, thicknessMm: 180, heightMm: 2500,
+      openings: [{ start: { x: 3000, y: 3500 }, end: { x: 3000, y: 4500 }, kind: 'door', vertical: { sillMm: 0, heightMm: 2100 }, state: 'open' }] }
+    const projection = { bounds, audience: 'gm', walls: [wall], rooms: [], props: [], paths: [],
+      terrain: [{ id: 'terrace', points: rect(3300, 4800, 2600, 2300), elevationMm: 2300 }],
+      visual: { environment: { lightDirectionDeg: 0, directionalLight: { kind: 'sun', elevationDeg: 45, intensity: 1, softness: .4 } } } }
+    const canvas = (width: number, height: number) => Object.assign(document.createElement('canvas'), { width, height })
+    const bake = () => bakeObliqueShadows(projection, projectGround(projection), wallGeometry(projection.walls), canvas)
+    const alpha = (image: HTMLCanvasElement, x: number, y: number) => image.getContext('2d')!.getImageData(
+      Math.floor(x * image.width / bounds.width), Math.floor(y * image.height / bounds.height), 1, 1).data[3]
+    const open = await bake()
+    wall.openings[0].state = 'closed'
+    const shut = await bake()
+    return { illuminated: alpha(open, 2000, 2000), behindWall: alpha(open, 4000, 2000), open: alpha(open, 4000, 4000),
+      lintel: alpha(open, 5300, 4000), closed: alpha(shut, 4000, 4000), terrace: alpha(open, 4000, 6000) }
+  })
+  expect(shadows).toMatchObject({ illuminated: 0, open: 0, terrace: 0 })
+  expect(shadows.lintel).toBeGreaterThan(60)
+  expect(shadows.closed).toBeGreaterThan(60)
+  expect(shadows.behindWall).toBeGreaterThan(60)
+})
+
+for (const [count, budget] of [[500, 45], [2000, 60]] as const) {
+  test(`oblique preview stays within the draw and atlas budget for ${count} mixed props`, async ({ page }) => {
+    const fixtures = process.env.SCENEWEAVE_OBLIQUE_FIXTURES
+    test.skip(!fixtures, '需准备当前完整工程的混合容量夹具。')
+    const archive = await readFile(join(fixtures!, `mixed-${count}.sceneweave`))
+    await page.goto('./#home')
+    const report = await page.evaluate(async encoded => {
+      const filePath = '/src/shared/project/file.ts', validationPath = '/src/platform/browser/project-validation.ts'
+      const renderPath = '/src/platform/browser/render/oblique-renderer.ts'
+      const [{ importProject }, { browserProjectValidation }, { DEFAULT_OBLIQUE_CAMERA, prepareObliquePreview }] =
+        await Promise.all([import(filePath), import(validationPath), import(renderPath)])
+      const bundle = await importProject(Uint8Array.from(atob(encoded), c => c.charCodeAt(0)), browserProjectValidation)
+      const canvas = Object.assign(document.createElement('canvas'), { width: 1280, height: 1000 })
+      let metrics: ObliquePreparationMetrics | undefined
+      const preview = await prepareObliquePreview(canvas, bundle, { audience: 'gm', onMetrics: (value: ObliquePreparationMetrics) => { metrics = value } })
+      try {
+        const draws = Array.from({ length: 24 }, (_, i) => preview.draw({ ...DEFAULT_OBLIQUE_CAMERA, azimuthDeg: i * 15 }).drawCalls)
+        const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl')!
+        const texImage2D = gl.texImage2D
+        const uploads: { width: number; height: number; readback: boolean }[] = []
+        gl.texImage2D = ((...args: unknown[]) => {
+          const image = args.at(-1)
+          if (image instanceof HTMLCanvasElement) uploads.push({
+            width: image.width, height: image.height, readback: !!image.getContext('2d')?.getContextAttributes().willReadFrequently,
+          })
+          Reflect.apply(texImage2D, gl, args)
+        }) as typeof gl.texImage2D
+        preview.draw(DEFAULT_OBLIQUE_CAMERA)
+        const overview = canvas.toDataURL()
+        for (const zoom of [2.35, 3.3, 1]) {
+          preview.draw({ ...DEFAULT_OBLIQUE_CAMERA, zoom })
+          await preview.refine(zoom)
+        }
+        const overviewRestored = canvas.toDataURL() === overview
+        const normalUploads = uploads.slice()
+        let released = 0
+        const deleteTexture = gl.deleteTexture.bind(gl)
+        gl.deleteTexture = texture => { released++; deleteTexture(texture) }
+        const zoom = 3.3
+        preview.setMode('performance')
+        preview.draw({ ...DEFAULT_OBLIQUE_CAMERA, zoom })
+        await preview.refine(zoom)
+        const performanceUploads = uploads.length - normalUploads.length
+        preview.setMode('normal')
+        const interrupted = preview.refine(zoom).then(() => false, (failure: Error) => failure.name === 'AbortError')
+        preview.setMode('performance')
+        const cancelled = await interrupted
+        preview.setMode('normal')
+        await preview.refine(zoom)
+        return { count: Object.keys(bundle.project.document.props).length, metrics, mostDraws: Math.max(...draws),
+          normalUploads, performanceUploads, restoredUploads: uploads.length - normalUploads.length, released, cancelled, overviewRestored }
+      } finally { preview.dispose() }
+    }, archive.toString('base64'))
+    expect(report.count).toBe(count)
+    expect(report.mostDraws).toBeLessThanOrEqual(budget)
+    expect(report.metrics?.atlasPixels).toBeLessThanOrEqual(12_000_000)
+    expect(report.metrics?.triangles).toBeLessThanOrEqual(300_000)
+    expect(report.normalUploads).toHaveLength(1)
+    const [detail] = report.normalUploads
+    expect(detail.readback).toBe(true)
+    expect(detail.width).toBeGreaterThanOrEqual(3072)
+    expect(detail.width * detail.height + report.metrics!.atlasPixels).toBeLessThanOrEqual(12_000_000)
+    expect(report.overviewRestored).toBe(true)
+    expect(report.performanceUploads).toBe(0)
+    expect(report.released).toBe(1)
+    expect(report.cancelled).toBe(true)
+    expect(report.restoredUploads).toBe(1)
+  })
+}
+
+test('private wall heights and secret door state cannot change the player’s 3D pixels', async ({ page }) => {
+  test.setTimeout(90_000)
+  await page.goto('./#home')
+  const result = await page.evaluate(async () => {
+    const showcasePath = '/src/platform/browser/content/home-showcase.ts', renderPath = '/src/platform/browser/render/oblique-renderer.ts'
+    const [{ readHomeShowcaseArchive }, { renderObliqueProject }] = await Promise.all([import(showcasePath), import(renderPath)])
+    const before = await readHomeShowcaseArchive('ruins')
+    const altered: ProjectData = structuredClone(before.project)
+    const edge = (from: string, to: string) => JSON.stringify([from, to].sort())
+    const roomEdges = (visibility: 'public' | 'gm') => new Set(Object.values(altered.document.rooms).filter(room => room.visibility === visibility)
+      .flatMap(room => room.boundaryVertexIds.map((id, i, ids) => edge(id, ids[(i + 1) % ids.length]))))
+    const publicEdges = roomEdges('public'), secretEdges = roomEdges('gm')
+    const hidden = Object.values(altered.document.walls).filter(wall => {
+      const key = edge(wall.startVertexId, wall.endVertexId)
+      return secretEdges.has(key) && !publicEdges.has(key)
+    })
+    const secret = Object.values(altered.document.openings).find(opening => opening.secret && !opening.revealed)
+    if (!hidden.length || !secret) throw new Error('Expected a secret room and door in the fixed mausoleum')
+    hidden.forEach(wall => { wall.heightMm = 3900 })
+    secret.state = 'open'; secret.locked = false
+    const after = { project: altered, resources: before.resources }
+    const pixels = async (bundle: typeof before, audience: 'gm' | 'player') => {
+      const canvas = await renderObliqueProject(bundle, { audience, longEdgePx: 512 })
+      return canvas.toDataURL()
+    }
+    return { player: await pixels(before, 'player') === await pixels(after, 'player'), gm: await pixels(before, 'gm') === await pixels(after, 'gm') }
+  })
+  expect(result).toEqual({ player: true, gm: false })
+})
+
+test('3D PNG pixels are independent of preview mode, zoom and texture detail', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('./#home')
-  const { before, after, standalone, zoomed } = await page.evaluate(async () => {
+  const { before, after, standalone, zoomed, performanceExport, performanceAtlasPixels } = await page.evaluate(async () => {
     const showcaseModule = '/src/platform/browser/content/home-showcase.ts'
     const renderModule = '/src/platform/browser/render/oblique-renderer.ts'
     const [{ readHomeShowcaseArchive }, { DEFAULT_OBLIQUE_CAMERA: camera, prepareObliquePreview, exportObliquePng }] =
@@ -89,7 +221,6 @@ test('3D PNG pixels are independent of earlier preview zoom and texture detail',
     const bundle = await readHomeShowcaseArchive('island')
     const canvas = Object.assign(document.createElement('canvas'), { width: 1280, height: 1000 })
     const options = { audience: 'gm' as const, camera, longEdgePx: 1280 }
-    const preview = await prepareObliquePreview(canvas, bundle, options)
     const digest = async (blob: Blob) => {
       const bitmap = await createImageBitmap(blob)
       const image = Object.assign(document.createElement('canvas'), { width: bitmap.width, height: bitmap.height })
@@ -103,6 +234,17 @@ test('3D PNG pixels are independent of earlier preview zoom and texture detail',
         image.width = image.height = 0
       }
     }
+    let metrics: ObliquePreparationMetrics | undefined
+    const performanceView = await prepareObliquePreview(canvas, bundle, { ...options, mode: 'performance',
+      onMetrics: (value: ObliquePreparationMetrics) => { metrics = value } })
+    const performanceAtlasPixels = metrics?.atlasPixels ?? 0
+    let performanceExport: number[]
+    try {
+      performanceView.draw({ ...camera, zoom: 4 })
+      await performanceView.refine(4)
+      performanceExport = await digest(await performanceView.exportPng(options))
+    } finally { performanceView.dispose() }
+    const preview = await prepareObliquePreview(Object.assign(document.createElement('canvas'), { width: 1280, height: 1000 }), bundle, options)
     try {
       if (!preview.cacheable) throw new Error('Expected a verified immutable preview')
       preview.draw(camera)
@@ -112,13 +254,16 @@ test('3D PNG pixels are independent of earlier preview zoom and texture detail',
       const zoomed = await digest(await preview.exportPng({ longEdgePx: options.longEdgePx }))
       preview.draw(camera)
       const after = await digest(await preview.exportPng(options))
-      return { before, after, standalone: await digest(await exportObliquePng(bundle, options)), zoomed }
+      return { before, after, standalone: await digest(await exportObliquePng(bundle, options)), zoomed, performanceExport, performanceAtlasPixels }
     } finally {
       preview.dispose()
     }
   })
   expect(after).toEqual(before)
   expect(standalone).toEqual(before)
+  expect(performanceExport).toEqual(before)
+  expect(performanceAtlasPixels).toBeGreaterThan(0)
+  expect(performanceAtlasPixels).toBeLessThanOrEqual(768 * 768)
   expect(zoomed).not.toEqual(before)
 })
 
@@ -132,15 +277,27 @@ test('sample opens on the editable plane, rotates on demand, and exports the cur
   await trigger.click()
   const preview = page.getByRole('dialog', { name: '斜俯视', exact: true })
   const canvas = preview.locator('canvas')
+  const mode = preview.getByLabel('预览模式', { exact: true })
+  await expect(mode).toHaveValue('normal')
   await expect(canvas).toHaveAttribute('data-ready', 'true', { timeout: 40_000 })
   const firstCanvas = await canvas.elementHandle()
   const pixels = () => canvas.evaluate(node => (node as HTMLCanvasElement).toDataURL())
   const first = await pixels()
+  const base = preview.getByRole('checkbox', { name: '地图底座', exact: true })
+  await base.check()
+  await expect.poll(pixels).not.toBe(first)
+  await base.uncheck()
+  await expect.poll(pixels).toBe(first)
   await canvas.focus()
   await canvas.press('ArrowRight')
   await expect.poll(pixels).not.toBe(first)
-  await preview.getByRole('slider', { name: '3D 缩放' }).fill('2.35')
+  const zoom = preview.getByRole('slider', { name: '3D 缩放' })
+  await zoom.fill('2.35')
   await expect.poll(pixels).not.toBe(first)
+  await mode.selectOption('performance')
+  await expect.poll(() => canvas.evaluate(node => (node as HTMLCanvasElement).width)).toBeLessThanOrEqual(960)
+  await expect(zoom).toHaveValue('2.35')
+  expect(await canvas.evaluate((node, initial) => node === initial, firstCanvas)).toBe(true)
   await page.screenshot({ path: info.outputPath('tavern-oblique-editor.png') })
   const downloadEvent = page.waitForEvent('download')
   await preview.getByRole('button', { name: '导出当前画面' }).click()
@@ -159,7 +316,9 @@ test('sample opens on the editable plane, rotates on demand, and exports the cur
   await trigger.click()
   await expect(canvas).toHaveAttribute('data-ready', 'true', { timeout: 40_000 })
   expect(await canvas.evaluate((node, initial) => node === initial, firstCanvas)).toBe(true)
-  expect(await pixels()).toBe(first)
+  await expect(mode).toHaveValue('performance')
+  await mode.selectOption('normal')
+  await expect.poll(pixels).toBe(first)
   await page.keyboard.press('Escape')
   await expect(preview).toHaveCount(0)
 })
@@ -173,7 +332,7 @@ test('a tavern box lid supports a new lamp and shows the snap when the lamp is d
   const inspector = page.getByTestId('workspace-inspector')
   await openDetailsBySummary(inspector, /^立体形状$/)
   await inspector.getByLabel('立体结构模板', { exact: true }).selectOption('box')
-  await expect(inspector.getByRole('checkbox', { name: '箱顶可放物件', exact: true })).toBeChecked()
+  await inspector.getByRole('checkbox', { name: '箱顶可放物件', exact: true }).check()
   const height = inspector.getByLabel('立体高度', { exact: true })
   await height.fill('0.79'); await height.press('Tab')
   await inspector.getByRole('button', { name: '预览立体设置', exact: true }).click()

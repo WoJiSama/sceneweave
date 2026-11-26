@@ -8,19 +8,19 @@ import { planStaircase, staircasePatch, staircasePointAt } from '../../../shared
 import { defaultStaircase } from '../../../shared/stairs/contracts.js'
 import { staircaseMaterial } from '../../../shared/stairs/catalog.js'
 import type { BoundsMm, PointMm, SurfaceStyle } from '../../../shared/model/scene.js'
-import { spatialWallHeight } from '../../../shared/model/building-height.js'
+import { spatialOpeningRange, spatialWallHeight } from '../../../shared/model/building-height.js'
 import type { ProjectedConnection, ProjectedPath, ProjectedSurface, ProjectedTerrainEdge, Projection } from '../../../shared/projection/types.js'
 import type { StaircaseGeometry } from '../../../shared/stairs/geometry.js'
 import { exposedEdgeSegments } from '../../../shared/projection/bridge-entrances.js'
 import { atHeight, rectangle, type MeshMask, type MeshMaterial, type ObliqueMesh, type SpatialColor } from './oblique-mesh'
-import { wallGeometry } from '../../../shared/geometry/wall-paint-geometry.js'
-import { projectGround } from './projected-ground.js'
+import type { WallGeometry } from '../../../shared/geometry/wall-paint-geometry.js'
+import { projectGround, spatialWallFrame } from './projected-ground.js'
 import { earthenRoad, planEarthenRoad } from './earthen-road.js'
 import { gradedRiserPalette } from './graded-road-paint.js'
-import { ERODED_CLIFF_PROFILE, isWeatheredCliffProfile, STRATIFIED_CLIFF_PROFILE, weatheredCliffWidth } from '../../../shared/visual/terrain-cliff-plan.js'
+import { ERODED_CLIFF_PROFILE, isWeatheredCliffProfile, spatialCliffProfile, STRATIFIED_CLIFF_PROFILE, weatheredCliffWidth } from '../../../shared/visual/terrain-cliff-plan.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { cliffStrata, strataColor } from './stratified-cliff.js'
-import { planWeatheredRockSteps, usesWeatheredRockSteps } from './weathered-rock-steps.js'
+import { ERODED_ROCK_STEPS_PROFILE, planWeatheredRockSteps, usesWeatheredRockSteps } from './weathered-rock-steps.js'
 import { paintWeatheredCliffTexture, weatheredCliffPeriod, WEATHERED_CLIFF_TEXTURE_SIZE } from './weathered-cliff.js'
 import { terrainValueNoise } from '../../../shared/terrain-generation/field.js'
 
@@ -89,7 +89,7 @@ function stratifiedEdges(projection: Projection) {
   const looks = new Map<string, VisualEdgeLook>()
   const boundaries = new Map(projection.visual?.boundaries.map(boundary => [boundary.id, boundary]))
   for (const look of projection.visual?.edgeLooks ?? []) {
-    if (look.kind !== 'cliff' || look.renderProfile !== STRATIFIED_CLIFF_PROFILE || !look.opacity) continue
+    if (look.kind !== 'cliff' || spatialCliffProfile(look.renderProfile) !== STRATIFIED_CLIFF_PROFILE || !look.opacity) continue
     const boundary = boundaries.get(look.boundaryId)
     if (!boundary?.terrainAreaIds.length) continue
     const { points, closed } = boundary
@@ -106,7 +106,10 @@ interface WeatheredCourse {
 
 function weatheredEdges(input: SurfaceMeshes) {
   const { projection, privacy, temporaryCanvas } = input
-  const looks = projection.visual?.edgeLooks.filter(look => look.kind === 'cliff' && isWeatheredCliffProfile(look.renderProfile) && look.opacity) ?? []
+  const looks = projection.visual?.edgeLooks.flatMap(look => {
+    const renderProfile = spatialCliffProfile(look.renderProfile)
+    return look.kind === 'cliff' && isWeatheredCliffProfile(renderProfile) && look.opacity ? [{ ...look, renderProfile }] : []
+  }) ?? []
   const courses = new Map<string, WeatheredCourse>()
   const boundaries = new Map(projection.visual?.boundaries.map(boundary => [boundary.id, boundary]))
   for (const look of looks) {
@@ -437,6 +440,21 @@ function addGradedRoad(input: SurfaceMeshes, road: ReturnType<typeof visibleGrad
   }
 }
 
+export function addMapBase(input: SurfaceMeshes) {
+  const { mesh, projection, ground, blankGround } = input
+  const lowest = ground.all.reduce((low, area) => {
+    const offset = area.relief?.offsetsMm.reduce((min, value) => Math.min(min, value), 0) ?? 0
+    return Math.min(low, area.elevationMm + offset - (projection.rooms.includes(area) ? 235 : 0))
+  }, blankGround ? 0 : Infinity)
+  const top = (Number.isFinite(lowest) ? lowest : 0) - 2
+  const { bounds } = projection, outline = rectangle(bounds)
+  const thickness = Math.max(320, Math.min(2100, Math.max(bounds.width, bounds.height) * .036))
+  const rim = top - thickness * .18, bed = top - thickness * .58
+  mesh.solid({ mapBase: true, color: colorRgb('#6c5b45') }, outline, rim, top)
+  mesh.solid({ mapBase: true, color: colorRgb('#51463b') }, outline, bed, rim, 800, false)
+  mesh.solid({ mapBase: true, color: colorRgb('#403a34') }, outline, top - thickness, bed, 800, false)
+}
+
 export function addWorldSurfaces(input: SurfaceMeshes) {
   const { mesh, projection, ground, texture, temporaryCanvas, zOffset, blankGround, earthenSteps } = input
   const { bounds } = projection, uv = textureUv(bounds)
@@ -576,7 +594,10 @@ export function addWorldSurfaces(input: SurfaceMeshes) {
     else mesh.side(material, a, b, zOffset + lowMm[0], zOffset + lowMm[1], zOffset + highMm[0], zOffset + highMm[1])
   }
   for (const row of risers) {
-    if (row.kind === 'stairs' && !row.staircase && usesWeatheredRockSteps(row.route?.renderProfile) && addWeatheredRockStairs(input, row, painted)) continue
+    if (row.kind === 'stairs' && !row.staircase && row.route?.stairStyle === 'naturalRock') {
+      const route = usesWeatheredRockSteps(row.route.renderProfile) ? row.route : { ...row.route, renderProfile: ERODED_ROCK_STEPS_PROFILE }
+      if (addWeatheredRockStairs(input, { ...row, route }, painted)) continue
+    }
     const line = row.staircaseCenterlineMm ?? row.route?.centerlineMm ?? [row.start, row.end]
     const difference = row.toElevationMm - row.fromElevationMm
     const material = paintStyle(input, row.style, '#9e9580'), tile = row.style?.base.tileSizeMm.width ?? 720
@@ -593,13 +614,25 @@ export function addWorldSurfaces(input: SurfaceMeshes) {
       const config = row.staircase ?? { ...defaultStaircase(), layout: { kind: 'repeat' as const, treadDepthMm: row.route?.treadDepthMm ?? 300 } }
       const staircase = planStaircase(line, row.widthMm, config)
       const lower = startZ + Math.min(0, difference) - 28
-      const stone = { ...material, color: material.color?.map(value => value * 1.11) as SpatialColor | undefined }
-      mesh.cap(material, [connectionBand(line, row.widthMm)], () => lower, p => [p.x / tile, p.y / tile])
+      const supports = row.surfaceIds?.map(id => ground.levels.get(id)) ?? []
+      const fitted = config.preset === 'carved-rock' && supports.some(area => area?.relief) && difference !== 0
+      const palette = staircaseMaterial(config.material).palette
+      const stepColor = (factor: number) => material.color?.map(value => value * factor) as SpatialColor | undefined
+      const riser = fitted ? { ...material, color: material.image ? stepColor(.82) : colorRgb(palette.shadow) } : material
+      const stone = { ...material, color: fitted && !material.image ? colorRgb(palette.top) : stepColor(1.11) }
+      if (fitted) {
+        const { lengthMm, sections, treads } = staircase, sign = Math.sign(difference)
+        const landingMm = Math.min(row.widthMm * .24, lengthMm * .09)
+        const pointAt = (distanceMm: number, lane: number) => staircasePointAt(staircase, sign > 0 ? distanceMm : lengthMm - distanceMm, sign * lane)
+        const stations = [...sections.map(row => row.distanceMm), ...treads.map(tread => tread.endMm)].map(distance => sign > 0 ? distance : lengthMm - distance)
+        addRockStairBedding(input, { lengthMm, pointAt, stations, startMm: landingMm, endMm: lengthMm - landingMm }, lower + 28, lower + 28 + Math.abs(difference), painted, supports)
+      } else mesh.cap(material, [connectionBand(line, row.widthMm)], () => lower, p => [p.x / tile, p.y / tile])
       for (const tread of staircase.treads) {
         const z = startZ + difference * (difference > 0 ? tread.endMm : tread.startMm) / staircase.lengthMm + 7
         const step = Math.abs(difference) * (tread.endMm - tread.startMm) / staircase.lengthMm
-        mesh.solid(material, tread.polygonMm, z - step - 15, z, tile, false)
+        mesh.solid(riser, tread.polygonMm, z - step - (fitted ? 85 : 15), z, tile, false)
         mesh.cap(stone, [tread.polygonMm], () => z, p => [p.x / tile, p.y / tile])
+        if (fitted) continue
         for (const [a, b] of [[tread.frontMm[0], tread.rearMm[0]], [tread.rearMm[1], tread.frontMm[1]]]) {
           const edgeA = ground.groundAt(a), edgeB = ground.groundAt(b)
           const aZ = Math.max(z, edgeA), bZ = Math.max(z, edgeB)
@@ -619,8 +652,20 @@ export function addWorldSurfaces(input: SurfaceMeshes) {
     const z = zOffset + (bridge.relief?.elevationMm ?? ground.groundAt(bridge.centerlineMm[0]) - zOffset) + 12
     const tile = row.style?.base.tileSizeMm.width ?? 850
     const material = paintStyle(input, row.style, bridge.finish === 'steel' ? '#63777d' : '#a3825c')
-    mesh.solid(material, bridge.outline, z - (bridge.relief?.depthMm ?? 220), z, tile)
+    const bottom = z - (bridge.relief?.depthMm ?? 220)
+    mesh.solid(material, bridge.outline, bottom, z, tile)
     for (const landing of bridge.structure?.landings ?? []) mesh.solid(material, landing.outline, z - (bridge.relief?.depthMm ?? 180), z, tile)
+    if (bridge.finish === 'timber') {
+      const frame = connectionArcFrame(bridge.centerlineMm), count = Math.max(2, Math.min(12, Math.ceil(frame.length / 2600)))
+      const post = Math.min(220, bridge.widthMm * .14)
+      for (let i = 0; i < count; i++) for (const side of [-1, 1]) {
+        const station = frame.length * (.12 + .76 * i / (count - 1)), p = frame.at(station, side * bridge.widthMm * .32)
+        if (!pointInPolygon(p, bridge.outline)) continue
+        const support = ground.groundAt(p)
+        if (bottom - support < 125) continue
+        mesh.solid(material, rectangle({ x: p.x - post / 2, y: p.y - post / 2, width: post, height: post }), support - 20, bottom + 4, tile)
+      }
+    }
   } else if (row.stairs) {
     const earth = earthenSteps.get(row.id)
     if (earth) addEarthenRoad(input, row, earth, painted)
@@ -633,28 +678,19 @@ export function addWorldSurfaces(input: SurfaceMeshes) {
   for (const road of gradedRoads) addGradedRoad(input, road, painted)
 }
 
-export function addWorldWalls(input: SurfaceMeshes) {
+export function addWorldWalls(input: SurfaceMeshes, walls: readonly WallGeometry[]) {
   const { mesh, projection, ground, privacy } = input
-  for (const { wall, polygons } of wallGeometry(projection.walls)) {
-    const center = midpoint(wall.start, wall.end)
-    const dx = wall.end.x - wall.start.x, dy = wall.end.y - wall.start.y, span = Math.hypot(dx, dy)
-    const nx = -dy / span, ny = dx / span, distance = wall.thicknessMm / 2 + 8
-    const neighbours = [-1, 1].map(side => projection.rooms.find(room => pointInPolygon({ x: center.x + nx * distance * side, y: center.y + ny * distance * side }, room.points)))
-    const singleRoom = Number(!!neighbours[0]) + Number(!!neighbours[1]) === 1
-    const sign = neighbours[0] ? 1 : -1, nearSide = { x: nx * sign, y: ny * sign }
-    const fade = singleRoom ? { center, nearSide } : undefined
+  for (const { wall, polygons } of walls) {
+    const { floor, fade } = spatialWallFrame(projection, ground, wall)
     const style = { ...paintStyle(input, wall.style, '#a99a7d'), wall: fade }
     const tile = wall.style?.base.tileSizeMm.width ?? 650
-    const room = neighbours[0] ?? neighbours[1]
-    const floor = room ? ground.elevation(room, center) : ground.groundAt(center)
     const height = spatialWallHeight(wall)
     for (const polygon of polygons) mesh.solid(style, polygon, floor, floor + height, tile)
     for (const opening of wall.openings) {
       const width = wall.thicknessMm
       const frame: MeshMaterial = { color: colorRgb('#776049'), privacy, wall: fade }
       if (opening.vertical || wall.heightMm !== undefined) {
-        const bottom = opening.vertical?.sillMm ?? (opening.kind === 'window' ? height * .54 : 0)
-        const top = opening.vertical ? bottom + opening.vertical.heightMm : height * (opening.kind === 'window' ? .93 : .95)
+        const [bottom, top] = spatialOpeningRange(opening, height)
         const band = corridor(opening.start, opening.end, width)
         mesh.solid(style, band, floor, floor + bottom, tile)
         mesh.solid(style, band, floor + top, floor + height, tile)
@@ -667,7 +703,7 @@ export function addWorldWalls(input: SurfaceMeshes) {
       } else if (opening.kind === 'window') {
         mesh.solid(style, corridor(opening.start, opening.end, width).reverse(), floor, floor + height * .54, tile)
         mesh.solid(frame, corridor(opening.start, opening.end, width * .8).reverse(), floor + height * .54, floor + height * .60)
-        mesh.solid({ color: colorRgb('#567779'), privacy, wall: fade }, corridor(opening.start, opening.end, 45).reverse(),
+        if (opening.state === 'closed') mesh.solid({ color: colorRgb('#567779'), privacy, wall: fade }, corridor(opening.start, opening.end, 45).reverse(),
           floor + height * .60, floor + height * .93)
         mesh.solid(frame, corridor(opening.start, opening.end, width * .65).reverse(), floor + height * .93, floor + height)
       } else {

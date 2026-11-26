@@ -103,6 +103,10 @@ export default function AssetBatchImportForm({disabled,candidateActive=true,onPr
       <label>素材 ZIP<input type="file" accept=".zip,application/zip" aria-label="素材ZIP" disabled={occupied} onChange={e=>{choose(e.target.files,'zip');e.target.value=''}}/></label></div>
     {collection&&<p role="status">已读取 {rows.length} 项素材，来源 {size(collection.totalBytes)}；已选 {selected.length} 项。支持素材最多64项，最终仍检查完整来源与工程预算；超限整批拒绝。</p>}
     {collection?.manifest&&<p role="status">已读取素材清单「{collection.manifest.pack.name}」；名称、尺寸与逐项许可已预填。请逐项核对并确认嵌入权利；清单不代表美术或公开分发审核。</p>}
+    {collection?.packReference && <details><summary>核对素材包版本</summary>
+      <p>清单声明的发布者与包名为 <code>{collection.packReference.publisher}/{collection.packReference.id}</code>，版本 {collection.packReference.version}。</p>
+      <p>内容 SHA-256 <code className="asset-pack-digest">{collection.packReference.contentSha256}</code></p>
+    </details>}
     <form onSubmit={e=>{e.preventDefault();void preview()}}><fieldset disabled={occupied}>
       <details><summary>批次默认尺寸与占地</summary>{calibrationFields(defaults,patch=>edit(()=>setDefaults(current=>({...current,...patch}))),'批次默认')}
         <button type="button" disabled={!selected.length} onClick={()=>edit(()=>setRows(current=>current.map(row=>row.selected?{...row,...defaults,originalTags:undefined}:row)))}>应用默认设置到所选项</button></details>

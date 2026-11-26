@@ -31,5 +31,5 @@ export interface HistoryIdentity {
 export const HISTORY_LIMITS = Object.freeze({
   namedPerScene: 32, protectionPerScene: 32, archiveSnapshots: 64, identityProps: 65_536,
   storedResourceBytes: 256 * 1024 * 1024, storedDocumentBytes: 128 * 1024 * 1024,
-  storedOriginalBytes: 128 * 1024 * 1024, archiveDocumentBytes: 128 * 1024 * 1024,
+  archiveDocumentBytes: 128 * 1024 * 1024,
 })

@@ -125,6 +125,7 @@ test('T3 Node and real Worker replay the same explicit route for all five recipe
 
 test('T3 real browser mixed terrain preview, adoption and cold persistence',async({page})=>{
   test.setTimeout(240000)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   const errors:string[]=[]
   page.on('pageerror',error=>errors.push(error.message))
   await page.goto('/#workspace')
@@ -136,6 +137,8 @@ test('T3 real browser mixed terrain preview, adoption and cold persistence',asyn
   await expect(page.getByRole('article',{name:'当前地形候选'})).toContainText('混合地貌')
   await expect(page.getByText('指定路线与完整转角净宽',{exact:true})).toBeVisible()
   await expect(page.getByText('地形分区',{exact:true})).toBeVisible()
+  await expect(page.getByLabel('材质场景主持人预览', { exact: true })).toBeVisible({ timeout: 60000 })
+  await expect(page.getByTestId('generation-sketch')).toHaveCount(0)
   await expect(page.getByRole('button',{name:'采用当前地形方案',exact:true})).toBeEnabled({timeout:60000})
   await page.getByRole('button',{name:'采用当前地形方案',exact:true}).click()
   await expect(page.locator('.asset-save')).toHaveText('本地已保存',{timeout:60000})

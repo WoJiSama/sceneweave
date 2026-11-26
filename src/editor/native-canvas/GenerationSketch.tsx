@@ -117,7 +117,7 @@ export default function GenerationSketch({ playback, complete, onComplete, style
         }
         ctx.stroke(mark.face.path)
       }
-      node.dataset.drawingPhase = stage
+      if (node.dataset.drawingPhase !== stage) node.dataset.drawingPhase = stage
       if (!reduced && (now < playback.endsAt || fadeAt !== undefined)) frame = requestAnimationFrame(paint)
     }
 

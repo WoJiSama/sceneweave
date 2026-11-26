@@ -33,6 +33,17 @@ describe('asset display name contract', () => {
 })
 
 describe('strict raw asset-pack manifest', () => {
+  it('admits an optional canonical publisher only with a portable package id and pinned source bytes', () => {
+    const old = manifest(), scoped = { ...old, pack: { ...old.pack, publisher: 'open.table' },
+      items: old.items.map(item => ({ ...item, sourceSha256: 'a'.repeat(64) })) }
+    expect(parse(scoped).pack.publisher).toBe('open.table')
+    expect(parse({ ...old, pack: { ...old.pack, id: '旧式自用包 01' } }).pack.publisher).toBeUndefined()
+    for (const publisher of ['', 'Open.Table', 'open..table', '../open', 'a'.repeat(65)]) {
+      expect(() => parse({ ...scoped, pack: { ...scoped.pack, publisher } })).toThrow(/发布者/)
+    }
+    expect(() => parse({ ...scoped, pack: { ...scoped.pack, id: 'other/pack' } })).toThrow(/包标识/)
+    expect(() => parse({ ...scoped, items: old.items })).toThrow(/SHA-256/)
+  })
   it('captures independent immutable metadata with exact names and explicit physical defaults', () => {
     const input = manifest(), result = validateAssetPackManifest(input)
     expect(result.items[0].name).toBe(' 老树_01 ')

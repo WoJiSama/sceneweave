@@ -124,6 +124,7 @@ function convert(scene: SceneDocument, to: 'world' | 'local'): SceneDocument {
         case 'prefabInstance': { const row = scene.prefabInstances[ref.id]; row.anchorMm = transform(frame, row.anchorMm); convertHeading(row, frame, to); break }
         case 'scatterGroup': {
           const row = scene.scatterGroups[ref.id]; row.gridOriginMm = transform(frame, row.gridOriginMm)
+          if (row.domain.kind === 'area' && row.domain.boundaryMm) row.domain.boundaryMm = points(frame, row.domain.boundaryMm)
           for (const exclusion of row.exclusions) exclusion.boundaryMm = points(frame, exclusion.boundaryMm)
           break
         }

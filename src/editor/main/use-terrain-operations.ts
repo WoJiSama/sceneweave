@@ -25,6 +25,13 @@ export type TerrainOperation = keyof TerrainOperations
 export type TerrainGenerationIntent = { kind: 'terrain'; input: TerrainGenerationRequest }
   | { kind: 'composition'; input: Omit<CompositionPresetInput, 'sceneId'> }
 
+const baseMapPresetVersions = {
+  default: { terrainAlgorithmVersion: undefined, compositionRecipeVersion: 5 },
+  lightweight: { terrainAlgorithmVersion: 4, compositionRecipeVersion: 4 },
+  'surface-rules': { terrainAlgorithmVersion: 6, compositionRecipeVersion: 6 },
+  highland: { terrainAlgorithmVersion: 7, compositionRecipeVersion: 7 },
+} as const
+
 export function useTerrainOperations({ workspace, runtime, sourceKey, onReleaseGeneration }: {
   workspace: Workspace
   runtime: PreparationContext
@@ -79,24 +86,31 @@ export function useTerrainOperations({ workspace, runtime, sourceKey, onReleaseG
       const workspaceSceneId = workspace.getState().project?.document.sceneId ?? 'empty-workspace'
       const sceneId = runtime.ids.nextId(), input = owned.input
       const palette = owned.kind === 'terrain' && owned.input.kind === 'coast' ? 'coast' : 'island'
-      const surfaceVersion = connection.surfacePalette === 'classic' ? 4 : connection.surfacePalette === 'highland-v7' ? 7 : connection.surfacePalette === 'surface-rules' ? 6 : 5
+      const preset = connection.preset ?? 'default'
+      const versions = baseMapPresetVersions[preset]
+      const lightweight = preset === 'lightweight', highland = preset === 'highland'
       const blankOptions = { title: '程序底图候选', widthMm: input.widthMm, heightMm: input.heightMm, preset: 'narrative' as const, gridVisible: false, sceneId }
-      const coastalAscent = surfaceVersion === 5 && owned.kind === 'terrain' && (owned.input.kind === 'island' || owned.input.kind === 'coast')
-      const basePromise = surfaceVersion >= 5
+      const coastalAscent = preset === 'default' && owned.kind === 'terrain' && (owned.input.kind === 'island' || owned.input.kind === 'coast')
+      const basePromise = !lightweight
         ? import('../../platform/browser/content/shore-blank').then(({ createShoreBlankProject, createCoastalAscentBlankProject }) => coastalAscent
           ? createCoastalAscentBlankProject(palette, blankOptions, lease.signal)
-          : createShoreBlankProject(palette, blankOptions, lease.signal, surfaceVersion >= 6, surfaceVersion === 7))
+          : createShoreBlankProject(palette, blankOptions, lease.signal, highland || preset === 'surface-rules', highland))
         : import('../../platform/browser/content/refined-blank').then(({ createRefinedBlankProject }) => createRefinedBlankProject(palette, blankOptions, lease.signal))
-      const [base, { prepareBaseMapRequestV3, terrainAlgorithmForPalette }, { createBaseMapGenerationClient }] = await Promise.all([
+      const [base, { prepareBaseMapRequestV3, defaultTerrainAlgorithmVersion }, { createBaseMapGenerationClient }] = await Promise.all([
         basePromise, import('../../shared/terrain-generation/base-map-v3'), import('../../platform/browser/terrain-generation/base-map-client'),
       ])
       lease.assertCurrent()
       const quality = connection.quality ?? 'standard'
-      const profile = selectBrowserGenerationBudget({ widthMm: input.widthMm, heightMm: input.heightMm, quality, ...(surfaceVersion >= 5 ? { surfaceRecipe: 1 as const } : {}), mode: connection.budgetMode })
+      const profile = selectBrowserGenerationBudget({ widthMm: input.widthMm, heightMm: input.heightMm, quality, ...(!lightweight ? { surfaceRecipe: 1 as const } : {}), mode: connection.budgetMode })
       const { ocean: wantsOcean, ...terrainInput } = owned.input as TerrainGenerationRequest
       const normalized = owned.kind === 'terrain'
-        ? { kind: 'terrain' as const, input: { ...terrainInput, sceneId, algorithmVersion: terrainAlgorithmForPalette(terrainInput.kind, surfaceVersion), budgetProfileId: profile.profileId, quality } }
-        : { kind: 'composition' as const, input: { ...owned.input, sceneId, recipeVersion: surfaceVersion, budgetProfileId: profile.profileId, quality } }
+        ? { kind: 'terrain' as const, input: {
+          ...terrainInput, sceneId, algorithmVersion: versions.terrainAlgorithmVersion ?? defaultTerrainAlgorithmVersion(terrainInput.kind),
+          budgetProfileId: profile.profileId, quality,
+        } }
+        : { kind: 'composition' as const, input: {
+          ...owned.input, sceneId, recipeVersion: versions.compositionRecipeVersion, budgetProfileId: profile.profileId, quality,
+        } }
       const request = prepareBaseMapRequestV3({ requestId: runtime.ids.nextId(), flowId: runtime.ids.nextId(), profile,
         workspaceSceneId, checkpoint: lease.checkpoint, operationEpoch: lease.epoch, base: base.document, generation: normalized })
       generationClient.current ??= createBaseMapGenerationClient()
@@ -112,8 +126,8 @@ export function useTerrainOperations({ workspace, runtime, sourceKey, onReleaseG
       const preview = await workspace.previewBaseMapGeneration(base, request, response, { signal: lease.signal, source: connection.mode, generationExecution: execution, ocean })
       try {
         lease.assertCurrent()
-        lease.showDrawing(sketchGeneratedFloor(preview.project.document), target?.boundsMm)
         if (target) placements.set(preview, await workspace.previewCanvasGeneration(preview, target, { signal: lease.signal }))
+        lease.showDrawing(sketchGeneratedFloor(preview.project.document), target?.boundsMm)
         return preview
       } catch (error) {
         releaseGeneration(preview)

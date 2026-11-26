@@ -210,6 +210,30 @@ export function paintGradedRoadRisers(ctx: CanvasRenderingContext2D, geometry: R
     const height = upper[1].z - lower[1].z, depth = Math.min(184, 38 + height * .77, reach * .94)
     const seed = `${Math.round(center.x / 65)},${Math.round(center.y / 65)}`
     const left = .032 + .046 * terrainRandomUnit(seed, 'left'), right = .97 - .055 * terrainRandomUnit(seed, 'right')
+    const uphill = (ascending ? byStart : byEnd).get(atPpm)
+    if (path.gradedFinish?.preset === 'rough-stone' && uphill) {
+      const far = ascending ? uphill.end : uphill.start
+      const run = widthOf(center, mix(far[1], far[2], .5))
+      const depth = Math.min(.92, (145 + height * .76) / Math.max(1, run))
+      const at = (u: number, t: number) => mix(mix(upper[1], upper[2], u), mix(far[1], far[2], u), t * depth)
+      const seam = .32 + .37 * terrainRandomUnit(seed, 'stone-joint')
+      for (const [i, [from, to]] of [[left, seam - .009], [seam + .009, right]].entries()) {
+        const end = .75 + .25 * terrainRandomUnit(seed, `stone-depth/${i}`)
+        const mid = (from + to) / 2
+        const slab = polygon([at(from, .12), at(from + .025, 0), at(to - .015, .027), at(to, .27),
+          at(to - .013, end * .8), at(mid, end), at(from + .037, end * .78)])
+        const a = at(mid, 0), b = at(mid, end)
+        const wash = ctx.createLinearGradient(a.x, a.y, b.x, b.y)
+        wash.addColorStop(0, alpha(i ? palette.alternate : palette.top, .90))
+        wash.addColorStop(.55, alpha(i ? palette.top : palette.light, .66))
+        wash.addColorStop(1, alpha(palette.top, .15))
+        ctx.fillStyle = wash
+        ctx.fill(slab)
+        ctx.strokeStyle = alpha(palette.joint, .39)
+        ctx.lineWidth = 24
+        ctx.stroke(slab)
+      }
+    }
     const across = [0, .14, .26, .36, .49, .60, .71, .84, 1].map(t => left + t * (right - left))
     const points = across.map((u, i) => {
       const crest = mix(lower[1], lower[2], u)

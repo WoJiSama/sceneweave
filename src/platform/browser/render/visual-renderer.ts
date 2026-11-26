@@ -1,3 +1,4 @@
+import { horizontalDirectionToLight } from '../../../shared/visual/directional-light.js'
 import type { BoundsMm, PointMm, ShadowStyle } from '../../../shared/model/scene.js'
 import type { ProjectedVisualBoundary, ProjectedVisualFilter, Projection } from '../../../shared/projection/types.js'
 import { VISUAL_FILTER_TINTS } from '../../../shared/visual/visual-filter-color.js'
@@ -18,7 +19,7 @@ import { edgeLookPaintPadding } from '../../../shared/visual/paint-envelopes.js'
 import { boundaryConnections, clipConnectionOpenings, drawConnectionCheeks } from './connection-geometry'
 import type { ProjectedConnection } from '../../../shared/projection/types.js'
 import { cliffHighGround, type CliffHighGround } from './cliff-high-ground.js'
-import { isHeightCliffProfile, isWeatheredCliffProfile, planTerrainCliffs, STRATIFIED_CLIFF_PROFILE } from '../../../shared/visual/terrain-cliff-plan.js'
+import { isHeightCliffProfile, isWeatheredCliffProfile, planTerrainCliffs } from '../../../shared/visual/terrain-cliff-plan.js'
 import { drawTerrainCliffFace } from './terrain-cliff-renderer.js'
 import { cliffRibbon, cliffRibbonPaints, type CliffRibbon } from '../../../shared/visual/cliff-ribbon.js'
 
@@ -197,8 +198,9 @@ function edgeDetails(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBou
 }
 
 /** One joined face with variable ledges and broken strata, rather than repeated cliff stickers. */
+// Scene light angles record the shadow heading. Face normals point out to the lower ground.
 function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, look: VisualEdgeLook, directionDeg: number, connections: ProjectedConnection[], dropMm?: number, ribbons?: Map<number, CliffRibbon>): void {
-  const angle = directionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }, reliefRgb = colorRgb(look.color)
+  const light = horizontalDirectionToLight(directionDeg), reliefRgb = colorRgb(look.color)
   const shade = (normal: PointMm, variation: number) => {
     const facing = normal.x * light.x + normal.y * light.y
     const factor = Math.max(.66, Math.min(1.12, .91 + Math.max(0, facing) * .16 - Math.max(0, -facing) * .13 + variation))
@@ -214,7 +216,6 @@ function drawCliffFace(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualB
       ctx.save()
       try {
         ctx.globalAlpha = look.opacity; ctx.fillStyle = color(.94); ctx.fill(face, 'evenodd'); ctx.clip(face, 'evenodd')
-        const lightAngle = directionDeg * Math.PI / 180, light = { x: Math.cos(lightAngle), y: Math.sin(lightAngle) }
         // Each finite ribbon shares a joined, clipped face. A small tangent
         // overlap hides antialias seams without extending the union envelope.
         for (const cell of relief.cells) {
@@ -343,6 +344,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
   const visual = projection.visual
   if (!visual) return
   const byId = new Map(visual.boundaries.map(boundary => [boundary.id, boundary]))
+  const spatialRock = (look: VisualEdgeLook) => spatialTexture && look.kind === 'cliff' && !!byId.get(look.boundaryId)?.terrainAreaIds.length
   // Share only geometry across compatible directed endpoints. Each record
   // still paints at its original position with its own high-side/opening clip.
   const ribbonByLook = new Map<string, Map<number, CliffRibbon>>()
@@ -362,7 +364,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
     }
     return high
   }
-  const cliffs = visual.edgeLooks.filter(look => look.kind === 'cliff' && look.opacity > 0 && look.renderProfile !== 'rockRelief5' && !isHeightCliffProfile(look.renderProfile))
+  const cliffs = visual.edgeLooks.filter(look => look.kind === 'cliff' && look.opacity > 0 && look.renderProfile !== 'rockRelief5' && !isHeightCliffProfile(look.renderProfile) && !spatialRock(look))
   if (cliffs.length) {
     const allPoints = cliffs.flatMap(look => byId.get(look.boundaryId)?.points ?? []), padding = Math.max(...cliffs.map(edgeLookPaintPadding))
     const buffer = allPoints.length ? localBuffer(ctx, projection, minMaxBounds(allPoints, padding), readFrequently) : null
@@ -394,7 +396,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
   // The height-aware profile resolves all face intersections together before
   // any face is painted; subsequent shore/grass records retain their order.
   const terrainCliffs = planTerrainCliffs(spatialTexture
-    ? { ...projection, visual: { ...visual, edgeLooks: visual.edgeLooks.filter(look => look.renderProfile !== STRATIFIED_CLIFF_PROFILE) } }
+    ? { ...projection, visual: { ...visual, edgeLooks: visual.edgeLooks.filter(look => !spatialRock(look) || isWeatheredCliffProfile(look.renderProfile)) } }
     : projection)
   for (const face of terrainCliffs) {
     if (!face.shadowRings.length || spatialTexture && isWeatheredCliffProfile(face.look.renderProfile)) continue
@@ -434,7 +436,7 @@ export function drawVisualBoundaries(ctx: CanvasRenderingContext2D, projection: 
       continue
     }
     const look = looksById.get(entry.id)
-    if (!look || isHeightCliffProfile(look.renderProfile)) continue
+    if (!look || isHeightCliffProfile(look.renderProfile) || spatialRock(look)) continue
     const boundary = byId.get(look.boundaryId)
     if (!boundary || !intersectsVisualBounds(minMaxBounds(boundary.points, edgeLookPaintPadding(look)), projection.bounds)) continue
     const connections = connectionsFor(projection, boundary)

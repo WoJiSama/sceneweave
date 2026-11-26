@@ -24,7 +24,6 @@
     "src",
     "tests",
     "vite.config.ts",
-    "vite.performance.config.ts",
     "playwright.config.ts",
     "services/ai/**/*.ts",
     "vitest.ai.config.ts"

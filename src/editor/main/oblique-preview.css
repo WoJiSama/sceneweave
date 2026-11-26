@@ -19,6 +19,18 @@
 }
 .oblique-heading h2 { margin: 0 0 3px; font-size: 20px; }
 .oblique-heading span, .oblique-controls { font-size: 13px; }
+.oblique-heading-actions, .oblique-mode { display: flex; align-items: center; gap: 8px; }
+.oblique-heading-actions { flex-wrap: wrap; }
+.oblique-mode { font-size: 13px; white-space: nowrap; }
+.oblique-mode select {
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid #bcc8bc;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
 .oblique-heading button, .oblique-controls button, .oblique-controls label, .oblique-hint {
   display: inline-flex;
   align-items: center;

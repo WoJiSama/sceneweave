@@ -10,12 +10,10 @@ import type { RestoreChange, RestoreMode } from '../../shared/history/restore'
 import type { WorkspaceRepository } from './repository'
 import type { EditableProject } from '../../application/workspace/project'
 import type { SnapshotSummary } from '../../shared/model/project'
-import type { LegacySource } from '../../shared/migration/types'
 import type { SelectionSession } from '../native-canvas/selection-session'
 import type { EditableSnapshot, RestorePreview, StructureRestorePreview, Workspace } from '../../application/workspace/workspace'
 import StructureHistoryPanel from './StructureHistoryPanel'
 import { projectScene } from '../../shared/projection/projection'
-import { prepareOriginalDownload } from './legacy-original-download'
 import { VISUAL_ENTITY_COLLECTIONS } from '../../shared/visual/diagnostics'
 import { createEntityLabeler } from './entity-label'
 
@@ -51,7 +49,6 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   const [metadataVersion, setMetadataVersion] = useState<number | undefined>()
   const [directoryIssues, setDirectoryIssues] = useState<string[]>([]), [legacyHistory, setLegacyHistory] = useState(false)
   const [loadingStorage, setLoadingStorage] = useState(false), [storageError, setStorageError] = useState<string | null>(null)
-  const [legacySources, setLegacySources] = useState<LegacySource[]>([])
   const [versionHistory, setVersionHistory] = useState<VersionHistory | null>(null), [versionId, setVersionId] = useState('')
   const [name, setName] = useState(''), [creating, setCreating] = useState(false), [snapshot, setSnapshot] = useState<EditableSnapshot | null>(null)
   const [rename, setRename] = useState<{ snapshot: SnapshotSummary; name: string } | null>(null), [deleting, setDeleting] = useState<SnapshotSummary | null>(null)
@@ -67,7 +64,7 @@ export default function HistoryPanel({ active, project, repository, workspace, s
   const refreshStamp = `${sceneId}:${project.document.revision}:${refreshKey}`
   const resetStorageDetails = () => {
     storageRequest.current++
-    setUsage(null); setLegacySources([]); setStorageError(null); setLoadingStorage(false)
+    setUsage(null); setStorageError(null); setLoadingStorage(false)
   }
   const refresh = async () => {
     const ticket = ++request.current
@@ -95,9 +92,9 @@ export default function HistoryPanel({ active, project, repository, workspace, s
     const current = () => ticket === storageRequest.current && directoryTicket === request.current
     setLoadingStorage(true); setStorageError(null)
     try {
-      const [actualUsage, sources] = await Promise.all([repository.usage(sceneId), repository.listLegacySources(sceneId)])
+      const actualUsage = await repository.usage(sceneId)
       if (!current()) return
-      setUsage(actualUsage); setLegacySources(sources)
+      setUsage(actualUsage)
     } catch (failure) {
       if (current()) setStorageError(failure instanceof Error ? failure.message : String(failure))
     } finally { if (current()) setLoadingStorage(false) }
@@ -204,16 +201,6 @@ export default function HistoryPanel({ active, project, repository, workspace, s
     if (viewport.current) viewport.current.scrollTop = 0
     }, '打开历史快照')
   }
-  const downloadOriginal = (source: LegacySource) => void onAction(async () => {
-    const checkpoint = workspace.checkpoint()
-    const original = await repository.loadLegacyOriginal(sceneId, source.nodeId)
-    workspace.assertCheckpoint(checkpoint)
-    if (original.source.sourceHash !== source.sourceHash || original.source.nodeId !== source.nodeId) throw new Error('迁移来源已变化，请刷新历史列表。')
-    const prepared = prepareOriginalDownload(original.source, original.bytes)
-    const url = URL.createObjectURL(prepared.blob), anchor = document.createElement('a')
-    try { anchor.href = url; anchor.download = prepared.filename; anchor.click() }
-    finally { window.setTimeout(() => URL.revokeObjectURL(url), 30_000) }
-  }, '下载迁移原件')
   const selectProp = (id: string, checked: boolean) => { setSelected(current => { const next = new Set(current); if (checked) next.add(id); else next.delete(id); return next }); setError(null) }
   const available = summaries.filter(item => item.ownerSceneId === sceneId), backupAvailable = available.filter(item => item.kind !== 'imported-auto'), backupSnapshots = backupAvailable.filter(item => backupIds.has(item.id))
   const namedCount = available.filter(item => item.kind === 'named').length, protectionCount = available.filter(item => item.kind === 'protection').length
@@ -322,26 +309,10 @@ export default function HistoryPanel({ active, project, repository, workspace, s
     {deleting && <div className="history-delete-confirm" role="group" aria-label="删除快照确认"><strong>删除「{deleting.name}」？</strong><span>此快照将从本工程历史移除</span><button className="secondary" disabled={disabled} onClick={() => setDeleting(null)}>取消删除</button><button className="history-danger" disabled={disabled} onClick={() => void onAction(async () => { await repository.deleteNamedSnapshot(deleting.id, deleting.contentHash, metadataVersion, sceneId); setDeleting(null); await refresh() }, '删除快照')}><Trash2 size={13}/>确认删除快照</button></div>}
     {!split && snapshotDetails}
     {split && detailsTarget && createPortal(historyDetails, detailsTarget)}
-    <div className="history-storage-inspection"><button className="secondary" disabled={disabled || refreshBlocked || loadingHistory || loadingStorage} onClick={() => void loadStorageDetails()}>{loadingStorage ? '正在检查容量与迁移原件…' : '检查容量与迁移原件'}</button>
-      {storageError && <p role="alert" className="asset-error">容量或迁移原件检查失败：{storageError}</p>}
+    <div className="history-storage-inspection"><button className="secondary" disabled={disabled || refreshBlocked || loadingHistory || loadingStorage} onClick={() => void loadStorageDetails()}>{loadingStorage ? '正在检查容量…' : '检查容量'}</button>
+      {storageError && <p role="alert" className="asset-error">容量检查失败：{storageError}</p>}
     </div>
-    {legacySources.length > 0 && <section className="history-originals" aria-label="迁移原件">
-      <h3>迁移原件 <small>{legacySources.length} 份</small></h3>
-      <p className="asset-muted">保留转换前的确切原件。下载不改变当前工程或历史。</p>
-      {legacySources.map(source => <article className="composition-diff-item" data-legacy-source-node={source.nodeId} key={source.nodeId}>
-        <strong>旧 v{source.sourceSchemaVersion} · r{source.sourceRevision}</strong>
-        <details><summary>来源与完整摘要</summary><dl className="asset-facts">
-          <dt>来源工程</dt><dd>{source.sourceSceneId}</dd>
-          <dt>原件摘要</dt><dd className="catalog-hash">{source.sourceHash}</dd>
-          <dt>来源节点</dt><dd>{source.nodeId}</dd>
-          <dt>前序节点</dt><dd>{source.previousNodeId ?? '无'}</dd>
-          <dt>转换器</dt><dd>{source.migratorVersion}</dd>
-          <dt>保留时间</dt><dd>{dateLabel(source.migratedAt)}</dd>
-        </dl></details>
-        <button className="secondary asset-wide" disabled={disabled} onClick={() => downloadOriginal(source)}><Download size={14}/>下载迁移原件 v{source.sourceSchemaVersion} · r{source.sourceRevision}</button>
-      </article>)}
-    </section>}
-    {usage && <dl className="history-usage"><dt>资源</dt><dd>{bytes(usage.resourceBytes)} / {bytes(usage.limits.storedResourceBytes)}</dd><dt>场景与历史</dt><dd>{bytes(usage.documentBytes)} / {bytes(usage.limits.storedDocumentBytes)}</dd><dt>迁移原件</dt><dd>{bytes(usage.originalBytes)} / {bytes(usage.limits.storedOriginalBytes)}</dd></dl>}
+    {usage && <dl className="history-usage"><dt>资源</dt><dd>{bytes(usage.resourceBytes)} / {bytes(usage.limits.storedResourceBytes)}</dd><dt>场景与历史</dt><dd>{bytes(usage.documentBytes)} / {bytes(usage.limits.storedDocumentBytes)}</dd></dl>}
     <div className="history-backup"><label><input type="checkbox" aria-label="备份携带所选快照" checked={includeHistory} disabled={disabled} onChange={event => setIncludeHistory(event.target.checked)}/>携带所选命名与保护快照</label>
       {includeHistory && <div className="history-backup-scope" aria-label="历史备份范围">
         <div className="history-backup-tools"><span aria-live="polite">已选 {backupSnapshots.length} / {backupAvailable.length} 份</span><button type="button" disabled={disabled || !backupAvailable.length} onClick={() => setBackupIds(new Set(backupAvailable.map(item => item.id)))}>全选</button><button type="button" disabled={disabled || !backupSnapshots.length} onClick={() => setBackupIds(new Set())}>清空</button></div>

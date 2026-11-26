@@ -382,8 +382,9 @@ function measureProvenPropBudget(before: SceneDocument, after: SceneDocument, me
   return freezeJson({ ...measured, groupMembers: 0, externalDependencies: 0 })
 }
 
-export function measureCommandBudget(before: SceneDocument, after: SceneDocument, metadata?: CommandBudgetMetadata, execution: Partial<BudgetUsage> = {}, profile: CommandBudgetProfile = MANUAL_TRANSACTION_BUDGET): CommandBudgetUsage {
-  if (!isManualTransactionBudget(profile)) return measureTaskBudget(before, after, metadata as TaskBudgetMetadata | undefined, execution)
+export function measureCommandBudget(before: SceneDocument, after: SceneDocument, metadata?: CommandBudgetMetadata, execution: Partial<BudgetUsage> = {},
+  profile: CommandBudgetProfile = MANUAL_TRANSACTION_BUDGET, terrainPairAccounting?: import('./task-budget.js').TerrainPairAccounting): CommandBudgetUsage {
+  if (!isManualTransactionBudget(profile)) return measureTaskBudget(before, after, metadata as TaskBudgetMetadata | undefined, execution, terrainPairAccounting)
   const proven = measureProvenPropBudget(before, after, metadata, execution)
   if (proven) return proven
   // Manual admission has its own semantic and metadata counts. Share only the

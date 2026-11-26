@@ -81,7 +81,9 @@ describe('finite complete scene authoring', () => {
     expect(Object.keys(f.project.document.rooms)).toHaveLength(2)
     expect(Object.keys(f.project.document.walls)).toHaveLength(7)
     const wall = f.project.document.walls['house:wall:0']
+    expect(wall.heightMm).toBe(2800)
     f.apply({ kind: 'opening', id: 'front-door', wallId: wall.id, offsetReferenceVertexId: wall.startVertexId, offsetMm: 1000, widthMm: 1000, openingKind: 'door' })
+    expect(f.project.document.openings['front-door'].vertical).toEqual({ sillMm: 0, heightMm: 2100 })
     const entrance = f.apply({ kind: 'entrance', openingIds: ['front-door'] })
     expect(entrance.writeIds).toContain('constraints')
     expect(f.project.document.constraints.entranceOpeningIds).toEqual(['front-door'])

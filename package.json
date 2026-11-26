@@ -9,8 +9,6 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "node tools/sync-workflows.mjs --check && node tools/check-architecture.mjs && tsc -b && tsc -p tsconfig.ai.json --noEmit && vite build",
-    "build:performance": "tsc -b && vite build --config vite.performance.config.ts",
-    "perf:b5": "node tools/performance/run-b5.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "node tools/sync-workflows.mjs --check && node tools/check-architecture.mjs && tsc -b && tsc -p tsconfig.ai.json --noEmit",
     "check:architecture": "node tools/check-architecture.mjs",

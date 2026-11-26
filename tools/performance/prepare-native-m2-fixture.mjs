@@ -3,9 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-// This server belongs only to fixture preparation. It serves the existing strict
-// readers/converter and real browser image adapter, never the measured product.
-// No legacy UI, application entry point or measurement API is installed here.
+// Serve fixture preparation and diagnostic modules in an isolated browser context.
 export async function startNativeFixtureTooling({ root }) {
   const pathname = '/__sceneweave_fixture__/index.html'
   const cacheDirectory = await mkdtemp(path.join(tmpdir(), 'sceneweave-native-fixture-'))
@@ -30,30 +28,4 @@ export async function startNativeFixtureTooling({ root }) {
     try { await server?.close() } finally { await rm(cacheDirectory, { recursive: true, force: true }) }
     throw error
   }
-}
-
-// These functions execute only in the dedicated preparation browser. Module
-// singletons keep the same journal/repository between capture and reread.
-export async function beginNativeFixturePreparation(bytes) {
-  const conversionPath = '/src/application/migration/conversion.ts', runtimePath = '/src/platform/browser/runtime.ts'
-  const { beginProjectFileConversion } = await import(conversionPath)
-  const { projectRepository, runtime, validation } = await import(runtimePath)
-  const begun = await beginProjectFileConversion(Uint8Array.from(bytes), { repository: projectRepository, runtime, validation })
-  if (!begun.backup || begun.reused || begun.job.stage !== 'captured') throw new Error('Fresh fixture capture must create a complete preservation set and fixed journal')
-  return { jobId: begun.job.jobId, index: Array.from(begun.backup.index),
-    volumes: [...begun.backup.volumes].map(([name, value]) => ({ name, bytes: Array.from(value) })) }
-}
-
-export async function completeNativeFixturePreparation({ jobId, index, volumes }) {
-  const conversionPath = '/src/application/migration/conversion.ts', runtimePath = '/src/platform/browser/runtime.ts', projectPath = '/src/shared/project/file.ts'
-  const { continueProjectConversion } = await import(conversionPath)
-  const { projectRepository, runtime, validation } = await import(runtimePath)
-  const { exportProject } = await import(projectPath)
-  const completed = await continueProjectConversion({ jobId, sourcePolicy: 'require-unchanged',
-    backup: { index: Uint8Array.from(index), volumes: new Map(volumes.map(({ name, bytes }) => [name, Uint8Array.from(bytes)])) } },
-  { repository: projectRepository, runtime, validation })
-  if (completed.job.stage !== 'verified' || completed.reused || completed.sourceState !== 'unchanged') throw new Error('Fixture preparation did not finish strict cold-read publication')
-  return { bytes: Array.from(await exportProject(completed.bundle, validation)),
-    job: { jobId: completed.job.jobId, stage: completed.job.stage, targetSceneId: completed.job.targetSceneId,
-      sourceFingerprint: completed.job.sourceFingerprint, backupReceipt: completed.job.backupReceipt } }
 }

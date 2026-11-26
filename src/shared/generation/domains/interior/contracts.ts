@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { wallHeightSchema } from '../../../model/building-height.js'
 
 const id = z.string().min(1).max(120).refine(value => value !== '__proto__', '保留需求ID')
 const integer = z.number().int().safe()
@@ -11,7 +12,7 @@ export const interiorMaterialRoleSchema = z.enum(['floor', 'wall', 'service-floo
 /** Native integer millimetres and square millimetres. This schema has no runtime
  * dependency on the scene/parser/generator, so persisted recipes can reuse it. */
 export const interiorLayoutParametersSchema = z.object({ floorId: id, layerId: id, boundsMm: bounds,
-  wallThicknessMm: positive.max(2000),
+  wallThicknessMm: positive.max(2000), wallHeightMm: wallHeightSchema.optional(),
   rooms: z.array(z.object({ id, purpose: z.string().min(1).max(120), minAreaMm2: positive.max(1_000_000_000_000), maxAreaMm2: positive.max(1_000_000_000_000), minClearSideMm: positive.max(1_000_000),
     furnishingFocus: z.enum(['fireside-v1', 'reading-v1']).optional(),
   }).strict()).min(1).max(24),

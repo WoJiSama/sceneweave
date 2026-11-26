@@ -130,6 +130,8 @@ export interface TerrainArea extends Editable {
   rockBody?: RockBody
   /** Saved height offsets relative to the area datum, in the terrain outline's bounds. */
   relief?: import('../geometry/terrain-relief.js').TerrainRelief
+  /** Optional painted strata follow the actual relief, independent of support. */
+  reliefFinish?: 'weathered-v1'
 }
 export interface EdgeStyle { strokeWidthMm: number; color: string; bandWidthMm: number }
 export interface TerrainEdge extends Editable {
@@ -175,7 +177,7 @@ export interface PrefabInstance extends Editable {
 }
 export interface ScatterGroup extends Editable {
   visibility: Visibility
-  domain: { kind: 'area'; areaId: Id } | { kind: 'path'; pathId: Id } | { kind: 'edgeBand'; edgeId: Id; widthMm: number }
+  domain: { kind: 'area'; areaId: Id; boundaryMm?: PointMm[] } | { kind: 'path'; pathId: Id } | { kind: 'edgeBand'; edgeId: Id; widthMm: number }
   palette: { key: string; propDefinitionRef: VersionRef; weight: number }[]
   seed: string; algorithmVersion: string; gridOriginMm: PointMm; cellSizeMm: number; densityFactor: number; minDistanceMm: number
   rotationRangeDeg: { min: number; max: number }

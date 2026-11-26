@@ -2,11 +2,10 @@ import 'fake-indexeddb/auto'
 import Dexie from 'dexie'
 import { unzipSync, zipSync } from 'fflate'
 import { afterEach, describe, expect, it } from 'vitest'
-import { layerSceneV3 } from '../../../core/v3/test-fixtures.js'
+import { layerScene } from '../../../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from '../../../shared/appearance/graph.js'
 import { decodeSceneCoordinates, encodeProjectCoordinates } from '../../../shared/aggregates/scene-coordinates.js'
 import type { ProjectBundle, ProjectData } from '../../../shared/model/project.js'
-import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import type { CompleteValidationOptions } from '../../../shared/ports/resources.js'
 import { exportProject, importProject } from '../../../shared/project/file.js'
 import { createMemoryResources } from '../../../shared/project/resources.js'
@@ -31,7 +30,7 @@ const validation: CompleteValidationOptions = { images: {
 } }
 
 function fixture(aggregate = true, rotationDeg?: number): ProjectBundle {
-  const document = toCurrentSceneDocument({ ...cloneJson(layerSceneV3()), format: 'sceneweave-scene', schemaVersion: 1 })
+  const document = layerScene()
   if (rotationDeg !== undefined) document.props.item.rotationDeg = rotationDeg
   document.sceneId = 'aggregate-io-owner'; document.assets = {}; document.propDefinitions = {}; document.materials = {}; document.styleThemes = {}; document.activeStyleThemeRef = null
   if (aggregate) document.aggregateCoordinates = { encoding: 'world', groups: {

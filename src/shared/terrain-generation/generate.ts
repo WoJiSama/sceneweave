@@ -22,6 +22,8 @@ import { coastalAscentLayout, coastalEdgeDetailScale, groundCoverPatch, shapeCoa
 import { shapeCoastalFootSlope, shapeErodedCoastalRock } from './coastal-relief.js'
 import { placeCoastalDressing, terrainProp } from './coastal-dressing.js'
 import { SHORE_MATERIAL_IDS } from '../visual/shore-art.js'
+import { COASTAL_ASCENT_VERSION, WEATHERED_COAST_VERSION, NATURAL_STONE_COAST_VERSION, ERODED_COAST_VERSION, type CoastalAscentVersion } from './recipe-capabilities.js'
+export { COASTAL_ASCENT_VERSION, WEATHERED_COAST_VERSION, NATURAL_STONE_COAST_VERSION, ERODED_COAST_VERSION, type CoastalAscentVersion } from './recipe-capabilities.js'
 
 import { BudgetUsageSchema, TaskBudgetProfileSchema, taskBudgetProfile, measureTaskBudget, assertTaskBudget, captureExecutionBudget, type ExecutionBudget, type BudgetUsage } from '../budget/task-budget.js'
 export const TERRAIN_GENERATOR_VERSION = 'terrain-scene-v1' as const
@@ -45,23 +47,18 @@ export type TerrainGenerationInputV8 = z.infer<typeof terrainGenerationInputV8Sc
 export const terrainGenerationInputV9Schema = z.object({ ...terrainGenerationInputV4Schema.shape, kind: z.literal('coast'), algorithmVersion: z.literal(9) }).strict()
   .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '海岸范围宽高比须为1–1.8。')
 export type TerrainGenerationInputV9 = z.infer<typeof terrainGenerationInputV9Schema>
-export const COASTAL_ASCENT_VERSION = 10
 export const terrainGenerationInputV10Schema = z.object({ ...terrainGenerationInputV4Schema.shape, kind: z.enum(['coast', 'island']), algorithmVersion: z.literal(COASTAL_ASCENT_VERSION) }).strict()
   .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '沿海地形范围宽高比须为1–1.8。')
 export type TerrainGenerationInputV10 = z.infer<typeof terrainGenerationInputV10Schema>
-export const WEATHERED_COAST_VERSION = 11
 export const terrainGenerationInputV11Schema = z.object({ ...terrainGenerationInputV10Schema.shape, algorithmVersion: z.literal(WEATHERED_COAST_VERSION) }).strict()
   .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '沿海地形范围宽高比须为1–1.8。')
 export type TerrainGenerationInputV11 = z.infer<typeof terrainGenerationInputV11Schema>
-export const NATURAL_STONE_COAST_VERSION = 12
 export const terrainGenerationInputV12Schema = z.object({ ...terrainGenerationInputV11Schema.shape, algorithmVersion: z.literal(NATURAL_STONE_COAST_VERSION) }).strict()
   .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '沿海地形范围宽高比须为1–1.8。')
 export type TerrainGenerationInputV12 = z.infer<typeof terrainGenerationInputV12Schema>
-export const ERODED_COAST_VERSION = 13
 export const terrainGenerationInputV13Schema = z.object({ ...terrainGenerationInputV12Schema.shape, algorithmVersion: z.literal(ERODED_COAST_VERSION) }).strict()
   .refine(value => value.widthMm / value.heightMm >= 1 && value.widthMm / value.heightMm <= 1.8, '沿海地形范围宽高比须为1–1.8。')
 export type TerrainGenerationInputV13 = z.infer<typeof terrainGenerationInputV13Schema>
-export type CoastalAscentVersion = typeof COASTAL_ASCENT_VERSION | typeof WEATHERED_COAST_VERSION | typeof NATURAL_STONE_COAST_VERSION | typeof ERODED_COAST_VERSION
 export type TerrainGenerationInput = z.infer<typeof terrainGenerationInputSchema> | TerrainGenerationInputV4 | TerrainGenerationInputV5 | TerrainGenerationInputV8 | TerrainGenerationInputV9 | TerrainGenerationInputV10 | TerrainGenerationInputV11 | TerrainGenerationInputV12 | TerrainGenerationInputV13
 export interface TerrainManagedTarget { kind: 'terrainArea' | 'terrainConnection' | 'path' | 'prop' | 'visualBoundary' | 'visualEdgeLook'; id: string }
 export interface TerrainGenerationResult {

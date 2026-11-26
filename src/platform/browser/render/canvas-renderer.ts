@@ -43,7 +43,7 @@ import { paintWithPreservedAlpha } from './alpha-preservation.js'
 import { noteLabelPositions } from './note-label-layout.js'
 import { terrainInlayWallPaint, type InlayWallPaintPiece } from '../../../shared/terrain-inlay/wall-paint.js'
 import { drawTerrainSlopeFinish } from './terrain-slope-renderer.js'
-import { drawTerrainReliefLight } from './terrain-relief-paint.js'
+import { drawTerrainReliefLight, drawWeatheredRelief } from './terrain-relief-paint.js'
 import { reliefBounds, sampleTerrainRelief } from '../../../shared/geometry/terrain-relief.js'
 import { drawStaircase } from './staircase-renderer.js'
 import { planStaircase, staircasePatch, staircasePointAt, type StaircaseGeometry } from '../../../shared/stairs/geometry.js'
@@ -172,7 +172,7 @@ function worldTransform(ctx: CanvasRenderingContext2D, bounds: BoundsMm, scaleX:
 
 interface RasterSet { bitmaps: Map<string, ImageBitmap>; byAssetId: Map<string, ImageBitmap>; styled?: Map<string, HTMLCanvasElement>;
   paintCache?: { key: string; image: HTMLCanvasElement }; readFrequently?: boolean; bitmapLine?: boolean
-  bitmapLineIds?: ReadonlySet<string>; lineGuide?: ArtStyleLineGuide; spatialTexture?: true
+  bitmapLineIds?: ReadonlySet<string>; lineGuide?: ArtStyleLineGuide; spatialTexture?: 'base' | 'detail'
   rockSteps?: typeof import('./rock-step-paint.js') }
 
 function lineBitmapIds(projection: Projection, sources: RasterSources): Set<string> {
@@ -348,7 +348,19 @@ function fillSurface(ctx: CanvasRenderingContext2D, path: Path2D | null, style: 
   const b = projection.bounds; ctx.fillRect(b.x, b.y, b.width, b.height)
   if (style && !baseColor) {
     if (fillBase) fillBase()
-    else { ctx.save(); ctx.resetTransform(); ctx.globalAlpha = style.base.opacity; ctx.drawImage(paintImage(ctx, style.base, projection, raster), 0, 0); ctx.restore() }
+    else {
+      ctx.save()
+      ctx.globalAlpha = style.base.opacity
+      if (raster.spatialTexture === 'detail' && !style.base.tint) {
+        // The clip and world transform already place the untinted pattern.
+        ctx.fillStyle = repeatMaterial(ctx, style.base, projection, raster)
+        ctx.fillRect(b.x, b.y, b.width, b.height)
+      } else {
+        ctx.resetTransform()
+        ctx.drawImage(paintImage(ctx, style.base, projection, raster), 0, 0)
+      }
+      ctx.restore()
+    }
   }
     aboveBase?.()
     for (const overlay of [...(style?.overlays ?? [])].sort((a, b) => a.renderOrder - b.renderOrder || a.id.localeCompare(b.id))) drawOverlay(overlay)
@@ -398,6 +410,7 @@ function drawTerrainSurface(ctx: CanvasRenderingContext2D, area: ProjectedSurfac
         drawGroundPigment(target, path, pointsBounds(area.points), brush)
         target.restore()
       } : undefined)
+    drawWeatheredRelief(target, area, path)
     drawTerrainReliefLight(target, area, path, projection.visual?.environment)
   }
   if (!area.boundaryBlendMm) { paint(ctx); return }
@@ -1280,6 +1293,7 @@ function usesRockStepSideMask(profile: NonNullable<ProjectedConnection['route']>
 
 function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Projection, raster: RasterSet, c: ProjectedConnection): void {
   const route = c.route!, polygon = connectionPolygon(c), path = polygonPath(polygon)
+  if (raster.spatialTexture && c.kind === 'stairs' && route.stairStyle === 'naturalRock') return
   if (c.kind === 'stairs' && (route.renderProfile === 'naturalRockSteps9' || route.renderProfile === 'naturalRockSteps10')) {
     if (raster.spatialTexture) return
     const ground = projectGround(projection), [fromId, toId] = c.surfaceIds ?? []
@@ -1789,7 +1803,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
         target.restore()
       }
       drawTerrainSurface(target, area, local, raster)
-      if (rock) drawRockBody(target, rock, raster.spatialTexture)
+      if (rock) drawRockBody(target, rock, !!raster.spatialTexture)
     }, !!raster.readFrequently)
   }
   for (const prop of projection.props) if (prop.waterAppearance && prop.waterAppearance.mode !== 'surface') {
@@ -1802,7 +1816,7 @@ function drawProjection(ctx: CanvasRenderingContext2D, projection: Projection, r
   const edgeProjection = { ...projection, edges: terrainEdgePaint(projection) }
   drawTerrainEdges(ctx, edgeProjection, raster, sx, sy)
   if (guide) drawTerrainLineInk(guide, edgeProjection)
-  drawVisualBoundaries(ctx, projection, signal, !!raster.readFrequently, raster.spatialTexture)
+  drawVisualBoundaries(ctx, projection, signal, !!raster.readFrequently, !!raster.spatialTexture)
   drawTerrainInlays(ctx, projection, raster)
   if (guide) for (const inlay of projection.inlays ?? []) {
     guide.cover(polygonPath(inlay.footprintMm))
@@ -1940,7 +1954,7 @@ function finishProjection(ctx: CanvasRenderingContext2D, projection: Projection,
  * Canvas/resource backend. Receives disposable physical projection and resource
  * records only. Strict version-specific entrypoints own document validation.
  */
-export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions & { spatialTexture?: true; spatialRaster?: RasterSet }, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm, previewCache?: ArtStylePreviewCache): Promise<HTMLCanvasElement> {
+export async function renderRasterProjection(sources: RasterSources, projection: Projection, options: RenderOptions & { spatialTexture?: RasterSet['spatialTexture']; spatialRaster?: RasterSet }, editor?: EditorRenderOptions & { drawingProjection?: Projection }, validationStarted?: number, publicCropMm?: BoundsMm, clipBoundsMm?: BoundsMm, previewCache?: ArtStylePreviewCache): Promise<HTMLCanvasElement> {
   options = { ...options }
   const started = options.onMetrics ? validationStarted ?? performance.now() : 0
   const metrics: RenderMetrics | undefined = options.onMetrics ? { validationProjectionMs: 0, resourceVerificationMs: 0, decoderQueueWaitMs: 0, imageDecodeMs: 0, drawSubmissionMs: 0, totalMs: 0, decodedImages: 0, decodedPixels: 0, width: 0, height: 0, audience: options.audience, ...(projection.floorId === undefined ? {} : { floorId: projection.floorId }) } : undefined
@@ -2008,8 +2022,9 @@ export async function renderRasterProjection(sources: RasterSources, projection:
   // Formal 4K output is read back for PNG encoding. Keep all of its temporary
   // surfaces on the readback path: WebKit's accelerated material composition
   // can vary by one color level even between two exports of the same input.
-  // Interactive/editor canvases retain their existing rendering path.
-  raster.readFrequently = !editor && options.longEdgePx === PNG_MAX_LONG_EDGE
+  // Preview detail is uploaded immediately to WebGL. Use CPU-backed paint and
+  // temporary canvases to avoid retaining accelerated Canvas surfaces alongside it.
+  raster.readFrequently = options.spatialTexture === 'detail' || (!editor && options.longEdgePx === PNG_MAX_LONG_EDGE)
   const styleReadback = drawingProjection.artStyles?.some(look => (look.parameters.paintVersion ?? 0) >= 3) ?? false
   let output: HTMLCanvasElement | undefined, padded: HTMLCanvasElement | undefined
   let completed = false

@@ -5,6 +5,7 @@ import { isWeatheredCliffProfile, STRATIFIED_CLIFF_PROFILE, type TerrainCliffFac
 import { cliffStrata, strataColor } from './stratified-cliff.js'
 import { paintWeatheredCliffTexture, weatheredCliffPeriod, WEATHERED_CLIFF_TEXTURE_SIZE } from './weathered-cliff.js'
 import { terrainValueNoise } from '../../../shared/terrain-generation/field.js'
+import { horizontalDirectionToLight } from '../../../shared/visual/directional-light.js'
 
 const path = (rings: PointMm[][]) => {
   const result = new Path2D()
@@ -29,7 +30,7 @@ export function drawTerrainCliffFace(ctx: CanvasRenderingContext2D, face: Terrai
   const rgb = (value: string) => [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16))
   const rock = rgb(look.accentColor), dark = rgb(look.color)
   const color = (t: number, shade = 1) => `rgb(${rock.map((a, i) => Math.round(Math.max(0, Math.min(255, (a * (1 - t) + dark[i] * t) * shade)))).join(',')})`
-  const angle = lightDirectionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }
+  const light = horizontalDirectionToLight(lightDirectionDeg)
   const footprint = path(face.rings)
   ctx.save()
   try {
@@ -159,7 +160,7 @@ function drawSculptedCliff(ctx: CanvasRenderingContext2D, face: TerrainCliffFace
   const channels = (v: string) => [1, 3, 5].map(i => Number.parseInt(v.slice(i, i + 2), 16))
   const rock = channels(look.accentColor), dark = channels(look.color)
   const color = (mix: number, shade: number, alpha = 1) => `rgba(${rock.map((v, i) => Math.round(Math.max(0, Math.min(255, (v * (1 - mix) + dark[i] * mix) * shade)))).join(',')},${alpha})`
-  const angle = lightDirectionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }
+  const light = horizontalDirectionToLight(lightDirectionDeg)
   const average = (points: PointMm[]) => points.reduce((a, p) => ({ x: a.x + p.x / points.length, y: a.y + p.y / points.length }), { x: 0, y: 0 })
   ctx.save()
   try {
@@ -210,7 +211,7 @@ function drawNaturalCliff(ctx: CanvasRenderingContext2D, face: TerrainCliffFace,
     const t = Math.max(0, Math.min(1, depth)) * (1 - .78 * Math.max(0, facing))
     return `rgba(${warm.map((a, i) => Math.round(Math.max(0, Math.min(255, (a * (1 - t) + dark[i] * t) * shade)))).join(',')},${alpha})`
   }
-  const angle = lightDirectionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }
+  const light = horizontalDirectionToLight(lightDirectionDeg)
   ctx.save()
   try {
     ctx.clip(path(face.rings), 'evenodd'); ctx.globalAlpha = look.opacity
@@ -280,7 +281,7 @@ function drawLayeredCliff(ctx: CanvasRenderingContext2D, face: TerrainCliffFace,
     const t = Math.max(0, Math.min(1, depth)) * (1 - .78 * Math.max(0, facing))
     return `rgba(${warm.map((a, i) => Math.round(Math.max(0, Math.min(255, (a * (1 - t) + dark[i] * t) * shade)))).join(',')},${alpha})`
   }
-  const angle = lightDirectionDeg * Math.PI / 180, light = { x: Math.cos(angle), y: Math.sin(angle) }
+  const light = horizontalDirectionToLight(lightDirectionDeg)
   ctx.save()
   try {
     ctx.clip(path(face.rings), 'evenodd'); ctx.globalAlpha = look.opacity

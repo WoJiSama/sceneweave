@@ -4,12 +4,13 @@ import { connectionCenterline, connectionArcFrame } from './connection-route.js'
 import { carvedStripCenterline } from '../carved-rock/index.js'
 import { createSupportQuery, type SupportSample } from './support-sample.js'
 import { bridgeDeckIds } from '../path-assembly/contracts.js'
-import { ROAD_RISER_LIMIT_MM, roadFaceNormal, roadSpanTriangles } from './road-surface.js'
+import { ROAD_RISER_LIMIT_MM, buildRoadSurface, roadFaceNormal, roadSpanTriangles } from './road-surface.js'
 import { reliefBounds } from './terrain-relief.js'
 import type { Issue, Path, PointMm, SceneDocument, SurfaceRef, TerrainConnection } from '../model/scene.js'
 
 export interface TerrainTravelRequest { floorId: string; from: PointMm; to: PointMm; widthMm: number }
-export interface TerrainTravelResult { ok: boolean; issues: Issue[] }
+export type TerrainTravelIssue = Issue & { atMm?: PointMm; stationPpm?: number }
+export interface TerrainTravelResult { ok: boolean; issues: TerrainTravelIssue[] }
 export interface TerrainRouteRequest { floorId: string; pointsMm: readonly PointMm[]; widthMm: number }
 export interface TerrainRouteResult extends TerrainTravelResult {
   /** Actual centreline distance, with maximum overlapping movement factors integrated along it. */
@@ -70,8 +71,10 @@ export function checkTerrainTravel(scene: SceneDocument, request: TerrainTravelR
 
 /** Both straight travel and complete route joins use the same physical predicates. */
 function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[], widthMm: number): TerrainTravelResult {
-  const issues: Issue[] = [], issue = (code: string, message: string, entityId?: string) => {
-    if (!issues.some(existing => existing.code === code && existing.entityId === entityId)) issues.push({ code, message, ...(entityId ? { entityId } : {}) })
+  const issues: TerrainTravelIssue[] = [], issue = (code: string, message: string, entityId?: string, atMm?: PointMm, stationPpm?: number) => {
+    if (!issues.some(existing => existing.code === code && existing.entityId === entityId)) issues.push({ code, message,
+      ...(entityId ? { entityId } : {}), ...(atMm ? { atMm: { x: Math.round(atMm.x), y: Math.round(atMm.y) } } : {}),
+      ...(stationPpm !== undefined ? { stationPpm } : {}) })
   }
   const areas = Object.values(scene.terrainAreas).filter(area => area.floorId === floorId), query = createSupportQuery(scene, floorId), boundaries = query.boundaries
   const usable = Object.values(scene.terrainConnections).filter(connection => connection.floorId === floorId && connection.widthMm >= widthMm && connectionOpen(scene, connection)).map(connection => ({ connection, polygon: connectionFootprint(connection) }))
@@ -87,7 +90,7 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
       !connection.carvedStrip && !connection.terrainInlay && (connection.kind === 'stairs' || !!connection.staircase)
       && [connection.from, connection.to].some(end => sameRef(groundRef(scene, end.surfaceRef), support)) && pointInPolygon(p, polygon))
   })) issue('TERRAIN_NOT_WALKABLE', '整条净宽带必须留在世界内的实际可步行面；水面、岩体侧壳、切口外肩或不足宽/阻挡连接不能普通穿越。')
-  for (const prop of Object.values(scene.props)) if (prop.floorId === floorId && prop.blocksMovement && polygonsOverlap(band, propFootprint(prop))) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被物件的真实旋转占地阻挡。', prop.id)
+  for (const prop of Object.values(scene.props)) if (prop.floorId === floorId && prop.blocksMovement && polygonsOverlap(band, propFootprint(prop))) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被物件的真实旋转占地阻挡。', prop.id, prop.positionMm)
   for (const region of Object.values(scene.regions)) if (region.floorId === floorId && region.blocksMovement && polygonsOverlap(band, region.boundaryMm)) issue('TERRAIN_TRAVEL_OBSTACLE', '有限通行净宽被阻挡区域侵入。', region.id)
   for (const wall of wallMovementPolygons(scene, true)) if (wall.floorId === floorId && polygonsOverlap(band, wall.polygon)) issue('TERRAIN_TRAVEL_WALL', '有限通行净宽被实际墙体、转角或未打开的门窗阻挡。', wall.entityId)
   const deckIds = bridgeDeckIds(scene)
@@ -97,8 +100,12 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
   for (const { path, geometry, sampler } of query.roads) {
     const bounds = sampler.bounds
     if (bounds.x > box.x + box.width || box.x > bounds.x + bounds.width || bounds.y > box.y + box.height || box.y > bounds.y + bounds.height) continue
-    if (geometry.spans.some(span => ([0, 2] as const).some(lane => roadSpanTriangles(span, lane).some(face =>
-      roadFaceNormal(face).z < Math.SQRT1_2 && polygonsOverlap(band, face))))) issue('TERRAIN_NOT_WALKABLE', '通行带跨到过陡的路肩或填坡。', path.id)
+    const steepShoulder = geometry.spans.find(span => ([0, 2] as const).some(lane => roadSpanTriangles(span, lane).some(face =>
+      roadFaceNormal(face).z < Math.SQRT1_2 && polygonsOverlap(band, face))))
+    if (steepShoulder) {
+      const [a, b] = steepShoulder.start.slice(1, 3)
+      issue('TERRAIN_NOT_WALKABLE', '通行带跨到过陡的路肩或填坡。', path.id, at(a, b, .5), steepShoulder.aPpm)
+    }
     for (const { lower, upper } of geometry.risers) {
       const [a, b] = [lower[1], lower[2]], cuts = segmentCuts(a, b, travelEdges)
       if (cuts.slice(1).some((t, i) => pointInPolygon(at(a, b, (cuts[i] + t) / 2), band, false))
@@ -213,6 +220,13 @@ function routePath(points: readonly PointMm[], floorId: string, widthMm: number)
     supportRefs: [{ kind: 'floor', id: floorId }], surfaceStyle: null, movementCostMultiplier: 1, renderOrder: 0 }
 }
 
+export function terrainRouteBand(request: TerrainRouteRequest): PointMm[] {
+  const { pointsMm, floorId, widthMm } = request
+  if (pointsMm.length < 2 || pointsMm.length > TERRAIN_ROUTE_LIMITS.points || widthMm <= 0 || !simpleRoutePoints(pointsMm, false)) return []
+  const band = pathPolygon(routePath(pointsMm, floorId, widthMm))
+  return simpleRoutePoints(band, true) ? band : []
+}
+
 /** Integrates the centreline over exact boundary intervals. Overlapping costs
  * combine by maximum, so a drawn road never lowers another declared cost. */
 function routeMetrics(scene: SceneDocument, floorId: string, points: readonly PointMm[], widthMm: number): Omit<TerrainRouteResult, 'ok' | 'issues'> {
@@ -263,6 +277,18 @@ export function checkRouteOnValidScene(scene: SceneDocument, request: TerrainRou
   })
   metrics.supportRefs = [...supports].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([, ref]) => ref)
   return { ...checked, ...metrics }
+}
+
+/** A saved graded road has its own exact full-width deck and caps. Check that
+ * surface directly, even when its sampled centerline exceeds the external
+ * ad-hoc route input limit. The caller owns native scene validation. */
+export function checkGradedRoadOnValidScene(scene: SceneDocument, path: Path) {
+  if (!path.roadSurface || !scene.floors[path.floorId]) throw new Error('坡地通路检查须使用有效的已保存道路地表。')
+  const { coreMm, risers } = buildRoadSurface(path, path.roadSurface)
+  const widthMm = Math.min(path.widthMm, ...(path.widthSections ?? []).map(section => section.widthMm))
+  const result = checkTerrainBand(scene, path.floorId, coreMm, widthMm)
+  return { ...result, widthMm, lengthMm: connectionArcFrame(path.centerlineMm).length, treadCount: risers.length,
+    elevationsMm: [path.roadSurface.stations[0], path.roadSurface.stations.at(-1)!].map(station => (station.inZMm[0] + station.inZMm[1]) / 2) }
 }
 
 /** Checks the actual complete square-cap, miterLimit2/bevel corridor, including

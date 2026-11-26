@@ -104,7 +104,8 @@ export const AuthoringOperationSchema = z.discriminatedUnion('kind', [
   ...TerrainAuthoringOperationSchema.options,
 ])
 export type AuthoringOperation = z.infer<typeof AuthoringOperationSchema>
-export const AuthoringStartSchema = z.object({ schemaVersion: z.literal(1), project: projectDataSchema, baseContentHash: hash,
+export const authoringProjectSchema = projectDataSchema.refine(project => !project.extensions, 'AI任务数据不能包含主持人扩展区。')
+export const AuthoringStartSchema = z.object({ schemaVersion: z.literal(1), project: authoringProjectSchema, baseContentHash: hash,
   scope: AuthoringScopeSchema, seed: z.string().uuid(), preparedAt: z.string().datetime(),
   skill: AuthoringSkillSchema,
   disclosure: z.literal('complete-metadata/public-model'),

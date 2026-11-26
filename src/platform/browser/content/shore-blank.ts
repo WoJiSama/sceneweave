@@ -1,4 +1,5 @@
 import type { EditableProject } from '../../../application/workspace/project.js'
+import { addBuiltinPropVolumes } from './builtin-prop-volumes.js'
 import type { SceneDocument } from '../../../shared/model/scene.js'
 import { validateSceneDocument } from '../../../shared/validation/scene.js'
 import { REFINED_ISLAND_ART, REFINED_ISLAND_LICENSE } from '../../../shared/visual/island-art.js'
@@ -84,8 +85,16 @@ export function createShoreBlankDocument(palette: ShoreVisualPalette, options: B
   return checked.document
 }
 
+const campMaterial = (key: string) => ({ id: `theme-pack-wilderness-material-${key}-v2`, version: 2 })
+export const FOREST_CAMP_FINISH = {
+  kind: 'woodland-v2', mossMaterialRef: { id: 'refined-material-island-material-moss', version: 1 },
+  soilMaterialRef: campMaterial('forest-loam'), meadowMaterialRef: campMaterial('meadow-grass'), gravelMaterialRef: campMaterial('river-gravel'),
+  stoneDefinitionRef: { id: 'refined-prop-island-debris-scree', version: 1 },
+} as const
+
 export async function createShoreBlankProject(palette: ShoreVisualPalette, options: BlankOptions, signal?: AbortSignal, includeTerrainVariants = false,
-  includeTerrainVariantV2 = false, woodlandPlants?: ReadonlySet<string>, coastalDressing: CoastalDressing = false): Promise<EditableProject> {
+  includeTerrainVariantV2 = false, woodland?: ReadonlySet<string> | { plants: ReadonlySet<string>; campFinish: true },
+  coastalDressing: CoastalDressing = false): Promise<EditableProject> {
   signal?.throwIfAborted()
   let scene = createShoreBlankDocument(palette, options, includeTerrainVariants, includeTerrainVariantV2, coastalDressing)
   scene.artStyle = newMapArtStyle()
@@ -98,12 +107,29 @@ export async function createShoreBlankProject(palette: ShoreVisualPalette, optio
     ...(coastalDressing === 'naturalStone' ? [{ artwork: NATURAL_STONE_ART, licenseText: NATURAL_STONE_LICENSE, assetId: naturalStoneAssetId }] : []),
     ...(includeTerrainVariants ? [{ artwork: TERRAIN_VARIANT_ART, licenseText: TERRAIN_VARIANT_LICENSE, assetId: terrainVariantAssetId }] : []),
     ...(includeTerrainVariantV2 ? [{ artwork: TERRAIN_VARIANT_V2_ART, licenseText: TERRAIN_VARIANT_V2_LICENSE, assetId: terrainVariantV2AssetId }] : [])]
-  if (woodlandPlants) {
+  if (woodland) {
     const { appendWholePlantDefinitions, WHOLE_PLANT_BATCH } = await import('./whole-plant-catalog.js')
+    const woodlandPlants = 'plants' in woodland ? woodland.plants : woodland
     scene = appendWholePlantDefinitions(scene, woodlandPlants)
+    addBuiltinPropVolumes(scene)
     Object.values(scene.floors)[0].environment = { ...visualBase(scene)!.environment, lightDirectionDeg: 42,
       directionalLight: { kind: 'sun', elevationDeg: 49, color: '#fff0ce', intensity: .58, softness: .65 } }
     batches.push({ ...WHOLE_PLANT_BATCH, artwork: WHOLE_PLANT_BATCH.artwork.filter(art => woodlandPlants.has(art.key)) })
+    if ('campFinish' in woodland) {
+      const [{ createThemePackCatalogDocument, themePackAssetId, themePackDefinitionId }, { THEME_PACK_ART, THEME_PACK_LICENSE }] = await Promise.all([
+        import('./theme-pack-catalog.js'), import('../../../shared/visual/theme-pack-art.js'),
+      ])
+      const catalog = createThemePackCatalogDocument('wilderness'), assetId = (key: string) => themePackAssetId('wilderness', key)
+      const materials = [FOREST_CAMP_FINISH.soilMaterialRef, FOREST_CAMP_FINISH.meadowMaterialRef, FOREST_CAMP_FINISH.gravelMaterialRef]
+      for (const ref of materials) {
+        const material = catalog.materials[ref.id]
+        if (!material || material.version !== ref.version) throw new Error('森林营地缺少固定地表材质。')
+        scene.materials[material.id] = material
+        scene.assets[material.textureAssetId] = catalog.assets[material.textureAssetId]
+      }
+      const artwork = THEME_PACK_ART.wilderness.filter(art => art.kind === 'material' && materials.some(ref => ref.id === themePackDefinitionId('wilderness', 'material', art.key)))
+      batches.push({ artwork, licenseText: THEME_PACK_LICENSE, assetId })
+    }
   }
   return materializeVisualArtBatches(scene, batches, signal)
 }
@@ -112,6 +138,19 @@ export function createCoastalAscentBlankProject(palette: ShoreVisualPalette, opt
   return createShoreBlankProject(palette, options, signal, false, false, undefined, 'naturalStone')
 }
 
+export function createLandscapeBlankProject(options: BlankOptions, signal?: AbortSignal) {
+  return createShoreBlankProject('coast', options, signal, false, false,
+    new Set(['pine-branched', 'oak-spreading', 'hazel-bush']), 'naturalStone')
+}
+
+const forestPlants = ['oak-spreading', 'pine-branched', 'hazel-bush', 'bramble-fruiting', 'fern-full-crown', 'wildflower-whole-clump']
+
 export function createForestBlankProject(options: BlankOptions, signal?: AbortSignal) {
-  return createShoreBlankProject('island', options, signal, true, true, new Set(['oak-spreading', 'pine-branched', 'hazel-bush', 'bramble-fruiting', 'fern-full-crown', 'wildflower-whole-clump']))
+  return createShoreBlankProject('island', options, signal, true, true, new Set(forestPlants))
+}
+
+export function createForestCampBlankProject(options: BlankOptions, signal?: AbortSignal) {
+  return createShoreBlankProject('island', options, signal, false, false, {
+    plants: new Set([...forestPlants, 'sedge-tussock']), campFinish: true,
+  })
 }

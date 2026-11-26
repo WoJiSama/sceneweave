@@ -7,11 +7,16 @@ export function shadowDirection(directionDeg: number): PointMm {
   return { x: Math.cos(angle), y: Math.sin(angle) }
 }
 
+export function horizontalDirectionToLight(directionDeg: number): PointMm {
+  const { x, y } = shadowDirection(directionDeg)
+  return { x: -x, y: -y }
+}
+
 export function directionToLight(environment?: Pick<VisualEnvironment, 'lightDirectionDeg' | 'directionalLight'>): [number, number, number] {
-  const { x, y } = shadowDirection(environment?.lightDirectionDeg ?? 135)
+  const { x, y } = horizontalDirectionToLight(environment?.lightDirectionDeg ?? 135)
   const elevation = (environment?.directionalLight?.elevationDeg ?? 35) * Math.PI / 180
   const horizontal = Math.cos(elevation)
-  return [-x * horizontal, -y * horizontal, Math.sin(elevation)]
+  return [x * horizontal, y * horizontal, Math.sin(elevation)]
 }
 
 /** Top-down objects have no saved height. The renderer supplies a nominal

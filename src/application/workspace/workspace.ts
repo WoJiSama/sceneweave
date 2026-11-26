@@ -1815,13 +1815,13 @@ export class Workspace {
     this.assertWritable(); this.assertCheckpoint(checkpoint)
     const capturedScope = AuthoringScopeSchema.parse(scopeInput)
     const verified = await validateEditableProject(current, this.validation())
-    const { captureAtomicStart, freezeAtomic } = await import('./atomic.js')
+    const { captureAtomicStart, currentAuthoringBaseline, freezeAtomic } = await import('./atomic.js')
     this.assertCheckpoint(checkpoint)
-    const project = toBundle(verified).project, baseContentHash = authoringProjectHash(project)
+    const { project, baseContentHash, workspaceHash } = currentAuthoringBaseline(verified)
     const start = captureAtomicStart({ schemaVersion: 1, project, baseContentHash, scope: capturedScope, seed: crypto.randomUUID(),
       preparedAt: this.options.runtime.clock.now(), skill: { id: capturedScope.scene || capturedScope.visual ? 'sceneweave-scene-authoring' : capturedScope.artwork ? 'sceneweave-artwork-authoring' : 'sceneweave-prop-authoring', version: 1 }, disclosure: 'complete-metadata/public-model', ...(capturedBrief ? { brief: capturedBrief } : {}) })
     const authorization = freezeAtomic({ start, scope: start.scope, checkpoint, currentSceneId: current.document.sceneId,
-      currentRevision: current.document.revision, baseContentHash })
+      currentRevision: current.document.revision, baseContentHash: workspaceHash })
     this.assertWritable(); this.assertCheckpoint(checkpoint)
     this.atomicAuthorizations.set(authorization, verified)
     return authorization
@@ -1837,16 +1837,16 @@ export class Workspace {
     this.assertWritable(); this.assertCheckpoint(checkpoint)
     const capturedScope = CurrentAuthoringScopeV4Schema.parse(scopeInput)
     const verified = await validateEditableProject(current, this.validation())
-    const [{ captureAtomicStart, freezeAtomic }, { createCurrentAuthoringStartV4 }] = await Promise.all([
+    const [{ captureAtomicStart, currentAuthoringBaseline, freezeAtomic }, { createCurrentAuthoringStartV4 }] = await Promise.all([
       import('./atomic.js'), import('../../shared/ai/authoring.js'),
     ])
     this.assertWritable(); this.assertCheckpoint(checkpoint)
-    const project = toBundle(verified).project, baseContentHash = authoringProjectHash(project)
+    const { project, baseContentHash, workspaceHash } = currentAuthoringBaseline(verified)
     const start = captureAtomicStart(createCurrentAuthoringStartV4({ project, scope: capturedScope, seed: crypto.randomUUID(),
       preparedAt: this.options.runtime.clock.now(), flowId: crypto.randomUUID(), ...(capturedBrief ? { brief: capturedBrief } : {}),
       preservation: { sceneId: current.document.sceneId, revision: current.document.revision, contentHash: baseContentHash, checkpoint } }))
     const authorization = freezeAtomic({ start, scope: start.scope, checkpoint, currentSceneId: current.document.sceneId,
-      currentRevision: current.document.revision, baseContentHash })
+      currentRevision: current.document.revision, baseContentHash: workspaceHash })
     this.assertWritable(); this.assertCheckpoint(checkpoint)
     this.atomicAuthorizations.set(authorization, verified)
     return authorization
@@ -1905,7 +1905,7 @@ export class Workspace {
     const checkpoint = this.checkpoint(), captured = captureJson(input) as AuthoringStart
     const work = isGeneratedAtomicStart(captured) ? this.baseMapExecution.begin(captured.source.flowId, this.atomicSignal()) : null
     try {
-      const { captureAtomicStart, freezeAtomic } = await import('./atomic.js')
+      const { captureAtomicStart, currentAuthoringBaseline, freezeAtomic } = await import('./atomic.js')
       this.assertWritable(); this.assertCheckpoint(checkpoint); checkCancelled(work?.signal)
       const start = captureAtomicStart(captured)
       if (isGeneratedAtomicStart(start)) {
@@ -1923,9 +1923,10 @@ export class Workspace {
       const current = this.requireProject()
       const verified = await validateEditableProject(current, this.validation())
       this.assertWritable(); this.assertCheckpoint(checkpoint)
-      if (authoringProjectHash(toBundle(verified).project) !== start.baseContentHash) throw new Error('任务基线与当前完整工程不同，已保留草稿，请重新计算。')
+      const { baseContentHash, workspaceHash } = currentAuthoringBaseline(verified)
+      if (baseContentHash !== start.baseContentHash) throw new Error('任务基线与当前完整工程不同，已保留草稿，请重新计算。')
       const authorization = freezeAtomic({ start, scope: start.scope, checkpoint, currentSceneId: current.document.sceneId,
-        currentRevision: current.document.revision, baseContentHash: start.baseContentHash })
+        currentRevision: current.document.revision, baseContentHash: workspaceHash })
       this.atomicAuthorizations.set(authorization, verified)
       return authorization
     } finally { work?.finish() }
@@ -1938,13 +1939,13 @@ export class Workspace {
     const work = isGeneratedAtomicStart(authorization.start) ? this.baseMapExecution.begin(authorization.start.source.flowId, this.atomicSignal(options.signal)) : null
     const signal = work?.signal ?? this.atomicSignal(options.signal)
     try {
-      const [{ captureAtomicDraft, atomicChanges, freezeAtomic }, { authoringBudgetIdentity }, { materializeAuthoringArtwork }, { isClassifiedAuthoringState }] = await Promise.all([
+      const [{ captureAtomicDraft, localAuthoringBundle, atomicChanges, freezeAtomic }, { authoringBudgetIdentity }, { materializeAuthoringArtwork }, { isClassifiedAuthoringState }] = await Promise.all([
         import('./atomic.js'), import('../../shared/ai/authoring.js'), import('./artwork.js'), import('../../shared/ai/authoring-protocol.js'),
       ])
       checkCancelled(signal)
       if (isGeneratedAtomicStart(authorization.start)) { this.assertCheckpoint(authorization.checkpoint); this.assertBaseMapPreservation(authorization.start.source) }
       const replayed = captureAtomicDraft(captured, authorization, { allowEmpty })
-      const raw = await fromBundle({ project: replayed.project, resources: source.resources }, { ...this.validation(), signal })
+      const raw = await fromBundle(localAuthoringBundle(replayed.project, source), { ...this.validation(), signal })
       const assetQuality: AssetQualityAssessment[] = []
       const project = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal }, { onQualityAssessment: assessment => assetQuality.push(assessment) })
       checkCancelled(signal)
@@ -2071,11 +2072,11 @@ export class Workspace {
     this.atomicLock = token; record.status = 'applying'
     let committed = false
     try {
-      const [{ captureAtomicDraft, assertAtomicLease }, { materializeAuthoringArtwork }] = await Promise.all([import('./atomic.js'), import('./artwork.js')])
+      const [{ captureAtomicDraft, localAuthoringBundle, assertAtomicLease }, { materializeAuthoringArtwork }] = await Promise.all([import('./atomic.js'), import('./artwork.js')])
       this.assertAtomicBaseline(candidate, record); checkCancelled(signal)
       const replayed = captureAtomicDraft(record.draft, record.authorization)
       const source = this.atomicAuthorizations.get(record.authorization)!
-      const raw = await fromBundle({ project: replayed.project, resources: source.resources }, { ...this.validation(), signal })
+      const raw = await fromBundle(localAuthoringBundle(replayed.project, source), { ...this.validation(), signal })
       const assetQuality: AssetQualityAssessment[] = []
       const checkedProject = await materializeAuthoringArtwork(raw, replayed.draft, { ...this.validation(), signal }, { onQualityAssessment: assessment => assetQuality.push(assessment) })
       if (canonical(toBundle(checkedProject).project) !== canonical(toBundle(candidate.project).project)) throw new Error('素材本机物化结果与已审阅草稿不同，请重新审阅。')

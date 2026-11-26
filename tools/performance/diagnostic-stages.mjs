@@ -13,7 +13,7 @@ export const diagnosticTargets = {
   'src/shared/project/validate.ts': ['readProjectData', 'projectContentHash'],
   'src/shared/project/resources.ts': ['validateProjectBundles', 'validatePixels', 'tryDerivedProjectBundle', 'read', 'verifyBytes'],
   'src/shared/history/restore.ts': ['buildRestorePlan'],
-  'src/platform/browser/storage/repository.ts': ['load', 'assembled', 'assembledUnbound', 'save', 'usageInTransaction', 'listSnapshots', 'listAutomaticSnapshots', 'listHistoryVersions', 'historyOverview', 'readLegacyOriginals', 'loadSnapshot', 'captureSnapshot', 'loadSnapshotInSession', 'createSnapshot', 'createSnapshotChecked', 'captureResourceBytes', 'checkProtection', 'assertSaved', 'putResources', 'checkedContent', 'ensureHistory', 'rowCost', 'addCurrent'],
+  'src/platform/browser/storage/repository.ts': ['load', 'assembled', 'assembledUnbound', 'save', 'usageInTransaction', 'listSnapshots', 'listAutomaticSnapshots', 'listHistoryVersions', 'historyOverview', 'loadSnapshot', 'captureSnapshot', 'loadSnapshotInSession', 'createSnapshot', 'createSnapshotChecked', 'captureResourceBytes', 'checkProtection', 'assertSaved', 'putResources', 'checkedContent', 'ensureHistory', 'rowCost', 'addCurrent'],
   'src/platform/browser/storage/incremental-history.ts': ['assertVersion', 'checkVersionRecord', 'recordJson', 'historyVersionBytes', 'versionBytes', 'readVersion', 'reconstructVersion', 'append', 'pins', 'pin', 'readPin'],
   'src/platform/browser/storage/storage-accounting.ts': ['totals', 'changed'],
   'src/shared/project/delta.ts': ['createProjectDelta', 'applyProjectDeltaChain', 'validateProjectDelta'],

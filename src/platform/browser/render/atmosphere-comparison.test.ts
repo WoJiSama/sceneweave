@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { toCurrentSceneDocument } from '../../../shared/model/current-scene.js'
 import { projectScene } from '../../../shared/projection/projection.js'
-import { layerSceneV3 } from '../../../core/v3/test-fixtures'
+import { layerScene } from '../../../../tests/helpers/current-project-fixtures.js'
 import { emptyVisualSystem } from '../../../shared/visual/types.js'
 import { atmosphereComparison } from './atmosphere-comparison'
 import { TERRAIN_FACADES } from '../../../shared/appearance/terrain-facade.js'
 
 describe('temporary atmosphere comparison', () => {
   it('keeps actual geometry, private masks, materials and high-edge/contact shadows intact', () => {
-    const scene = toCurrentSceneDocument({ ...layerSceneV3(), format: 'sceneweave-scene', schemaVersion: 1 }), source = projectScene(scene, 'gm')
+    const scene = layerScene(), source = projectScene(scene, 'gm')
     source.visual = { environment: { ...emptyVisualSystem().environment, ambientOpacity: .4, exposure: .6 }, boundsMm: source.bounds,
       boundaries: [], edgeLooks: [], lights: [], fogs: [], filters: [], suppressedTerrainEdgeIds: [], occluderRings: [], contactRings: [] }
     source.visual.lights.push({ id: 'light', floorId: 'floor', layerId: 'layer', visibility: 'public', editLocked: false,
@@ -28,7 +27,7 @@ describe('temporary atmosphere comparison', () => {
     expect(source).toEqual(frozen)
   })
   it('dims façade windows and fixture glows in the temporary view', () => {
-    const scene = toCurrentSceneDocument({ ...layerSceneV3(), format: 'sceneweave-scene', schemaVersion: 1 }), source = projectScene(scene, 'gm')
+    const scene = layerScene(), source = projectScene(scene, 'gm')
     const facade = { ...TERRAIN_FACADES['glazed-v1'] }
     source.terrain = [{ id: 'silhouette', points: [], style: null, elevationMm: 2400, priority: 0, facade }]
     source.visual!.fixtureGlows = [{ positionMm: { x: 100, y: 100 }, color: '#6DFFD3', radiusMm: 1400, intensity: .5 }]
@@ -39,7 +38,7 @@ describe('temporary atmosphere comparison', () => {
     expect(source.visual!.fixtureGlows).toHaveLength(1)
   })
   it('leaves player projections and scenes without a visual system unchanged', () => {
-    const scene = toCurrentSceneDocument({ ...layerSceneV3(), format: 'sceneweave-scene', schemaVersion: 1 }), player = projectScene(scene, 'player'), gm = projectScene(scene, 'gm')
+    const scene = layerScene(), player = projectScene(scene, 'player'), gm = projectScene(scene, 'gm')
     expect(atmosphereComparison(player)).toBe(player)
     delete gm.visual
     expect(atmosphereComparison(gm)).toBe(gm)

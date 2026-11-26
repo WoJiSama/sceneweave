@@ -38,11 +38,11 @@
         "file": "investigation-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "1a1e9dae9deff752b4a9723c908a6cf6c1f949d46af0c11479792a319bcacc7e",
+        "sha256": "a2bf2c07742caa15308175a8fa38739d1b88e73a44d4150fe7f666561af43a83",
         "fullFile": "investigation-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "f3e05c896c6ee9bb14b4a5b4c14bf83632bf98cc50b524cb3f2fb8dce6460dcf"
+        "fullSha256": "2ed73d894998b305e6ffea2d7bfb643277899e765195fabaa26ce6fe7a8149ff"
       },
       "archiveFile": "investigation.sceneweave",
       "archiveBytes": 282221,
@@ -84,11 +84,11 @@
         "file": "modern-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "6eaafafbbd831b082adb2414dce0de86b96aaa841186cdbed5fd60fd57a96430",
+        "sha256": "bb0fffa133ad47707423c782437b859bbeea6ee6ee9373b3e044b08a21d31c75",
         "fullFile": "modern-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "26977154caf92aae5eba9c614c466675b7c93b34885029758c7fa53faff37f6c"
+        "fullSha256": "78c51d267370b86ac9b370e8b933951c0036dd07575973cd769f90fa58ce26d0"
       },
       "archiveFile": "modern.sceneweave",
       "archiveBytes": 279865,
@@ -130,11 +130,11 @@
         "file": "fantasy-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "918df9aecca5df68fe2e9776ae1a63f8d4e095f98f96af1fa4303e682e365c70",
+        "sha256": "28936f4db62ac24b81f38c27f633ae4d6078e730eeab22d24d4099afc888a421",
         "fullFile": "fantasy-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "f0e2113f1f7de33e8315225dec850d66da2b95ceb1a5d2c0d1a402361e367603"
+        "fullSha256": "08475ac63819cf55d273bab38bbe054818317f7eb26e86a198cd7fab4372b342"
       },
       "artStyles": {
         "original": {
@@ -202,11 +202,11 @@
         "file": "ruins-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "b89a65d4c35a3597e811f12eb2c7cc78dd47084269f49b2517abe94ebd7acc4c",
+        "sha256": "c7efe4f7c3e7f7f8f2bbb97f387464f5b70afee5195038b4fa65af28419389fd",
         "fullFile": "ruins-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "f1741d9bc573acba4afc42b4c98dda810cb2e771db8a0914579e5c3d1bb86945"
+        "fullSha256": "f1378be3717e2548a1a96c3ec83d9549d05008a7abba9a317d9bb000aeed324f"
       },
       "archiveFile": "ruins.sceneweave",
       "archiveBytes": 980159,
@@ -221,7 +221,7 @@
         "旧木板铺面与双侧分节护栏",
         "可分别调整桥体与沿线构件"
       ],
-      "projectHash": "984c83891f7a8ea423bd64d71a33c87dd3b4d2723e2254b98eebb62b27c14c6d",
+      "projectHash": "a15b278d4df24693781e684d26ef1eb970d193697ec66a976092183bbc2e2f72",
       "title": "溪岸巡林补给站 · 温带荒野手绘候选",
       "boundsMm": {
         "x": 0,
@@ -237,26 +237,26 @@
       "file": "wilderness-stage1.png",
       "width": 1024,
       "height": 791,
-      "pngSha256": "fac4d31c7d5cc390bfd67f1f05117a716d4a7da572e8b752c2146dced0a0a3c3",
-      "rgbaSha256": "1b023ec53a38f1a1bcbd55169d1239bd42357baec599228d92b70dac9e679907",
+      "pngSha256": "f677eb6369cf52f0393bbca312cf783462ea31c46b312eb5dbe0af9e4f303bb7",
+      "rgbaSha256": "cf9f9f914665b94bf1761e719c0640d54a2a7b8c885d0934590aedf93e0249a8",
       "fullFile": "wilderness-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3165,
-      "fullPngSha256": "40cedfc75865d2a497bdf6102ccd7cad1836aa03d5f239396b8f99f30bb3d141",
-      "fullRgbaSha256": "6daf4fdb09187589c25a582b1798899a4c73a899a00a3c609ee0d7bb31a133a2",
+      "fullPngSha256": "57bc3c6b134501819d26285e539cebe2614c71e823431bb4148627edb8d7f5fb",
+      "fullRgbaSha256": "0988f4da45c6e5476f2a54b7bab34c8aba9fd321466ae404d282b1cc54068d03",
       "oblique": {
         "file": "wilderness-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "79e7e4687a22dd12115d4224bec7d5bedd51e541be648f11573699a08a3684f3",
+        "sha256": "73bfd339c0c82601c48be3b5cd960198f82291b5cb788570d76fe3a581923dd2",
         "fullFile": "wilderness-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "5ac7872a4bc0e2eb9e31e2384c0bb8dfadb1d038ab99b73e490849824a8055db"
+        "fullSha256": "71adac1bc16faa576c226d8fa4cbb1820d9828808ade71db404a7962de4ac493"
       },
       "archiveFile": "wilderness.sceneweave",
-      "archiveBytes": 1106750,
-      "archiveSha256": "9e12bc5c4b196491748edf85b332f36f11892f30f7d4a1f61d26a89f5f3471f8"
+      "archiveBytes": 1106756,
+      "archiveSha256": "fa1034c7f31356f279b153d1df136bd0661c37e0ad5dde4c2222688a9451b7b7"
     },
     "coast": {
       "name": "潮湾渔获补给站",
@@ -267,7 +267,7 @@
         "暖色线光沿护栏，登船口留空",
         "风化木铺面与护栏分别可调"
       ],
-      "projectHash": "a26c31eb4a6d20730ac73d32978d517def2e1ba4d2f496bcbe61dce1719e207e",
+      "projectHash": "f6fe3a648f601f09ee69377e6436e23c75088f090725c6921f50b03c4b713192",
       "title": "潮湾渔获与岸边补给站 · 手绘构图候选",
       "boundsMm": {
         "x": 0,
@@ -283,26 +283,26 @@
       "file": "coast-stage1.png",
       "width": 1024,
       "height": 819,
-      "pngSha256": "33d693c8bc9453763d57bc40d1c3acb9ff69742105b68078829bb051e2a29dc7",
-      "rgbaSha256": "4571b09960a9f865da2595ac265e17801243f98f8cc56a345195df2225bbbf86",
+      "pngSha256": "6273b24ca50565da08da80a925081c3065dcc5695089bee76167b3ce958155c3",
+      "rgbaSha256": "7bfeef048c8560334eea99ba8f1e45cb7521868d553258e5b59826e96bf182fe",
       "fullFile": "coast-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3277,
-      "fullPngSha256": "02516db9fb33c9445e2751d344301462c63e5f256b3ee03dfb43c8c5fd402332",
-      "fullRgbaSha256": "f1eaf8cb50bdf9e4ca6041d663d44afd70e2da1b165f62d1ae07442f92689859",
+      "fullPngSha256": "6f7d6d208d86541ab1e98bc362a4eda4dfbbe68edd95dad52b36aeba1c639336",
+      "fullRgbaSha256": "984361b266c77fd095cd4638ed1470fc4977f8becede7fe594a140dbc5da7a7c",
       "oblique": {
         "file": "coast-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "99d2ce6732573044f9d8d933f004ae77c6b43944f8c7ba6b4a5e828b0f7f306f",
+        "sha256": "3279f3c503861764478ebef708842cdf0488d53a098caa3d5bbcf10426d1c732",
         "fullFile": "coast-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "c2ad1a8901dbc81d2c60fe0cd87423481acae3ffbc51e4f22189da96605a9a07"
+        "fullSha256": "5e5b90c8e6a0b1e9a8a2d67e74d2529fed4ef63783de076002982c5c53120109"
       },
       "archiveFile": "coast.sceneweave",
-      "archiveBytes": 494090,
-      "archiveSha256": "872b85c4064d0c698dea069d4a1c446e10c94b372560183285b3cddf6ff52355"
+      "archiveBytes": 494088,
+      "archiveSha256": "c77a117c576783241acaeb8c4286124e4a32971b3bc9b252fb50d75df72d8e70"
     },
     "island": {
       "name": "双台岬岛",
@@ -329,22 +329,22 @@
       "file": "island-stage1.png",
       "width": 1024,
       "height": 796,
-      "pngSha256": "1e4e21318e3de26c6f958d93d6d0116c75c0ab570d6d4f0336190e52a59f10c6",
-      "rgbaSha256": "18724641153ff61672dc5535417fb9541528110dff3d97f73e8314559b7ae4b4",
+      "pngSha256": "b6c4c6847443a9cc0f43e1b705074b4727785ba0c0a735f93fb5d1bde9f7abd9",
+      "rgbaSha256": "3289c88b3082dbfbd7ffa739bbc2e74b790f36f6092d1594856f4a6be2067d20",
       "fullFile": "island-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3186,
-      "fullPngSha256": "73005b4b66d93067eef6687bb4d780a6984faecff56bceb8c49882d4c70a8321",
-      "fullRgbaSha256": "33ccdda4be3c4b0a6030618da4671cf6f72da61901989e0e38411d4833499c8f",
+      "fullPngSha256": "9e79506ae172b2e45f0cac1d6345b0a370b1e4239a3e2c7063f2149564f448df",
+      "fullRgbaSha256": "ec89bbba1a3445b320fc825c58db24c10ce8d50daa62afcd0f5fcf7f6249249b",
       "oblique": {
         "file": "island-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "0773815943d8b2a8cc873ed8266dae1f173b6ea33fcac0f8d5188d63f9618d08",
+        "sha256": "2fc2f377588b421ee55801adbc460c83a55eb8f4b1f2a865a0de7a28d8ea00bb",
         "fullFile": "island-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "19dc61e5aff419e2fd0b144cc95541633e538208b31c4b5e48699a46b3f4351f"
+        "fullSha256": "df505b2de45f48322c0cd0932e375da01ebcdbda436dd6a6f1276877397cdd0c"
       },
       "archiveFile": "island.sceneweave",
       "archiveBytes": 381761,
@@ -375,22 +375,22 @@
       "file": "volcano-stage1.png",
       "width": 1024,
       "height": 778,
-      "pngSha256": "975f7a101e6dbe1e2cc269fc6ce56c7b7338a5dc9c0630747a80ef7a8d72bc07",
-      "rgbaSha256": "55cbd09d34a71e87fddc3669c8b80a7fa131fa75f38aa47f9955ba2e48a166ed",
+      "pngSha256": "27f71894570b49d5dc6a1d751d459086bc6bdbc5f06b191e3dda351ebc22f93c",
+      "rgbaSha256": "d4f31dd9e949124f43604d47b9b5caa1298f768db5bcb42ad1e7c26dd6955d6e",
       "fullFile": "volcano-stage1-4k.png",
       "fullWidth": 4096,
       "fullHeight": 3113,
-      "fullPngSha256": "3f2325e3d199dfdf0d72eb1f2c27aa0430e3974a22a74f0104c4812d920ceb50",
-      "fullRgbaSha256": "18b3901bf44453ccfa287a32aefc256c84aad77cb3035d7c51c8040f22a08b89",
+      "fullPngSha256": "86259e4ae8b8888bc6dcf2036b430ee1545769c8aa7324c65ce3f27284e1af4a",
+      "fullRgbaSha256": "02b14c9150d5ad62d4e00f3d4e7a3df5ce28e56645cfcea8b634d25f504fda20",
       "oblique": {
         "file": "volcano-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "d95fac51fd5cd9070af266970a2f92afab605d9375a276fce24dc79a2b5422a6",
+        "sha256": "aee10e8c769ffaf64bb6bc2c74284d32db8956661f050f122195726122cfd1bf",
         "fullFile": "volcano-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "a80cea6abca9c0da52c09efbf3f7acae2eaa4b08c706f3960d27935ca36e2d3b"
+        "fullSha256": "5b335b88ffb15636fd41b4401a57c0d25fb27913f16c170e23789d0b96ceff6b"
       },
       "archiveFile": "volcano.sceneweave",
       "archiveBytes": 1022418,
@@ -432,11 +432,11 @@
         "file": "cyberpunk-3d.webp",
         "width": 1024,
         "height": 800,
-        "sha256": "1c2e00c852a56811c0aa53f5bab26bf999ea301811f2295f5ebd5f97d2443648",
+        "sha256": "fbb40f61fd2f4a2fd941b94ef66d9647518f4ce410f39337f694d16c84f348dc",
         "fullFile": "cyberpunk-3d-detail.webp",
         "fullWidth": 2560,
         "fullHeight": 2000,
-        "fullSha256": "91da7d8bbf41493266cf8c52174326d4bdf35a3723821ddc27236d98e84daf91"
+        "fullSha256": "764491d51bdd7a27ca00c54cc34cd89135f610e29e6998e5bbe3fdf00a373bb0"
       },
       "archiveFile": "cyberpunk.sceneweave",
       "archiveBytes": 1945982,

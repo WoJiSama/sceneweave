@@ -6,7 +6,7 @@ export function currentDatabaseNames(storage: Pick<Storage, 'getItem'> | undefin
   const raw = storage?.getItem(CURRENT_DATABASE_SELECTION_KEY)
   if (!raw) return { ...DEFAULT_CURRENT_DATABASES }
   let value: unknown
-  try { value = JSON.parse(raw) } catch { throw new Error('当前开发存储选择损坏，请从独立迁入入口恢复选择。') }
+  try { value = JSON.parse(raw) } catch { throw new Error('当前开发存储选择损坏，无法定位完整工程仓库。') }
   if (!value || typeof value !== 'object' || Object.keys(value).sort().join(',') !== 'library,projects') throw new Error('当前开发存储选择无效。')
   const names = value as CurrentDatabaseNames
   if (!/^sceneweave-projects-dev-v1(?:-[a-f0-9]{64})?$/.test(names.projects) || !/^sceneweave-library-dev-v1(?:-[a-f0-9]{64})?$/.test(names.library)

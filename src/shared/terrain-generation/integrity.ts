@@ -11,7 +11,7 @@ import { polygonBoolean } from '../geometry/polygon-boolean.js'
 import { checkTerrainRoute } from '../geometry/terrain-travel.js'
 import { openingEndpoints, roomPoints } from '../geometry/geometry.js'
 import { mixedFixedBindings } from '../generation/domains/mixed/contracts.js'
-import { forestMaterialBindings } from '../generation/domains/forest/contracts.js'
+import { forestMaterialBindings, forestPropBindings } from '../generation/domains/forest/contracts.js'
 import { interiorMaterialBindings } from '../generation/domains/interior/contracts.js'
 
 export type TerrainContractDocument = LegacyTerrainScene
@@ -253,7 +253,7 @@ export function validateTerrainContracts(input: SceneDocument): Issue[] {
       const p = recipe.parameters
       if (!doc.floors[p.floorId] || doc.userLayers[p.layerId]?.floorId !== p.floorId) fail('FOREST_RECIPE_SCOPE', '森林配方的Floor/图层缺失或跨Floor。', recipe.id)
       const canonicalSet = (rows: unknown[]) => [...new Set(rows.map(row => canonicalJson(row)))].sort()
-      const props = p.zones.flatMap(zone => zone.vegetation.flatMap(row => row.palette.map(item => ({ role: row.role, ref: item.definitionRef }))))
+      const props = forestPropBindings(p)
       const materials = forestMaterialBindings(p)
       if (!equal(canonicalSet(props), canonicalSet(recipe.props)) || !equal(canonicalSet(materials), canonicalSet(recipe.materials))) fail('FOREST_RECIPE_BINDINGS', '森林规范参数与确切固定素材绑定不同。', recipe.id)
       for (const row of recipe.materials) if (!doc.materials[row.ref.id]?.applicableSurfaces.includes(row.role === 'ground' ? 'terrain' : 'path')) fail('FOREST_RECIPE_MATERIAL', '森林材质不适用于对应表面。', recipe.id)
