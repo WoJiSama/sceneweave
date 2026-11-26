@@ -17,7 +17,7 @@ import { importProject } from '../../../shared/project/file.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
 import { reviseSceneSnapshot } from '../../../shared/validation/snapshots.js'
 import { OperationRejected } from '../../../shared/validation/operation-rejection.js'
-import type { SceneDocument } from '../../../shared/model/scene.js'
+import type { PointMm, SceneDocument } from '../../../shared/model/scene.js'
 import { browserProjectValidation } from '../project-validation.js'
 import { runtime } from '../runtime.js'
 import { browserGenerationContent } from './generation-intent.js'
@@ -138,7 +138,7 @@ function roadsAffectedByEdit(scene: SceneDocument, floorId: string, operations: 
   const view = publicTerrainView(scene)
   const changedAreas = new Set(changes.filter(change => change.kind === 'terrainAreas').map(change => change.id))
   const changedPaths = new Set(changes.filter(change => change.kind === 'paths').map(change => change.id))
-  const movedProps = []
+  const movedProps: PointMm[][] = []
   for (const operation of operations) {
     if (operation.kind === 'path-update') {
       changedPaths.add(operation.id)
