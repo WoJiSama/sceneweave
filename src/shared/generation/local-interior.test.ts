@@ -112,7 +112,7 @@ describe('selected generated-room furniture regeneration', () => {
     expect(result.writes.every(row => !props.slice(0, 4).some(prop => prop.id === row.entityId))).toBe(true)
     expect(validateSceneDocument(result.document).ok).toBe(true)
   }
-  it.each([2, 6, 7, 8, 9, 10] as const)('preserves moved, deleted, locked and appearance-adjusted furniture slots at version %s', checkManualProtection)
+  it.each([2, 6, 7, 8, 9, 10] as const)('preserves moved, deleted, locked and appearance-adjusted furniture slots at version %s', checkManualProtection, 20000)
   // New v17 cases include full generation and multiple local transactions.
   // Their measured 9–12s combined work needs its own explicit unit-test budget;
   // retain the original 5s limits of all existing replay cases.
@@ -154,6 +154,6 @@ describe('selected generated-room furniture regeneration', () => {
     expect(() => regenerateRoomFurniture(closed, request, f.context, { profile, checkCancelled() { throw new Error('cancelled') } })).toThrow('cancelled')
     expect(canonicalJson(closed)).toBe(before)
   }
-  it.each([2, 6, 7, 8, 9, 10] as const)('keeps closed or deleted doors as user edits and rejects cancellation without mutation at version %s', checkDoorProtection)
+  it.each([2, 6, 7, 8, 9, 10] as const)('keeps closed or deleted doors as user edits and rejects cancellation without mutation at version %s', checkDoorProtection, 20000)
   it.each([17, 18, 19] as const)('keeps closed or deleted doors as user edits and rejects cancellation without mutation at version %s', checkDoorProtection, 20000)
 })

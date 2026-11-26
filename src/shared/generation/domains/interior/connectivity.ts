@@ -111,7 +111,9 @@ function checkRoute(document: SceneDocument, input: InteriorGenerationInput, rou
     if (approach.atFloorEdge && same(route.from, approach.point)) edgeApproach = inner
   }
   const checked = edgeApproach ? checkFloorEdgeDoorRoute(document, request, edgeApproach) : checkTerrainRoute(document, request)
-  const notes = checked.issues.map(issue => issue.message)
+  // The v2 recipe hashes the report, including this original route diagnostic.
+  const notes = checked.issues.map(issue => input.algorithmVersion === 2 && issue.code === 'TERRAIN_NOT_WALKABLE' && issue.entityId === undefined
+    ? '整条净宽带必须留在世界内的可步行有效支撑面；水面或阻挡地形不能普通穿越。' : issue.message)
   const band = routeBand(input.parameters.floorId, route.pointsMm, route.widthMm)
   if (!coveredEverywhere(band, rooms, point => rooms.some(polygon => pointInPolygon(point, polygon)))) notes.push('完整净宽带超出本门两侧实际房间及明确入口预留区。')
   return unique(notes)

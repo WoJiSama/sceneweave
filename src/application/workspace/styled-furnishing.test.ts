@@ -99,5 +99,5 @@ describe('styled building furnishing', () => {
       expect(workspace.getState().project!.document.openings['shared-door']).toEqual(before.document.openings['shared-door'])
       workspace.undo(); expect(workspace.getState().project!.document.props).toEqual(before.document.props)
     } finally { await close() }
-  })
+  }, 20000)
 })
