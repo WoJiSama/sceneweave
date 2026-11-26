@@ -1,3 +1,4 @@
+import { setCanvasBlur, supportsCanvasFilter } from './canvas-filter.js'
 import { horizontalDirectionToLight } from '../../../shared/visual/directional-light.js'
 import type { BoundsMm, PointMm, ShadowStyle } from '../../../shared/model/scene.js'
 import type { ProjectedVisualBoundary, ProjectedVisualFilter, Projection } from '../../../shared/projection/types.js'
@@ -80,7 +81,7 @@ export function drawDirectionalSpriteShadow(ctx: CanvasRenderingContext2D, proje
     target.resetTransform(); target.globalCompositeOperation = 'source-in'
     target.fillStyle = shadow.color; target.fillRect(0, 0, buffer.surface.width, buffer.surface.height)
     ctx.save()
-    ctx.filter = `blur(${shadow.blurMm * Math.max(buffer.sx, buffer.sy)}px)`
+    setCanvasBlur(ctx, shadow.blurMm * Math.max(buffer.sx, buffer.sy), shadow.color)
     copyBuffer(ctx, buffer, shadow.opacity)
     ctx.restore()
   } finally { release(buffer.surface) }
@@ -89,7 +90,7 @@ function band(ctx: CanvasRenderingContext2D, boundary: ProjectedVisualBoundary, 
   const rings = bandRings(boundary.points, from, to, boundary.closed)
   if (!rings.length || opacity <= 0) return
   ctx.save(); ctx.fillStyle = color; ctx.globalAlpha = opacity
-  if (featherMm) { const transform = ctx.getTransform(); ctx.filter = `blur(${featherMm * Math.max(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d))}px)` }
+  if (featherMm) { const transform = ctx.getTransform(); setCanvasBlur(ctx, featherMm * Math.max(Math.hypot(transform.a, transform.b), Math.hypot(transform.c, transform.d)), color) }
   ctx.fill(ringsPath(rings), 'evenodd'); ctx.restore()
 }
 function excludeHighGround(ctx: CanvasRenderingContext2D, projection: Projection, high: CliffHighGround): void {
@@ -491,7 +492,7 @@ export function drawVisualContacts(ctx: CanvasRenderingContext2D, projection: Pr
     // only constrain allocation; they must never cast rectangular tree shadows.
     paintSourceAlpha?.(buffer.ctx, { ...projection, bounds: buffer.bounds })
     buffer.ctx.globalCompositeOperation = 'source-in'; buffer.ctx.fillStyle = '#18201D'; buffer.ctx.fillRect(buffer.bounds.x, buffer.bounds.y, buffer.bounds.width, buffer.bounds.height)
-    ctx.save(); ctx.resetTransform(); ctx.filter = `blur(${environment.contactShadowMm * Math.max(buffer.sx, buffer.sy)}px)`; ctx.globalAlpha = environment.contactShadowOpacity; ctx.drawImage(buffer.surface, buffer.left, buffer.top); ctx.restore()
+    ctx.save(); ctx.resetTransform(); setCanvasBlur(ctx, environment.contactShadowMm * Math.max(buffer.sx, buffer.sy), '#18201D'); ctx.globalAlpha = environment.contactShadowOpacity; ctx.drawImage(buffer.surface, buffer.left, buffer.top); ctx.restore()
   } finally { release(buffer.surface) }
 }
 
@@ -499,7 +500,23 @@ function applyExposure(ctx: CanvasRenderingContext2D, projection: Projection, ex
   if (exposure === 1) return
   const buffer = localBuffer(ctx, projection, projection.bounds, readFrequently)
   if (!buffer) return
-  try { buffer.ctx.resetTransform(); buffer.ctx.filter = `brightness(${exposure})`; buffer.ctx.drawImage(ctx.canvas, 0, 0); ctx.save(); ctx.resetTransform(); ctx.globalCompositeOperation = 'copy'; ctx.drawImage(buffer.surface, 0, 0); ctx.restore() } finally { release(buffer.surface) }
+  try {
+    const target = buffer.ctx
+    target.resetTransform()
+    const native = supportsCanvasFilter(target)
+    if (native) target.filter = `brightness(${exposure})`
+    target.drawImage(ctx.canvas, 0, 0)
+    if (!native) {
+      const image = target.getImageData(0, 0, buffer.surface.width, buffer.surface.height)
+      for (let i = 0; i < image.data.length; i += 4) {
+        image.data[i] *= exposure
+        image.data[i + 1] *= exposure
+        image.data[i + 2] *= exposure
+      }
+      target.putImageData(image, 0, 0)
+    }
+    ctx.save(); ctx.resetTransform(); ctx.globalCompositeOperation = 'copy'; ctx.drawImage(buffer.surface, 0, 0); ctx.restore()
+  } finally { release(buffer.surface) }
 }
 
 /** Atmosphere only sees the audience-filtered projection. Final opaque masks run afterwards. */

@@ -3,6 +3,7 @@ import type { StaircaseConfig } from '../../../shared/stairs/contracts.js'
 import { staircaseMaterial } from '../../../shared/stairs/catalog.js'
 import { planStaircase, staircasePatch, staircasePointAt, type StaircaseGeometry, type StaircaseTread } from '../../../shared/stairs/geometry.js'
 import type { RouteWidthSection } from '../../../shared/geometry/route-width.js'
+import { setCanvasBlur } from './canvas-filter.js'
 
 function path(ctx: CanvasRenderingContext2D, polygon: readonly PointMm[]): void {
   if (!polygon.length) return
@@ -40,7 +41,9 @@ export function drawStaircase(ctx: CanvasRenderingContext2D, centerlineMm: reado
   const at = (distance: number, lateral = 0) => staircasePointAt(geometry, distance, lateral)
   const patch = (start: number, end: number, low = -0.5, high = 0.5) => staircasePatch(geometry, start, end, low, high)
   ctx.save()
-  ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.filter = 'none'; ctx.lineJoin = 'miter'; ctx.lineCap = 'butt'
+  setCanvasBlur(ctx, 0)
+  ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0
+  ctx.lineJoin = 'miter'; ctx.lineCap = 'butt'
   ctx.beginPath(); path(ctx, footprint); ctx.clip()
   ctx.beginPath(); path(ctx, geometry.footprintMm); ctx.clip()
   ctx.save()

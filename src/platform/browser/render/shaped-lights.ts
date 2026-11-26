@@ -1,3 +1,4 @@
+import { supportsCanvasFilter } from './canvas-filter.js'
 import type { BoundsMm, PointMm } from '../../../shared/model/scene.js'
 import { lightSourceBounds, type ProjectedLightShape } from '../../../shared/visual/light-geometry.js'
 import { signedVisualArea } from '../../../shared/visual/geometry.js'
@@ -150,7 +151,7 @@ function paintDistributed(ctx: CanvasRenderingContext2D, light: ShapedLightPaint
     }
     const transform = ctx.getTransform()
     const blurPx = distributedLightBlurMm(light.radiusMm) * Math.max(transform.a, transform.d)
-    if (blurPx >= .65 && typeof ctx.filter === 'string') {
+    if (blurPx >= .65 && supportsCanvasFilter(ctx)) {
       ctx.resetTransform()
       ctx.globalAlpha = 1
       ctx.globalCompositeOperation = 'copy'

@@ -1,3 +1,4 @@
+import { setCanvasBlur, supportsCanvasFilter } from './canvas-filter.js'
 import type { BoundsMm } from '../../../shared/model/scene.js'
 import type { ProjectedSurface } from '../../../shared/projection/types.js'
 import { blurWhiteMask } from './mask-blur.js'
@@ -14,10 +15,10 @@ export function drawSurfaceRuleMask(ctx: CanvasRenderingContext2D, bounds: Bound
   ctx.fillStyle = '#fff'
   // An expando assignment to ctx.filter can succeed without implementing it.
   // Inspect the native prototype so such engines receive a real soft mask.
-  const nativeBlur = 'filter' in Object.getPrototypeOf(ctx)
+  const nativeBlur = supportsCanvasFilter(ctx)
   if (!blendWidthMm || !inward && nativeBlur) {
     if (blendWidthMm) ctx.filter = `blur(${blendWidthMm * .5 * Math.max(sx, sy)}px)`
-    ctx.fill(path, 'evenodd'); ctx.filter = 'none'
+    ctx.fill(path, 'evenodd'); setCanvasBlur(ctx, 0)
     return
   }
   // Erode before the existing Gaussian feather. The three-sigma inset keeps

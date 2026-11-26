@@ -1,4 +1,4 @@
-import type { BoundsMm, PointMm, SurfaceRef } from '../../shared/model/scene.js'
+import type { BoundsMm, PointMm, SceneDocument, SurfaceRef } from '../../shared/model/scene.js'
 import type { RoadDrawingSettings, RoadStrokeSettings } from './road-sketch'
 import type { ExtensionWall } from './room-extension'
 import type { AutomaticRoadCanvas } from './AutomaticRoadOverlay'
@@ -107,4 +107,12 @@ export function rulerDistance(a: PointMm, b: PointMm): { distanceMm: number; dxM
 
 export function formatDistanceMm(distanceMm: number, display: 'm' | 'ft'): string {
   return `${(distanceMm / (display === 'ft' ? 304.8 : 1000)).toFixed(3)} ${display}`
+}
+
+export function formatRulerDistance(distanceMm: number, scene: Pick<SceneDocument, 'units' | 'presetSnapshot'>): string {
+  const mode = scene.presetSnapshot.distanceMode
+  if (mode === 'metric') return formatDistanceMm(distanceMm, scene.units.display)
+  const cells = distanceMm / scene.units.gridSizeMm
+  if (mode === 'grid') return `${Number(cells.toFixed(2))} 格`
+  return cells > 0 && cells < .5 ? '小于半格' : `约 ${Math.round(cells * 2) / 2} 格`
 }

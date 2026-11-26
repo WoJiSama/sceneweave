@@ -1,3 +1,4 @@
+import { setCanvasBlur } from './canvas-filter.js'
 import { drawLineProfile } from './line-profiles.js'
 import type { BoundsMm, BridgeArt, PointMm } from '../../../shared/model/scene.js'
 import type { ProjectedBridge } from '../../../shared/projection/types.js'
@@ -11,7 +12,7 @@ export function drawBridgeContactShadow(ctx: CanvasRenderingContext2D, bridge: P
   ctx.save()
   ctx.translate(offset.x, offset.y)
   ctx.globalAlpha = bridge.relief!.shadowOpacity
-  ctx.filter = `blur(${Math.hypot(transform.a, transform.b) * 48}px)`
+  setCanvasBlur(ctx, Math.hypot(transform.a, transform.b) * 48, '#152426')
   ctx.fillStyle = '#152426'
   ctx.fill(ring(bridge.outline))
   ctx.restore()

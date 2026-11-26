@@ -33,7 +33,7 @@ type ArchiveAppearance = {
   layerAdjustments: Record<string, { enabled: boolean }[]>
 }
 
-const journeyTableAsset = 'refined-art-interior-table-long'
+const journeyTableAssets = new Set(['refined-art-interior-table-long', 'refined-art-interior-table-round'])
 let materialModule: Promise<string> | undefined
 function materialModuleSource() {
   return materialModule ??= build({ configFile: false, publicDir: false, logLevel: 'silent', build: {
@@ -76,7 +76,8 @@ export async function verifyJourneyPng(page: Page, pngPath: string, archivePath:
 
   expect(document.artStyle, 'The new scene retains its original palette and default material brush').toMatchObject({ version: 2, active: 'original', materialDrawing: 1 })
   const prop = Object.values(document.props).find(prop => prop.floorId === floor.id && prop.visibility === 'public'
-    && prop.appearance.kind === 'image' && prop.appearance.opacity === 1 && prop.appearance.assetId === journeyTableAsset)
+    && prop.appearance.kind === 'image' && prop.appearance.opacity === 1 && prop.appearance.assetId !== undefined
+    && journeyTableAssets.has(prop.appearance.assetId))
   if (!prop) throw new Error('The generated scene needs a public opaque wooden table for its texture proof')
   const sourceId = appearance.propSources[prop.id], source = appearance.sources[sourceId]
   expect(source?.kind, 'Selected bitmap has its archived appearance source').toBe('prop')

@@ -1,3 +1,4 @@
+import { setCanvasBlur } from './canvas-filter.js'
 import { wallGeometry } from '../../../shared/geometry/wall-paint-geometry.js'
 import { drawOceanWaves, drawWaterProp } from './ocean-renderer.js'
 import { drawSurfaceRuleMask } from './surface-mask.js'
@@ -479,7 +480,7 @@ function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, ras
     ctx.globalCompositeOperation = 'source-atop'
     ctx.globalAlpha = shadow.opacity
     ctx.fillStyle = shadow.color
-    ctx.filter = `blur(${shadow.blurMm * Math.max(scaleX, scaleY)}px)`
+    setCanvasBlur(ctx, shadow.blurMm * Math.max(scaleX, scaleY), shadow.color)
     ctx.fill(sweep)
     ctx.restore()
   }
@@ -505,7 +506,7 @@ function drawWallBody(ctx: CanvasRenderingContext2D, projection: Projection, ras
     ctx.save(); ctx.resetTransform()
     if (!directional && shadow && shadow.opacity > 0) {
       interiorCtx.drawImage(mask, 0, 0); interiorCtx.globalCompositeOperation = 'source-in'; interiorCtx.fillStyle = shadow.color; interiorCtx.fillRect(0, 0, width, height)
-      ctx.save(); ctx.globalAlpha = shadow.opacity; ctx.filter = `blur(${shadow.blurMm * Math.max(scaleX, scaleY)}px)`
+      ctx.save(); ctx.globalAlpha = shadow.opacity; setCanvasBlur(ctx, shadow.blurMm * Math.max(scaleX, scaleY), shadow.color)
       const angle = shadow.directionDeg * Math.PI / 180
       ctx.drawImage(interior, Math.cos(angle) * shadow.offsetMm * scaleX, Math.sin(angle) * shadow.offsetMm * scaleY); ctx.restore()
       interiorCtx.globalCompositeOperation = 'source-over'; interiorCtx.clearRect(0, 0, width, height)
@@ -570,14 +571,14 @@ function drawNearSideShadow(ctx: CanvasRenderingContext2D, prop: Prop, projectio
   const ring = presentationShadow(prop, presentation, direction, source.offsetMm)
   if (ring.length && source?.opacity) {
     ctx.globalAlpha = source.opacity * prop.appearance.opacity; ctx.fillStyle = source.color
-    ctx.filter = `blur(${source.blurMm * Math.max(sx, sy)}px)`; ctx.fill(polygonPath(ring)); ctx.filter = 'none'
+    setCanvasBlur(ctx, source.blurMm * Math.max(sx, sy), source.color); ctx.fill(polygonPath(ring)); setCanvasBlur(ctx, 0)
   }
   // A root contact is a physical footprint, independent of the northward canopy.
   const contact = projection.visual?.environment, contactPoints = presentationContact(prop, presentation)
   if (contact?.contactShadowOpacity && contactPoints.length) {
     ctx.globalAlpha = contact.contactShadowOpacity * prop.appearance.opacity; ctx.fillStyle = source?.color ?? '#263C30'
-    ctx.filter = `blur(${contact.contactShadowMm * Math.max(sx, sy)}px)`
-    ctx.fill(polygonPath(contactPoints)); ctx.filter = 'none'
+    setCanvasBlur(ctx, contact.contactShadowMm * Math.max(sx, sy), source?.color ?? '#263C30')
+    ctx.fill(polygonPath(contactPoints)); setCanvasBlur(ctx, 0)
   }
   ctx.restore()
 }
@@ -713,7 +714,7 @@ function strokeTerrainRun(ctx: CanvasRenderingContext2D, run: TerrainEdgeRun, wi
     if (closed && j - i === ordered.length) path.closePath()
     if (width > 0) {
       ctx.save(); ctx.strokeStyle = first.edge.style.color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'butt'
-      if (blurScale) { ctx.globalAlpha = .22; ctx.filter = `blur(${width * .3 * blurScale}px)` }
+      if (blurScale) { ctx.globalAlpha = .22; setCanvasBlur(ctx, width * .3 * blurScale, first.edge.style.color) }
       ctx.stroke(path)
       // Finish a change of width/color at the shared vertex. Real openings keep butt ends.
       if (!blurScale && j - i < ordered.length) {
@@ -774,7 +775,7 @@ function drawTerrainShorelines(ctx: CanvasRenderingContext2D, projection: Projec
     const band = (radius: number, blur: number, color: string, opacity: number) => {
       ctx.lineWidth = width * radius * 2
       ctx.strokeStyle = color; ctx.globalAlpha = opacity
-      ctx.filter = `blur(${width * blur * scale}px)`
+      setCanvasBlur(ctx, width * blur * scale, color)
       ctx.stroke(path)
     }
     ctx.save()
@@ -788,7 +789,7 @@ function drawTerrainShorelines(ctx: CanvasRenderingContext2D, projection: Projec
       band(.59, .15, '#97CBAC', .32)
       band(.23, .08, '#A6C9AA', .2)
       if (style.strokeWidthMm > 0) {
-        ctx.filter = 'none'; ctx.strokeStyle = style.color
+        setCanvasBlur(ctx, 0); ctx.strokeStyle = style.color
         const direction = waterInward ? 1 : -1
         const unit = Math.max(76, Math.min(480, width * .24))
         for (const [distance, opacity, phase] of [[.085, .56, 0], [.25, .26, 1.65]]) {
@@ -886,7 +887,7 @@ function drawTerrainEdges(ctx: CanvasRenderingContext2D, projection: Projection,
           const ring = terrainShadow(edge, projection)
           if (ring.length) addRing(shadow, ring)
         }
-        ctx.save(); ctx.filter = `blur(${cliff.blurMm * Math.max(sx, sy)}px)`; ctx.globalAlpha = cliff.opacity; ctx.fillStyle = cliff.color; ctx.fill(shadow); ctx.restore()
+        ctx.save(); setCanvasBlur(ctx, cliff.blurMm * Math.max(sx, sy), cliff.color); ctx.globalAlpha = cliff.opacity; ctx.fillStyle = cliff.color; ctx.fill(shadow); ctx.restore()
       }
       if (cells.length) {
         const face = terrainBandPath(cells)
@@ -1241,7 +1242,7 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
         return
       }
       if (edge.bandWidthMm) {
-        ctx.save(); ctx.globalAlpha = .22; ctx.filter = `blur(${edge.bandWidthMm * .3 * Math.max(sx, sy)}px)`; ctx.strokeStyle = edge.color; ctx.lineWidth = edge.bandWidthMm; ctx.lineJoin = 'round'; ctx.stroke(exterior); ctx.restore()
+        ctx.save(); ctx.globalAlpha = .22; setCanvasBlur(ctx, edge.bandWidthMm * .3 * Math.max(sx, sy), edge.color); ctx.strokeStyle = edge.color; ctx.lineWidth = edge.bandWidthMm; ctx.lineJoin = 'round'; ctx.stroke(exterior); ctx.restore()
       }
       if (caps.length || segments || (path.paving?.length ?? 0) > 1) {
         // Apply the final contour once, after all paint is composited. Clipping
@@ -1349,7 +1350,7 @@ function drawRoutedConnectionBody(ctx: CanvasRenderingContext2D, projection: Pro
         image.data.set(plan.data); maskContext.putImageData(image, 0, 0)
         target.save()
         try {
-          target.resetTransform(); target.globalCompositeOperation = 'destination-in'; target.globalAlpha = 1; target.filter = 'none'
+          target.resetTransform(); target.globalCompositeOperation = 'destination-in'; target.globalAlpha = 1; setCanvasBlur(target, 0)
           target.imageSmoothingEnabled = true; target.drawImage(sideMask, 0, 0, surface.width, surface.height)
         } finally { target.restore() }
       } finally { disposeCanvas(sideMask) }
@@ -1456,7 +1457,7 @@ function drawConnectionLandingBlends(target: CanvasRenderingContext2D, layer: Ca
     const blend = connectionLandingBlend(connection, end), support = blend && [...projection.terrain, ...projection.rooms].find(area => area.id === blend.surfaceId)
     if (!blend || !support?.style) continue
     layer.save(); layer.resetTransform(); layer.clearRect(0, 0, layer.canvas.width, layer.canvas.height); layer.restore()
-    layer.globalCompositeOperation = 'source-over'; layer.globalAlpha = 1; layer.filter = 'none'
+    layer.globalCompositeOperation = 'source-over'; layer.globalAlpha = 1; setCanvasBlur(layer, 0)
     worldTransform(layer, bounds, layer.canvas.width / bounds.width, layer.canvas.height / bounds.height)
     const landingPath = polygonPath(blend.polygonMm)
     layer.save(); layer.clip(path)
@@ -1467,7 +1468,7 @@ function drawConnectionLandingBlends(target: CanvasRenderingContext2D, layer: Ca
     } else if (connection.route) {
       maskRoutedLanding(layer, connection, end, blend.depthMm, bounds, path, !!raster.readFrequently)
     } else {
-      layer.save(); layer.globalCompositeOperation = 'destination-in'; layer.globalAlpha = 1; layer.filter = 'none'
+      layer.save(); layer.globalCompositeOperation = 'destination-in'; layer.globalAlpha = 1; setCanvasBlur(layer, 0)
       const gradient = layer.createLinearGradient(blend.fromMm.x, blend.fromMm.y, blend.toMm.x, blend.toMm.y)
       gradient.addColorStop(0, '#FFFFFF'); gradient.addColorStop(1, '#FFFFFF00')
       layer.fillStyle = gradient; layer.fill(landingPath); layer.restore()
@@ -1485,7 +1486,7 @@ function maskRoutedLanding(layer: CanvasRenderingContext2D, connection: Projecte
     paintConnectionLandingMask(ctx, bounds, connection, end, depthMm)
     worldTransform(ctx, bounds, mask.width / bounds.width, mask.height / bounds.height)
     ctx.globalCompositeOperation = 'destination-in'; ctx.fillStyle = '#FFFFFF'; ctx.fill(path)
-    layer.save(); layer.resetTransform(); layer.globalCompositeOperation = 'destination-in'; layer.globalAlpha = 1; layer.filter = 'none'
+    layer.save(); layer.resetTransform(); layer.globalCompositeOperation = 'destination-in'; layer.globalAlpha = 1; setCanvasBlur(layer, 0)
     layer.drawImage(mask, 0, 0); layer.restore()
   } finally { disposeCanvas(mask) }
 }
@@ -1500,7 +1501,7 @@ function maskNaturalRockLanding(layer: CanvasRenderingContext2D, connection: Pro
     paintConnectionLandingMask(ctx, bounds, connection, end, depthMm, true)
     worldTransform(ctx, bounds, mask.width / bounds.width, mask.height / bounds.height)
     ctx.globalCompositeOperation = 'destination-in'; ctx.fillStyle = '#FFFFFF'; ctx.fill(path)
-    layer.save(); layer.resetTransform(); layer.globalCompositeOperation = 'destination-in'; layer.globalAlpha = 1; layer.filter = 'none'
+    layer.save(); layer.resetTransform(); layer.globalCompositeOperation = 'destination-in'; layer.globalAlpha = 1; setCanvasBlur(layer, 0)
     layer.drawImage(mask, 0, 0); layer.restore()
   } finally { disposeCanvas(mask) }
 }

@@ -1,3 +1,4 @@
+import { setCanvasBlur } from './canvas-filter.js'
 import type { BoundsMm } from '../../../shared/model/scene.js'
 import type { ProjectedFloorShadow } from '../../../shared/projection/types.js'
 
@@ -22,7 +23,7 @@ export function drawFloorShadows(ctx: CanvasRenderingContext2D, view: BoundsMm, 
     ctx.save()
     ctx.clip(regionPath(receiver), 'evenodd')
     ctx.translate(offsetMm.x, offsetMm.y)
-    ctx.filter = 'blur(' + blurMm * Math.max(sx, sy) + 'px)'
+    setCanvasBlur(ctx, blurMm * Math.max(sx, sy), '#080E16')
     ctx.globalAlpha = opacity * amount
     ctx.fill(regionPath(caster), 'evenodd')
     ctx.restore()
