@@ -1,11 +1,48 @@
-import Dexie, { type Table } from 'dexie'
+import Dexie, { type Collection, type Table } from 'dexie'
 import { readImageWorkPackage, IMAGE_WORK_LIMITS, type ImageWorkPackage } from '../../../shared/image-import/workflow.js'
 import { captureBytes } from '../../../shared/project/binary.js'
 import { checkCancelled, ImageCapabilityError, type CancellationSignal, type ImageProcessingPort } from '../../../shared/ports/resources.js'
 import { createBrowserImagePort } from '../images/adapter.js'
 
 export const IMAGE_WORKFLOW_DATABASE = 'sceneweave-image-workflows'
-interface StoredWork { id: string; revision: number; updatedAt: number; package: Uint8Array }
+export const IMAGE_WORK_STORAGE_LIMITS = Object.freeze({ drafts: 64, bytes: 256 * 1024 * 1024 })
+const draftPageSize = 12
+interface StoredWork { id: string; revision: number; updatedAt: number; package: Uint8Array; title?: string; nextAction?: string }
+
+export interface LocalImageDraft {
+  id: string
+  revision: number
+  updatedAt: number
+  byteLength: number
+  title?: string
+  nextAction?: string
+}
+
+export interface LocalImageDraftPage {
+  drafts: LocalImageDraft[]
+  total: number
+  nextOffset: number | null
+}
+
+function storedByteLength(record: StoredWork): number {
+  if (!(record.package instanceof Uint8Array) || !record.package.byteLength) throw new Error('本机制作草稿的工作包字节损坏。')
+  return record.package.byteLength
+}
+
+function localDraft(record: StoredWork): LocalImageDraft {
+  return { id: record.id, revision: record.revision, updatedAt: record.updatedAt, byteLength: storedByteLength(record),
+    title: record.title, nextAction: record.nextAction }
+}
+
+async function scanDrafts(rows: Collection<StoredWork, string>, inspect: (row: StoredWork) => void): Promise<void> {
+  // Reject from the transaction body since Dexie wraps cursor callbacks.
+  let failed = false, failure: unknown
+  await rows.until(() => failed).each(row => {
+    try { inspect(row) }
+    catch (error) { failed = true; failure = error }
+  })
+  if (failed) throw failure
+}
 
 class WorkDatabase extends Dexie {
   entries!: Table<StoredWork, string>
@@ -87,6 +124,21 @@ export class ImageWorkflowStore {
     await inspectDatabase(this.database.name)
     await this.database.open()
   }
+  private async checkStorageBudget(id: string, newBytes: number, current: StoredWork | undefined, signal?: CancellationSignal): Promise<void> {
+    const full = () => new Error(`本次保存会超过本机制作草稿的累计上限（${IMAGE_WORK_STORAGE_LIMITS.drafts} 份或 ${IMAGE_WORK_STORAGE_LIMITS.bytes / 1024 ** 2} MiB）。可在「本机制作草稿」中移除已备份的草稿。`)
+    const { entries } = this.database
+    if (!current && await entries.count() >= IMAGE_WORK_STORAGE_LIMITS.drafts) throw full()
+    // A legacy library may already exceed the cap. It can still be read and
+    // existing drafts can be edited when the replacement does not use more space.
+    if (current && newBytes <= storedByteLength(current)) return
+    let remaining = IMAGE_WORK_STORAGE_LIMITS.bytes - newBytes
+    await scanDrafts(entries.toCollection(), row => {
+      checkCancelled(signal)
+      if (row.id === id) return
+      remaining -= storedByteLength(row)
+      if (remaining < 0) throw full()
+    })
+  }
   async save(input: Uint8Array, expectedRevision: number | null, signal?: CancellationSignal): Promise<{ id: string; revision: number }> {
     checkCancelled(signal)
     if (expectedRevision !== null && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)) throw new Error('图片工作基线版本无效。')
@@ -99,10 +151,13 @@ export class ImageWorkflowStore {
       const current = await this.database.entries.get(work.state.id)
       if (current ? current.revision !== expectedRevision : expectedRevision !== null) throw new ImageWorkflowConflictError()
       if (current && work.state.revision <= current.revision) throw new ImageWorkflowConflictError()
+      await this.checkStorageBudget(work.state.id, bytes.length, current, signal)
+      checkCancelled(signal)
       const previous = await this.database.entries.orderBy('updatedAt').last()
       const updatedAt = Math.max(Date.now(), (previous?.updatedAt ?? 0) + 1)
       if (!Number.isSafeInteger(updatedAt)) throw new Error('图片工作保存次序超出范围。')
-      await this.database.entries.put({ id: work.state.id, revision: work.state.revision, updatedAt, package: bytes })
+      await this.database.entries.put({ id: work.state.id, revision: work.state.revision, updatedAt, package: bytes,
+        title: work.state.draft.title, nextAction: work.state.nextAction })
       checkCancelled(signal)
       // Force a real read in the same transaction; a failure aborts the write.
       const captured = await this.database.entries.get(work.state.id)
@@ -118,6 +173,40 @@ export class ImageWorkflowStore {
     const record = await this.database.entries.orderBy('updatedAt').last()
     checkCancelled(signal)
     if (!record) return null
+    return this.readStoredWork(record, signal)
+  }
+  async listLocalDrafts(offset = 0): Promise<LocalImageDraftPage> {
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('本机制作草稿页码无效。')
+    await this.open()
+    const { entries } = this.database
+    return this.database.transaction('r', entries, async () => {
+      const total = await entries.count(), drafts: LocalImageDraft[] = []
+      await scanDrafts(entries.orderBy('updatedAt').reverse().offset(offset).limit(draftPageSize), row => { drafts.push(localDraft(row)) })
+      return { drafts, total, nextOffset: drafts.length > 0 && offset + drafts.length < total ? offset + drafts.length : null }
+    })
+  }
+  private async readDraft(reference: LocalImageDraft): Promise<StoredWork> {
+    const row = await this.database.entries.get(reference.id)
+    if (!row || row.revision !== reference.revision || row.updatedAt !== reference.updatedAt || storedByteLength(row) !== reference.byteLength) {
+      throw new ImageWorkflowConflictError()
+    }
+    return row
+  }
+  async loadLocalDraft(reference: LocalImageDraft, signal?: CancellationSignal): Promise<{ work: ImageWorkPackage; bytes: Uint8Array }> {
+    checkCancelled(signal)
+    await this.open()
+    const record = await this.readDraft(reference)
+    return { work: await this.readStoredWork(record, signal), bytes: record.package }
+  }
+  async removeLocalDraft(reference: LocalImageDraft): Promise<void> {
+    await this.open()
+    const { entries } = this.database
+    await this.database.transaction('rw', entries, async () => {
+      const record = await this.readDraft(reference)
+      await entries.delete(record.id)
+    })
+  }
+  private async readStoredWork(record: StoredWork, signal?: CancellationSignal): Promise<ImageWorkPackage> {
     const work = await readBrowserImageWorkPackage(record.package, signal, this.images)
     if (record.id !== work.state.id || record.revision !== work.state.revision) throw new Error('图片工作数据库记录与工作包身份不一致。')
     return work

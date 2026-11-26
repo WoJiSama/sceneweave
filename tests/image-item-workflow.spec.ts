@@ -26,6 +26,47 @@ async function point(dialog: Locator, tool: string, x: number, y: number) {
   await canvas.click({ position: { x: x / width * bounds.width, y: y / height * bounds.height } })
 }
 
+test('downloads and removes the selected saved image draft while keeping the newer draft', async ({ page }) => {
+  test.setTimeout(90_000)
+  const workbench = page.getByRole('dialog', { name: '图片导入工作台', exact: true })
+  const open = async () => {
+    await page.goto('/')
+    await page.getByRole('button', { name: '从图片新建场景', exact: true }).click()
+  }
+  for (const name of ['先做的草稿', '后做的草稿']) {
+    await open()
+    await workbench.getByRole('button', { name: '原图与标定', exact: true }).click()
+    await workbench.getByLabel('图片转工程原图', { exact: true }).setInputFiles({
+      name: `${name}.png`, mimeType: 'image/png', buffer: image(),
+    })
+    await expect(workbench.getByRole('status').filter({ hasText: '制作进度已保存' })).toBeVisible({ timeout: 20000 })
+    await page.reload()
+  }
+  await open()
+  await workbench.locator('summary').filter({ hasText: '本机制作草稿' }).click()
+  const drafts = workbench.getByLabel('选择本机制作草稿')
+  await expect(drafts.locator('option')).toHaveCount(2)
+  const older = drafts.locator('option').filter({ hasText: '先做的草稿' })
+  await drafts.selectOption(await older.getAttribute('value') ?? '')
+  const pending = page.waitForEvent('download')
+  await workbench.getByRole('button', { name: '下载所选工作包', exact: true }).click()
+  const downloaded = await pending
+  expect((await readImageWorkPackage(new Uint8Array(await readFile((await downloaded.path())!)))).state.draft.title).toBe('先做的草稿')
+  const remove = workbench.getByRole('button', { name: '移除所选草稿', exact: true })
+  page.once('dialog', async confirmation => {
+    expect(confirmation.message()).toContain('先做的草稿')
+    await confirmation.dismiss()
+  })
+  await remove.click()
+  await expect(drafts.locator('option')).toHaveCount(2)
+  page.once('dialog', confirmation => confirmation.accept())
+  await remove.click()
+  await expect(drafts.locator('option')).toHaveCount(1)
+  await expect(drafts.locator('option')).toContainText('后做的草稿')
+  await workbench.getByRole('button', { name: '继续上次拆分', exact: true }).click()
+  await expect(workbench).toContainText('已恢复 后做的草稿')
+})
+
 test('portable model provenance survives browser refinement and another empty storage import', async ({ page, browser }, info) => {
   const bytes = new Uint8Array(image()), hash = sha256Bytes(bytes)
   const selectionOrigin: NonNullable<NonNullable<ImageWorkState['active']>['selectionOrigin']> = {

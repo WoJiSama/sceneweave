@@ -184,11 +184,13 @@ MCP的只读主体候选也接受可选`foregroundProtectionMask`／`excludedEvi
 
 表面及其取证排除蒙版与已拆层、当前未完成蒙版共用既有累计像素、段数和状态字节预算。保存和冷解析不放宽限额；缺失或重复引用、非二值表面范围均拒绝。制作包仍只有上述三个条目，普通工程无需制作记录即可独立打开。
 
-共享读写核对实际 ZIP 目录、CRC、字节 SHA-256、格式、尺寸和状态预算。浏览器边界 [image-workflow-store.ts](../../src/platform/browser/content/image-workflow-store.ts) 的 `readBrowserImageWorkPackage` 还实际解码，对照原文件规范化后的像素与包内规范化 PNG。独立 `ImageWorkflowStore` 使用 `sceneweave-image-workflows` 数据库；`save(bytes, expectedRevision, signal?)` 做版本比较与写后读，`loadLatest(signal?)` 返回经完整读取的最近工作，不自动清库。
+共享读写核对实际 ZIP 目录、CRC、字节 SHA-256、格式、尺寸和状态预算。浏览器边界 [image-workflow-store.ts](../../src/platform/browser/content/image-workflow-store.ts) 的 `readBrowserImageWorkPackage` 还实际解码，对照原文件规范化后的像素与包内规范化 PNG。独立 `ImageWorkflowStore` 使用 `sceneweave-image-workflows` 数据库。`save(bytes, expectedRevision, signal?)` 在同一事务检查版本、累计实际工作包字节并写后读。
 
 ### 页面保存与接续
 
 图片导入工作台已接入自动保存、打开／导出工作包和“继续上次拆分”。修改停稳并完成当前笔画后保存制作进度；查看真实保存状态，失败时用导出保全。未完成标尺、当前物件、辅助标记和选区属于制作进度，尚未采用时也可以保存。刷新后打开工具，通过“继续上次拆分”恢复本机最近任务；跨电脑使用“打开制作工作包”。页面和 MCP `--resume` 都沿用工作包稳定任务身份，原文件保持；页面导入后若本机已有同ID任务，保存会报告冲突并保留双方，可先导出当前成果再选择恢复，不覆盖既有记录。
+
+「本机制作草稿」可选择之前保存的任务，打开、下载原工作包或确认移除。此站点下累计保存最多 64 份、256 MiB。达到上限时，新任务和会继续增大超额用量的保存会失败，已有草稿仍可打开、下载和整理。
 
 “导出给模型的接续说明”产生工作流与状态 JSON，须连同工作包交给实际具备看图和工具能力的模型。它不包含图片字节，不替代工作包，也不自动给当前应用聊天添加图片工具。
 

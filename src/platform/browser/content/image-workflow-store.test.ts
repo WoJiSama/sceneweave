@@ -6,7 +6,7 @@ import { encodeSourcePng } from '../../../shared/project/png-rgba.js'
 import { sha256Bytes } from '../../../shared/project/binary.js'
 import { inspectImageBytes } from '../../../shared/project/image-bytes.js'
 import { readImageWorkPackage, writeImageWorkPackage, type ImageWorkState } from '../../../shared/image-import/workflow.js'
-import { ImageWorkflowStore, ImageWorkflowConflictError, IMAGE_WORKFLOW_DATABASE, readBrowserImageWorkPackage } from './image-workflow-store.js'
+import { ImageWorkflowStore, ImageWorkflowConflictError, IMAGE_WORKFLOW_DATABASE, IMAGE_WORK_STORAGE_LIMITS, readBrowserImageWorkPackage } from './image-workflow-store.js'
 import type { ImageProcessingPort } from '../../../shared/ports/resources.js'
 
 const png = encodeSourcePng({ width: 1, height: 1, rgba: new Uint8ClampedArray([32, 64, 96, 255]) })
@@ -71,6 +71,78 @@ describe('independent image-workflow storage', () => {
     await repo.save(await writeImageWorkPackage(state('new-task', 0), png, png), null)
     expect((await repo.loadLatest())?.state.id).toBe('new-task')
     expect(await repo.database.entries.count()).toBe(2)
+  })
+
+  it('applies the cumulative draft count across concurrent saves and admits another after explicit removal', async () => {
+    const repo = repository(), other = repository(repo.database.name)
+    const first = await writeImageWorkPackage(state('first'), png, png)
+    await repo.save(first, null)
+    const older = { package: first, revision: 0, updatedAt: 1 }
+    await repo.database.entries.bulkAdd(Array.from({ length: IMAGE_WORK_STORAGE_LIMITS.drafts - 2 }, (_, index) => ({ ...older, id: `old-${index}` })))
+    const left = await writeImageWorkPackage(state('left'), png, png), right = await writeImageWorkPackage(state('right'), png, png)
+    const results = await Promise.allSettled([repo.save(left, null), other.save(right, null)])
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    const rejected = results.findIndex(result => result.status === 'rejected')
+    expect(results[rejected]).toMatchObject({ reason: expect.objectContaining({ message: expect.stringContaining('累计上限') }) })
+    const page = await repo.listLocalDrafts()
+    expect(page.total).toBe(IMAGE_WORK_STORAGE_LIMITS.drafts)
+    expect(page.nextOffset).toBe(page.drafts.length)
+    expect((await repo.listLocalDrafts(page.nextOffset!)).drafts.some(row => page.drafts.some(first => first.id === row.id))).toBe(false)
+    const keep = page.drafts.find(draft => draft.id === 'first')!
+    expect((await repo.loadLocalDraft(keep)).bytes).toEqual(first)
+    await other.removeLocalDraft(keep)
+    await repo.save(rejected === 0 ? left : right, null)
+    expect(await repo.database.entries.count()).toBe(IMAGE_WORK_STORAGE_LIMITS.drafts)
+  })
+
+  it('counts actual stored package bytes and preserves an existing draft when a replacement would exceed the total', async () => {
+    const repo = repository()
+    const original = await writeImageWorkPackage({ ...state(), notes: 'Notes from the committed draft before storage filled up.' }, png, png)
+    await repo.save(original, null)
+    const segment = new Uint8Array(IMAGE_WORK_STORAGE_LIMITS.bytes / 8)
+    for (let i = 0; i < 8; i++) {
+      await repo.database.entries.add({ id: `old-bytes-${i}`, revision: 0, updatedAt: i, package: segment })
+    }
+    const notes = Array.from({ length: 16 }, (_, index) => sha256Bytes(new Uint8Array([index]))).join(' ')
+    const larger = await writeImageWorkPackage({ ...state('room', 1), notes }, png, png)
+    expect(larger.length).toBeGreaterThan(original.length)
+    await expect(repo.save(larger, 0)).rejects.toThrow(/累计上限/)
+    await expect(repo.save(await writeImageWorkPackage(state('new-id'), png, png), null)).rejects.toThrow(/累计上限/)
+    expect((await repo.loadLatest())?.state.revision).toBe(0)
+    expect(await repo.database.entries.count()).toBe(9)
+    const smaller = await writeImageWorkPackage(state('room', 1), png, png)
+    expect(smaller.length).toBeLessThan(original.length)
+    await repo.save(smaller, 0)
+    expect((await repo.loadLatest())?.state.revision).toBe(1)
+  })
+
+  it('opens an older v1 draft and rejects stale download and removal after another tab saves it', async () => {
+    const repo = repository(), other = repository(repo.database.name)
+    const first = await writeImageWorkPackage(state('older'), png, png)
+    await repo.save(first, null)
+    await repo.database.entries.update('older', { title: undefined, nextAction: undefined })
+    await repo.save(await writeImageWorkPackage(state('latest'), png, png), null)
+    const [latest, older] = (await repo.listLocalDrafts()).drafts
+    expect(latest.title).toBe('Room')
+    expect(older.title).toBeUndefined()
+    expect((await repo.loadLocalDraft(older)).work.state.id).toBe('older')
+    await other.save(await writeImageWorkPackage({ ...state('older', 1), notes: 'Kept' }, png, png), 0)
+    await expect(repo.loadLocalDraft(older)).rejects.toBeInstanceOf(ImageWorkflowConflictError)
+    await expect(repo.removeLocalDraft(older)).rejects.toBeInstanceOf(ImageWorkflowConflictError)
+    await repo.removeLocalDraft(latest)
+    expect((await repo.loadLatest())?.state.notes).toBe('Kept')
+    expect(await repo.database.entries.count()).toBe(1)
+  })
+
+  it('preserves the last complete draft when IndexedDB rejects a write for quota', async () => {
+    const repo = repository(), original = await writeImageWorkPackage(state(), png, png)
+    await repo.save(original, null)
+    repo.database.entries.hook('updating', () => { throw new DOMException('simulated browser quota', 'QuotaExceededError') })
+    await expect(repo.save(await writeImageWorkPackage({ ...state('room', 1), notes: 'Unsaved changes' }, png, png), 0))
+      .rejects.toMatchObject({ name: 'QuotaExceededError' })
+    const [saved] = (await repo.listLocalDrafts()).drafts
+    expect(saved.revision).toBe(0)
+    expect((await repo.loadLocalDraft(saved)).bytes).toEqual(original)
   })
 
   it('refuses a byte-valid package whose normalized pixels are unrelated to the original', async () => {

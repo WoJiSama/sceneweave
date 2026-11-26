@@ -18,7 +18,8 @@ import { sha256Text } from '../../shared/validation/hash'
 import { canonicalJson } from '../../shared/validation/json'
 import { sha256Bytes } from '../../shared/project/binary'
 import { parseImageWorkState, writeImageWorkPackage, type ImageWorkState, type ImageWorkPackage } from '../../shared/image-import/workflow'
-import { ImageWorkflowStore, readBrowserImageWorkPackage } from '../../platform/browser/content/image-workflow-store'
+import { ImageWorkflowStore, readBrowserImageWorkPackage, type LocalImageDraft } from '../../platform/browser/content/image-workflow-store'
+import ImageWorkDrafts, { downloadImageWork } from './ImageWorkDrafts'
 import { IMAGE_ITEM_WORKFLOW } from '../../shared/image-import/workflow-instructions'
 import { analyzeImageImportRepair } from '../../shared/image-import/neighborhood-analysis'
 import type { NeighborhoodRepairConflict } from '../../shared/image-import/neighborhood-repair'
@@ -141,7 +142,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
   const [outlineRadius, setOutlineRadius] = useState(0)
   const [workNotes, setWorkNotes] = useState(''), [nextAction, setNextAction] = useState('确认房间与暂定比例，然后圈出一个物件的粗范围。')
   const [scaleStatus, setScaleStatus] = useState<'provisional' | 'measured'>('provisional')
-  const [resumeWork, setResumeWork] = useState<ImageWorkPackage | null>(null), [workSaveStatus, setWorkSaveStatus] = useState('')
+  const [workSaveStatus, setWorkSaveStatus] = useState(''), [workSaveRetry, setWorkSaveRetry] = useState(0)
   const workflowId = useRef<string>(crypto.randomUUID()), workRevision = useRef(0), storedRevision = useRef<number | null>(null)
   const activeItemId = useRef(`image-item-${crypto.randomUUID()}`)
   const workJournal = useRef<ImageWorkState['journal']>([]), workReviews = useRef<ImageWorkState['reviews']>([])
@@ -234,9 +235,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
   useEffect(() => () => { generation.current++; controller.current?.abort() }, [])
   useEffect(() => {
     const store = new ImageWorkflowStore(); workStore.current = store
-    let cancelled = false
-    void store.loadLatest().then(value => { if (!cancelled) setResumeWork(value) }).catch(error => { if (!cancelled) setWorkSaveStatus(`读取上次制作失败：${failureText(error)}`) })
-    return () => { cancelled = true; void saveQueue.current.finally(() => store.close()) }
+    return () => { void saveQueue.current.finally(() => store.close()) }
   }, [])
   useEffect(() => { if (requestKey > 0) setOpen(true) }, [requestKey])
   useEffect(() => {
@@ -360,7 +359,7 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
       }).catch(error => { if (state.id === workflowId.current && capturedKey === latestWorkKey.current) setWorkSaveStatus(`制作进度保存失败：${failureText(error)}；可导出工作包保全当前结果。`) })
     }, 800)
     return () => clearTimeout(timer)
-  }, [workKey, source, gestureActive, pending])
+  }, [workKey, source, gestureActive, pending, workSaveRetry])
   const restoreWork = async (pack: ImageWorkPackage, fromLocal: boolean) => {
     if (source) throw new Error('请先保全并明确丢弃当前制作草稿，再打开另一工作包。')
     const stamp = generation.current
@@ -395,13 +394,25 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
     setFloorVector(state.draft.floorVector); setVector(undefined); setStage(active ? 'objects' : 'structure'); setError('')
     setNotice(`已恢复 ${active?.name ?? state.draft.title}。下一步：${state.nextAction}。复核须匹配当前候选。`)
   }
+  const openLocalDraft = async (draft: LocalImageDraft) => {
+    controller.current?.abort()
+    const abort = new AbortController()
+    controller.current = abort
+    setError(''); setPending(true)
+    try {
+      const { work } = await workStore.current!.loadLocalDraft(draft, abort.signal)
+      abort.signal.throwIfAborted()
+      await restoreWork(work, true)
+    } finally {
+      if (controller.current === abort) { controller.current = null; setPending(false) }
+    }
+  }
   const exportWork = async () => {
     try {
       if (gestureActive) throw new Error('请先完成当前笔画，再保存工作包。')
       const state = captureWork(), bytes = await writeImageWorkPackage(state, source!.originalBytes!, source!.normalizedBytes!)
       await readBrowserImageWorkPackage(bytes)
-      const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/zip' }))
-      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${title}.sceneweave-image-work`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+      downloadImageWork(bytes, title)
       setNotice('已导出并校验独立制作工作包；普通场景工程仍从工程预览中采用。')
     } catch (error) { setError(failureText(error)) }
   }
@@ -1207,7 +1218,8 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
   const inspectorContent = <div ref={inspector} className="image-import-controls" aria-label="图片拆解设置">
     <section className="image-work-progress" aria-label="可恢复制作进度">
       <h4>制作进度</h4>
-      {!source && resumeWork && <><p>上次：{resumeWork.state.draft.title} · {resumeWork.state.active?.name ?? `${resumeWork.state.draft.layers.length} 个候选`}<br/>下一步：{resumeWork.state.nextAction}</p><button type="button" disabled={occupied} onClick={() => { setPending(true); void restoreWork(resumeWork, true).catch(error => setError(failureText(error))).finally(() => setPending(false)) }}>继续上次拆分</button></>}
+      {open && workStore.current && <ImageWorkDrafts store={workStore.current} activeId={source ? workflowId.current : undefined} disabled={occupied || gestureActive}
+        onResume={openLocalDraft} onRemoved={() => { if (source) setWorkSaveRetry(value => value + 1) }}/>}
       {!source && <label>打开制作工作包<input type="file" aria-label="打开图片制作工作包" accept=".sceneweave-image-work" disabled={occupied} onChange={event => { const file = event.target.files?.[0]; if (file) void importWork(file); event.target.value = '' }}/></label>}
       {source && <><button type="button" disabled={occupied || gestureActive} onClick={() => void exportWork()}>导出制作工作包</button><p role="status">{workSaveStatus || '准备保存制作进度…'}</p><label>下一步<input aria-label="图片制作下一步" value={nextAction} maxLength={2000} onChange={event => setNextAction(event.target.value)}/></label>
         <details><summary>接续说明与未解决问题</summary><label>问题记录<textarea value={workNotes} rows={3} maxLength={8000} onChange={event => setWorkNotes(event.target.value)}/></label><button type="button" onClick={() => act(() => {
@@ -1233,7 +1245,9 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
   </div>
   return <>
     <button className="secondary asset-wide" disabled={disabled} onClick={() => setOpen(true)}>从图片新建场景</button>
-    {createPortal(<dialog ref={dialog} role={open ? 'dialog' : undefined} aria-modal={open ? true : undefined} className="asset-editor-dialog image-import-workbench" aria-labelledby="image-import-heading" onChangeCapture={() => { markDraft() }} onCancel={event => { event.preventDefault(); close() }}>
+    {createPortal(<dialog ref={dialog} role={open ? 'dialog' : undefined} aria-modal={open ? true : undefined} className="asset-editor-dialog image-import-workbench" aria-labelledby="image-import-heading" onChangeCapture={event => {
+      if (!(event.target instanceof Element && event.target.closest('[data-image-work-drafts]'))) markDraft()
+    }} onCancel={event => { event.preventDefault(); close() }}>
       <AssetEditorLayout title="图片导入工作台" subtitle="原图、结构、物件与整体审阅集中编辑；切换内容保留当前草稿。" scopeLabel="图片导入 · 可恢复制作任务" headingId="image-import-heading" navigation={navigation} overview={overview} canvas={canvasContent} inspector={inspectorContent} actions={<button type="button" className="primary" disabled={occupied || !canPrepare} onClick={prepare}>预览可编辑新工程</button>} onClose={close} closeLabel="收起并保留草稿" closeAriaLabel="关闭图片拆解"/>
     </dialog>, document.body)}
   </>
