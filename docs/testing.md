@@ -11,7 +11,7 @@
 2. 运行`npm run test:e2e:production -- tests/complete-journey-ux.spec.ts --workers=1 --retries=0`。Playwright自行在`http://127.0.0.1:4173/sceneweave/`启停生产预览。
 3. 查看实际下载的完整工程、重开结果和PNG。若失败，修复相关原因并重跑受影响用例，保留失败输出用于定位。
 
-通过条件包括编辑实际生效、撤销重做正确、重开后内容与资源完整、备份导入后可以继续编辑，以及PNG尺寸正确且能够解码。Pages上传前运行这条旅程和两组保密像素回归。
+通过条件包括编辑实际生效、撤销重做正确、重开后内容与资源完整、备份导入后可以继续编辑，以及 PNG 尺寸正确且能够解码。PR 与 Pages 工作流运行前端和 AI 全量单测、生产构建及 Chromium 编辑、恢复、保密与 VTT 回归，并在 Firefox 与 WebKit 复验生产版导入和下载。标准开发浏览器套件每周运行，也可在 Actions 勾选 `extended` 手动运行。合成夹具的失败诊断可在 Actions 下载。
 
 <a id="release-compatibility"></a>
 ## 已发布工程的兼容回归

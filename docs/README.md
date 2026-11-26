@@ -13,7 +13,7 @@
 | 地图/局部/素材制作 | [制作总则](reference/project-creation-workflow.md) · [图片步骤](reference/image-item-workflow.md) |
 | 安装、服务、CLI与MCP | [CONTRIBUTING](../CONTRIBUTING.md) |
 
-Git保留旧文档版本，无需再建立归档目录。`todo.md`是用户独立清单，不在这次删减中修改。`workflows/`是产品实际读取的工作流定义，素材包内的来源和许可证是分发必需内容，都继续保留。
+Git 保留旧文档版本。用户独立的 `todo.md` 含历史引用，现行设计可从上表查找，已移除文档可在 Git 历史查看。`workflows/` 是产品实际读取的工作流定义。素材包的来源和许可证随素材分发。
 
 ## 正在运行会话的过渡文件
 

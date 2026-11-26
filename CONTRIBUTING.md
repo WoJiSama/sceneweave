@@ -43,19 +43,20 @@ Codex 的地图和图片 Skill 从这份目录选择流程。应用及图片MCP�
 
 ```sh
 node tools/harness/sceneweave.mjs map capabilities
-node tools/harness/sceneweave.mjs map example landscape-reference > /absolute/work/request.json
-node tools/harness/sceneweave.mjs map generate --input /absolute/work/request.json --output /absolute/work/first-map --allow map-authoring --stage draft
+node tools/harness/sceneweave.mjs map reference --image /absolute/work/reference.jpg --input /absolute/work/guide.json --output /absolute/work/first-map --allow map-authoring --stage draft
+node tools/harness/sceneweave.mjs map verify --candidate /absolute/work/first-map --output /absolute/work/delivery --allow map-authoring --editor reopen
 node tools/harness/sceneweave.mjs map inspect --project /absolute/work/first-map/map.sceneweave --allow map-authoring
 node tools/harness/sceneweave.mjs map schema edit
 node tools/harness/sceneweave.mjs map edit --project /absolute/work/first-map/map.sceneweave --input /absolute/work/edit.json --output /absolute/work/revised-map --allow map-authoring --stage draft
-node tools/harness/sceneweave.mjs map verify --candidate /absolute/work/revised-map --output /absolute/work/delivery --allow map-authoring --editor reopen
 ```
 
 Windows PowerShell 可用 `| Set-Content -Encoding utf8NoBOM -LiteralPath <路径>` 保存示例请求。
 
-用 `landscape` 指定主要轮廓和地貌。`outline: "smooth"` 按段平滑岸线并保留共享边。道路可给两端和 `around: { landmarkId, side }`，程序检查完整净宽、路肩和踏步后选择绕行线。也可以指定确切途经点。默认用每轴 0–1000 的相对坐标。有参考图时给出 `referenceSizePx` 并使用像素锚点，映射保持宽高比。有图中已知距离时用 `referenceScale` 标定。净宽、高程和绕行距离用毫米。室内布局用 `interior`，林地用 `forest`，精确坐标与对象组合用 `layout`。
+参考图取样用原图整数像素。用 `map capabilities` 的 `referenceGuide` 查看如何标地貌和登高路线。在输出的 `overlay.png` 核对拟合轮廓和编号。取代表性陆地颜色用 `foreground`，保留局部小块用 `keep`，修正局部轮廓用 `corrections`。可省略 `--stage` 单独提取轮廓。估计的草地和林丛会进入可编辑配方，可用 `surfaceFromReference: false` 关闭。文字题可用 `map example` 选配方后交给 `map generate`。
 
-低地中需要保留的山丘、岩块或台地可设 `preserveRelief: true`。地表覆盖用 `covers`，每项给 `id`、`areaId`、`region` 和 `cover`（`grass`、`sand` 或 `rock`）。布景可选 `pattern: "meadow"` 或 `"grove"`。在 `checks` 中声明必须可走的走廊，布景会预留完整净宽。在 `heightChecks` 中可用 `id`、`low`、`high`、`minRiseMm` 核对实际高差。将 `required` 设为 `false` 可作观察项。
+用 `landscape` 指定主要轮廓和地貌。`outline: "smooth"` 按段平滑岸线并保留共享边。山脚到高处用 `ascent: { from: { at, radius }, toLandmarkId, minRiseMm }`，可加 `around: { landmarkId, side }` 指定绕行。程序按实际地形选落脚点和路线，核对净宽与起终点高差。允许收窄时可填 `ascent.minWidthMm`。运行 `map example landscape-ascent` 查看可执行的请求。已知途经点用 `via`。文字配方默认用每轴 0–1000 的相对坐标。参考图用 `referenceSizePx` 及像素锚点，地图等比对齐。有图中已知距离时用 `referenceScale` 标定。净宽、高程和绕行距离用毫米。室内布局用 `interior`，林地用 `forest`，精确坐标与对象组合用 `layout`。
+
+`ascent.staircase: "flight"` 可把主要高差集中成梯段。两端接入和实际踏步继续按净宽检查。`finish: "natural"` 按坡向和干湿分配岸边、岩面、地被并保留低地中的局部凸起。参考图提取自动启用。特殊凸起可设 `preserveRelief: true`。地表覆盖用 `covers`，每项给 `id`、`areaId`、`region` 和 `cover`（`grass`、`sand` 或 `rock`）。布景可选 `pattern: "meadow"` 或 `"grove"`。在 `checks` 中声明必须可走的走廊，布景会预留完整净宽。在 `heightChecks` 中可用 `id`、`low`、`high`、`minRiseMm` 核对实际高差。将 `required` 设为 `false` 可作观察项。
 
 从 `inspect` 复制 `projectHash`、`floorId` 和实际对象 ID。下面为参考图示例调整通路和局部植被。可选的 `around.radiusMm` 指定绕行半径。对有手工固定平台的道路，用 `points` 明确保留对应途经点。
 
@@ -72,9 +73,9 @@ Windows PowerShell 可用 `| Set-Content -Encoding utf8NoBOM -LiteralPath <路�
 
 用 `terrain-shape` 局部塑形，用 `cover-zone` 在指定地块新增或按原 ID 更新覆盖。用 `scenery-zone` 新增布景区，`scenery-density` 调整已有组。`region` 可给 `at` 和 `radius`，也可用 `boundary` 圈定范围。对同一工程单独提交 `{ "kind": "art-style", "style": "tea" }` 操作，可对照画风。回执中的 `artStyle` 是实际生效的画风。编辑默认用毫米，使用原图像素时设置 `referenceSizePx`，等比映射选择 `referenceMapping: "fit"`。编辑请求可带上仍需通过的 `checks` 和 `heightChecks`。生成和编辑各支持最多 256 条显式操作，输入与重放文件上限 256 KiB。实际展开、几何和资源按任务档计量。
 
-生成或编辑默认走完整交付检查。`--stage draft` 会先保存可打开的 `map.sceneweave`、真实 `preview.png`、重放用的 `request.json` 和 `result.json`。有地形高差或指定 `oblique: true` 时还会出 `oblique.png`。有可定位的问题时，`diagnostic.png` 的编号对应回执中的 `diagnosticMarkers`。画面可用后运行 `map verify`，在新目录逐像素验证独立冷读的重绘。`--editor reopen` 加验普通首页导入和视图，在独立浏览器上下文完成。回执为 `complete` 后可交付。旧图片缺失或损坏时可用 `--previews redraw` 从同一工程重绘复核。
+生成或编辑默认走完整交付检查。`--stage draft` 在第一张正俯视图就绪时写入可打开的 `map.sceneweave` 和真实 `preview.png`，在 `result.json` 记录 `topReadyAt`。有地形高差或指定 `oblique: true` 时继续输出 `oblique.png`，全部草稿产物落盘后，回执标记 `draft`。有可定位的问题时，`diagnostic.png` 的编号对应 `diagnosticMarkers`。画面可用后运行 `map verify`，在新目录逐像素验证独立冷读的重绘。`--editor reopen` 加验普通首页导入和视图，在独立浏览器上下文完成。回执为 `complete` 后可交付。旧图片缺失或损坏时可用 `--previews redraw` 从同一工程重绘复核。
 
-使用本机 stdio MCP 时，启动 `node tools/harness/map-server.mjs --workspace /absolute/work --allow map-authoring`。从 `tools/list` 获取实际能力。以制图目录内的相对路径读取工程，输出传一个新目录名。生成或编辑可传 `stage: "draft"`，用 `sceneweave_map_preview` 加 `draft: true` 查看草稿，可选 `view: "diagnostic"`。用 `sceneweave_map_verify` 复核，`editor: true` 加验普通编辑器，`previews: "redraw"` 可重绘。
+使用本机 stdio MCP 时，启动 `node tools/harness/map-server.mjs --workspace /absolute/work --allow map-authoring`。从 `tools/list` 获取实际能力。用目录内的相对路径读取原图或工程，输出传一个新目录名。`sceneweave_map_reference` 传 `stage: "draft"` 会返回实际 PNG 和可编辑候选。用 `sceneweave_map_preview` 看草稿、叠图和诊断图。用 `sceneweave_map_verify` 复核，`editor: true` 加验普通编辑器，`includePreview: true` 随交付返回已复核 PNG，`previews: "redraw"` 可重绘。CLI 与 MCP 都会返回 `delivery.markdown` 供助手展示图片并链接工程。
 
 <a id="forest-loop-mcp"></a>
 原林中建筑 CLI 使用 `example`、`generate --allow forest-building --budget standard` 和 `repair-furniture`。其参数与通用制图请求各有 schema。
@@ -98,7 +99,7 @@ node tools/image-import/server.mjs --image /absolute/map.jpg --license-file /abs
 MCP 交付目录包含 `map.sceneweave`、`preview.png`、`recipe.json` 和 `result.json`。以 `complete` 回执核对任务 ID、流程绑定、源图摘要、各文件的真实字节摘要和工程冷读结果。
 
 <a id="legacy-svg-recovery"></a>
-旧SVG恢复使用[独立工具](tools/migration/migrate-legacy-svg.mjs)，先读该脚本的`--help`并选择与原件匹配的环境，不在普通导入中改写固定源或跳过像素校验。
+已发布 v1 工程中使用第一版 SVG 栅格器的固定素材，可用[独立恢复工具](tools/migration/migrate-legacy-svg.mjs)在匹配环境中验证原字节，并生成新的完整 v1 工程。早期开发工程格式已停用。此工具接收现行完整 v1 容器并保留原档。
 
 <a id="ai-service"></a>
 ## 本地AI服务
@@ -159,6 +160,8 @@ IP 方案使用`deploy/Caddyfile.ip`：显式指定 Let's Encrypt ACME issuer �
 Pages 工作流读取 GitHub 仓库 Actions 变量`VITE_SCENEWEAVE_AI_URL`作为公开后端Origin，并在构建前拒绝 HTTP、路径、查询、片段或凭据。**HTTPS Pages 无法调用公网 HTTP 后端**，浏览器会阻止这类混合内容；CORS 配置不能解除该限制。容器内的 HTTP 转发不影响浏览器对公网 HTTPS 的要求。证书签发并实际验证后，将仓库变量设为`https://ai.example.com`或`https://实际公网IP`，再手动运行或推送触发 Pages 工作流。只有设置该变量后，线上前端才会预填后端地址；凭据仍由使用者在页面内存中输入。工作流不读取服务器`.env.ai.production`，不会把应用令牌或 provider key 放进静态产物。检查命令中的示例域名/IP也应替换成实际部署地址。实际Pages地址和后端Origin配置须在交付时核对。
 
 证书有效期、健康状态和部署版本必须在实际交付时重新核对，不将历史200响应当作持续可用证明。
+
+公开或多人共用 AI 后端时，用 `SCENEWEAVE_AI_ACCESS_TOKENS` 给每人分配独立服务端身份与令牌。同一身份下的任务、历史和草稿可由持有该身份令牌的人读取。多身份默认各保留 64 个任务、最多并发 2 个，可用 `SCENEWEAVE_AI_TASKS_PER_OWNER` 与 `SCENEWEAVE_AI_CONCURRENT_PER_OWNER` 调整。全局资源上限仍生效。
 
 ## 修改与交付
 
