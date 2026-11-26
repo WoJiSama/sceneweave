@@ -31,12 +31,19 @@ export const entityDeliveryCapabilities = {
   surfaceRule: { privacy: 'dependency-filtered', png: 'through-members', uvtt: 'through-members', movement: 'none', unmappedBlocker: 'none' },
 } as const satisfies Record<EntityKind, EntityDeliveryCapability>
 
-export function unmappedUvttBlockers(scene: SceneDocument): number {
+export function unmappedUvttBlockers(scene: SceneDocument, projection: Projection): number {
+  const visible: Partial<Record<EntityKind, ReadonlySet<string>>> = {
+    region: new Set(projection.regions.map(value => value.id)),
+    terrainArea: new Set(projection.terrain.map(value => value.id)),
+    terrainEdge: new Set(projection.edges.map(value => value.id)),
+    terrainConnection: new Set(projection.connections.map(value => value.id)),
+  }
   let count = 0
   for (const kind of Object.keys(entityDeliveryCapabilities) as EntityKind[]) {
     const policy = entityDeliveryCapabilities[kind].unmappedBlocker
     if (policy === 'none') continue
     for (const value of Object.values(scene[collectionFor[kind]] ?? {})) {
+      if (!visible[kind]?.has(value.id)) continue
       const movement = 'blocksMovement' in value && value.blocksMovement
       const sight = policy !== 'movement' && 'blocksSight' in value && value.blocksSight
       const cliff = policy === 'movement-or-sight-or-cliff' && 'kind' in value && value.kind === 'cliff'
@@ -49,18 +56,22 @@ export function unmappedUvttBlockers(scene: SceneDocument): number {
 /** Dispatch decisions only. The export owner must first validate the complete
  * source and build its player projection; this function grants no privacy or
  * resource proof. A new native mapping must supply its actual adapter here. */
-export function collectUvttNativeEntities(scene: SceneDocument, projection: Projection): { walls: Wall[]; openings: Opening[]; props: Prop[] } {
+export function collectUvttNativeEntities(scene: SceneDocument, projection: Projection, visibleWallIds: ReadonlySet<string>): { walls: Wall[]; openings: Opening[]; props: Prop[] } {
   if (projection.audience !== 'player') throw new Error('UVTT结构映射需要玩家投影。')
+  const floors = Object.keys(scene.floors)
+  const floorId = projection.floorId ?? (floors.length === 1 ? floors[0] : undefined)
+  if (!floorId) throw new Error('UVTT结构映射需要明确选择楼层。')
+  const walls = Object.values(scene.walls).filter(wall => wall.floorId === floorId && visibleWallIds.has(wall.id))
   const result: { walls: Wall[]; openings: Opening[]; props: Prop[] } = { walls: [], openings: [], props: [] }
   for (const kind of Object.keys(entityDeliveryCapabilities) as EntityKind[]) {
     const route = entityDeliveryCapabilities[kind].uvtt
     switch (route) {
       case 'native-wall':
         if (kind !== 'wall') throw new Error('实体尚未实现UVTT原生墙适配。')
-        result.walls.push(...Object.values(scene.walls)); break
+        result.walls.push(...walls); break
       case 'native-opening':
         if (kind !== 'opening') throw new Error('实体尚未实现UVTT原生开口适配。')
-        result.openings.push(...Object.values(scene.openings)); break
+        result.openings.push(...Object.values(scene.openings).filter(value => value.floorId === floorId && visibleWallIds.has(value.wallId))); break
       case 'physical-footprint':
         if (kind !== 'prop') throw new Error('实体尚未实现UVTT物理占地适配。')
         result.props.push(...projection.props); break

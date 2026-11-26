@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { unzipSync } from 'fflate'
 import { prepareCompositionCommands } from '../../application/workspace/prepare'
 import { fromBundle, toBundle, type EditableProject } from '../../application/workspace/project'
 import { fixture, NOW, pixelPng, runtime, validation } from '../../application/workspace/test-fixtures'
@@ -47,6 +48,25 @@ const staleChanges = [
 function editableFixture() {
   return fromBundle(fixture({ image: true }), validation)
 }
+
+it('writes each floor as a player image using the chosen size and generic ZIP paths', async () => {
+  const first = await editableFixture()
+  const { exportBoundsMm } = first.document
+  const project = await prepareCompositionCommands(first, [{
+    type: 'createFloor', id: 'privateName', name: 'GM-only text', newLayerId: 'privateLayer',
+    layerName: 'Upper floor', boundsMm: exportBoundsMm, outputBoundsMm: exportBoundsMm,
+  }], { runtime, validation })
+  const { controller, ports } = setup(project)
+  ports.exportPng.mockResolvedValue(new Blob([new Uint8Array([1, 2])]))
+  await controller.exportAllPlayerFloors(ports.workspace.getState().project, { longEdgePx: 1024 })
+  expect(ports.exportPng.mock.calls.map(([, options]) => options)).toEqual([
+    { floorId: Object.keys(first.document.floors)[0], audience: 'player', longEdgePx: 1024 },
+    { floorId: 'privateName', audience: 'player', longEdgePx: 1024 },
+  ])
+  const [archive, filename] = ports.download.mock.calls[0]
+  expect(filename).toBe('sceneweave-player-floors.zip')
+  expect(Object.keys(unzipSync(new Uint8Array(await archive.arrayBuffer())))).toEqual(['floor-01.png', 'floor-02.png'])
+})
 
 function setup(project: EditableProject, status: WorkspaceState['status'] = 'saved') {
   let current = project

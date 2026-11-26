@@ -2,10 +2,10 @@ import type { AppearanceGraph } from '../model/appearance.js'
 import type { BoundsMm, Opening, PointMm, SceneDocument } from '../model/scene.js'
 import type { Projection } from '../projection/types.js'
 import { resolveFloorOutput } from '../floors/output.js'
-import { openingEndpoints, propFootprint } from '../geometry/geometry.js'
+import { openingEndpoints, propFootprint, segmentCuts } from '../geometry/geometry.js'
 import { propSightLine } from '../geometry/sight-occluder.js'
-import { createPublicVisibility } from '../geometry/visibility.js'
-import { projectScene } from '../projection/projection.js'
+import { playerMaskContains } from '../projection/player-mask.js'
+import { pointsBounds, projectScene } from '../projection/projection.js'
 import { validateAppearanceGraph } from '../validation/content.js'
 import { cloneJson } from '../validation/json.js'
 import { nativeSceneSchema } from '../validation/scene.js'
@@ -15,7 +15,8 @@ import { collectUvttNativeEntities, unmappedUvttBlockers } from './entity-capabi
 /** Source audit only, not a claim of successful import or player-view acceptance. */
 export const UVTT_TARGET = Object.freeze({ importer: 'Universal Battlemap Importer', version: '6.1.1', foundryMajor: 14,
   source: 'https://github.com/moo-man/FVTT-DD-Import/blob/3c78eb1b640f00b9bc9b3e30382ebbd03ee374ba/ddimport.js' })
-export const UVTT_LIMITS = Object.freeze({ minPixelsPerGrid: 50, preferredPixelsPerGrid: 140, maxLongEdgePx: 4096, minLongEdgePx: 256, maxGridSpan: 81, maxCoordinateErrorPx: .05 })
+export const UVTT_LIMITS = Object.freeze({ minPixelsPerGrid: 50, wideMapPixelsPerGrid: 25, preferredPixelsPerGrid: 140,
+  maxLongEdgePx: 4096, minLongEdgePx: 256, maxGridSpan: 81, wideMapMaxGridSpan: 163, maxCoordinateErrorPx: .05 })
 export interface UvttPortal {
   position: PointMm
   bounds: [PointMm, PointMm]
@@ -115,7 +116,7 @@ function canonicalWallLines(lines: WallLine[], report: UvttReport): [PointMm, Po
   return [...active.values()].map(row => [...row.points].sort(comparePoint) as [PointMm, PointMm]).sort((a, b) => comparePoint(a[0], b[0]) || comparePoint(a[1], b[1]))
 }
 
-function layout(scene: SceneDocument, source: BoundsMm, report: UvttReport) {
+function layout(scene: SceneDocument, source: BoundsMm, report: UvttReport, wideMap: boolean) {
   const grid = BigInt(scene.units.gridSizeMm)
   const left = floorDiv(BigInt(source.x), grid), top = floorDiv(BigInt(source.y), grid)
   const right = ceilDiv(BigInt(source.x) + BigInt(source.width), grid), bottom = ceilDiv(BigInt(source.y) + BigInt(source.height), grid)
@@ -126,26 +127,44 @@ function layout(scene: SceneDocument, source: BoundsMm, report: UvttReport) {
   }
   const boundsMm = { x: Number(values[0]), y: Number(values[1]), width: Number(values[2]), height: Number(values[3]) }
   const columns = right - left, rows = bottom - top, longest = columns > rows ? columns : rows
-  if (longest > BigInt(UVTT_LIMITS.maxGridSpan)) {
-    add(report.blocked, '整格补边后的长边超过 81 格，无法同时满足每格至少 50 像素与 4096 像素上限；请调整格距或导出范围，或使用普通玩家 PNG。')
+  const maxGridSpan = wideMap ? UVTT_LIMITS.wideMapMaxGridSpan : UVTT_LIMITS.maxGridSpan
+  const minimum = wideMap ? UVTT_LIMITS.wideMapPixelsPerGrid : UVTT_LIMITS.minPixelsPerGrid
+  if (longest > BigInt(maxGridSpan)) {
+    add(report.blocked, `整格补边后的长边超过 ${maxGridSpan} 格，无法同时满足每格至少 ${minimum} 像素与 4096 像素上限。可调整导出范围或使用玩家 PNG。`)
     return { boundsMm, widthPx: 0, heightPx: 0, pixelsPerGrid: 0 }
   }
   const span = Number(longest), pixelsPerGrid = Math.max(Math.ceil(UVTT_LIMITS.minLongEdgePx / span), Math.min(UVTT_LIMITS.preferredPixelsPerGrid, Math.floor(UVTT_LIMITS.maxLongEdgePx / span)))
+  if (pixelsPerGrid < UVTT_LIMITS.minPixelsPerGrid) add(report.warnings, '大型地图采用较低的每格像素数。请在目标端按包内格距与每格像素检查对齐。')
   if (boundsMm.x !== source.x || boundsMm.y !== source.y || boundsMm.width !== source.width || boundsMm.height !== source.height)
     add(report.warnings, '图片向世界主格起点补边并扩为整格尺寸；新增边带留空，不绘制原导出范围外的内容。')
   return { boundsMm, widthPx: Number(columns) * pixelsPerGrid, heightPx: Number(rows) * pixelsPerGrid, pixelsPerGrid }
 }
 
-function hasPrivateStructure(scene: SceneDocument): boolean {
-  const visible = createPublicVisibility(scene)
-  return Object.values(scene.rooms).some(value => !visible.room(value.id))
-    || Object.values(scene.terrainAreas).some(value => !visible.terrainArea(value.id))
-    || Object.values(scene.props).some(value => !visible.prop(value))
-    || Object.values(scene.paths).some(value => !visible.path(value.id))
-    || Object.values(scene.terrainEdges).some(value => !visible.terrainEdge(value.id))
-    || Object.values(scene.terrainConnections).some(value => !visible.terrainConnection(value.id))
-    || Object.values(scene.regions).some(value => value.kind !== 'manualMask' && value.visibility !== 'public')
-    || Object.values(scene.decorations ?? {}).some(value => !visible.decoration(value))
+function maskedStructure(projection: Projection, bounds: BoundsMm) {
+  const masks: PointMm[][] = [], publicRooms: PointMm[][][] = []
+  for (const [i, mask] of projection.masks.entries()) {
+    const box = pointsBounds(mask)
+    if (box.x > bounds.x + bounds.width || box.x + box.width < bounds.x || box.y > bounds.y + bounds.height || box.y + box.height < bounds.y) continue
+    masks.push(mask)
+    publicRooms.push(projection.maskPublicRooms?.[i] ?? [])
+  }
+  if (!masks.length) return
+  const edges = [...masks, ...publicRooms.flat()].flatMap(ring =>
+    ring.map((a, i): [PointMm, PointMm] => [a, ring[(i + 1) % ring.length]]))
+  const masked = (p: PointMm) => playerMaskContains(p, masks, publicRooms)
+  return {
+    clip(a: PointMm, b: PointMm): [PointMm, PointMm][] {
+      const cuts = segmentCuts(a, b, edges)
+      return cuts.slice(1).flatMap((end, i) => {
+        const start = cuts[i]
+        return masked(at(a, b, (start + end) / 2)) ? [] : [[at(a, b, start), at(a, b, end)]]
+      })
+    },
+    blocksOpening(a: PointMm, b: PointMm) {
+      const cuts = segmentCuts(a, b, edges)
+      return cuts.some(t => masked(at(a, b, t))) || cuts.slice(1).some((end, i) => masked(at(a, b, (cuts[i] + end) / 2)))
+    },
+  }
 }
 
 function temporaryProjection(projection: Projection, boundsMm: BoundsMm): Projection {
@@ -157,11 +176,13 @@ function temporaryProjection(projection: Projection, boundsMm: BoundsMm): Projec
 }
 
 /** Pure format planning only. The browser export owner must independently validate all actual resources. */
-export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph): UvttPlan {
+export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph, selectedFloorId?: string, wideMap = false): UvttPlan {
   const report: UvttReport = { warnings: [
     '本文件按 Universal Battlemap Importer 6.1.1 的固定源码映射生成；目标 Foundry 14 的真实导入、玩家视角与保存重开尚待验收。',
     '导入时关闭自定义每格像素和可开关窗户，墙偏移设为 0、精度设为最高；按下方实际单位与每格距离手动核对目标场景格线。',
     '环境、阴影、雾与滤镜保留为静态底图效果，不创建目标原生实体；动态光照结果仍须在目标端复核。',
+    '注记和区域边框不写入 UVTT 底图，也不作为文字或区域元数据导出。',
+    '楼层按自身内容交付；叠层画面可用玩家 PNG，跨层入口在目标端建立。',
   ], blocked: [], counts: { walls: 0, wallSegments: 0, portals: 0, lights: 0, blockingProps: 0, hiddenSecretOpenings: 0, terrainBlockersOmitted: 0 } }
   const checked = validateSceneSnapshot(input)
   let scene: SceneDocument
@@ -172,23 +193,23 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
     if (!parsed?.success) throw new Error('场景未通过完整模型校验，不能生成 UVTT 导出计划。')
     scene = parsed.data as SceneDocument
   }
-  const floorIds = Object.keys(scene.floors), sourceBoundsMm = floorIds.length === 1 ? resolveFloorOutput(scene, floorIds[0]).boundsMm : cloneJson(scene.exportBoundsMm)
-  const grid = scene.units.gridSizeMm, size = layout(scene, sourceBoundsMm, report)
+  const floorIds = Object.keys(scene.floors)
+  const floorId = selectedFloorId ?? (floorIds.length === 1 ? floorIds[0] : undefined)
+  const floor = floorId && Object.hasOwn(scene.floors, floorId) ? scene.floors[floorId] : undefined
+  const sourceBoundsMm = floor ? resolveFloorOutput(scene, floor.id).boundsMm : cloneJson(scene.exportBoundsMm)
+  const grid = scene.units.gridSizeMm, size = layout(scene, sourceBoundsMm, report, wideMap)
   const units: UvttUnitsSummary = { display: scene.units.display, gridSizeMm: grid, distancePerGrid: grid / (scene.units.display === 'ft' ? 304.8 : 1000), distanceUnit: scene.units.display, gridVisible: scene.units.gridVisible }
   const plan: UvttPlan = { ...size, sourceBoundsMm, units, projection: null, geometry: null, report }
-  if (floorIds.length !== 1) {
-    add(report.blocked, 'UVTT 结构包仅支持单 Floor；请使用受支持的单层工程或普通玩家 PNG。')
+  if (!floor) {
+    add(report.blocked, 'UVTT 结构包每次导出一个楼层。请选择有效楼层，或使用普通玩家 PNG。')
     return plan
   }
   if (scene.mapMode === 'regional') add(report.blocked, '区域地图不具有本适配器支持的战斗场景结构；请使用普通玩家 PNG。')
-  if (Object.values(scene.regions).some(value => value.kind === 'manualMask'))
-    add(report.blocked, '场景使用固定私密遮罩，无法证明 UVTT 原生结构与灯光的玩家保密；请导出普通玩家 PNG。')
-  if (hasPrivateStructure(scene))
-    add(report.blocked, '场景含无法可靠映射的私密几何或依赖，结构包已阻止；请使用安全的普通玩家 PNG。')
+  let visibleWalls: ReadonlySet<string> = new Set()
   let projection: Projection
   try {
     const graph = appearance === undefined ? undefined : validateAppearanceGraph(appearance, scene)
-    projection = projectScene(scene, 'player', graph)
+    projection = projectScene(scene, 'player', graph, { floorId: floor.id, onVisibleWalls: ids => { visibleWalls = ids } })
   } catch {
     add(report.blocked, '无法建立完整且安全的玩家投影；请先处理普通玩家 PNG 的导出限制。')
     return plan
@@ -196,6 +217,8 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
   plan.projection = temporaryProjection(projection, size.boundsMm)
   if (projection.limitations.length) add(report.blocked, '当前场景包含尚不支持的绘制特征；请先处理普通玩家 PNG 的导出限制。')
   if (report.blocked.length) return plan
+  const mask = maskedStructure(projection, sourceBoundsMm)
+  if (mask) add(report.warnings, '固定私密遮罩已烘焙为不透明底图。墙段按玩家可见范围裁切，完全位于公开区域的门窗与点光继续可用。')
 
   const origin = point(size.boundsMm.x / grid, size.boundsMm.y / grid)
   const worldGrid = (p: PointMm) => {
@@ -215,16 +238,24 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
   worldGrid(point(sourceBoundsMm.x + sourceBoundsMm.width, sourceBoundsMm.y + sourceBoundsMm.height))
   const geometry: UvttGeometry = { format: .2, resolution: { map_origin: worldGrid(point(size.boundsMm.x, size.boundsMm.y)), map_size: point(size.boundsMm.width / grid, size.boundsMm.height / grid), pixels_per_grid: size.pixelsPerGrid }, line_of_sight: [], portals: [], lights: [] }
   const lineKeys = new Set<string>(), sourceWallLines: WallLine[] = []
-  const appendLine = (a: PointMm, b: PointMm, semantics?: string): boolean => {
+  const visibleSegments = (a: PointMm, b: PointMm): [PointMm, PointMm][] => {
     const clipped = clipSegment(a, b, sourceBoundsMm)
-    if (!clipped) return false
-    const converted = clipped.map(worldGrid) as [PointMm, PointMm], key = converted.map(p => `${p.x},${p.y}`).sort().join('|')
-    if (lineKeys.has(key)) return false
-    lineKeys.add(key); geometry.line_of_sight.push(converted)
-    if (semantics !== undefined) sourceWallLines.push({ points: clipped, semantics })
-    return true
+    return clipped ? mask ? mask.clip(...clipped) : [clipped] : []
   }
-  const delivered = collectUvttNativeEntities(scene, projection)
+  const appendLine = (a: PointMm, b: PointMm, semantics?: string): boolean => {
+    let added = false
+    for (const clipped of visibleSegments(a, b)) {
+      const converted = clipped.map(worldGrid) as [PointMm, PointMm]
+      if (converted[0].x === converted[1].x && converted[0].y === converted[1].y) continue
+      const key = converted.map(p => `${p.x},${p.y}`).sort().join('|')
+      if (lineKeys.has(key)) continue
+      lineKeys.add(key); geometry.line_of_sight.push(converted)
+      if (semantics !== undefined) sourceWallLines.push({ points: clipped, semantics })
+      added = true
+    }
+    return added
+  }
+  const delivered = collectUvttNativeEntities(scene, projection, visibleWalls)
   const openingsByWall = new Map<string, Opening[]>()
   for (const opening of delivered.openings) {
     const values = openingsByWall.get(opening.wallId) ?? []
@@ -232,7 +263,7 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
   }
   for (const wall of delivered.walls.sort((a, b) => a.id.localeCompare(b.id))) {
     const av = scene.vertices[wall.startVertexId], bv = scene.vertices[wall.endVertexId], a = point(av.xMm, av.yMm), b = point(bv.xMm, bv.yMm)
-    if (!clipSegment(a, b, sourceBoundsMm)) continue
+    if (!visibleSegments(a, b).length) continue
     report.counts.walls++
     const dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy
     const parameter = (p: PointMm) => ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2
@@ -241,6 +272,7 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
     for (const opening of openingsByWall.get(wall.id) ?? []) {
       const ends = openingEndpoints(scene, opening), clipped = clipSegment(...ends, sourceBoundsMm)
       if (!clipped) continue
+      if (mask?.blocksOpening(...ends)) continue
       if (opening.secret && !opening.revealed) { hiddenSecret = true; report.counts.hiddenSecretOpenings++; continue }
       if (!ends.every(end => inside(end, sourceBoundsMm))) {
         add(report.blocked, '导出范围切过门窗，不能安全偏移、截短或扩大原生开口；请调整范围或使用普通玩家 PNG。')
@@ -253,7 +285,6 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
       if (opening.kind === 'window') add(report.warnings, '窗户映射为导入器的近距透光窗：保持移动阻挡，但采用目标端固定的视线/光照阈值，不保证与本地窗户完全一致。')
       if (opening.kind === 'door') add(report.warnings, '普通门导入为可操作门；导入器不读取本地开关状态，请在目标端逐门核对并设置。')
       if (opening.locked) add(report.warnings, '上锁状态无法通过该导入器保留；请在目标端重新设置门锁。')
-      if (opening.secret) add(report.warnings, '已揭示秘密门降级为普通门；目标端不会保留秘密门类型或揭示记录。')
     }
     if (wall.blocksMovement !== wall.blocksSight) add(report.warnings, '部分墙仅阻挡移动或视线；原生薄墙按同时阻挡两者保守导出，请复核目标通行与视线。')
     if (hiddenSecret && !wall.blocksMovement && !wall.blocksSight)
@@ -269,7 +300,6 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
   lineKeys.clear()
   for (const ends of geometry.line_of_sight) lineKeys.add(ends.map(p => `${p.x},${p.y}`).sort().join('|'))
   if (report.counts.walls) add(report.warnings, '墙厚仅保留在底图，原生墙使用中心线；通道净宽、碰撞与墙角需在目标端复核。')
-  if (report.counts.hiddenSecretOpenings) add(report.warnings, '未揭示秘密门安全降级为连续普通墙，不导出秘密门位置或可操作门；需要时在主持人目标工程中另行配置。')
   for (const prop of delivered.props) {
     const sightLine = propSightLine(prop), before = geometry.line_of_sight.length
     if (prop.blocksMovement || prop.blocksSight && !sightLine.length) {
@@ -283,10 +313,8 @@ export function buildUvttPlan(input: SceneDocument, appearance?: AppearanceGraph
     if (sightLine.length && geometry.line_of_sight.length > before)
       add(report.warnings, '自定义遮挡线映射为 UVTT 薄墙，可能同时影响通行。')
   }
-  report.counts.terrainBlockersOmitted = unmappedUvttBlockers(scene)
-  if (Object.keys(scene.terrainAreas).length || Object.keys(scene.terrainEdges).length || Object.keys(scene.terrainConnections).length || Object.keys(scene.paths).length || Object.keys(scene.regions).length || Object.keys(scene.rooms).length)
-    add(report.warnings, '地形面及边缘、悬崖、高程、楼梯/坡道、道路和区域的阻挡、通行、净宽与移动代价未映射为原生规则；外观保留在底图，不能据图像认定已可通行。')
-  if (Object.keys(scene.notes).length || Object.keys(scene.regions).length) add(report.warnings, '注记和区域边框不写入 UVTT 底图，也不作为文字或区域元数据导出。')
+  report.counts.terrainBlockersOmitted = unmappedUvttBlockers(scene, projection)
+  add(report.warnings, '地形面及边缘、悬崖、高程、楼梯/坡道、道路和区域的阻挡、通行、净宽与移动代价未映射为原生规则；外观保留在底图，不能据图像认定已可通行。')
   for (const light of projection.visual?.lights ?? []) {
     if (!light.enabled || light.visibility !== 'public' || !light.intensity) continue
     if (light.shape) continue

@@ -6,6 +6,10 @@ import { CancelledOperationError, checkCancelled } from '../../shared/ports/reso
 import { projectContentHash } from '../../shared/project/validate'
 import type { WorkspaceBackupAttempt } from './WorkspaceBackupFeedback'
 import { resolvePartitionOutput } from '../../shared/geometry/partitions'
+import { zipSync } from 'fflate'
+
+export type MapImageOptions = { format?: 'png' | 'webp'; longEdgePx?: number }
+type FloorImageOptions = { audience: 'gm' | 'player'; floorId: string; longEdgePx: number; partitionId?: string }
 
 export interface WorkspaceFilePorts {
   workspace: {
@@ -17,7 +21,8 @@ export interface WorkspaceFilePorts {
   exportArchive(sceneId: string, snapshotIds: readonly string[], signal?: AbortSignal): Promise<HistoryArchive>
   exportProject(bundle: ProjectBundle, signal?: AbortSignal): Promise<Blob>
   exportHistoryArchive(archive: HistoryArchive, signal?: AbortSignal): Promise<Blob>
-  exportPng(bundle: ProjectBundle, options: { audience: 'gm' | 'player'; floorId: string; longEdgePx: number; partitionId?: string }): Promise<Blob>
+  exportPng(bundle: ProjectBundle, options: FloorImageOptions): Promise<Blob>
+  exportWebp?(bundle: ProjectBundle, options: FloorImageOptions): Promise<Blob>
   download(blob: Blob, name: string): void
 }
 
@@ -102,23 +107,45 @@ export function createWorkspaceFileController(ports: WorkspaceFilePorts) {
     onAttempt(attempt)
   }
 
+  function renderImage(bundle: ProjectBundle, format: NonNullable<MapImageOptions['format']>, options: FloorImageOptions) {
+    if (format === 'png') return ports.exportPng(bundle, options)
+    if (!ports.exportWebp) throw new Error('当前工作台无法导出 WebP，请选择 PNG。')
+    return ports.exportWebp(bundle, options)
+  }
+
   async function exportImage(
-    { project, audience, floorId, partitionId }: { project: EditableProject; audience: 'gm' | 'player'; floorId: string; partitionId?: string },
+    { project, audience, floorId, partitionId, format = 'png', longEdgePx: preferredSize = 4096 }:
+      MapImageOptions & { project: EditableProject; audience: 'gm' | 'player'; floorId: string; partitionId?: string },
     onSuccess: (message: string) => void,
   ): Promise<void> {
     const checkpoint = workspace.checkpoint()
     if (workspace.getState().project !== project) throw new Error('导出所属工程已有变化，请重新导出地图。')
     const { document } = project
     const partition = partitionId ? resolvePartitionOutput(document, partitionId, audience) : undefined
-    const longEdgePx = partition ? 3840 : 4096
-    const blob = await ports.exportPng(toBundle(project), { audience, floorId, longEdgePx, ...(partitionId ? { partitionId } : {}) })
+    const longEdgePx = partition ? Math.min(3840, preferredSize) : preferredSize
+    const blob = await renderImage(toBundle(project), format, { audience, floorId, longEdgePx, ...(partitionId ? { partitionId } : {}) })
     workspace.assertCheckpoint(checkpoint)
     if (workspace.getState().project?.document.sceneId !== document.sceneId) throw new Error('导出所属工程已切换，请重新导出地图。')
     const range = partition ? `分区 ${partition.region.name}` : `${document.floors[floorId].name}固定范围`
-    const message = `${audience === 'gm' ? '主持人' : '玩家'} PNG 已生成 · r${document.revision} · ${range} · 长边 ${longEdgePx} px`
-    ports.download(blob, `sceneweave-${audience}-${partition ? 'partition' : 'map'}.png`)
+    const message = `${audience === 'gm' ? '主持人' : '玩家'} ${format === 'png' ? 'PNG' : 'WebP'} 已生成 · r${document.revision} · ${range} · 长边 ${longEdgePx} px`
+    ports.download(blob, `sceneweave-${audience}-${partition ? 'partition' : 'map'}.${format}`)
     onSuccess(message)
   }
 
-  return { backup, exportImage }
+  async function exportAllPlayerFloors(project: EditableProject, { format = 'png', longEdgePx = 4096 }: MapImageOptions) {
+    const checkpoint = workspace.checkpoint()
+    if (workspace.getState().project !== project) throw new Error('导出所属工程已有变化，请重新导出地图。')
+    const bundle = toBundle(project), entries: Record<string, Uint8Array> = {}
+    let index = 0, bytes = 0
+    for (const floor of Object.values(project.document.floors)) {
+      const image = await renderImage(bundle, format, { audience: 'player', floorId: floor.id, longEdgePx })
+      workspace.assertCheckpoint(checkpoint)
+      if ((bytes += image.size) > 128 * 1024 * 1024) throw new Error('楼层图片超过 128 MiB，请降低长边或逐层导出。')
+      entries[`floor-${String(++index).padStart(2, '0')}.${format}`] = new Uint8Array(await image.arrayBuffer())
+    }
+    workspace.assertCheckpoint(checkpoint)
+    ports.download(new Blob([zipSync(entries, { level: 0 }) as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), 'sceneweave-player-floors.zip')
+  }
+
+  return { backup, exportImage, exportAllPlayerFloors }
 }

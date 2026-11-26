@@ -132,3 +132,6 @@
     overflow-wrap: anywhere;
   }
 }
+.workspace-export-image-options { display: flex; flex-wrap: wrap; gap: .5rem 1rem; }
+.workspace-export-image-options label { display: inline-flex; align-items: center; gap: .35rem; }
+.workspace-export-image-options select { min-height: 28px; }

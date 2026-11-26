@@ -209,7 +209,12 @@ export interface EditorProjectionOptions {
   hiddenLayerIds?: ReadonlySet<string>
   floorId?: string
 }
-export interface ProjectSceneOptions { floorId?: string; spatial?: boolean }
+export interface ProjectSceneOptions {
+  floorId?: string
+  spatial?: boolean
+  /** Native structure adapters use the same wall selection as the painted projection. */
+  onVisibleWalls?: (ids: ReadonlySet<string>) => void
+}
 
 function checkedScene(input: SceneDocument): SceneDocument {
   const result = validateSceneSnapshot(input)
@@ -220,7 +225,7 @@ function checkedScene(input: SceneDocument): SceneDocument {
 /** Strict v3 audience filtering precedes textures, joins, shadows and resources. */
 export function projectScene(scene: SceneDocument, audience: Audience, appearance?: import('../model/appearance.js').AppearanceGraph, options: ProjectSceneOptions = {}): Projection {
   const checked = checkedScene(scene); copyScenePresentations(scene, checked); if (appearance) associateScenePresentations(checked, appearance)
-  const projection = projectSceneInternal(checked, audience, selectedFloorOutput(checked, options.floorId), undefined, options.floorId !== undefined, !!options.spatial)
+  const projection = projectSceneInternal(checked, audience, selectedFloorOutput(checked, options.floorId), undefined, options.floorId !== undefined, !!options.spatial, options.onVisibleWalls)
   if (options.spatial) projectSpatialProps(checked, projection)
   return projection
 }
@@ -256,7 +261,8 @@ export function assertAllFloorPlayerProjections(scene: SceneDocument, appearance
   for (const floorId of Object.keys(checked.floors).sort()) projectSceneInternal(checked, 'player', resolveFloorOutput(checked, floorId), undefined, true)
 }
 
-function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOutput: FloorOutput, hiddenLayerIds?: ReadonlySet<string>, explicitFloor = false, spatial = false): Projection {
+function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOutput: FloorOutput, hiddenLayerIds?: ReadonlySet<string>, explicitFloor = false, spatial = false,
+  onVisibleWalls?: ProjectSceneOptions['onVisibleWalls']): Projection {
   const targetFloorId = floorOutput.floorId
   const floorValues = <T extends { floorId: string }>(record: Record<string, T>): T[] => Object.values(record).filter(row => row.floorId === targetFloorId)
   const regional = scene.mapMode==='regional' && scene.regional ? {

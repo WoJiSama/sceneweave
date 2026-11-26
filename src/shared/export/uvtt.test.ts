@@ -12,6 +12,7 @@ import { validateSceneDocument } from '../validation/scene.js'
 import { visualBase } from '../visual/base.js'
 import { emptyVisualSystem, type VisualLight } from '../visual/types.js'
 import { buildUvttPlan, UVTT_LIMITS } from './uvtt.js'
+import { uvttWallRuns } from './uvtt-wall-runs.js'
 
 const p = (x: number, y: number): PointMm => ({ x, y })
 function fixture(_internalFixture = 1): SceneDocument {
@@ -46,6 +47,16 @@ function light(scene: SceneDocument, id: string, changes: Partial<VisualLight> =
 }
 const warnings = (scene: SceneDocument) => buildUvttPlan(scene).report.warnings.join('\n')
 
+it('keeps every public wall segment without cross-run joins that would generate empty walls in UBI', () => {
+  const a = p(0, 0), b = p(1, 0), c = p(1, 1), d = p(2, 0), e = p(3, 3), f = p(4, 3), g = p(4, 4)
+  const segments: [PointMm, PointMm][] = [[a, b], [b, c], [c, a], [b, d], [e, f], [f, g], [g, e]]
+  const key = (point: PointMm) => `${point.x},${point.y}`
+  const lineKey = (a: PointMm, b: PointMm) => [key(a), key(b)].sort().join('|')
+  const runs = uvttWallRuns(segments)
+  expect(runs.flatMap(run => run.slice(1).map((point, i) => lineKey(run[i], point))).sort()).toEqual(segments.map(([a, b]) => lineKey(a, b)).sort())
+  for (const run of runs) expect(runs.some(other => other !== run && key(run.at(-1)!) === key(other[0]))).toBe(false)
+})
+
 describe('pure fixed-UBI UVTT layout and independent rendering plan', () => {
   it('bakes nonradial light into the player image while preserving the original native point mapping', () => {
     const scene = fixture()
@@ -62,12 +73,13 @@ describe('pure fixed-UBI UVTT layout and independent rendering plan', () => {
 
   it('dispatches native mapping through delivery capabilities and keeps physical props in the player projection', () => {
     const scene = fixture(); wall(scene); opening(scene, 'door'); prop(scene)
-    const projection = projectScene(scene, 'player')
-    const delivered = collectUvttNativeEntities(scene, projection)
+    let visibleWalls: ReadonlySet<string> = new Set()
+    const projection = projectScene(scene, 'player', undefined, { onVisibleWalls: ids => { visibleWalls = ids } })
+    const delivered = collectUvttNativeEntities(scene, projection, visibleWalls)
     expect(delivered.walls).toEqual([scene.walls.wall]); expect(delivered.openings).toEqual([scene.openings.door])
     expect(delivered.props).toEqual(projection.props)
-    expect(collectUvttNativeEntities(scene, { ...projection, props: [] }).props).toEqual([])
-    expect(() => collectUvttNativeEntities(scene, { ...projection, audience: 'gm' })).toThrow(/玩家投影/)
+    expect(collectUvttNativeEntities(scene, { ...projection, props: [] }, visibleWalls).props).toEqual([])
+    expect(() => collectUvttNativeEntities(scene, { ...projection, audience: 'gm' }, visibleWalls)).toThrow(/玩家投影/)
   })
 
   it.each([1] as const)('reads strict scene %i without changing its persistent contract', version => {
@@ -128,6 +140,9 @@ describe('pure fixed-UBI UVTT layout and independent rendering plan', () => {
     scene.exportBoundsMm.x = 1
     const tooWide = buildUvttPlan(scene)
     expect(tooWide.geometry).toBeNull(); expect(tooWide.widthPx).toBe(0); expect(tooWide.report.blocked.join()).toMatch(/81 格/)
+    const wide = buildUvttPlan(scene, undefined, undefined, true)
+    expect(wide.geometry).not.toBeNull(); expect(wide.pixelsPerGrid).toBe(49); expect(wide.widthPx).toBe(4018)
+    expect(wide.report.warnings.join()).toMatch(/较低的每格像素数/)
     scene.exportBoundsMm = { x: Number.MIN_SAFE_INTEGER + 1, y: 0, width: 1000, height: 1000 }
     expect(buildUvttPlan(scene).report.blocked.join()).toMatch(/安全整数/)
   })
@@ -174,7 +189,11 @@ describe('wall, opening and rotated physical footprint mapping', () => {
       expect(portal.bounds[index].y * 1000).toBeCloseTo(expected[index].y, 7)
     }
     expect(Math.hypot(portal.bounds[0].x - portal.bounds[1].x, portal.bounds[0].y - portal.bounds[1].y) * 1000).toBeCloseTo(1200, 7)
-    expect(portal.closed).toBe(true); expect(portal).not.toHaveProperty('secret'); expect(result.report.warnings.join()).toMatch(/降级为普通门/)
+    expect(portal.closed).toBe(true); expect(portal).not.toHaveProperty('secret')
+    scene.openings.revealed.secret = false; scene.openings.revealed.revealed = false
+    const ordinary = buildUvttPlan(scene)
+    expect(result.geometry).toEqual(ordinary.geometry)
+    expect(result.report).toEqual(ordinary.report)
   })
 
   it('erases hidden collinear split endpoints across equivalent wall segmentations while preserving real public portal gaps', () => {
@@ -275,13 +294,36 @@ describe('explicit native light conversion and fail-closed privacy', () => {
     expect(JSON.stringify(converted)).not.toMatch(/private|disabled|outside-original-crop/)
   })
 
-  it('blocks all fixed-mask structure packages and private geometry without identifying it in the report', () => {
-    const scene = fixture(); scene.regions['mask-private-name'] = { id: 'mask-private-name', floorId: 'floor', editLocked: false, visibility: 'gm', kind: 'manualMask', blocksMovement: false, movementCostMultiplier: 1, boundaryMm: [p(3000, 3000), p(10000, 3000), p(10000, 10000), p(3000, 10000)] }; scene.entityLayers['mask-private-name'] = 'layer'
+  it('keeps public native structures and clips walls at opaque coverage independently of hidden geometry', () => {
+    const scene = fixture(); scene.regions['mask-private-name'] = { id: 'mask-private-name', floorId: 'floor', editLocked: false, visibility: 'gm', kind: 'manualMask', blocksMovement: false, movementCostMultiplier: 1, boundaryMm: [p(4000, 3000), p(9500, 3000), p(9500, 9500), p(4000, 9500)] }; scene.entityLayers['mask-private-name'] = 'layer'
+    wall(scene, p(1000, 4000), p(11000, 4000))
+    opening(scene, 'public-door')
+    light(scene, 'public-light', { positionMm: p(2200, 5200) })
+    const publicPlan = buildUvttPlan(scene)
+    wall(scene, p(4800, 7500), p(7600, 7500), 'buried-wall')
+    opening(scene, 'buried-door', { wallId: 'buried-wall', offsetReferenceVertexId: 'buried-wall-a', secret: true })
+    opening(scene, 'masked-door', { offsetMm: 5000, locked: true })
     prop(scene, 'secret-location-label', { visibility: 'gm' })
+    light(scene, 'buried-light', { visibility: 'gm' })
     const masked = buildUvttPlan(scene)
-    expect(masked.geometry).toBeNull(); expect(masked.report.blocked.join()).toMatch(/固定私密遮罩/)
-    expect(masked.report.blocked.join()).toMatch(/私密几何/)
-    expect(JSON.stringify(masked.report)).not.toMatch(/mask-private-name|secret-location-label|6000/)
+    expect(masked.report.blocked).toEqual([])
+    expect(masked.report.warnings.join()).toMatch(/固定私密遮罩/)
+    expect(masked.geometry).toEqual(publicPlan.geometry)
+    expect(masked.report).toEqual(publicPlan.report)
+    expect(masked.geometry?.line_of_sight).toEqual([[p(1, 4), p(2, 4)], [p(3, 4), p(4, 4)], [p(9.5, 4), p(11, 4)]])
+    expect(masked.geometry?.portals.map(value => value.bounds)).toEqual([[p(2, 4), p(3, 4)]])
+    expect(masked.geometry?.lights.map(value => value.position)).toEqual([p(2.2, 5.2)])
+    expect(JSON.stringify(masked.report)).not.toMatch(/mask-private-name|secret-location-label|埋藏/)
+    const cropped = structuredClone(scene)
+    cropped.exportBoundsMm = { x: 0, y: 0, width: 2000, height: 2000 }
+    const publicCrop = buildUvttPlan(cropped)
+    expect(publicCrop.report.blocked).toEqual([])
+    const publicOnly = fixture()
+    publicOnly.exportBoundsMm = { ...cropped.exportBoundsMm }
+    light(publicOnly, 'public-light', { positionMm: p(2200, 5200) })
+    const equivalent = buildUvttPlan(publicOnly)
+    expect(publicCrop.geometry).toEqual(equivalent.geometry)
+    expect(publicCrop.report.warnings).toEqual(equivalent.report.warnings)
     delete scene.regions['mask-private-name']; delete scene.entityLayers['mask-private-name']
     const unsafe = buildUvttPlan(scene)
     expect(unsafe.geometry).toBeNull(); expect(unsafe.projection).toBeNull(); expect(unsafe.report.blocked.join()).toMatch(/安全的玩家投影/)
@@ -294,8 +336,12 @@ describe('explicit native light conversion and fail-closed privacy', () => {
     scene.userLayers.secondLayer = { id: 'secondLayer', floorId: 'second', name: 'Hidden source layer name', order: 0, editLocked: false }
     expect(validateSceneDocument(scene).ok).toBe(true)
     const multi = buildUvttPlan(scene)
-    expect(multi.projection).toBeNull(); expect(multi.geometry).toBeNull(); expect(multi.report.blocked.join()).toMatch(/单 Floor/)
+    expect(multi.projection).toBeNull(); expect(multi.geometry).toBeNull(); expect(multi.report.blocked.join()).toMatch(/请选择有效楼层/)
     expect(JSON.stringify(multi.report)).not.toContain('Do not reveal')
+    wall(scene)
+    const lower = buildUvttPlan(scene, undefined, 'floor'), upper = buildUvttPlan(scene, undefined, 'second')
+    expect(lower.report.blocked).toEqual([]); expect(lower.geometry?.line_of_sight).toHaveLength(1)
+    expect(upper.report.blocked).toEqual([]); expect(upper.geometry?.line_of_sight).toEqual([])
     const invalid = fixture(); wall(invalid); invalid.walls.wall.startVertexId = 'missing-source'
     expect(() => buildUvttPlan(invalid)).toThrow(/完整模型校验/)
     let calls = 0

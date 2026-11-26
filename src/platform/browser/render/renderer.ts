@@ -240,6 +240,21 @@ export async function exportPng(input: ProjectBundle, options: RenderOptions): P
   return encodePng(canvas, options.signal, options.onPngMetrics)
 }
 
+export async function exportWebp(input: ProjectBundle, options: RenderOptions): Promise<Blob> {
+  const [canvas, { normalizeCanvasWebp }] = await Promise.all([renderProject(input, options), import('../../../shared/project/image-bytes.js')])
+  try {
+    checkCancelled(options.signal)
+    const output = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', .92))
+    checkCancelled(options.signal)
+    if (output?.type !== 'image/webp') throw new Error('当前浏览器无法生成 WebP，请选择 PNG。')
+    const encoded = new Uint8Array(await output.arrayBuffer())
+    checkCancelled(options.signal)
+    const { bytes, image } = normalizeCanvasWebp(encoded)
+    if (image.mimeType !== 'image/webp' || image.width !== canvas.width || image.height !== canvas.height) throw new Error('WebP 未通过尺寸和元数据检查，请选择 PNG。')
+    return new Blob([bytes], { type: 'image/webp' })
+  } finally { canvas.width = canvas.height = 0 }
+}
+
 // Existing leaf prop names remain source-compatible while all data and runtime paths are native-v1.
 export { renderEditorProject as renderEditorProjectV2 }
 export type { RenderOptions as RenderOptionsV2, EditorProjectRenderOptions as EditorRenderOptionsV2 }

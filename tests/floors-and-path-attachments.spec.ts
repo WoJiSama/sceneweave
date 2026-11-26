@@ -309,7 +309,7 @@ test('closed locked doorway binds through ordinary UI and preserves real road ta
   } finally { await context.close() }
 })
 
-test('VTT PNG fallback downloads the selected floor in a multi-floor project at 390px', async ({ page }, info) => {
+test('VTT exports the selected PNG and separate VTT scene files for all floors at 390px', async ({ page }, info) => {
   test.setTimeout(120_000)
   await page.setViewportSize({ width: 390, height: 844 })
   await createKeyboardProject(page, '多层 VTT 玩家图')
@@ -340,4 +340,21 @@ test('VTT PNG fallback downloads the selected floor in a multi-floor project at 
   const fallback = PNG.sync.read(await readFile(filename)) as Image
   dimensions(fallback, { x: 0, y: 0, width: 12000, height: 15000 })
   expect(createHash('sha256').update(fallback.data).digest('hex')).toBe(original.hash)
+  await dialog.getByLabel('导出楼层').selectOption('all')
+  await dialog.getByRole('checkbox').check()
+  const received = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: '下载 VTT 导入包', exact: true }).click()
+  const batch = await received
+  expect(batch.suggestedFilename()).toBe('sceneweave-vtt-floors.zip')
+  const files = unzipSync(await readFile((await batch.path())!)), decode = new TextDecoder()
+  for (const folder of ['floor-01', 'floor-02']) {
+    const data = JSON.parse(decode.decode(files[`${folder}/${folder}.dd2vtt`]))
+    const { map_size: size, pixels_per_grid: ppg } = data.resolution
+    const image = PNG.sync.read(Buffer.from(files[`${folder}/map.png`])) as Image
+    expect([image.width, image.height]).toEqual([size.x * ppg, size.y * ppg])
+    expect(data.image).toBe(Buffer.from(files[`${folder}/map.png`]).toString('base64'))
+    expect(decode.decode(files[`${folder}/mapping-report.json`])).not.toContain('阁楼')
+  }
+  const reports = ['floor-01', 'floor-02'].map(folder => JSON.parse(decode.decode(files[`${folder}/mapping-report.json`])))
+  expect(reports.map(report => report.sourceBoundsMm)).toContainEqual({ x: 0, y: 0, width: 12000, height: 15000 })
 })

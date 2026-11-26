@@ -11,7 +11,7 @@ export default function SceneDisplayPanel({ scene, disabled, onPreview }: {
   const [preset, setPreset] = useState(''), [error, setError] = useState<string | null>(null)
   return <details className="scene-display-panel">
     <summary>单位与格线</summary>
-    <p className="asset-muted">应用调查、战术或叙事的显示习惯，保留场景的毫米尺寸与原预设来源。编辑坐标仍以 mm 输入。</p>
+    <p className="asset-muted">量尺可显示实际距离、按直线长度折算的格数，或取至半格的约数。编辑坐标仍以毫米保存。</p>
     <fieldset disabled={disabled}>
       <label>显示预设<select aria-label="场景显示预设" value={preset} onChange={event => {
         setPreset(event.target.value)

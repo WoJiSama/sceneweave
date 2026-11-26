@@ -70,7 +70,7 @@ import { furnitureDrop } from './furniture-drop'
 import { SIGHT_OCCLUDER_POINT_LIMIT } from '../../shared/validation/primitives'
 import type { CompositionCommand } from '../../shared/model/appearance'
 import type { FillCopyReport, FillCopyRequest } from '../../application/workspace/fill-copy'
-import { exportPng } from '../../platform/browser/render/renderer'
+import { exportPng, exportWebp } from '../../platform/browser/render/renderer'
 import { OUTPOST_PRESET_ID } from './outpost-constraints'
 import type { PreparedCatalogEntryV1 } from './catalog'
 import type { OutdoorSketch, OutdoorTask } from './OutdoorToolsPanel'
@@ -116,7 +116,7 @@ import WorkspaceBackupFeedback, { type WorkspaceBackupAttempt } from './Workspac
 import WorkspaceSaveRecovery from './WorkspaceSaveRecovery'
 import { nearProjectStorageLimit, rememberLocalProjects } from '../../platform/browser/storage/local-retention'
 import { downloadFile as download } from '../main-shell/recovery-file'
-import { createWorkspaceFileController } from './workspace-file-controller'
+import { createWorkspaceFileController, type MapImageOptions } from './workspace-file-controller'
 import OpeningPlacementPanel, { type OpeningTool } from './OpeningPlacementPanel'
 import { openingAtPoint } from './opening-placement'
 import { newId } from './runtime'
@@ -264,6 +264,7 @@ const fileController = createWorkspaceFileController({
   exportProject: (bundle, signal) => exportProjectBackup(bundle, { ...validation, signal }),
   exportHistoryArchive: (archive, signal) => exportHistoryBackup(archive, { ...validation, signal }),
   exportPng,
+  exportWebp,
   download,
 })
 type Candidate = { project: EditableProject; checkpoint: number; description: string; imageDraftToken?: string }
@@ -2297,10 +2298,17 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     setMenu(null); selectionSession.set(found.ids); inspect('selection')
     setMessage(`已选择本层 ${found.ids.length} 个对象；排除锁定 ${found.excludedLocked} 个。`)
   }
-  const exportImage = (targetAudience: 'gm' | 'player', partitionId?: string) => {
+  const exportImage = (targetAudience: 'gm' | 'player', partitionId?: string, imageOptions?: MapImageOptions) => {
     if (!completeProject) return
-    void action(() => fileController.exportImage({ project: completeProject, audience: targetAudience, floorId: activeFloorId, partitionId }, announceSuccess),
-      '导出地图 PNG', `正在生成${targetAudience === 'gm' ? '主持人' : '玩家'}地图 PNG…`)
+    void action(() => fileController.exportImage({ ...imageOptions, project: completeProject, audience: targetAudience, floorId: activeFloorId, partitionId }, announceSuccess),
+      '导出地图图片', `正在生成${targetAudience === 'gm' ? '主持人' : '玩家'}地图…`)
+  }
+  const exportAllPlayerFloors = (options: MapImageOptions) => {
+    if (!completeProject) return
+    void action(async () => {
+      await fileController.exportAllPlayerFloors(completeProject, options)
+      announceSuccess('已生成全部楼层的玩家地图 ZIP。')
+    }, '导出全部楼层', '正在逐层生成玩家地图…')
   }
   const canFinishCanvas = (completing: readonly WorkspaceDraft[]) => active && audience === 'gm' && !catalogBusy
     && !document.querySelector('[role="dialog"],[role="menu"],.workspace-help[open],.workspace-export-menu[open]') && guard(completing)
@@ -3345,7 +3353,8 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
         fileBlockedReason={editDisabled ? transitionReason ?? '当前操作尚未结束，请等待完成。' : null} imageImportDisabled={toolDisabled(['imageImport'])}
         backupBlockedReason={exportBlockedReason} pngBlockedReason={exportBlockedReason ?? transitionReason}
         onNew={openNewScene} onImport={requestImport} onImageImport={() => request({ type: 'image-import' })} onSamples={showSamples}
-        onReload={() => request({ type: 'reload' })} onBackup={() => backup()} onPng={exportImage}
+        onReload={() => request({ type: 'reload' })} onBackup={() => backup()} onPng={(target, options) => exportImage(target, undefined, options)}
+        floorCount={completeProject ? Object.keys(completeProject.document.floors).length : 0} onAllPlayerFloors={exportAllPlayerFloors}
         onVtt={() => { if (completeProject && guard()) setUvtt({ project: completeProject, floorId: activeFloorId }) }} onSettings={showSettings}/>
         <div className="workspace-header-layout" ref={setLayoutControlsTarget}/></div></header>
       <WorkspaceBackupFeedback project={completeProject} attempt={backupAttempt}/>
@@ -3405,7 +3414,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
       }}</SelectionSubscriber>
       {generationSettingsDialog}
       {uvtt && <Suspense fallback={<p role="status">正在打开 VTT 导出工具…</p>}><UvttExportDialog {...uvtt} onClose={() => setUvtt(null)}/></Suspense>}
-      <input hidden ref={file} type="file" accept=".sceneweave" aria-label="选择完整工程" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected && guard()) onImportFile(selected) }}/>
+      <input hidden ref={file} type="file" accept=".sceneweave,.uvtt,.dd2vtt,.df2vtt,.json" aria-label="选择完整工程" onChange={event => { const selected = event.target.files?.[0]; event.target.value = ''; if (selected && guard()) onImportFile(selected) }}/>
       {busy && !preparation && <div className="asset-busy" role="status"><LoaderCircle size={17} className="spin"/>{busyMessage}{backupController.current
         ? <button onClick={() => backupController.current?.abort()}>取消备份</button>
         : controller.current && <button onClick={() => controller.current?.abort()}>取消准备</button>}</div>}

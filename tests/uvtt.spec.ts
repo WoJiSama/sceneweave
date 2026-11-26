@@ -48,11 +48,11 @@ async function adopt(page: Page, kind: '结构' | '视觉' = '结构') {
   await page.getByLabel('确认完整影响范围', { exact: true }).check()
   await page.getByRole('button', { name: `采用${kind}修改`, exact: true }).click(); await settled(page)
 }
-async function createRoom(page: Page) {
+async function createRoom(page: Page, startX = 2000) {
   await openBuildingTask(page)
   await page.getByLabel('房间形状', { exact: true }).selectOption('rectangle')
   await page.getByLabel('房间名称', { exact: true }).fill('公开测试房间')
-  for (const [label, value] of [['房间起点 X', 2000], ['房间起点 Y', 2000], ['房间宽度', 6000], ['房间高度', 4000]] as const) await number(page, label, value / 1000)
+  for (const [label, value] of [['房间起点 X', startX], ['房间起点 Y', 2000], ['房间宽度', 6000], ['房间高度', 4000]] as const) await number(page, label, value / 1000)
   await page.getByRole('button', { name: '预览新房间', exact: true }).click(); await adopt(page)
   return Object.keys((await state(page)).document.rooms)[0]
 }
@@ -155,14 +155,22 @@ test('VTT UI exports the actual player raster, proportional native walls/portals
   await expect(dialog).toHaveCount(0); expect(await state(page)).toEqual(before)
 })
 
-for (const protection of ['mask', 'gm-room'] as const) test(`VTT preflight blocks ${protection} structure export and offers a real masked player PNG fallback`, async ({ page }) => {
+for (const protection of ['mask', 'gm-room'] as const) test(`VTT exports public structure and opaque pixels with ${protection}`, async ({ page }, info) => {
   test.setTimeout(120_000)
   await createBlank(page); const roomId = await createRoom(page)
+  await createRoom(page, 10000)
   // The fixture is a real atomic workspace edit; preflight and download use UI.
   await page.evaluate(async ({ roomId, protection }) => {
     const { workspace } = Reflect.get(window, '__sceneweaveOutdoorDev') as { workspace: Workspace }, scene = workspace.getDocument()!, room = scene.rooms[roomId]
+    const wall = Object.values(scene.walls).find(({ startVertexId, endVertexId }) => [startVertexId, endVertexId].every(id =>
+      scene.vertices[id].xMm >= 10000 && scene.vertices[id].yMm === 2000))!
+    const light = { floorId: room.floorId, layerId: scene.entityLayers[roomId], editLocked: false, radiusMm: 1400,
+      color: '#FFD699', intensity: 1, wallOcclusion: true, enabled: true }
     await workspace.execute([
       { type: 'upsertManualMask', id: 'vtt-fixed-mask', floorId: room.floorId, layerId: scene.entityLayers[roomId], boundsMm: { x: 1000, y: 1000, width: 8000, height: 6000 } },
+      { type: 'addOpening', id: 'public-door', wallId: wall.id, offsetReferenceVertexId: wall.startVertexId, offsetMm: 1000, widthMm: 1000, kind: 'door' },
+      { type: 'upsertVisualLight', light: { ...light, id: 'public-light', visibility: 'public', positionMm: { x: 12500, y: 4000 } } },
+      { type: 'upsertVisualLight', light: { ...light, id: 'gm-light', visibility: 'gm', positionMm: { x: 5000, y: 4000 } } },
       ...(protection === 'gm-room' ? [{ type: 'updateRoom' as const, id: roomId, changes: { visibility: 'gm' as const, purpose: 'private-room-must-not-leak' } }] : []),
     ])
     await workspace.flush()
@@ -170,23 +178,37 @@ for (const protection of ['mask', 'gm-room'] as const) test(`VTT preflight block
   await settled(page); const before = await state(page)
   await openVttExport(page)
   const dialog = page.getByRole('dialog', { name: 'VTT 导出预检', exact: true })
-  await expect(dialog.getByRole('alert')).toContainText('此场景不能安全导出结构包')
-  await expect(dialog.getByRole('button', { name: '下载 VTT 导入包', exact: true })).toBeDisabled()
-  await expect(dialog.getByLabel('我已了解上述降级和导入后的检查事项', { exact: true })).toHaveCount(0)
+  await expect(dialog).toContainText('固定私密遮罩已烘焙为不透明底图')
+  await dialog.getByLabel('我已了解上述降级和导入后的检查事项', { exact: true }).check()
+  const vttEvent = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: '下载 VTT 导入包', exact: true }).click()
+  const delivery = await vttEvent
+  await delivery.saveAs(info.outputPath('masked-scene-vtt.zip'))
+  const output = archive(await downloaded(delivery))
+  const runs = output.data.line_of_sight as { x: number; y: number }[][]
+  expect(runs.reduce((count, run) => count + run.length - 1, 0)).toBe(5)
+  for (const run of runs) expect(runs.some(other => other !== run && JSON.stringify(run.at(-1)) === JSON.stringify(other[0]))).toBe(false)
+  expect(output.data.line_of_sight.flat().every((point: { x: number }) => point.x >= 10000 / output.report.units.gridSizeMm)).toBe(true)
+  expect(output.data.portals).toHaveLength(1)
+  expect(output.data.lights).toHaveLength(1)
+  expect(output.data.lights[0].position.x).toBeCloseTo(12500 / output.report.units.gridSizeMm)
+  expect(JSON.stringify(output.report)).not.toContain('private-room-must-not-leak')
+  const maskPixels = (bytes: Uint8Array, bounds: { x: number; y: number; width: number; height: number }) => page.evaluate(async ({ data, bounds }) => {
+    const bytes = Uint8Array.from(atob(data), value => value.charCodeAt(0)), bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+    const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
+    const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0); bitmap.close()
+    const at = (x: number, y: number) => [...context.getImageData(Math.round(canvas.width * (x - bounds.x) / bounds.width), Math.round(canvas.height * (y - bounds.y) / bounds.height), 1, 1).data]
+    return { center: at(5000, 4000), nearCorner: at(1500, 1500) }
+  }, { data: Buffer.from(bytes).toString('base64'), bounds })
+  const covered = { center: [216, 213, 197, 255], nearCorner: [216, 213, 197, 255] }
+  expect(await maskPixels(output.png, output.report.paddedBoundsMm)).toEqual(covered)
   const downloadEvent = page.waitForEvent('download')
   await dialog.getByRole('button', { name: '下载玩家 PNG 回退', exact: true }).click()
   const download = await downloadEvent, bytes = await downloaded(download), image = inspectImageBytes(bytes)
   expect(download.suggestedFilename()).toBe('sceneweave-player-map.png')
   expect(Math.max(image.width, image.height)).toBe(4096)
   for (const chunk of ['tEXt', 'zTXt', 'iTXt', 'eXIf']) expect(pngChunks(bytes)).not.toContain(chunk)
-  const covered = await page.evaluate(async data => {
-    const bytes = Uint8Array.from(atob(data), value => value.charCodeAt(0)), bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
-    const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height
-    const context = canvas.getContext('2d')!; context.drawImage(bitmap, 0, 0); bitmap.close()
-    const at = (x: number, y: number) => [...context.getImageData(Math.round(canvas.width * x / 18000), Math.round(canvas.height * y / 12000), 1, 1).data]
-    return { center: at(5000, 4000), nearCorner: at(1500, 1500) }
-  }, Buffer.from(bytes).toString('base64'))
-  expect(covered.center).toEqual([216, 213, 197, 255]); expect(covered.nearCorner).toEqual(covered.center)
+  expect(await maskPixels(bytes, before.document.exportBoundsMm)).toEqual(covered)
   expect(await state(page)).toEqual(before)
   await dialog.getByRole('button', { name: '关闭', exact: true }).click()
   expect(await state(page)).toEqual(before)

@@ -5,6 +5,7 @@ export const productionOnlySpecs = [
   '**/complete-journey-ux.spec.ts',
   '**/core-convergence-journey.spec.ts',
   '**/startup-loading.spec.ts',
+  '**/recovery-storage-uvtt.spec.ts',
 ]
 
 export default defineConfig({

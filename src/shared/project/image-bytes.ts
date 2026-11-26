@@ -168,6 +168,29 @@ export function inspectImageBytes(bytes: Uint8Array, normalized = true): ImageHe
   if (ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 4) === 'WEBP') return readWebp(bytes, normalized)
   return failImage('仅支持静态 PNG、JPEG 或 WebP；实际格式不符。')
 }
+
+/** A browser canvas is already sRGB. Retain its static image and alpha chunks
+ * while dropping all profiles and descriptive chunks from the exported file. */
+export function normalizeCanvasWebp(bytes: Uint8Array): { bytes: Uint8Array<ArrayBuffer>; image: ImageHeader } {
+  if (inspectImageBytes(bytes, false).mimeType !== 'image/webp') failImage('需要静态 WebP。')
+  const source = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const output = new Uint8Array(bytes.length)
+  output.set(bytes.subarray(0, 12))
+  let write = 12
+  for (let cursor = 12; cursor < bytes.length;) {
+    const type = ascii(bytes, cursor, 4), size = source.getUint32(cursor + 4, true)
+    const end = cursor + 8 + size + size % 2
+    if (type === 'VP8X' || type === 'VP8 ' || type === 'VP8L' || type === 'ALPH') {
+      output.set(bytes.subarray(cursor, end), write)
+      if (type === 'VP8X') output[write + 8] &= ~0x2c
+      write += end - cursor
+    }
+    cursor = end
+  }
+  new DataView(output.buffer).setUint32(4, write - 8, true)
+  const normalized = output.subarray(0, write)
+  return { bytes: normalized, image: inspectImageBytes(normalized) }
+}
 /** Strip metadata from an actual sRGB Canvas encoding; this never replaces color-space decoding. */
 export function normalizePngChunks(bytes: Uint8Array, maxBytes = PACKAGE_LIMITS.imageBytes): Uint8Array {
   // Asset/import callers retain the 20 MiB default. A platform's bounded Canvas

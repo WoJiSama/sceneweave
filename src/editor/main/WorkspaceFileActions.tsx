@@ -1,14 +1,16 @@
-import { useId, useRef } from 'react'
+import { useId, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock3, Download, LoaderCircle } from 'lucide-react'
 import type { WorkspaceState } from '../../application/workspace/workspace'
 import WorkspaceHelp, { closeWorkspaceDisclosure, onWorkspaceDisclosureEscape } from './WorkspaceHelp'
 import './workspace-file-actions.css'
+import type { MapImageOptions } from './workspace-file-controller'
 
 const saveLabels = { empty: '尚未打开工程', saved: '本地已保存', unsaved: '等待保存', saving: '正在保存', error: '保存失败', conflict: '版本冲突' }
 
 /** File operations keep the workspace's existing callbacks and session guard. */
 export default function WorkspaceFileActions({ status, imageDraft, hasProject, audience, fileBlockedReason, imageImportDisabled,
-  backupBlockedReason, pngBlockedReason, onNew, onImport, onImageImport, onSamples, onReload, onBackup, onPng, onVtt, onSettings }: {
+  backupBlockedReason, pngBlockedReason, onNew, onImport, onImageImport, onSamples, onReload, onBackup, onPng, onVtt, onSettings,
+  floorCount, onAllPlayerFloors }: {
   status: WorkspaceState['status']
   imageDraft: boolean
   hasProject: boolean
@@ -23,11 +25,15 @@ export default function WorkspaceFileActions({ status, imageDraft, hasProject, a
   onSamples: () => void
   onReload: () => void
   onBackup: () => void
-  onPng: (audience: 'gm' | 'player') => void
+  onPng: (audience: 'gm' | 'player', options: MapImageOptions) => void
+  floorCount: number
+  onAllPlayerFloors: (options: MapImageOptions) => void
   onVtt: () => void
   onSettings: () => void
 }) {
   const disclosures = useId()
+  const [format, setFormat] = useState<'png' | 'webp'>('png'), [longEdgePx, setLongEdgePx] = useState(4096)
+  const formatLabel = format === 'png' ? 'PNG' : 'WebP', imageOptions = { format, longEdgePx }
   const fileReasonId = `${disclosures}-file-reason`
   const fileBackupReasonId = `${disclosures}-file-backup-reason`
   const fileBackupId = `${disclosures}-file-backup`
@@ -82,13 +88,25 @@ export default function WorkspaceFileActions({ status, imageDraft, hasProject, a
       <div className="workspace-file-surface" role="group" aria-label="导出选项">
         <p>可编辑工程需下载 .sceneweave 备份。自动保存只在此浏览器，不会下载文件。</p>
         <p>导出会发起下载，请在浏览器下载列表确认。</p>
+        <div className="workspace-export-image-options">
+          <label>图片格式<select value={format} onChange={event => setFormat(event.target.value === 'webp' ? 'webp' : 'png')}>
+            <option value="png">PNG</option><option value="webp">WebP</option>
+          </select></label>
+          <label>长边像素<select value={longEdgePx} onChange={event => setLongEdgePx(Number(event.target.value))}>
+            {[1024, 2048, 3072, 4096].map(size => <option key={size}>{size}</option>)}
+          </select></label>
+        </div>
         <div className="workspace-file-choice">
-          <button type="button" className="primary" disabled={!!pngBlockedReason} aria-describedby={pngBlockedReason ? `${playerPngId} ${pngDescriptionId}` : playerPngId} onClick={() => runDownload(() => onPng('player'))}>玩家地图 PNG</button>
+          <button type="button" className="primary" disabled={!!pngBlockedReason} aria-describedby={pngBlockedReason ? `${playerPngId} ${pngDescriptionId}` : playerPngId} onClick={() => runDownload(() => onPng('player', imageOptions))}>玩家地图 {formatLabel}</button>
           <p id={playerPngId}>导出当前楼层的图片，过滤秘密，可与玩家分享。</p>
         </div>
         {audience === 'gm' && <div className="workspace-file-choice">
-          <button type="button" className="secondary" disabled={!!pngBlockedReason} aria-describedby={pngBlockedReason ? `${gmPngId} ${pngDescriptionId}` : gmPngId} onClick={() => runDownload(() => onPng('gm'))}>主持人地图 PNG · 含秘密</button>
+          <button type="button" className="secondary" disabled={!!pngBlockedReason} aria-describedby={pngBlockedReason ? `${gmPngId} ${pngDescriptionId}` : gmPngId} onClick={() => runDownload(() => onPng('gm', imageOptions))}>主持人地图 {formatLabel} · 含秘密</button>
           <p id={gmPngId}>导出当前楼层的完整图片，仅供主持人使用。</p>
+        </div>}
+        {floorCount > 1 && <div className="workspace-file-choice">
+          <button type="button" className="secondary" disabled={!!pngBlockedReason} onClick={() => runDownload(() => onAllPlayerFloors(imageOptions))}>全部楼层玩家地图 · ZIP</button>
+          <p>每层使用自己的导出范围，文件以楼层顺序编号。</p>
         </div>}
         <div className="workspace-file-choice">
           <button type="button" className="secondary" disabled={!!backupBlockedReason} aria-describedby={backupBlockedReason ? `${exportBackupId} ${exportReasonId}` : exportBackupId} onClick={() => runDownload(onBackup)}>备份可编辑工程 · 含秘密</button>

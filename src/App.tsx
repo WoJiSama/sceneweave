@@ -1,6 +1,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { PROJECT_ARCHIVE_MAX_MIB, PACKAGE_LIMITS } from './shared/project/limits'
 import { ISSUE_LINK, WorkspaceCrashBoundary, WorkspaceCrashRecovery } from './editor/main-shell/WorkspaceCrashBoundary'
+import type { VttImportInput } from './editor/main-shell/VttImportDialog'
 import SceneweaveLoading from './editor/main-shell/SceneweaveLoading'
 import { lazyView } from './editor/main-shell/lazy-view'
 import { isHomeSectionHash } from './editor/main-shell/location'
@@ -22,6 +23,8 @@ const Workbench = lazyView(loadWorkbench,
   ({ onBack }) => <div role="alert"><p>工作区加载失败。请检查网络后刷新页面。</p><button type="button" onClick={onBack}>回到首页</button></div>)
 const TutorialPage = lazyView(() => import('./tutorial/TutorialPage'),
   () => <div role="alert"><p>教程加载失败。请检查网络后刷新页面。</p><a href="#home">回到首页</a></div>)
+const VttImportDialog = lazyView(() => import('./editor/main-shell/VttImportDialog'),
+  ({ onClose }) => <div role="alert"><p>VTT 导入器加载失败。</p><button type="button" onClick={onClose}>关闭</button></div>)
 type Page = 'home' | 'workspace' | 'tutorial'
 const currentPage = (): Page => {
   const hash = window.location.hash
@@ -43,6 +46,7 @@ export default function App() {
   const [startInBuilding, setStartInBuilding] = useState(false)
   const [preparedWorkbench, setPreparedWorkbench] = useState<typeof import('./editor/main/Workbench')['default'] | null>(null)
   const [workbenchAttempt, setWorkbenchAttempt] = useState(0), [workbenchCrashed, setWorkbenchCrashed] = useState(false)
+  const [vttFile, setVttFile] = useState<File | null>(null)
   const startupHash = useRef<string | null>(null)
   const [busyLabel, setBusyLabel] = useState('正在检查完整内容…')
   const controller = useRef<WorkspaceController | null>(null), queued = useRef<WorkspaceRequest | null>(null)
@@ -135,14 +139,36 @@ export default function App() {
     if (workbenchCrashed) await (await loadWorkspaceSession()).nativeWorkspace.flush()
     return true
   }
-  const handleFile = (file: File) => void run(async signal => {
-    if (!await preserveCurrent()) return
-    if (!file.size || file.size > PACKAGE_LIMITS.compressedBytes) throw new Error(`工程文件为空或超过 ${PROJECT_ARCHIVE_MAX_MIB} MiB。`)
-    const { installProjectFile } = await import('./editor/main-shell/project-file')
-    const project = await installProjectFile(file, signal)
+  const handleFile = (file: File) => {
+    if (/\.(?:uvtt|dd2vtt|df2vtt|json)$/i.test(file.name)) {
+      setVttFile(file)
+      return
+    }
+    void run(async signal => {
+      if (!await preserveCurrent()) return
+      if (!file.size || file.size > PACKAGE_LIMITS.compressedBytes) throw new Error(`工程文件为空或超过 ${PROJECT_ARCHIVE_MAX_MIB} MiB。`)
+      const { installProjectFile } = await import('./editor/main-shell/project-file')
+      const project = await installProjectFile(file, signal)
+      signal.throwIfAborted()
+      request({ type: 'open-project', project, saved: true })
+    })
+  }
+  const installVtt = async (file: File, options: VttImportInput, signal: AbortSignal) => {
+    if (!await preserveCurrent()) throw new Error('请先保存或收好当前工程的编辑，再导入 VTT 地图。')
+    const [{ importUvtt, importFoundryScene, VTT_FILE_BYTES }, { nativeWorkspace }] = await Promise.all([
+      import('./platform/browser/content/vtt-import'), loadWorkspaceSession(),
+    ])
+    if (!file.size || file.size > VTT_FILE_BYTES) throw new Error('VTT 文件须为非空且不超过 32 MiB。')
+    const checkpoint = nativeWorkspace.checkpoint()
+    if (options.foundry && options.foundry.backdrop.size > PACKAGE_LIMITS.imageBytes) throw new Error('Foundry 本地底图最多 20 MiB。')
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const project = options.foundry
+      ? await importFoundryScene(bytes, new Uint8Array(await options.foundry.backdrop.arrayBuffer()), options.foundry.origin, options, signal)
+      : await importUvtt(bytes, options, signal)
     signal.throwIfAborted()
+    await nativeWorkspace.adoptNew(project, checkpoint)
     request({ type: 'open-project', project, saved: true })
-  })
+  }
   const cancelStartup = () => {
     startupHash.current = null
     setStartupScene(false)
@@ -185,7 +211,8 @@ export default function App() {
         </WorkspaceCrashBoundary>
       </div>}
     </div>
-    <input ref={projectFile} data-testid="native-project-file" type="file" hidden accept=".sceneweave" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) handleFile(file) }}/>
+    <input ref={projectFile} data-testid="native-project-file" type="file" hidden accept=".sceneweave,.uvtt,.dd2vtt,.df2vtt,.json" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) handleFile(file) }}/>
+    {vttFile && <Suspense fallback={<SceneweaveLoading label="正在打开 VTT 导入器…"/>}><VttImportDialog file={vttFile} onImport={installVtt} onClose={() => setVttFile(null)}/></Suspense>}
     {busy && <div className="modal-scrim"><div className="modal" role="dialog" aria-modal="true" aria-label="检查完整工程"><p role="status">{busyLabel}</p><button className="secondary" onClick={cancel}>取消操作</button></div></div>}
   </>
 }
