@@ -65,7 +65,7 @@ describe('proven position-only prop geometry derivation', () => {
     const candidate = cloneJson(baseline)
     candidate.props.item.rotationDeg = 90
     const { result } = expectEquivalent(baseline, candidate, ['item'])
-    expect(result.errors).toEqual([{ code: 'PROP_SUPPORT', message: '完整旋转占地须位于声明的有效支撑面内。', entityId: 'item' }])
+    expect(result.errors).toEqual([{ code: 'PROP_SUPPORT', message: '完整旋转占地须位于声明的有效支撑面内。 物件「item」的锚点为 (9650,9500) mm。', entityId: 'item' }])
   })
 
   it('preserves full validation error order for physical bounds, visual bounds and support failures', () => {

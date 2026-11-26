@@ -10,6 +10,10 @@ export default defineConfig({
   testDir: '.',
   testIgnore: [],
   grepInvert: undefined,
+  projects: process.env.SCENEWEAVE_CROSS_BROWSER ? [
+    ...(development.projects ?? []), { name: 'firefox', use: { browserName: 'firefox' } },
+    { name: 'webkit', use: { browserName: 'webkit' } },
+  ] : development.projects,
   testMatch: [
     ...productionOnlySpecs,
     '**/backup-delivery-ux.spec.ts', '**/export-privacy-ux.spec.ts', '**/room-privacy-ux.spec.ts', '**/natural-detail-queue.spec.ts',

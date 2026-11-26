@@ -1,28 +1,37 @@
-name: Deploy to GitHub Pages
+name: Verify and deploy
 
 on:
   push:
     branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 2 * * 1'
   workflow_dispatch:
+    inputs:
+      extended:
+        description: Run the full standard editor browser suite
+        type: boolean
+        default: false
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # 同一支新 push 到 main 时取消仍在跑的旧部署，避免排队堆积
 concurrency:
-  group: github-pages
+  group: sceneweave-${{ github.ref }}-${{ github.event_name == 'schedule' && 'scheduled' || 'changes' }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -30,12 +39,10 @@ jobs:
         run: npm ci
       - name: Verify shared runtime
         run: npm run check:shared
-      - name: Verify stored projects, portable archives and content package contracts
-        run: >-
-          npm test -- src/platform/browser/storage/release-compatibility.test.ts src/shared/project-file.test.ts
-          src/shared/assets/import-manifest.test.ts src/platform/browser/assets/batch-source.test.ts
-          src/shared/extensions/host.test.ts
-          src/application/workspace/current-authoring.test.ts src/application/workspace/terrain-task-budget.test.ts
+      - name: Lint application and service code
+        run: npm run lint
+      - name: Run all application unit tests
+        run: npm test -- --maxWorkers=2
       - name: Validate public AI endpoint
         env:
           VITE_SCENEWEAVE_AI_URL: ${{ vars.VITE_SCENEWEAVE_AI_URL }}
@@ -49,19 +56,57 @@ jobs:
           # This is a public endpoint only; application/provider credentials never enter Pages builds.
           VITE_SCENEWEAVE_AI_URL: ${{ vars.VITE_SCENEWEAVE_AI_URL }}
         run: npm run build
-      - name: Install Chromium for browser regression
-        run: npx playwright install --with-deps chromium
+      - name: Install the browser engines for regression
+        run: npx playwright install --with-deps chromium firefox webkit
       - name: Verify editing, recovery and privacy on the Pages build
-        run: npm run test:e2e:production -- tests/release-compatibility.spec.ts tests/complete-journey-ux.spec.ts tests/export-privacy-ux.spec.ts tests/room-privacy-ux.spec.ts --project=chromium --reporter=list
+        run: npm run test:e2e:production -- tests/release-compatibility.spec.ts tests/complete-journey-ux.spec.ts tests/export-privacy-ux.spec.ts tests/room-privacy-ux.spec.ts tests/recovery-storage-uvtt.spec.ts --project=chromium --reporter=list
+      - name: Verify recovery and output on Firefox and WebKit
+        env:
+          SCENEWEAVE_CROSS_BROWSER: '1'
+        run: npm run test:e2e:production -- tests/recovery-storage-uvtt.spec.ts --project=firefox --project=webkit --reporter=list
+      - name: Verify startup loading budgets
+        run: npm run test:e2e:production -- tests/startup-loading.spec.ts --grep "first-load script budgets|creation opens before|failed workbench download|homepage falls back" --project=chromium --reporter=list
+      - name: Verify VTT masking, geometry and per-floor downloads
+        if: github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || !inputs.extended)
+        run: npm run test:e2e -- tests/uvtt.spec.ts tests/floors-and-path-attachments.spec.ts --grep "VTT" --project=chromium --reporter=list --output=work/production-test-results/vtt
+      - name: Run the standard editor browser suite
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.extended)
+        run: npm run test:e2e -- --project=chromium --reporter=list --output=work/production-test-results/editor
+      - name: Save failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-browser-failures
+          path: work/production-test-results
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Configure Pages
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: actions/configure-pages@v5
       - name: Upload artifact
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-  deploy:
-    needs: build
+  ai:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Run all AI service and protocol tests
+        run: npm run ai:test
+  deploy:
+    needs: [build, ai]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

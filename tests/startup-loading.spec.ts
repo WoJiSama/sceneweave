@@ -94,8 +94,12 @@ test('production tutorial and blank workspace stay within their first-load scrip
 
   await page.goto('./#home')
   await expect(page.getByTestId('workspace-home').getByText('共 0 个工程', { exact: false })).toBeVisible()
-  const unloaded = /^(Workbench|workspace-session|runtime|repository|resources|task-queue|canvas-renderer)-/
-  expect((await startupScripts(page)).filter(script => unloaded.test(script.name))).toEqual([])
+  const unloaded = /^(Workbench|workspace-session|runtime|repository|task-queue|canvas-renderer|VttImportDialog|UvttExportDialog)-/
+  const homeScripts = await startupScripts(page)
+  expect(homeScripts.filter(script => unloaded.test(script.name))).toEqual([])
+  // Rollup can give both the resource error classes and the full project
+  // resource loader the same chunk prefix. Only the small port may load here.
+  expect(homeScripts.filter(script => /^resources-/.test(script.name)).reduce((bytes, script) => bytes + script.bytes, 0)).toBeLessThan(4 * 1024)
   expect(await page.evaluate(async () => (await indexedDB.databases()).some(database => database.name?.startsWith('sceneweave-projects-dev-v1')))).toBe(false)
   const since = await page.evaluate(() => performance.now())
   await page.evaluate(() => { window.location.hash = '#workspace' })
@@ -437,6 +441,13 @@ test('the first canvas can be edited and optional tools download on their first 
 
 test('the homepage falls back to the full directory when database enumeration fails', async ({ page }) => {
   await page.addInitScript(() => {
+    const open = IDBFactory.prototype.open
+    const names: string[] = []
+    Reflect.set(window, '__startupOpenedDatabases', names)
+    IDBFactory.prototype.open = function (name, version) {
+      names.push(name)
+      return open.call(this, name, version)
+    }
     Object.defineProperty(IDBFactory.prototype, 'databases', {
       configurable: true,
       value: () => Promise.reject(new Error('Controlled database enumeration failure')),
@@ -444,7 +455,7 @@ test('the homepage falls back to the full directory when database enumeration fa
   })
   await openProductionPage(page, 'home')
   await expect(page.getByTestId('workspace-home').getByText('共 0 个工程', { exact: false })).toBeVisible()
-  expect((await startupScripts(page)).filter(script => /^repository-/.test(script.name))).not.toHaveLength(0)
+  expect(await page.evaluate(() => Reflect.get(window, '__startupOpenedDatabases'))).toContain('sceneweave-projects-dev-v1')
 })
 
 test('a damaged starter download keeps the form draft and leaves the project directory empty', async ({ page }) => {

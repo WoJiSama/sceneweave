@@ -1,6 +1,6 @@
 {
   "name": "sceneweave",
-  "version": "0.2.0-m1-d2",
+  "version": "0.2.0-m1-d3",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,6 +12,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "node tools/sync-workflows.mjs --check && node tools/check-architecture.mjs && tsc -b && tsc -p tsconfig.ai.json --noEmit",
     "check:architecture": "node tools/check-architecture.mjs",
+    "lint": "eslint src services",
     "check:shared": "node tools/check-shared.mjs",
     "workflows:sync": "node tools/sync-workflows.mjs",
     "check:workflows": "node tools/sync-workflows.mjs --check",
@@ -25,20 +26,17 @@
     "ai:test": "vitest run --config vitest.ai.config.ts"
   },
   "dependencies": {
-    "@hono/node-server": "2.1.5",
+    "@hono/node-server": "2.1.6",
     "@resvg/resvg-wasm": "2.6.2",
     "dexie": "4.4.6",
     "earcut": "3.0.2",
     "fflate": "0.8.3",
-    "hono": "4.13.13",
-    "konva": "10.9.0",
+    "hono": "4.13.16",
     "lucide-react": "1.59.0",
     "polygon-clipping": "0.15.7",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "react-konva": "19.3.2",
-    "zod": "4.6.7",
-    "zustand": "5.0.15"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
@@ -46,7 +44,9 @@
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@typescript-eslint/parser": "8.74.0",
     "@vitejs/plugin-react": "5.2.0",
+    "eslint": "9.39.5",
     "fake-indexeddb": "6.2.6",
     "typescript": "5.9.3",
     "vite": "7.3.7",

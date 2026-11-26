@@ -100,7 +100,9 @@ describe('native complete-v1 pure metadata contract', () => {
     let calls = 0; const input = fixture()
     Object.defineProperty(input, 'assets', { enumerable: true, get() { calls++; throw new Error('getter') } })
     expect(() => validateProjectData(input)).toThrow(); expect(calls).toBe(0)
-    for (const value of [undefined, NaN, Infinity, 1n, () => 0, { value: undefined }, new Map(), [, 1], Object.assign([1], { hidden: true })]) expect(inspectJsonInput(value)).toBeDefined()
+    const sparse = new Array(2)
+    sparse[1] = 1
+    for (const value of [undefined, NaN, Infinity, 1n, () => 0, { value: undefined }, new Map(), sparse, Object.assign([1], { hidden: true })]) expect(inspectJsonInput(value)).toBeDefined()
     const frozen = Object.freeze({ child: { value: 1 } }); expect(inspectJsonInput(frozen)).toBeUndefined()
     const cyclic: Record<string, unknown> = {}; cyclic.self = cyclic; expect(inspectJsonInput(cyclic)).toBeDefined()
   })
