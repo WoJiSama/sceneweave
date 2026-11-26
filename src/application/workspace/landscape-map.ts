@@ -2,10 +2,12 @@ import { createCompositionContent } from '../../shared/appearance/graph.js'
 import { assertTaskBudget, captureExecutionBudget, captureGeometryPairBudget, measureDocumentBudget, measureTaskBudget, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
 import type { MapGenerateRequest, MapLandscapeRecipe } from '../../shared/generation/map-authoring.js'
 import type { Floor, PointMm } from '../../shared/model/scene.js'
-import { shapeLandscape, LANDSCAPE_VERSION } from '../../shared/terrain-generation/landscape-authoring.js'
+import { shapeLandscape, LANDSCAPE_VERSION, ASCENT_APPROACH_MM } from '../../shared/terrain-generation/landscape-authoring.js'
 import { finishLandscape, landscapeRouteClearances } from '../../shared/terrain-generation/landscape-finish.js'
 import { withGeometryPairCounter } from '../../shared/geometry/edge-index.js'
 import { createSupportQuery } from '../../shared/geometry/support-sample.js'
+import { reachesLandmarkSide } from '../../shared/geometry/landmark-route.js'
+import { checkGradedRoadOnValidScene, type TerrainTravelIssue } from '../../shared/geometry/terrain-travel.js'
 import { publicTerrainView } from '../../shared/geometry/visibility.js'
 import type { SceneDocument } from '../../shared/model/scene.js'
 import type { LandscapeRoadFailure } from '../../shared/terrain-generation/landscape-authoring.js'
@@ -17,51 +19,62 @@ import { materializeProject, type PrepareOptions } from './prepare.js'
 import type { EditableProject } from './project.js'
 import { mapCoordinate } from './map-authoring.js'
 
-export async function prepareLandscapeMap(base: EditableProject, floor: Floor, input: MapGenerateRequest, recipe: MapLandscapeRecipe,
-  options: PrepareOptions & { budget: TaskBudgetProfile }, draft = false) {
+export function shapeLandscapeCandidate(base: SceneDocument, floor: Floor, input: MapGenerateRequest, recipe: MapLandscapeRecipe,
+  budget: TaskBudgetProfile, draft = false) {
   const { boundsMm: bounds } = floor, { referenceSizePx: reference, seed } = input
   const source = reference ?? { width: 1000, height: 1000 }
   const scale = reference && Math.min(bounds.width / source.width, bounds.height / source.height)
   const size = ({ x, y }: PointMm) => ({ x: Math.round(x * (scale || bounds.width / source.width)),
     y: Math.round(y * (scale || bounds.height / source.height)) })
   const point = mapCoordinate(bounds, source, !!reference), frame = { point, size }
-  const scene = captureJson(base.document), meter = captureExecutionBudget(options.budget)
+  const scene = captureJson(base), meter = captureExecutionBudget(budget)
   const roadFailures: LandscapeRoadFailure[] = []
   scene.artStyle = { ...newMapArtStyle(), active: recipe.style }
   meter.charge({ candidateAttempts: 1 })
-  const pairs = captureGeometryPairBudget(options.budget)
+  const pairs = captureGeometryPairBudget(budget)
   const checked = withGeometryPairCounter(pairs.add, () => {
     const forms = shapeLandscape(scene, floor, recipe, frame, seed, meter, draft ? roadFailures : undefined)
     finishLandscape(scene, floor, recipe, forms, frame, seed, meter, landscapeRouteClearances(input.checks, floor, point))
     return validateSceneSnapshot(scene)
   })
-  if (!checked.ok) throw new OperationRejected('invalid_geometry', checked.errors.slice(0, 10)
-    .map(issue => `${issue.entityId ? `「${issue.entityId}」` : ''}${issue.message}`).join('；'))
-  const content = createCompositionContent(checked.document, options.runtime)
-  const project = await materializeProject({ ...base, ...content }, { ...options, baseline: base, terrainPairAccounting: 'spatial-v1' })
-  const execution = meter.snapshot()
+  if (!checked.ok) {
+    const issues = checked.errors.slice(0, 10)
+    throw Object.assign(new OperationRejected('invalid_geometry', issues
+      .map(issue => `${issue.entityId ? `「${issue.entityId}」` : ''}${issue.message}`).join('；')), { details: { issues } })
+  }
+  return { document: checked.document, execution: meter.snapshot(), checkedPairs: pairs.count(), roadFailures,
+    report: { zones: recipe.landforms.map(row => ({ id: row.id, areaId: row.areaId, at: point(row.at), targetElevationMm: row.elevationMm })),
+      scale: reference ? { source, mmPerPixel: scale, contentOriginMm: point({ x: 0, y: 0 }), canvasMm: bounds }
+        : { source: 'relative', canvasMm: bounds } } }
+}
+
+export const LANDSCAPE_PAIR_ACCOUNTING = 'landscape-spatial-v2'
+
+export async function prepareLandscapeMap(base: EditableProject, floor: Floor, input: MapGenerateRequest, recipe: MapLandscapeRecipe,
+  options: PrepareOptions & { budget: TaskBudgetProfile }, draft = false) {
+  const { document, execution, checkedPairs, roadFailures, report } = shapeLandscapeCandidate(base.document, floor, input, recipe, options.budget, draft)
+  const content = createCompositionContent(document, options.runtime)
+  const project = await materializeProject({ ...base, ...content }, { ...options, baseline: base, terrainPairAccounting: LANDSCAPE_PAIR_ACCOUNTING })
   const usage = assertTaskBudget(options.budget, measureTaskBudget(base.document, project.document, { before: base, after: project },
-    { ...execution, intersectionPairs: execution.intersectionPairs + pairs.count() }, 'spatial-v1'))
-  return { project, usage, roadFailures, report: { algorithmVersion: LANDSCAPE_VERSION, seed, environment: recipe.environment, style: recipe.style, density: recipe.density,
-    geometryWork: { model: 'spatial-v1', previousEstimate: measureDocumentBudget(base.document, project.document).intersectionPairs,
-      checkedPairs: pairs.count(), generationPairAllowance: execution.intersectionPairs, billedPairs: usage.intersectionPairs },
-    zones: recipe.landforms.map(row => ({ id: row.id, areaId: row.areaId, at: point(row.at), targetElevationMm: row.elevationMm })),
+    { ...execution, intersectionPairs: execution.intersectionPairs + checkedPairs }, LANDSCAPE_PAIR_ACCOUNTING))
+  return { project, usage, roadFailures, report: { ...report, algorithmVersion: LANDSCAPE_VERSION, seed: input.seed, environment: recipe.environment, style: recipe.style, density: recipe.density,
+    geometryWork: { model: LANDSCAPE_PAIR_ACCOUNTING, previousEstimate: measureDocumentBudget(base.document, project.document).intersectionPairs,
+      checkedPairs, generationPairAllowance: execution.intersectionPairs, billedPairs: usage.intersectionPairs,
+      documentPairs: usage.intersectionPairs - checkedPairs - execution.intersectionPairs, limitPairs: options.budget.limits.intersectionPairs },
     scenery: recipe.scenery.map(row => {
       const group = project.document.scatterGroups[row.id]
       return { id: row.id, areaId: row.areaId, palette: row.palette, pattern: row.pattern, density: row.density,
         placed: Object.values(group.members).filter(member => member.propId !== null).length,
         reservedZones: group.exclusions.map(({ id, boundaryMm }) => ({ id, boundaryMm })) }
-    }),
-    scale: reference ? { source, mmPerPixel: scale, contentOriginMm: point({ x: 0, y: 0 }), canvasMm: bounds }
-      : { source: 'relative', canvasMm: bounds } } }
+    }) } }
 }
 
 export function landscapeLandmarks(scene: SceneDocument, floor: Floor, input: MapGenerateRequest) {
   if (input.recipe.kind !== 'landscape') return []
-  const source = input.referenceSizePx ?? { width: 1000, height: 1000 }
+  const recipe = input.recipe, source = input.referenceSizePx ?? { width: 1000, height: 1000 }
   const at = mapCoordinate(floor.boundsMm, source, !!input.referenceSizePx)
   const world = publicTerrainView(scene), ground = createSupportQuery(world, floor.id, undefined, false)
-  return input.recipe.landforms.map(form => {
+  return recipe.landforms.map(form => {
     const atMm = at(form.at), sample = ground.sourceSample(atMm)
     const actualElevationMm = sample?.rootSupportRef.id === form.areaId ? Math.round(sample.zMm) : null
     const nearby = Array.from({ length: 8 }, (_, i) => {
@@ -75,7 +88,61 @@ export function landscapeLandmarks(scene: SceneDocument, floor: Floor, input: Ma
     }).flat().sort((a, b) => a - b)
     const surroundingElevationMm = nearby.length ? nearby[Math.floor(nearby.length / 2)] : null
     const riseMm = surroundingElevationMm !== null && actualElevationMm !== null ? actualElevationMm - surroundingElevationMm : null
-    return { id: form.id, areaId: form.areaId, atMm, targetElevationMm: form.elevationMm, actualElevationMm, surroundingElevationMm, riseMm,
-      ...(form.preserveRelief && (riseMm === null || riseMm <= 0) ? { issue: '保留的地标未高于周围此块地形。请核对高程、范围或附近的坡面。' } : {}) }
+    const issue = form.preserveRelief && (riseMm === null || riseMm <= 0)
+      ? '保留的地标未高于周围此块地形。' : recipe.finish === 'natural'
+        && (actualElevationMm === null || Math.abs(form.elevationMm - actualElevationMm) > Math.max(450, Math.abs(form.elevationMm) * .19))
+        ? `目标高程 ${form.elevationMm} mm，成图 ${actualElevationMm ?? '无有效承托'}${actualElevationMm === null ? '' : ' mm'}。请核对地貌范围或道路填挖。` : undefined
+    return { id: form.id, areaId: form.areaId, atMm, targetElevationMm: form.elevationMm, actualElevationMm, surroundingElevationMm, riseMm, issue }
+  })
+}
+
+/** Validate the saved road against the marked start area and destination.
+ * Its full-width surface is separately checked by checkMapRoutes. */
+export function checkLandscapeAscents(scene: SceneDocument, floor: Floor, input: MapGenerateRequest, enforce: boolean) {
+  if (input.recipe.kind !== 'landscape') return []
+  const bounds = floor.boundsMm, source = input.referenceSizePx ?? { width: 1000, height: 1000 }
+  const point = mapCoordinate(bounds, source, !!input.referenceSizePx)
+  const scale = input.referenceSizePx && Math.min(bounds.width / source.width, bounds.height / source.height)
+  const view = publicTerrainView(scene), ground = createSupportQuery(view, floor.id, undefined, false)
+  const forms = input.recipe.landforms
+  return input.recipe.routes.flatMap(route => {
+    if (!('ascent' in route)) return []
+    const { from, toLandmarkId, minRiseMm } = route.ascent
+    const minimumWidthMm = route.ascent.minWidthMm ?? route.widthMm
+    const marked = point(from.at), radius = { x: Math.round(from.radius.x * (scale || bounds.width / source.width)),
+      y: Math.round(from.radius.y * (scale || bounds.height / source.height)) }
+    const summit = point(forms.find(form => form.id === toLandmarkId)!.at)
+    const path = Object.hasOwn(view.paths, route.id) ? view.paths[route.id] : undefined
+    const actualWidthMm = path ? Math.min(path.widthMm, ...(path.widthSections ?? []).map(section => section.widthMm)) : null
+    const startMm = path?.centerlineMm[0], endMm = path?.centerlineMm.at(-1), issues: TerrainTravelIssue[] = []
+    const issue = (code: string, atMm: PointMm, message: string) => issues.push({ code, entityId: route.id, atMm, message })
+    const elevation = (p: PointMm | undefined) => {
+      const sample = p && ground.sourceSample(p)
+      return sample?.rootSupportRef.kind === 'terrainArea' && sample.rootSupportRef.id === route.areaId ? Math.round(sample.zMm) : null
+    }
+    const lowElevationMm = elevation(startMm), highElevationMm = elevation(endMm)
+    const riseMm = highElevationMm !== null && lowElevationMm !== null ? highElevationMm - lowElevationMm : null
+    if (!path?.roadSurface || path.floorId !== floor.id || !startMm || !endMm) {
+      issue('ASCENT_MISSING', marked, '低处到地标的连续道路尚未生成。')
+    } else {
+      if (Math.hypot((startMm.x - marked.x) / Math.max(1, radius.x), (startMm.y - marked.y) / Math.max(1, radius.y)) > 1.002
+        || lowElevationMm === null) issue('ASCENT_START', startMm, '道路起点未落在标记低处的有效承托面内。')
+      if (endMm.x !== summit.x || endMm.y !== summit.y || highElevationMm === null) issue('ASCENT_END', endMm, '道路终点未接至标记的高处地标。')
+      if (riseMm === null || riseMm < minRiseMm) issue('ASCENT_RISE', startMm, `低处到终点实际高差 ${riseMm ?? '未知'} mm，目标至少 ${minRiseMm} mm。`)
+      if (actualWidthMm! < minimumWidthMm) {
+        issue('ASCENT_WIDTH', startMm, `连续道路净宽 ${actualWidthMm} mm，要求至少 ${minimumWidthMm} mm。`)
+      }
+      if (route.around) {
+        const landmark = point(forms.find(form => form.id === route.around!.landmarkId)!.at)
+        if (!reachesLandmarkSide(path.centerlineMm, landmark, route.around.side)) {
+          issue('ASCENT_SIDE', landmark, '实际道路未经过地标指定的绕行侧。')
+        }
+      }
+      const approach = checkGradedRoadOnValidScene(view, path, ASCENT_APPROACH_MM)
+      if (!approach.ok) issues.push(...approach.issues)
+    }
+    if (issues.length && enforce) throw new OperationRejected('invalid_geometry', `「${route.id}」：${issues.map(row => row.message).join('；')}`)
+    return [{ id: route.id, ok: issues.length === 0, required: true as const, toLandmarkId, startMm, endMm,
+      lowElevationMm, highElevationMm, riseMm, minRiseMm, preferredWidthMm: route.widthMm, minimumWidthMm, actualWidthMm, approachMm: ASCENT_APPROACH_MM, issues }]
   })
 }

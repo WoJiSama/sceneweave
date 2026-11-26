@@ -282,12 +282,21 @@ export function checkRouteOnValidScene(scene: SceneDocument, request: TerrainRou
 /** A saved graded road has its own exact full-width deck and caps. Check that
  * surface directly, even when its sampled centerline exceeds the external
  * ad-hoc route input limit. The caller owns native scene validation. */
-export function checkGradedRoadOnValidScene(scene: SceneDocument, path: Path) {
+export function checkGradedRoadOnValidScene(scene: SceneDocument, path: Path, approachMm = 0) {
   if (!path.roadSurface || !scene.floors[path.floorId]) throw new Error('坡地通路检查须使用有效的已保存道路地表。')
   const { coreMm, risers } = buildRoadSurface(path, path.roadSurface)
   const widthMm = Math.min(path.widthMm, ...(path.widthSections ?? []).map(section => section.widthMm))
   const result = checkTerrainBand(scene, path.floorId, coreMm, widthMm)
-  return { ...result, widthMm, lengthMm: connectionArcFrame(path.centerlineMm).length, treadCount: risers.length,
+  const arc = connectionArcFrame(path.centerlineMm)
+  if (approachMm > 0 && result.ok) {
+    for (const [index, distance] of [0, arc.length].entries()) {
+      const { tangent } = arc.station(distance), endpoint = arc.at(distance), direction = index ? 1 : -1
+      const landing = { x: endpoint.x + tangent.x * direction * approachMm, y: endpoint.y + tangent.y * direction * approachMm }
+      const check = checkTerrainBand(scene, path.floorId, corridor(endpoint, landing, widthMm, true), widthMm)
+      if (!check.ok) result.issues.push(...check.issues.map(issue => ({ ...issue, atMm: issue.atMm ?? { x: Math.round(endpoint.x), y: Math.round(endpoint.y) } })))
+    }
+  }
+  return { ...result, ok: result.issues.length === 0, widthMm, lengthMm: arc.length, treadCount: risers.length,
     elevationsMm: [path.roadSurface.stations[0], path.roadSurface.stations.at(-1)!].map(station => (station.inZMm[0] + station.inZMm[1]) / 2) }
 }
 

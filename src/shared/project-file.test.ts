@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto'
 import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { layerScene } from '../../tests/helpers/current-project-fixtures.js'
+import { fixtureRuntime, layerScene, outdoorProject } from '../../tests/helpers/current-project-fixtures.js'
 import { createCompositionContent } from './appearance/graph.js'
+import { LANDSCAPE_GROUND_SCATTER_VERSION } from './geometry/scatter-algorithm.js'
 import type { SceneDocument } from './model/scene.js'
 import type { ProjectBundle } from './model/project.js'
 import type { CompleteValidationOptions } from './ports/resources.js'
 import { createMemoryResources } from './project/resources.js'
 import type { HistoryArchive } from './project/history.js'
 import { exportHistoryArchive, exportProject, importHistoryArchive, importProject, importProjectArchive } from './project/file.js'
-import { PROJECT_EXTENSIONS_READER_VERSION, PROJECT_READER_VERSION, PROJECT_WRITER_BUILD, ProjectReaderVersionError } from './project/format.js'
+import { PROJECT_EXTENSIONS_READER_VERSION, PROJECT_LANDSCAPE_READER_VERSION, PROJECT_READER_VERSION, PROJECT_WRITER_BUILD, ProjectReaderVersionError } from './project/format.js'
 import { captureBytes, crc32, decodeUtf8, sha256Bytes } from './project/binary.js'
 import { parseBoundedJson } from './project/json.js'
 import { PACKAGE_LIMITS } from './project/limits.js'
@@ -97,6 +98,15 @@ describe('complete-v1 native portable container', () => {
     await expect(importProjectArchive(zipSync({ 'manifest.json': futureHeader, '../bad-path': encodeUtf8('x') }), options)).rejects.toThrow(/不安全路径/)
     await expect(importProject(modify(compatible, (files) => { files['sections/new-layout.json'] = encodeUtf8('extra') }), options)).rejects.toThrow(/路径/)
     await expect(importProject(modify(compatible, (_, m) => { m.extra = true }), options)).rejects.toThrow(/字段/)
+  })
+  it('requires the landscape reader for a new scatter rule on flat terrain', async () => {
+    const { project, resources } = outdoorProject()
+    project.document.scatterGroups.scatter.algorithmVersion = LANDSCAPE_GROUND_SCATTER_VERSION
+    const input = { project: { ...project, ...createCompositionContent(project.document, fixtureRuntime()) }, resources }
+    const bytes = await exportProject(input, options)
+    expect(readJson(unzipSync(bytes)['manifest.json']).minReaderVersion).toBe(PROJECT_LANDSCAPE_READER_VERSION)
+    expect((await importProject(bytes, options)).project).toEqual(input.project)
+    await expect(importProject(modify(bytes, (_, manifest) => { manifest.minReaderVersion = 2 }), options)).rejects.toThrow(/最低读取协议/)
   })
   it('carries opaque private text per project and snapshot, even when only a historical snapshot has extensions', async () => {
     const input = archiveFixture(), snapshot = input.snapshots[0]

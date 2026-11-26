@@ -171,7 +171,8 @@ function compileMapOperations(scene: SceneDocument, floor: Floor, input: Pick<Ma
           const path = requireTarget(own(scene.paths, row.id), visibility.path(row.id), row.id)
           if (row.around) {
             const landmark = own(scene.regions, row.around.landmarkId)
-            return planMapPathAround(scene, floor, path, requireTarget(landmark, landmark?.visibility === 'public', row.around.landmarkId), row, point, meter)
+            return planMapPathAround(scene, floor, path, requireTarget(landmark, landmark?.visibility === 'public', row.around.landmarkId),
+              { ...row.around, widthMm: row.widthMm, points: row.points?.map(point) }, meter)
           }
           if (path.roadSurface && path.automaticRoute?.algorithm === AUTOMATIC_ROAD_VERSION) {
             const previous = path.automaticRoute, points = row.points?.map(point) ?? previous.fixedPointsMm
@@ -231,18 +232,19 @@ function compileMapOperations(scene: SceneDocument, floor: Floor, input: Pick<Ma
   })
 }
 
-function planMapPathAround(scene: SceneDocument, floor: Floor, path: SceneDocument['paths'][string],
-  landmark: SceneDocument['regions'][string], row: Extract<MapOperation, { kind: 'path-update' }>,
-  point: (p: PointMm) => PointMm, meter: ExecutionBudget): CompositionCommand {
+export function planMapPathAround(scene: SceneDocument, floor: Floor, path: SceneDocument['paths'][string],
+  landmark: SceneDocument['regions'][string], request: NonNullable<Extract<MapOperation, { kind: 'path-update' }>['around']>
+    & { points?: PointMm[]; widthMm?: number }, meter: ExecutionBudget, audience: 'gm' | 'player' = 'player'):
+    Extract<CompositionCommand, { type: 'updatePath' | 'rerouteTerrainPath' }> {
   const previous = path.automaticRoute
   if (!path.roadSurface || previous?.algorithm !== AUTOMATIC_ROAD_VERSION) throw new Error('方向绕行用于已保存的自动道路。')
   if (previous.landings?.length) throw new Error('道路有手工固定平台，请调整现有途经点，以保留平台。')
-  const { side, radiusMm } = row.around!
+  const { side, radiusMm } = request
   const box = reliefBounds(landmark.boundaryMm)
   const center = { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) }
-  const points = row.points?.map(point) ?? previous.fixedPointsMm
-  const widthMm = row.widthMm ?? path.widthMm
-  const view = publicTerrainView(scene), ground = createRoadGround(view, floor.id, path.id)
+  const points = request.points ?? previous.fixedPointsMm
+  const widthMm = request.widthMm ?? path.widthMm
+  const view = audience === 'gm' ? scene : publicTerrainView(scene), ground = createRoadGround(view, floor.id, path.id)
   const support = ground.sample(center)?.rootSupportRef
   if (!support || !path.supportRefs.some(ref => ref.kind === support.kind && ref.id === support.id)) throw new Error('地标须落在道路同一承托地面。')
   const radius = radiusMm ?? Math.max(widthMm * 2.2, Math.min(box.width, box.height) * 1.75)
@@ -258,9 +260,9 @@ function planMapPathAround(scene: SceneDocument, floor: Floor, path: SceneDocume
       const changes = { widthMm, centerlineMm: plan.centerlineMm, supportRefs: plan.supportRefs,
         roadSurface: plan.roadSurface!, automaticRoute: { ...previous, alignment: 'anchors-v1' as const, fixedPointsMm: anchors } }
       const rerouted = { ...path, ...changes }
-      const publicGround = groundScene === scene ? view : publicTerrainView(groundScene)
+      const publicGround = audience === 'gm' ? groundScene : groundScene === scene ? view : publicTerrainView(groundScene)
       const tested = checkGradedRoadOnValidScene({ ...publicGround, paths: { ...publicGround.paths, [path.id]: rerouted } }, rerouted)
-      if (tested.ok && (!stairs || tested.treadCount > 0)) return { type: 'updatePath' as const, id: row.id, changes }
+      if (tested.ok && (!stairs || tested.treadCount > 0)) return { type: 'updatePath' as const, id: path.id, changes }
     } catch (error) {
       if (error instanceof OperationRejected) throw error
     }

@@ -1,16 +1,16 @@
 import { prepareGenerationIntent, type GenerationIntent } from '../../../application/workspace/generation-intent.js'
 import { prepareDomainProject } from '../../../application/workspace/generation.js'
 import { prepareTerrainProject } from '../../../application/workspace/terrain.js'
-import { landscapeLandmarks, prepareLandscapeMap } from '../../../application/workspace/landscape-map.js'
+import { checkLandscapeAscents, landscapeLandmarks, LANDSCAPE_PAIR_ACCOUNTING, prepareLandscapeMap, shapeLandscapeCandidate } from '../../../application/workspace/landscape-map.js'
 import { checkMapHeights, checkMapRoutes, mapSceneSummary, prepareMapOperations } from '../../../application/workspace/map-authoring.js'
-import { fromVerifiedBundle, type EditableProject } from '../../../application/workspace/project.js'
+import { fromVerifiedBundle, toBundle, type EditableProject } from '../../../application/workspace/project.js'
 import { defaultForestCampCoverages } from '../../../application/workspace/woodland-distribution.js'
 import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, measureTaskBudget, type BudgetUsage, type TaskBudgetProfile } from '../../../shared/budget/task-budget.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import { ERODED_COAST_VERSION } from '../../../shared/terrain-generation/generate.js'
 import type { LandscapeRoadFailure } from '../../../shared/terrain-generation/landscape-authoring.js'
-import { mapDimensions, parseMapEdit, parseMapGenerate, parseMapInspect, type MapGenerateRequest, type MapOperation } from '../../../shared/generation/map-authoring.js'
-import { polygonsOverlap, propFootprint } from '../../../shared/geometry/geometry.js'
+import { mapDimensions, parseMapEdit, parseMapGenerate, parseMapInspect, type MapGenerateRequest, type MapLandscapeRecipe, type MapOperation } from '../../../shared/generation/map-authoring.js'
+import { polygonsOverlap, propFootprint, terrainPoints } from '../../../shared/geometry/geometry.js'
 import { roadEffectsPolygon } from '../../../shared/geometry/road-domain.js'
 import { publicTerrainView } from '../../../shared/geometry/visibility.js'
 import { importProject } from '../../../shared/project/file.js'
@@ -23,7 +23,7 @@ import { runtime } from '../runtime.js'
 import { browserGenerationContent } from './generation-intent.js'
 import { createStarterProject } from './factories.js'
 import { createRefinedBlankProject } from './refined-blank.js'
-import { createCoastalAscentBlankProject, createForestCampBlankProject, createLandscapeBlankProject } from './shore-blank.js'
+import { createCoastalAscentBlankProject, createForestCampBlankProject, createLandscapeBlankContent, createLandscapeBlankProject } from './shore-blank.js'
 
 const validation = browserProjectValidation
 
@@ -68,14 +68,14 @@ function generationIntent(input: MapGenerateRequest): GenerationIntent {
   }
 }
 
-async function initialMap(input: MapGenerateRequest, profile: TaskBudgetProfile, draft: boolean): Promise<{
+async function initialMap(input: MapGenerateRequest, profile: TaskBudgetProfile, draft: boolean, signal?: AbortSignal): Promise<{
   project: EditableProject; usage: BudgetUsage; report?: unknown; roadFailures?: LandscapeRoadFailure[]
 }> {
   const { recipe, title } = input, { widthMm, heightMm } = mapDimensions(input)
   const options = { title, widthMm, heightMm, preset: 'narrative' as const, gridVisible: false }
   if (recipe.kind === 'landscape') {
-    const base = await createLandscapeBlankProject(options)
-    return prepareLandscapeMap(base, pickFloor(base.document), input, recipe, { runtime, validation, budget: profile }, draft)
+    const base = await createLandscapeBlankProject(options, signal)
+    return prepareLandscapeMap(base, pickFloor(base.document), input, recipe, { runtime, validation: { ...validation, signal }, budget: profile }, draft)
   }
   if (recipe.kind === 'layout') {
     const project = recipe.palette === 'coast' ? await createCoastalAscentBlankProject('coast', options)
@@ -107,31 +107,106 @@ function combinedUsage(profile: TaskBudgetProfile, first: BudgetUsage, second: B
   return assertTaskBudget(profile, usage)
 }
 
-function reviewed(project: EditableProject, input: Pick<MapGenerateRequest, 'referenceSizePx' | 'checks' | 'heightChecks' | 'oblique'>, floorId: string,
+function reviewed(document: SceneDocument, input: Pick<MapGenerateRequest, 'referenceSizePx' | 'checks' | 'heightChecks' | 'oblique'>, floorId: string,
   preserveAspect = false, roadIds: string[] = [], enforce = true, roadFailures?: LandscapeRoadFailure[]) {
-  const floor = pickFloor(project.document, floorId), scene = mapSceneSummary(project.document, floor, '', 12)
-  const routeChecks = checkMapRoutes(project.document, floor, input, preserveAspect, roadIds, enforce, roadFailures)
-  const heightChecks = checkMapHeights(project.document, floor, input, preserveAspect, enforce)
-  return { scene, routeChecks, heightChecks, artStyle: project.document.artStyle?.active ?? 'original', floorId,
+  const floor = pickFloor(document, floorId), scene = mapSceneSummary(document, floor, '', 12)
+  const routeChecks = checkMapRoutes(document, floor, input, preserveAspect, roadIds, enforce, roadFailures)
+  const heightChecks = checkMapHeights(document, floor, input, preserveAspect, enforce)
+  return { scene, routeChecks, heightChecks, artStyle: document.artStyle?.active ?? 'original' as const, floorId,
     oblique: input.oblique ?? scene.hasTerrainHeightDifferences }
 }
 
-export async function generateMapCandidate(raw: unknown, profile: TaskBudgetProfile, enforce = true) {
+function reviewedGeneration(document: SceneDocument, floorId: string, request: MapGenerateRequest, enforce: boolean, roadFailures?: LandscapeRoadFailure[]) {
+  const roads = request.recipe.kind === 'landscape' ? request.recipe.routes.map(route => route.id) : []
+  const floor = pickFloor(document, floorId)
+  return { ...reviewed(document, request, floorId, request.recipe.kind === 'landscape', roads, enforce, roadFailures),
+    ascentChecks: checkLandscapeAscents(document, floor, request, enforce), landmarks: landscapeLandmarks(document, floor, request) }
+}
+
+type GenerationReview = ReturnType<typeof reviewedGeneration>
+export function mapDiagnosticMarkers(result: Pick<GenerationReview, 'routeChecks' | 'heightChecks'> & Partial<Pick<GenerationReview, 'ascentChecks' | 'landmarks'>>) {
+  const seen = new Set<string>()
+  return [
+    ...[...result.routeChecks, ...(result.ascentChecks ?? [])].flatMap(check => check.ok ? [] : check.issues.flatMap(issue => issue.atMm
+      ? [{ id: check.id, atMm: issue.atMm, message: issue.message }] : [])),
+    ...result.heightChecks.flatMap(check => check.ok ? [] : [{ id: check.id, atMm: check.highMm,
+      message: `实际高差 ${check.riseMm ?? '未知'} mm，目标至少 ${check.minRiseMm} mm。` }]),
+    ...(result.landmarks ?? []).flatMap(landmark => landmark.issue ? [{ id: landmark.id, atMm: landmark.atMm, message: landmark.issue }] : []),
+  ].filter(marker => {
+    const key = `${marker.id}/${marker.atMm.x}/${marker.atMm.y}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 12)
+}
+
+export function mapGeometryAcceptable(result: Pick<GenerationReview, 'routeChecks' | 'heightChecks' | 'ascentChecks'>) {
+  return [...result.routeChecks, ...result.heightChecks, ...result.ascentChecks].every(check => check.ok || 'required' in check && !check.required)
+}
+
+export async function restyleMapCandidate(base: EditableProject, floorId: string, style: MapLandscapeRecipe['style'], profile: TaskBudgetProfile, signal?: AbortSignal) {
+  const floor = pickFloor(base.document, floorId)
+  const input = parseMapEdit({ projectHash: projectContentHash(toBundle(base).project), floorId, operations: [{ kind: 'art-style', style }] })
+  const { project } = await prepareMapOperations(base, floor, input, { runtime, validation: { ...validation, signal }, budget: profile })
+  signal?.throwIfAborted()
+  return project
+}
+
+export async function generateMapCandidate(raw: unknown, profile: TaskBudgetProfile, enforce = true, signal?: AbortSignal) {
   const start = performance.now(), request = parseMapGenerate(raw)
-  const initial = await initialMap(request, profile, !enforce), floor = pickFloor(initial.project.document)
+  const initial = await initialMap(request, profile, !enforce, signal), floor = pickFloor(initial.project.document)
+  signal?.throwIfAborted()
   const preserveAspect = request.recipe.kind === 'landscape'
   const composed = request.operations.length
-    ? await prepareMapOperations(initial.project, floor, request, { runtime, validation, budget: profile }, preserveAspect)
+    ? await prepareMapOperations(initial.project, floor, request, { runtime, validation: { ...validation, signal }, budget: profile }, preserveAspect)
     : { project: initial.project, usage: emptyBudgetUsage(), changes: [], geometryWork: undefined }
-  const project = { ...composed.project, document: { ...composed.project.document, title: request.title } }
-  const roadIds = request.recipe.kind === 'landscape' ? request.recipe.routes.map(route => route.id) : []
-  const review = reviewed(project, request, floor.id, preserveAspect, roadIds, enforce, initial.roadFailures)
+  signal?.throwIfAborted()
+  const project = composed.project.document.title === request.title ? composed.project
+    : { ...composed.project, document: { ...composed.project.document, title: request.title } }
+  const review = reviewedGeneration(project.document, floor.id, request, enforce, initial.roadFailures)
   const usage = combinedUsage(profile, initial.usage, composed.usage, performance.now() - start)
-  return { project, usage, ...review, landmarks: landscapeLandmarks(project.document, floor, request), changes: composed.changes, recipe: request.recipe.kind,
+  return { project, usage, ...review, changes: composed.changes, recipe: request.recipe.kind,
     ...(composed.geometryWork ? { geometryWork: composed.geometryWork } : {}),
     // The recipe report describes the original automatic generation. The
     // composed scene and route evidence describe the actual final candidate.
     ...(initial.report ? { recipeReport: initial.report } : {}) }
+}
+
+/** Same geometry and actual pass/fail evidence as draft generation. Landscape
+ * requests without extra commands need no image assets or renderer. */
+export async function diagnoseMapCandidate(raw: unknown, profile: TaskBudgetProfile, signal?: AbortSignal) {
+  const start = performance.now(), request = parseMapGenerate(raw)
+  const { recipe, title } = request
+  let document: SceneDocument, usage: BudgetUsage, review: GenerationReview
+  if (recipe.kind === 'landscape' && !request.operations.length) {
+    const { scene } = await createLandscapeBlankContent({ title, ...mapDimensions(request), preset: 'narrative', gridVisible: false }, signal)
+    signal?.throwIfAborted()
+    const floor = pickFloor(scene)
+    const candidate = shapeLandscapeCandidate(scene, floor, request, recipe, profile, true)
+    document = candidate.document
+    review = reviewedGeneration(document, floor.id, request, false, candidate.roadFailures)
+    usage = assertTaskBudget(profile, measureTaskBudget(scene, document, undefined,
+      { ...candidate.execution, intersectionPairs: candidate.execution.intersectionPairs + candidate.checkedPairs,
+        activeExecutionMs: Math.ceil(performance.now() - start) }, LANDSCAPE_PAIR_ACCOUNTING))
+  } else {
+    const candidate = await generateMapCandidate(request, profile, false, signal)
+    document = candidate.project.document
+    const { scene, routeChecks, heightChecks, ascentChecks, landmarks, artStyle, floorId, oblique } = candidate
+    review = { scene, routeChecks, heightChecks, ascentChecks, landmarks, artStyle, floorId, oblique }
+    usage = candidate.usage
+  }
+  signal?.throwIfAborted()
+  return mapDiagnosis(document, review, usage)
+}
+
+export function mapDiagnosis(document: SceneDocument, review: GenerationReview, usage: BudgetUsage) {
+  const floor = pickFloor(document, review.floorId), view = publicTerrainView(document)
+  const { scene, floorId, routeChecks, heightChecks, ascentChecks, landmarks, artStyle, oblique } = review
+  return { status: 'diagnosed' as const, ok: mapGeometryAcceptable(review), scene, floorId, routeChecks, heightChecks, ascentChecks, landmarks, artStyle, oblique, usage,
+    diagnosticMarkers: mapDiagnosticMarkers(review), geometry: { boundsMm: floor.boundsMm,
+      land: Object.values(view.terrainAreas).filter(row => row.floorId === floor.id && !row.waterSurface)
+        .map(row => ({ id: row.id, boundaryMm: terrainPoints(row) })),
+      roads: Object.values(view.paths).filter(row => row.floorId === floor.id).map(row => ({ id: row.id, pointsMm: row.centerlineMm })) } }
 }
 
 function roadsAffectedByEdit(scene: SceneDocument, floorId: string, operations: MapOperation[], changes: { id: string; kind: string }[] = []) {
@@ -179,7 +254,7 @@ export async function editMapCandidate(bytes: Uint8Array, raw: unknown, profile:
   if (!composed.changes.length) throw new Error('这些操作没有产生可保存的场景变化。')
   const project = { ...composed.project, document: reviseSceneSnapshot(composed.project.document, base.document.revision + 1, runtime.clock.now()) }
   const roadIds = roadsAffectedByEdit(project.document, floor.id, request.operations, composed.changes)
-  const review = reviewed(project, request, floor.id, preserveAspect, roadIds, enforce)
+  const review = reviewed(project.document, request, floor.id, preserveAspect, roadIds, enforce)
   const usage = assertTaskBudget(profile, { ...composed.usage, activeExecutionMs: Math.ceil(performance.now() - start) })
   return { project, usage, ...review, changes: composed.changes, geometryWork: composed.geometryWork, parentProjectHash: request.projectHash }
 }
@@ -189,13 +264,12 @@ export function reviewSavedMap(bundle: ProjectBundle, action: 'generate' | 'edit
   const usage = assertTaskBudget(profile, measureTaskBudget(document, document, { before: project, after: project }, {}, 'spatial-v1'))
   if (action === 'generate') {
     const input = parseMapGenerate(raw)
-    const recipe = input.recipe, roads = recipe.kind === 'landscape' ? recipe.routes.map(route => route.id) : []
-    return { ...reviewed(project, input, floor.id, recipe.kind === 'landscape', roads), landmarks: landscapeLandmarks(document, floor, input),
+    return { ...reviewedGeneration(document, floor.id, input, true),
       usage, title: document.title, revision: document.revision }
   }
   const input = parseMapEdit(raw)
   if (input.floorId !== floor.id) throw new Error('保存工程与编辑请求的楼层不符。')
-  return { ...reviewed(project, input, floor.id, input.referenceMapping === 'fit', roadsAffectedByEdit(document, floor.id, input.operations)),
+  return { ...reviewed(document, input, floor.id, input.referenceMapping === 'fit', roadsAffectedByEdit(document, floor.id, input.operations)),
     usage, title: document.title, revision: document.revision, parentProjectHash: input.projectHash }
 }
 

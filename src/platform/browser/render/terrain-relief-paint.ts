@@ -6,11 +6,33 @@ import { directionToLight } from '../../../shared/visual/directional-light.js'
 const clamp = (x: number) => Math.max(0, Math.min(1, x))
 const ramp = (x: number) => { const t = clamp(x); return t * t * (3 - 2 * t) }
 
+function paintBrokenRock(data: Uint8ClampedArray, i: number, x: number, y: number, z: number, dx: number, dy: number) {
+  const slope = Math.hypot(dx, dy)
+  const fold = Math.sin(x / 2350 + Math.cos(y / 3100)) * Math.cos(y / 1780 - x / 4400)
+  const weathering = Math.sin(x / 1020 + y / 1750 + fold * 1.6) * Math.cos(y / 730 - x / 2200)
+  const exposed = ramp((slope - .30 + fold * .09 + weathering * .06) / .64)
+  if (exposed < .004) return
+  // These slanted beds follow the rock face. Their width and depth change
+  // across the face, with joints ending inside the softer bands.
+  const bedding = (x * .23 - y * .22 + z * .56 + 635 * fold + 150 * weathering) / 1130
+  const face = bedding - Math.floor(bedding)
+  const interrupted = ramp((weathering + .44) / .90) * ramp((Math.sin(x / 4560 - y / 3690) + .84) / 1.22)
+  const seam = ramp((face - .77) / .23) * interrupted
+  const ledge = ramp((.24 - face) / .24) * interrupted
+  const joint = Math.cos(x / 345 + y / 790 - z / 1230 + fold * 3 + weathering)
+  const fissure = ramp((joint - .90) / .10) * ramp((.81 - face) / .32) * ramp((weathering + .08) / .62)
+  const seed = Math.imul(Math.floor(x / 127), 0x45d9f3b) ^ Math.imul(Math.floor(y / 109), 0x119de1f3)
+  const grain = ((Math.imul(seed ^ (seed >>> 16), 0x45d9f3b) >>> 24) / 255 - .5) * 12
+  const shade = 24 * ledge - 28 * seam - 36 * fissure + 19 * fold + 14 * weathering + grain
+  data[i] = 126 + shade; data[i + 1] = 114 + shade; data[i + 2] = 101 + shade
+  data[i + 3] = Math.round(exposed * (160 + 55 * seam + 45 * fissure))
+}
+
 /** A world-space pigment layer over exposed slopes. The saved surface
  * supplies height and slope; both terrain views use the same brush. */
 export function drawWeatheredRelief(ctx: CanvasRenderingContext2D, area: ProjectedSurface, clip: Path2D) {
   const relief = area.relief
-  if (!relief || area.reliefFinish !== 'weathered-v1') return
+  if (!relief || !area.reliefFinish) return
   const box = reliefBounds(area.points), canvas = document.createElement('canvas')
   const scale = Math.min(920 / Math.max(box.width, box.height), 1 / 67)
   const width = canvas.width = Math.max(3, Math.ceil(box.width * scale))
@@ -27,6 +49,11 @@ export function drawWeatheredRelief(ctx: CanvasRenderingContext2D, area: Project
     const wx = box.x + (x + .5) * stepX, wy = box.y + (y + .5) * stepY, z = area.elevationMm + at(x, y)
     const dx = (at(x + span, y) - at(x - span, y)) / (2 * span * stepX)
     const dy = (at(x, y + span) - at(x, y - span)) / (2 * span * stepY)
+    const i = (y * width + x) * 4
+    if (area.reliefFinish === 'weathered-v2') {
+      paintBrokenRock(image.data, i, wx, wy, z, dx, dy)
+      continue
+    }
     const slope = Math.hypot(dx, dy)
     const fold = Math.sin(wx / 1577 + Math.sin(wy / 990) * .67) * Math.cos(wy / 2033 - wx / 3602)
     const exposure = ramp((slope - .22 + fold * .058) / .46)
@@ -40,7 +67,6 @@ export function drawWeatheredRelief(ctx: CanvasRenderingContext2D, area: Project
     const fissure = ramp((Math.sin(wx / 331 + wy / 521 + z / 1477 + fold * 3.3) - .931) / .069)
       * ramp((Math.cos(wy / 654 + wx / 1928) - .03) / .67)
     const shade = 21 * fold + 6 * grain + 26 * lightBed - 23 * strata - 21 * fissure
-    const i = (y * width + x) * 4
     image.data[i] = 82 + shade
     image.data[i + 1] = 88 + shade
     image.data[i + 2] = 92 + shade

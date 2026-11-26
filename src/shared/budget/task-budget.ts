@@ -1,6 +1,6 @@
 import { OperationRejected } from '../validation/operation-rejection.js'
 import { z } from 'zod'
-import type { SceneDocument } from '../model/scene.js'
+import type { Prop, SceneDocument } from '../model/scene.js'
 import type { CompositionContent } from '../model/appearance.js'
 import { LAYER_ENTITY_COLLECTIONS, DECORATION_COLLECTIONS, SURFACE_RULE_COLLECTIONS } from '../model/scene.js'
 import { visualBase } from '../visual/base.js'
@@ -8,6 +8,8 @@ import { canonicalJson, captureJson, encodeUtf8, equalCheckedJson, equalOwnedJso
 import { sha256Text } from '../validation/hash.js'
 import { isCertifiedSceneSnapshot } from '../validation/snapshots.js'
 import { indexEdges, type SegmentMm } from '../geometry/edge-index.js'
+import { propFootprint } from '../geometry/geometry.js'
+import { reliefBounds } from '../geometry/terrain-relief.js'
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 export const BudgetUsageSchema = z.object({ semanticTargets: count, geometryPoints: count, geometrySegments: count,
@@ -50,9 +52,15 @@ export const selectTaskBudget = (input: { task: 'generation' | 'local-edit' | 'a
   const rank = { small: 0, standard: 1, expanded: 2 }, ceiling = { constrained: 0, standard: 1, expanded: 2 }
   return taskBudgetProfile((['small','standard','expanded'] as const)[Math.min(rank[wanted], ceiling[input.device])])
 }
+function budgetExceeded(profile: TaskBudgetProfile, dimension: keyof BudgetUsage, used: number) {
+  const limit = profile.limits[dimension]
+  return Object.assign(new OperationRejected('operation_budget', `任务预算超限[${dimension}]：${used}/${limit}，保留当前成果。`),
+    { details: { budget: { dimension, used, limit, profile: profile.profileId } } })
+}
+
 export function assertTaskBudget(profileInput: TaskBudgetProfile, raw: BudgetUsage): BudgetUsage {
   const profile = parseTaskBudgetProfile(profileInput), usage = BudgetUsageSchema.parse(captureJson(raw))
-  for (const key of BUDGET_DIMENSIONS) if (usage[key] > profile.limits[key]) throw new OperationRejected('operation_budget', `任务预算超限[${key}]：${usage[key]}/${profile.limits[key]}，保留当前成果。`)
+  for (const key of BUDGET_DIMENSIONS) if (usage[key] > profile.limits[key]) throw budgetExceeded(profile, key, usage[key])
   return freezeJson(usage)
 }
 const observedWorkDimensions = ['gridNodes','fieldEvaluations','intersectionPairs','dependencyRefs','candidateAttempts'] as const
@@ -83,7 +91,7 @@ export function captureExecutionBudget(profileInput: TaskBudgetProfile) {
       if (!BUDGET_DIMENSIONS.includes(key) || !Number.isSafeInteger(amount) || amount < 0 || !Number.isSafeInteger(next[key] + amount)) throw new Error('任务工作计量无效。')
       next[key] += amount
     }
-    for(const key of BUDGET_DIMENSIONS)if(next[key]>profile.limits[key])throw new OperationRejected('operation_budget', `任务预算超限[${key}]：${next[key]}/${profile.limits[key]}，保留当前成果。`)
+    for (const key of BUDGET_DIMENSIONS) if (next[key] > profile.limits[key]) throw budgetExceeded(profile, key, next[key])
     Object.assign(usage, next)
     if(executionWorkObserver){
       const work=Object.fromEntries(observedWorkDimensions.filter(key=>(delta[key]??0)>0).map(key=>[key,delta[key]])) as Partial<BudgetUsage>
@@ -272,14 +280,13 @@ export function measureBudgetDependencies(value: unknown): number {
 }
 
 /** Geometry delta, retained references and resources shared by both budget policies. */
-export type TerrainPairAccounting = 'spatial-v1'
+export type TerrainPairAccounting = 'spatial-v1' | 'landscape-spatial-v2'
 export function captureGeometryPairBudget(profile: TaskBudgetProfile) {
   let pairs = 0
   return {
     add(count: number) {
       pairs += count
-      if (pairs > profile.limits.intersectionPairs) throw new OperationRejected('operation_budget',
-        `任务预算超限[intersectionPairs]：已检查 ${pairs}/${profile.limits.intersectionPairs} 对，保留当前成果。`)
+      if (pairs > profile.limits.intersectionPairs) throw budgetExceeded(profile, 'intersectionPairs', pairs)
     },
     count: () => pairs,
   }
@@ -318,6 +325,35 @@ function spatialTerrainPairs(before: SceneDocument, after: SceneDocument, equal:
   return Math.max(0, broadEstimate - candidates)
 }
 
+/** New landscape footprints have exact support and route validation under a
+ * monitored narrow phase. Bound their possible local interactions without
+ * treating their four edges as structural edges against the entire map. */
+function landscapeFootprintWork(before: SceneDocument, after: SceneDocument) {
+  if (Object.keys(before.props).length || Object.keys(before.terrainAreas).length
+    || Object.keys(after.rooms).length || Object.keys(after.walls).length || Object.keys(after.terrainConnections).length
+    || Object.keys(after.attachments ?? {}).length || Object.values(after.terrainAreas).some(area => area.rockBody || area.facade)
+    || Object.values(after.paths).some(path => path.assembly)
+    || Object.values(after.props).some(prop => prop.supportRef.kind !== 'terrainArea')) return { segments: 0, pairs: 0 }
+  const byFloor = new Map<string, Prop[]>()
+  for (const prop of Object.values(after.props)) {
+    const rows = byFloor.get(prop.floorId) ?? []
+    rows.push(prop); byFloor.set(prop.floorId, rows)
+  }
+  let segments = 0, pairs = 0
+  for (const rows of byFloor.values()) {
+    const bounds = rows.map(prop => {
+      const box = reliefBounds(propFootprint(prop))
+      return [{ x: box.x, y: box.y }, { x: box.x + box.width, y: box.y + box.height }] as const
+    })
+    const find = indexEdges(bounds)
+    segments += rows.length * 4
+    // Include near-neighbor footprints plus the polygon's own pairs. The
+    // scatter and route verifiers charge repeated contacts separately.
+    for (const [a, b] of bounds) pairs += 6 + find(a, b, 1e-7).length * 16
+  }
+  return { segments, pairs }
+}
+
 export function measureDocumentBudget(before: SceneDocument, after: SceneDocument, metadata?: Partial<TaskBudgetMetadata['after']>,
   terrainPairAccounting?: TerrainPairAccounting): BudgetUsage {
   const usage = emptyBudgetUsage()
@@ -339,7 +375,7 @@ export function measureDocumentBudget(before: SceneDocument, after: SceneDocumen
   let retainedSegments=0
   for (const collection of LAYER_ENTITY_COLLECTIONS) for (const id of new Set([...Object.keys(before[collection]),...Object.keys(after[collection])])) {
     addChanged(before[collection][id],after[collection][id]);retainedSegments+=measureBudgetGeometry(after[collection][id]).geometrySegments
-    if (terrainPairAccounting === 'spatial-v1' && collection === 'terrainAreas') {
+    if (terrainPairAccounting && collection === 'terrainAreas') {
       const previous = before.terrainAreas[id], current = after.terrainAreas[id]
       const oldPaint = paintEdges(previous), newPaint = paintEdges(current)
       retainedPaintEdges += newPaint
@@ -386,11 +422,13 @@ export function measureDocumentBudget(before: SceneDocument, after: SceneDocumen
   // geometry. Executors add repeated clipping/search/validation work through
   // executionUsage; this bound is independent of the editable target count.
   usage.intersectionPairs=usage.geometrySegments*(retainedSegments+usage.geometrySegments)
-  if (terrainPairAccounting === 'spatial-v1') {
+  if (terrainPairAccounting) {
     // Paint masks are checked for simple geometry, but neither resolve
     // support nor intersect with each other in the physical validator.
-    const changed = usage.geometrySegments - changedPaintEdges, retained = retainedSegments - retainedPaintEdges
-    usage.intersectionPairs = changed * (retained + changed) + paintSelfPairs - spatialTerrainPairs(before, after, equal)
+    const local = terrainPairAccounting === 'landscape-spatial-v2' ? landscapeFootprintWork(before, after) : { segments: 0, pairs: 0 }
+    const changed = usage.geometrySegments - changedPaintEdges - local.segments
+    const retained = retainedSegments - retainedPaintEdges - local.segments
+    usage.intersectionPairs = Math.max(0, changed * (retained + changed) - spatialTerrainPairs(before, after, equal)) + paintSelfPairs + local.pairs
   }
   usage.dependencyRefs = measureBudgetDependencies(after) + measureBudgetDependencies(metadata?.historyIdentity)
     + measureBudgetDependencies(metadata?.appearance)

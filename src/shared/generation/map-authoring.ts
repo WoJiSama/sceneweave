@@ -45,18 +45,62 @@ const landform = z.object({ id, areaId: id, name: label.optional(), ...ellipse,
   cover: coverKind.optional(), keepClear: z.boolean().optional(), preserveRelief: z.literal(true).optional(),
   rotationDeg: z.number().min(0).lt(360).default(0) }).strict()
   .refine(row => row.shape !== 'lowland' || !row.preserveRelief, '保留凸起用于山丘、山脊或台地。')
-const landscapeRoute = z.object({ id, areaId: id, via: z.array(routeAnchor).min(2).max(AUTOMATIC_ROAD_MAX_FIXED_POINTS),
-  around: around.optional(), widthMm: width.max(6000).default(2000), style: z.enum(['trail', 'stairs']).default('trail') }).strict()
+const routeFields = { id, areaId: id, around: around.optional(), widthMm: width.max(6000).default(2000),
+  style: z.enum(['trail', 'stairs']).default('trail') }
+const fixedLandscapeRoute = z.object({ ...routeFields, via: z.array(routeAnchor).min(2).max(AUTOMATIC_ROAD_MAX_FIXED_POINTS) }).strict()
   .refine(row => !row.around || row.via.length === 2, { path: ['via'], message: '按方向绕行时，只提供起点和终点，程序会补充转折。' })
+const ascentRoute = z.object({ ...routeFields, style: z.enum(['trail', 'stairs']).default('stairs'),
+  ascent: z.object({ from: z.object(ellipse).strict(), toLandmarkId: id, minRiseMm: integer.positive().max(60000).default(1200),
+    minWidthMm: width.max(6000).optional(),
+    staircase: z.enum(['terrain', 'flight']).default('terrain') }).strict(),
+}).strict().refine(row => row.ascent.minWidthMm === undefined || row.ascent.minWidthMm <= row.widthMm,
+  { path: ['ascent', 'minWidthMm'], message: '可接受净宽下限不能大于首选净宽。' })
+const landscapeRoute = z.union([fixedLandscapeRoute, ascentRoute])
+export const MAP_LANDSCAPE_LIMITS = { land: 48, landforms: 32, lakes: 16, routes: 12, scenery: 12, covers: 32 } as const
 const landscapeRecipe = z.object({ kind: z.literal('landscape'), environment: z.enum(['coast', 'upland']).default('upland'),
-  land: z.array(land).min(1).max(48), landforms: z.array(landform).max(32).default([]),
-  routes: z.array(landscapeRoute).max(12).default([]), scenery: z.array(sceneryZone).max(12).default([]),
-  covers: z.array(coverZone.strict()).max(32).default([]),
+  land: z.array(land).min(1).max(MAP_LANDSCAPE_LIMITS.land), landforms: z.array(landform).max(MAP_LANDSCAPE_LIMITS.landforms).default([]),
+  lakes: z.array(z.object({ id, areaId: id, boundary: ring }).strict()).max(MAP_LANDSCAPE_LIMITS.lakes).optional(),
+  routes: z.array(landscapeRoute).max(MAP_LANDSCAPE_LIMITS.routes).default([]), scenery: z.array(sceneryZone).max(MAP_LANDSCAPE_LIMITS.scenery).default([]),
+  covers: z.array(coverZone.strict()).max(MAP_LANDSCAPE_LIMITS.covers).default([]),
   density: z.number().min(0).max(1).default(.64),
+  finish: z.literal('natural').optional(),
   style: artStyle.default('original') }).strict()
 export type MapLandscapeRecipe = z.infer<typeof landscapeRecipe>
+export type MapLandscapeRoute = z.infer<typeof landscapeRoute>
+export type MapAscentRoute = z.infer<typeof ascentRoute>
 export type MapSceneryZone = z.infer<typeof sceneryZone>
 export type MapCoverZone = z.infer<typeof coverZone>
+
+export const MAP_REFERENCE_TOLERANCE = 28
+export const MAP_REFERENCE_DEFAULTS = { backgroundSamples: 12, detailSamples: 24, correctionStrokes: 24, strokePoints: 96, longEdgeMm: 78_000 } as const
+const referenceStroke = z.object({ points: z.array(point).min(1).max(MAP_REFERENCE_DEFAULTS.strokePoints),
+  radiusPx: z.number().int().min(1).max(128), kind: z.enum(['land', 'background']) }).strict()
+const referenceLandmarkInput = z.object({ ...landform.shape, areaId: id.optional(), radius: radius.optional() }).strict()
+const referenceAscentInput = z.object({
+  id, widthMm: routeFields.widthMm, style: ascentRoute.shape.style,
+  from: point, radius: radius.optional(), to: id, around: side.optional(),
+  minRiseMm: ascentRoute.shape.ascent.shape.minRiseMm, minWidthMm: ascentRoute.shape.ascent.shape.minWidthMm,
+  staircase: ascentRoute.shape.ascent.shape.staircase,
+}).strict()
+const referenceDesign = z.object({
+  longEdgeMm: z.number().int().min(1000).max(120000).optional(),
+  seed: label.optional(),
+  landforms: z.array(referenceLandmarkInput).max(MAP_LANDSCAPE_LIMITS.landforms).default([]),
+  ascents: z.array(referenceAscentInput).max(MAP_LANDSCAPE_LIMITS.routes).default([]),
+}).strict()
+export const mapReferenceSchema = z.object({
+  title: label.default('参考图地形'),
+  environment: z.enum(['coast', 'upland']).default('coast'),
+  background: z.array(point).min(1).max(MAP_REFERENCE_DEFAULTS.backgroundSamples),
+  foreground: z.array(point).max(MAP_REFERENCE_DEFAULTS.detailSamples).default([]),
+  keep: z.array(point).max(MAP_REFERENCE_DEFAULTS.detailSamples).default([]),
+  omit: z.array(point).max(MAP_REFERENCE_DEFAULTS.detailSamples).default([]),
+  corrections: z.array(referenceStroke).max(MAP_REFERENCE_DEFAULTS.correctionStrokes).default([]),
+  tolerance: z.number().min(8).max(90).default(MAP_REFERENCE_TOLERANCE),
+  detail: z.enum(['coarse', 'balanced', 'fine']).default('balanced'),
+  surfaceFromReference: z.boolean().default(true),
+  design: referenceDesign.optional(),
+}).strict()
 
 const interior = directedInteriorLayoutParametersSchema.shape
 const recipeSchema = z.discriminatedUnion('kind', [
@@ -151,12 +195,17 @@ export const mapGenerateSchema = z.object({
   }
   if (recipe.kind === 'landscape') {
     const areaIds = new Set(recipe.land.map(row => row.id))
-    const features = [...recipe.landforms, ...recipe.routes, ...recipe.scenery, ...recipe.covers]
+    const features = [...recipe.landforms, ...recipe.routes, ...recipe.scenery, ...recipe.covers, ...(recipe.lakes ?? [])]
     const ids = [...recipe.land, ...features].map(row => row.id)
     if (new Set(ids).size !== ids.length || ids.some(value => value.startsWith('landscape/'))) issue('recipe', '地形、地貌、路线、地表覆盖与布景 ID 须唯一。landscape/ 留给程序派生对象。')
+    if (recipe.lakes?.length && recipe.environment !== 'coast') issue('recipe', '内水轮廓使用 coast 水岸环境。')
     for (const row of features) if (!areaIds.has(row.areaId)) issue('recipe', `「${row.id}」引用了不存在的陆地「${row.areaId}」。`)
     for (const route of recipe.routes) if (route.around && !recipe.landforms.some(row => row.id === route.around?.landmarkId && row.areaId === route.areaId)) {
       issue('recipe', `路线「${route.id}」需指定同一块陆地内的地貌作为绕行地标。`)
+    }
+    for (const route of recipe.routes) if ('ascent' in route && !recipe.landforms.some(row =>
+      row.id === route.ascent.toLandmarkId && row.areaId === route.areaId && row.shape !== 'lowland')) {
+      issue('recipe', `路线「${route.id}」的终点须是同一块陆地内的高处地标。`)
     }
   }
 })
@@ -178,6 +227,7 @@ export type MapRouteCheck = MapGenerateRequest['checks'][number]
 export const parseMapGenerate = (input: unknown) => mapGenerateSchema.parse(captureJson(input))
 export const parseMapEdit = (input: unknown) => mapEditSchema.parse(captureJson(input))
 export const parseMapInspect = (input: unknown) => mapInspectSchema.parse(captureJson(input))
+export const parseMapReference = (input: unknown) => mapReferenceSchema.parse(captureJson(input))
 
 export function mapDimensions(request: Pick<MapGenerateRequest, 'recipe' | 'widthMm' | 'heightMm' | 'referenceScale' | 'referenceSizePx'>) {
   const { widthMm, heightMm, recipe, referenceSizePx, referenceScale } = request
@@ -189,11 +239,24 @@ export function mapDimensions(request: Pick<MapGenerateRequest, 'recipe' | 'widt
     const scale = lengthMm / Math.hypot(from.x - to.x, from.y - to.y)
     return { widthMm: Math.round(width * scale), heightMm: Math.round(height * scale) }
   }
-  const scale = widthMm ? widthMm / width : heightMm ? heightMm / height : 78000 / Math.max(width, height)
+  const scale = widthMm ? widthMm / width : heightMm ? heightMm / height : MAP_REFERENCE_DEFAULTS.longEdgeMm / Math.max(width, height)
   return { widthMm: widthMm ?? Math.round(width * scale), heightMm: heightMm ?? Math.round(height * scale) }
 }
 
 const examples = {
+  'landscape-ascent': { title: '河岸瞭望坡', widthMm: 58000, heightMm: 42000, oblique: true,
+    recipe: { kind: 'landscape', finish: 'natural', land: [
+      { id: 'slope', at: { x: 500, y: 500 }, radius: { x: 490, y: 460 } },
+    ], landforms: [
+      { id: 'summit', name: '瞭望台地', areaId: 'slope', shape: 'plateau', at: { x: 635, y: 455 },
+        radius: { x: 216, y: 254 }, elevationMm: 7200, cover: 'grass' },
+      { id: 'foot', name: '河岸低地', areaId: 'slope', shape: 'lowland', at: { x: 315, y: 610 },
+        radius: { x: 105, y: 132 }, elevationMm: 500, cover: 'sand' },
+    ], routes: [
+      { id: 'ascent', areaId: 'slope', widthMm: 1500, style: 'stairs',
+        ascent: { from: { at: { x: 315, y: 610 }, radius: { x: 57, y: 64 } }, toLandmarkId: 'summit', minRiseMm: 6000 },
+        around: { landmarkId: 'summit', side: 'north' } },
+    ] } },
   'landscape-reference': { title: '北岬瞭望站', referenceSizePx: { width: 800, height: 600 }, oblique: true,
     recipe: { kind: 'landscape', environment: 'coast',
       land: [{ id: 'headland', outline: 'smooth', boundary: [
@@ -253,6 +316,9 @@ export function mapAuthoringCapabilities() {
     commands: {
       example: 'node tools/harness/sceneweave.mjs map example landscape',
       referenceExample: 'node tools/harness/sceneweave.mjs map example landscape-reference',
+      reference: 'node tools/harness/sceneweave.mjs map reference --image ABS_IMAGE --input ABS_GUIDE_JSON --output NEW_ABS_DIR --allow map-authoring',
+      referenceDraft: 'node tools/harness/sceneweave.mjs map reference --image ABS_IMAGE --input ABS_GUIDE_JSON --output NEW_ABS_DIR --allow map-authoring --stage draft',
+      diagnose: 'node tools/harness/sceneweave.mjs map diagnose --input ABS_JSON --allow map-authoring',
       generate: 'node tools/harness/sceneweave.mjs map generate --input ABS_JSON --output NEW_ABS_DIR --allow map-authoring',
       draft: 'node tools/harness/sceneweave.mjs map generate --input ABS_JSON --output NEW_ABS_DIR --allow map-authoring --stage draft',
       inspect: 'node tools/harness/sceneweave.mjs map inspect --project ABS_SCENEWEAVE --allow map-authoring',
@@ -260,13 +326,17 @@ export function mapAuthoringCapabilities() {
       verify: 'node tools/harness/sceneweave.mjs map verify --candidate ABS_DIR --output NEW_ABS_DIR --allow map-authoring',
       verifyEditor: 'node tools/harness/sceneweave.mjs map verify --candidate ABS_DIR --output NEW_ABS_DIR --allow map-authoring --editor reopen',
     },
-    schemas: { generate: z.toJSONSchema(mapGenerateSchema, { io: 'input' }), edit: z.toJSONSchema(mapEditSchema, { io: 'input' }),
+    schemas: { reference: z.toJSONSchema(mapReferenceSchema, { io: 'input' }), generate: z.toJSONSchema(mapGenerateSchema, { io: 'input' }), edit: z.toJSONSchema(mapEditSchema, { io: 'input' }),
       inspect: z.toJSONSchema(mapInspectSchema, { io: 'input' }) },
+    referenceGuide: { background: [{ x: 42, y: 40 }], design: {
+      landforms: [{ id: 'summit', shape: 'plateau', at: { x: 552, y: 260 }, elevationMm: 6800 }],
+      ascents: [{ id: 'ascent', from: { x: 355, y: 373 }, to: 'summit', around: 'north', widthMm: 1500 }],
+    } } satisfies z.input<typeof mapReferenceSchema>,
     coordinates: 'landscape 配方有 referenceSizePx 时使用原图像素等比置于画布中央（可用 referenceScale 标定），否则配方位置和半径是横纵各 0–1000 的相对坐标。操作与通路检查默认使用整数毫米，有 referenceSizePx 时使用像素。净宽、高程和偏移均用毫米。',
     materials: 'coast / forest 素材库提供 water、shallow、rock、rock-wet、grass、sand、sand-wet；也可按工程中的固定材质 ID 选择。',
     delivery: { project: 'map.sceneweave', top: 'preview.png', oblique: 'oblique.png (on request or visible terrain height differences)', result: 'result.json',
       diagnostic: 'diagnostic.png (draft with locatable findings)',
       draft: '已保存工程和真实预览，可局部编辑；满意后用 verify 核对同一份文件。', complete: '独立浏览器重新导入，实际通行与所有交付视图通过。' },
-    scope: '参考图由助手在宿主读取。用少量岸形、地貌和主要端点生成首图，around 指定绕行地标与方向，scenery 指定局部植被。室内可直接给房间用途和关系。编辑作用于精确工程副本的指定楼层。',
+    scope: '从原图和背景取样点提取可编辑轮廓，在叠图上复核。用少量地貌和通行意图出首图。ascent 从低处区域接至高处地标，around 指定绕行方向。室内可直接给房间用途和关系。编辑作用于精确工程副本的指定楼层。',
   }
 }

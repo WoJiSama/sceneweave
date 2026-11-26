@@ -2,7 +2,7 @@ import type { Path, PointMm, SceneDocument, SurfaceRef } from '../model/scene.js
 import { connectionArcFrame } from './connection-route.js'
 import { wallMovementPolygons } from './doorway-clearance.js'
 import { connectionFootprint, corridor, coveredEverywhere, pathPolygon, polygonValid, polygonsOverlap, propFootprint, roomPoints } from './geometry.js'
-import { AUTOMATIC_ROAD_VERSION, ROAD_MIN_GOING_MM, ROAD_PPM, ROAD_RISER_LIMIT_MM, ROAD_SURFACE_DEPTH_MM, RoadFootprintConflict, buildRoadSurface, roadFaceNormal, roadSpanTriangles, roadSurfaceFrame, roadSurfaceSchema, toRoadPpm, type RoadLanding, type RoadVertex } from './road-surface.js'
+import { AUTOMATIC_ROAD_VERSION, ROAD_MIN_GOING_MM, ROAD_PPM, ROAD_RISER_LIMIT_MM, ROAD_SURFACE_DEPTH_MM, RoadFootprintConflict, RoadProfileConflict, buildRoadSurface, roadFaceNormal, roadSpanTriangles, roadSurfaceFrame, roadSurfaceSchema, toRoadPpm, type RoadLanding, type RoadVertex } from './road-surface.js'
 import { createSupportQuery, rootSurfaceElevation } from './support-sample.js'
 import { reliefBounds } from './terrain-relief.js'
 
@@ -63,7 +63,8 @@ export function roadEffectsPolygon(path: Path): PointMm[] {
 export function assertRoadProfile(path: Pick<Path, 'centerlineMm' | 'widthMm' | 'widthSections'>, raw: NonNullable<Path['roadSurface']>,
   landings: readonly RoadLanding[], fixed: readonly PointMm[], ground: ReturnType<typeof createRoadGround>) {
   const surface = roadSurfaceSchema.parse(raw), frame = roadSurfaceFrame(path), geometry = buildRoadSurface(path, surface)
-  if (!polygonValid(geometry.footprintMm, true) || !polygonValid(geometry.coreMm, true)) throw new Error('道路及两侧边坡在转弯处重叠，请拉开前后两段。')
+  const turnConflict = (at: PointMm) => { throw new RoadProfileConflict('道路及两侧边坡在转弯处重叠，请拉开前后两段。', at, 'turn') }
+  if (!polygonValid(geometry.footprintMm, true, turnConflict) || !polygonValid(geometry.coreMm, true, turnConflict)) turnConflict(path.centerlineMm[0])
   const stationKeys = new Set(surface.stations.map(row => row.atPpm))
   if ([...frame.knots.keys()].some(key => !stationKeys.has(key))) throw new Error('道路断面缺少转弯或宽度过渡。')
   const refs = ground.supports(geometry.footprintMm)
@@ -93,23 +94,26 @@ export function assertRoadProfile(path: Pick<Path, 'centerlineMm' | 'widthMm' | 
     const length = frame.distance(span.bPpm) - frame.distance(span.aPpm)
     const aZ = (span.start[1].z + span.start[2].z) / 2, bZ = (span.end[1].z + span.end[2].z) / 2
     if (span.kind === 'landing' && (aZ !== bZ || [span.start[1], span.start[2], span.end[1], span.end[2]].some(vertex => vertex.z !== aZ))) throw new Error('歇脚平台的整个净宽须水平。')
-    if (Math.abs(aZ - bZ) > length * (span.kind === 'tread' ? .19 : .43) + 2) throw new Error('道路纵坡过急，须调整路线或平台。')
+    if (Math.abs(aZ - bZ) > length * (span.kind === 'tread' ? .19 : .43) + 2) {
+      throw new RoadProfileConflict('道路纵坡过急，须调整路线或平台。', span.start[1])
+    }
     for (const lane of [0, 1, 2] as const) {
       const faces = roadSpanTriangles(span, lane)
       if (lane === 1 && faces.length !== 2) throw new Error('道路断面须保有完整净宽。')
       for (const face of faces) {
         const [a, b, c] = face, area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
-        if (area <= 0) throw new Error('道路两侧边坡或净宽在转弯处折返。')
-        if (lane === 1 && roadFaceNormal(face).z < Math.SQRT1_2 - 1e-9) throw new Error('完整净宽内有无法步行的坡面，请调整路线或净宽。')
+        if (area <= 0) throw new RoadProfileConflict('道路两侧边坡或净宽在转弯处折返。', a, 'turn')
+        if (lane === 1 && roadFaceNormal(face).z < Math.SQRT1_2 - 1e-9) throw new RoadProfileConflict('完整净宽内有无法步行的坡面，请调整路线或净宽。', a)
       }
     }
   }
   const checkContact = (a: RoadVertex, b: RoadVertex) => {
     const count = Math.min(32, Math.max(2, Math.ceil(Math.hypot(a.x - b.x, a.y - b.y) / 125)))
     for (let i = 1; i < count; i++) {
-      const t = i / count, source = ground.sample({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+      const t = i / count, point = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+      const source = ground.sample(point)
       if (!source || Math.abs(source.zMm - (a.z + (b.z - a.z) * t)) > ROAD_RISER_LIMIT_MM) {
-        throw new Error('路肩或端部在两断面之间与原地面落差过大。')
+        throw new RoadProfileConflict('路肩或端部在两断面之间与原地面落差过大。', point)
       }
     }
   }

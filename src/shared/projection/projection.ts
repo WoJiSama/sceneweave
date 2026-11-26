@@ -744,5 +744,6 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   if (pathTerrainJoins) result.pathTerrainJoins = pathTerrainJoins
   if (pathJoinGroups.length || pathTerrainJoins) result.pathJoinPaintOrder = pathJoinPaintOrder
   if (scene.artStyle?.version === 2 && scene.artStyle.materialDrawing) result.materialBrushes = projectMaterialBrushes(scene, result)
+  onVisibleWalls?.(visibleWallIds)
   return result
 }

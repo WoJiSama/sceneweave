@@ -9,7 +9,7 @@ import { MAP_AUTHORING_WORKFLOW, mapAuthoringExample } from '../../generation/ma
 export const WorkflowRequirementSchema = z.enum(['forest-parameters', 'forest-generation', 'project-preview', 'project-delivery',
   'draft-read', 'draft-edit', 'draft-check', 'page-adopt', 'image-read', 'image-select', 'image-preview', 'image-build',
   'image-repair', 'image-repair-analysis', 'image-surface-refine', 'asset-refine', 'ocean-generation', 'floor-navigation',
-  'map-discovery', 'map-generate', 'map-inspect', 'map-edit', 'map-verify'])
+  'map-discovery', 'map-reference', 'map-diagnose', 'map-generate', 'map-inspect', 'map-edit', 'map-verify'])
 export type WorkflowRequirement = z.infer<typeof WorkflowRequirementSchema>
 const text = z.string().min(1).max(4096), hash = z.string().regex(/^[a-f0-9]{64}$/)
 const stepSchema = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/), title: text, requires: z.array(WorkflowRequirementSchema).min(1).max(8), produces: text, instructions: text }).strict()
@@ -111,7 +111,7 @@ export function queryWorkflow(raw: unknown, host: WorkflowHost) {
     const names = new Set(definition.steps.flatMap(step => step.requires.flatMap(requirement => capability(host, requirement).toolNames ?? [])))
     return { ...selected, inputSchemaRef: definition.inputSchemaRef,
       ...(definition.inputSchemaRef === 'semanticGenerationRequestSchema' ? { inputSchema: semanticGenerationCapabilities().inputSchema, example: semanticGenerationExample() } : {}),
-      ...(definition.id === MAP_AUTHORING_WORKFLOW ? { example: mapAuthoringExample(), cliSchema: 'node tools/harness/sceneweave.mjs map schema generate|inspect|edit' } : {}),
+      ...(definition.id === MAP_AUTHORING_WORKFLOW ? { example: mapAuthoringExample(), cliSchema: 'node tools/harness/sceneweave.mjs map schema reference|generate|inspect|edit' } : {}),
       ...(definition.inputSchemaRef === 'oceanDressingSettingsSchema' ? { inputSchema: z.toJSONSchema(oceanDressingSettingsSchema), example: { recipeVersion: 2, seed: 'terrain-v1-0', preset: 'calm', boat: true, creatures: true }, note: '此schema定义底图后的有限布景步骤；页面自然地形勾选海洋选项使用固定默认设置。宿主是否提供执行入口仍由capabilities决定。' } : {}),
       tools: host.tools.filter(tool => names.has(tool.name) && (!query.toolName || tool.name === query.toolName))
         .map(tool => query.toolName ? tool : { name: tool.name }),

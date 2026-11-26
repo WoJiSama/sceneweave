@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test'
 
 export type WorkspaceModule = '场景' | '生成' | '地形' | '建筑' | '素材与布景' | '素材' | '氛围' | 'AI' | '历史'
 
-type GenerationTask = '室内布局' | '森林与营地' | '火山' | '混合场景' | '自然地形' | '组合地貌' | '区域地图'
+type GenerationTask = '室内布局' | '森林与营地' | '火山' | '混合场景' | '自然地形' | '组合地貌' | '参考图地形' | '区域地图'
 type TerrainTask = '绘制地形' | '修改地形' | '布置植被' | '局部重生成'
 type BuildingTask = '绘制房间' | '文字与线索' | '固定玩家遮罩' | '建筑组' | '拆分与组合结构'
 type OutdoorTask = '地形与高程' | '用途 / 危险区域' | '道路' | '桥梁' | '实体围栏' | '沿线样式' | '台阶 / 坡道' | '可控散布'

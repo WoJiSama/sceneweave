@@ -43,7 +43,7 @@ const regionFields = sceneSchema.shape.regions.valueType.omit({ id: true, floorI
 /** Finite native scene operations; no arbitrary project or entity JSON patch. */
 export const outdoorCommandSchemas = [
   z.object({ type: z.literal('createTerrainArea'), ...base, ...areaFields.omit({ boundaryMm: true }).partial().shape, boundaryMm: z.array(point).min(3).max(2048), materialRef: version.optional() }).strict(),
-  z.object({ type: z.literal('updateTerrainArea'), id, changes: areaFields.partial().strict() }).strict(),
+  z.object({ type: z.literal('updateTerrainArea'), id, changes: areaFields.partial().extend({ reliefFinish: areaFields.shape.reliefFinish.unwrap().nullable().optional() }).strict() }).strict(),
   z.object({ type: z.literal('createTerrainEdge'), id, layerId: id.optional(), ...edgeFields.omit({ source: true, neighborAreaId: true }).partial().shape, source: edgeFields.shape.source }).strict(),
   z.object({ type: z.literal('updateTerrainEdge'), id, changes: edgeFields.partial().strict() }).strict(),
   z.object({ type: z.literal('createTerrainConnection'), ...base, ...connectionFields.omit({ visibility: true, openingId: true, blocksMovement: true, movementCostMultiplier: true, surfaceStyle: true }).shape,
@@ -405,7 +405,14 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
         ...(command.facade ? { facade: cloneJson(command.facade) } : {}) }
       scene.entityLayers[command.id] = layer; break
     }
-    case 'updateTerrainArea': Object.assign(required(scene.terrainAreas, command.id, '地形'), cloneJson(command.changes)); break
+    case 'updateTerrainArea': {
+      const area = required(scene.terrainAreas, command.id, '地形')
+      const { reliefFinish, ...changes } = cloneJson(command.changes)
+      Object.assign(area, changes)
+      if (reliefFinish === null) delete area.reliefFinish
+      else if (reliefFinish !== undefined) area.reliefFinish = reliefFinish
+      break
+    }
     case 'createTerrainEdge': {
       fresh(scene, command.id)
       const relation = canonicalTerrainEdge(scene, command.source), area = scene.terrainAreas[relation.source.areaId]

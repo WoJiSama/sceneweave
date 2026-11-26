@@ -2,9 +2,10 @@ import { cloneJson } from '../validation/json.js'
 import { corridor, pathPolygon, polygonDistance, polygonInside, propFootprint, supportedPolygon, terrainPoints } from './geometry.js'
 import { createPublicVisibility, publicTerrainView } from './visibility.js'
 import type { GroundSurfaceRef, PointMm, Prop, ScatterGroup, SceneDocument, SurfaceRef } from '../model/scene.js'
-import { isSupportedScatterAlgorithm, LANDSCAPE_SCATTER_VERSION } from './scatter-algorithm.js'
+import { isSupportedScatterAlgorithm, LANDSCAPE_GROUND_SCATTER_VERSION, LANDSCAPE_SCATTER_VERSION } from './scatter-algorithm.js'
 import { reliefBounds, sampleTerrainRelief } from './terrain-relief.js'
 import { roadEffectsPolygon } from './road-domain.js'
+import { observeGeometryPairs } from './edge-index.js'
 
 import { sha256Text } from '../validation/hash.js'
 export { sha256Text } from '../validation/hash.js'
@@ -38,6 +39,11 @@ export function sampleScatterCellV1(group: ScatterGroup, column: number, row: nu
  * negative grid coordinates; no cell becomes denser than the v1 threshold.
  */
 export function sampleScatterCellV2(group: ScatterGroup, column: number, row: number) {
+  const { noise: _noise, ...cell } = sampleClusteredScatterCell(group, column, row)
+  return cell
+}
+
+function sampleClusteredScatterCell(group: ScatterGroup, column: number, row: number) {
   const cell = sampleScatterCellV1(group, column, row)
   if (!Number.isFinite(group.densityFactor) || group.densityFactor < 0 || group.densityFactor > 1) throw new Error('散布密度必须位于 [0,1]。')
   const x = (column + .5) / 4, y = (row + .5) / 4, left = Math.floor(x), top = Math.floor(y)
@@ -46,7 +52,7 @@ export function sampleScatterCellV2(group: ScatterGroup, column: number, row: nu
   const corner = (x: number, y: number) => Number.parseInt(sha256Text(JSON.stringify(['scatter-cell-v2-clusters', group.seed, x, y])).slice(0, 13), 16) / 0x10000000000000
   const a = corner(left, top), b = corner(left + 1, top), c = corner(left, top + 1), d = corner(left + 1, top + 1)
   const noise = (a + (b - a) * u) * (1 - v) + (c + (d - c) * u) * v
-  return { ...cell, densityThreshold: group.densityFactor * (.2 + .8 * noise) }
+  return { ...cell, noise, densityThreshold: group.densityFactor * (.2 + .8 * noise) }
 }
 
 function scatterDomain(scene: SceneDocument, group: ScatterGroup): { polygon: PointMm[]; refs: SurfaceRef[] } {
@@ -81,6 +87,17 @@ function visualInsideFloor(scene: SceneDocument, prop: Prop): boolean {
   const b = prop.visualBoundsMm, visual = propFootprint({ ...prop, footprintMm: { width: b.width, height: b.height }, footprintOffsetMm: { x: b.x + b.width / 2, y: b.y + b.height / 2 } })
   return visual.every(p => p.x >= floor.boundsMm.x && p.y >= floor.boundsMm.y && p.x <= floor.boundsMm.x + floor.boundsMm.width && p.y <= floor.boundsMm.y + floor.boundsMm.height)
 }
+const boundedFootprint = (points: PointMm[]) => ({ points, bounds: reliefBounds(points) })
+type BoundedFootprint = ReturnType<typeof boundedFootprint>
+
+function scatterDistance(a: BoundedFootprint, b: BoundedFootprint, reach: number, meter: boolean) {
+  const x = Math.max(0, a.bounds.x - b.bounds.x - b.bounds.width, b.bounds.x - a.bounds.x - a.bounds.width)
+  const y = Math.max(0, a.bounds.y - b.bounds.y - b.bounds.height, b.bounds.y - a.bounds.y - a.bounds.height)
+  if (Math.hypot(x, y) > reach + 1e-7) return Infinity
+  if (meter) observeGeometryPairs(a.points.length * b.points.length)
+  return polygonDistance(a.points, b.points)
+}
+
 export interface ScatterRegeneration { group: ScatterGroup; props: Prop[]; removePropIds: string[] }
 export interface ScatterRegenerationOptions {
   /** Native history-aware callers allocate a new birth ID for a vacant slot. */
@@ -108,18 +125,21 @@ export function buildScatterRegeneration(scene: SceneDocument, groupId: string, 
   for (const [key, member] of Object.entries(group.members)) if (member.state === 'managed' && member.propId !== null && !scene.props[member.propId]?.editLocked && !scene.userLayers[scene.entityLayers[member.propId]]?.editLocked && (!publicGroup || visibility.prop(scene.props[member.propId]))) {
     removed.add(member.propId); delete group.members[key]
   }
-  const obstacles = Object.values(scene.props).filter(prop => prop.floorId === group.floorId && !removed.has(prop.id) && (!publicGroup || visibility.prop(prop))).map(propFootprint)
+  const obstacles = Object.values(scene.props).filter(prop => prop.floorId === group.floorId && !removed.has(prop.id) && (!publicGroup || visibility.prop(prop)))
+    .map(prop => boundedFootprint(propFootprint(prop)))
   const ids = allIds(scene), props: Prop[] = []
-  const natural = group.algorithmVersion === LANDSCAPE_SCATTER_VERSION
+  const groupedGround = group.algorithmVersion === LANDSCAPE_GROUND_SCATTER_VERSION
+  const natural = groupedGround || group.algorithmVersion === LANDSCAPE_SCATTER_VERSION
   const carrier = natural && group.domain.kind === 'area' ? supportScene.terrainAreas[group.domain.areaId] : undefined
   const terrainBounds = carrier?.relief && reliefBounds(terrainPoints(carrier))
   const roads = natural ? Object.values(supportScene.paths).filter(path => path.floorId === group.floorId
-    && path.supportRefs.some(ref => ref.kind === 'terrainArea' && ref.id === carrier?.id)).map(roadEffectsPolygon) : []
+    && path.supportRefs.some(ref => ref.kind === 'terrainArea' && ref.id === carrier?.id)).map(path => boundedFootprint(roadEffectsPolygon(path))) : []
+  const exclusions = group.exclusions.map(exclusion => boundedFootprint(exclusion.boundaryMm))
   let liveCount = Object.values(group.members).filter(member => member.propId !== null).length
   for (let row = minimumRow; row <= maximumRow; row++) for (let column = minimumColumn; column <= maximumColumn; column++) {
-    const cell = group.algorithmVersion === 'scatter-cell-v1' ? { ...sampleScatterCellV1(group, column, row), densityThreshold: group.densityFactor }
-      : sampleScatterCellV2(group, column, row)
-    if (group.members[cell.candidateKey] || cell.density >= cell.densityThreshold) continue
+    const cell = group.algorithmVersion === 'scatter-cell-v1' ? { ...sampleScatterCellV1(group, column, row), noise: 0, densityThreshold: group.densityFactor }
+      : sampleClusteredScatterCell(group, column, row)
+    if (group.members[cell.candidateKey] || cell.density >= (groupedGround ? group.densityFactor : cell.densityThreshold)) continue
     const definition = scene.propDefinitions[cell.definitionRef.id]
     if (!definition || definition.version !== cell.definitionRef.version) throw new Error('散布需要已采用的固定版本物件定义。')
     const previousId = previous[cell.candidateKey]?.propId
@@ -133,21 +153,31 @@ export function buildScatterRegeneration(scene: SceneDocument, groupId: string, 
       prop = { ...cloneJson(scene.props[previousId]), positionMm: cell.positionMm, rotationDeg: cell.rotationDeg }
     }
     const footprint = propFootprint(prop)
+    const checked = boundedFootprint(footprint)
     if (natural) {
       const rocky = definition.tags.includes('rock') || definition.id.startsWith('natural-stone-')
       const sample = carrier?.relief && sampleTerrainRelief(carrier.relief, terrainBounds!, prop.positionMm)
       if (sample && (sample.normal.z < (rocky ? .78 : .91) || !rocky && carrier!.groundElevationMm >= 0
         && carrier!.groundElevationMm + sample.offsetMm < 430)) continue
+      if (groupedGround) {
+        const tree = cell.paletteKey === 'pine' || cell.paletteKey === 'tree'
+        const slope = sample ? 1 - sample.normal.z : 0
+        const nearBank = Math.min(1, slope * 7 + (sample && sample.offsetMm < 2100 ? .24 : 0))
+        const amount = rocky ? .16 + .64 * nearBank * (1 - cell.noise * .56)
+          : tree ? .13 + .83 * cell.noise ** 2 : .35 + .62 * cell.noise
+        if (cell.density >= group.densityFactor * amount) continue
+      }
       const visual = propFootprint({ ...prop, footprintMm: { width: prop.visualBoundsMm.width, height: prop.visualBoundsMm.height },
         footprintOffsetMm: { x: prop.visualBoundsMm.x + prop.visualBoundsMm.width / 2, y: prop.visualBoundsMm.y + prop.visualBoundsMm.height / 2 } })
-      if (roads.some(road => polygonDistance(visual, road) < 230)) continue
+      const view = boundedFootprint(visual)
+      if (roads.some(road => scatterDistance(view, road, 230, true) < 230)) continue
     }
-    if (!polygonInside(footprint, polygon) || !visualInsideFloor(scene, prop) || group.exclusions.some(exclusion => polygonDistance(footprint, exclusion.boundaryMm) <= 1e-7)) continue
+    if (!polygonInside(footprint, polygon) || !visualInsideFloor(scene, prop) || exclusions.some(exclusion => scatterDistance(checked, exclusion, 1e-7, natural) <= 1e-7)) continue
     const support = refs.find(ref => supportedPolygon(supportScene, footprint, ref, group.floorId))
-    if (!support || obstacles.some(other => polygonDistance(footprint, other) + 1e-7 < group.minDistanceMm)) continue
+    if (!support || group.minDistanceMm > 0 && obstacles.some(other => scatterDistance(checked, other, group.minDistanceMm, natural) + 1e-7 < group.minDistanceMm)) continue
     prop.supportRef = cloneJson(support)
     group.members[cell.candidateKey] = { propId, state: 'managed', overrideFields: [] }
-    props.push(prop); obstacles.push(footprint); ids.add(propId)
+    props.push(prop); obstacles.push(checked); ids.add(propId)
     if (++liveCount > 5000) throw new Error('散布组不得超过 5000 个活成员。')
   }
   // Preserve existing record order for no-op regeneration, including manual records.

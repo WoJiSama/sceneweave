@@ -91,7 +91,7 @@ const sceneShape = {
   }).strict().refine(material => !material.defaultPathPaint || material.applicableSurfaces.includes('path'), '材质须适用于道路才可设定沿线铺装。')),
   terrainAreas: record(z.object({ ...editable, visibility, boundaryMm: z.array(z.object({ id, segmentId: id, positionMm: point }).strict()).min(3).max(2048),
     groundElevationMm: int, coveragePriority: rank, surfaceStyle: style, blocksMovement: z.boolean(), blocksSight: z.boolean(), movementCostMultiplier: movementCost,
-    rockBody: rockBodySchema.optional(), relief: terrainReliefSchema.optional(), reliefFinish: z.literal('weathered-v1').optional(),
+    rockBody: rockBodySchema.optional(), relief: terrainReliefSchema.optional(), reliefFinish: z.enum(['weathered-v1', 'weathered-v2']).optional(),
     facade: terrainFacadeSchema.nullable().optional(), boundaryBlendMm: int.min(0).max(10000).optional(), waterSurface: waterSurfaceSchema.optional() }).strict()),
   terrainEdges: record(z.object({ ...editable, visibility, source: z.object({ areaId: id, segmentId: id }).strict(), neighborAreaId: id.nullable(),
     kind: z.enum(['shore', 'cliff', 'materialTransition']), shoreline: z.boolean(), blocksMovement: z.boolean(), blocksSight: z.boolean(), surfaceStyle: style, styleOverride: edgeStyle.nullable(), shoreStyle: edgeStyle.optional() }).strict()),

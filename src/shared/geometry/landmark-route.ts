@@ -8,10 +8,18 @@ const bearing = { east: 0, south: Math.PI / 2, west: Math.PI, north: -Math.PI / 
 const signedAngle = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle))
 const distance = (a: PointMm, b: PointMm) => Math.hypot(b.x - a.x, b.y - a.y)
 
+export function reachesLandmarkSide(centerline: readonly PointMm[], landmark: PointMm, side: keyof typeof bearing) {
+  const x = Math.round(Math.cos(bearing[side])), y = Math.round(Math.sin(bearing[side]))
+  return centerline.slice(1, -1).some(point => {
+    const dx = point.x - landmark.x, dy = point.y - landmark.y, outward = dx * x + dy * y
+    return outward > 0 && Math.abs(dy * x - dx * y) <= outward
+  })
+}
+
 /** Trace both approaches to the requested side. Each alternative includes the
  * side itself and a bend beyond it before approaching the destination. */
 export function landmarkRoutes(from: PointMm, to: PointMm, landmark: PointMm, side: keyof typeof bearing, radiusMm: number,
-  widthMm: number, fits: (band: PointMm[]) => boolean, fitRadius = true) {
+  widthMm: number, fits: (band: PointMm[]) => boolean, fitRadius = true, onTurnConflict?: (at: PointMm) => void) {
   const facing = bearing[side], start = Math.atan2(from.y - landmark.y, from.x - landmark.x)
   const destination = Math.atan2(to.y - landmark.y, to.x - landmark.x), destinationRadius = distance(to, landmark)
   const candidates: { anchors: PointMm[]; score: number }[] = [], seen = new Set<string>()
@@ -26,7 +34,7 @@ export function landmarkRoutes(from: PointMm, to: PointMm, landmark: PointMm, si
       return
     }
     const band = polylineBand(centerline, widthMm, true)
-    if (!polygonValid(band, true) || !fits(band)) return
+    if (!polygonValid(band, true, onTurnConflict) || !fits(band)) return
     const length = centerline.slice(1).reduce((sum, point, i) => sum + distance(point, centerline[i]), 0)
     candidates.push({ anchors, score: length + penalty })
   }

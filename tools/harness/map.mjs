@@ -13,17 +13,25 @@ const budgetIds = ['small', 'standard', 'expanded']
 const json = value => `${JSON.stringify(value, null, 2)}\n`
 const milliseconds = start => Math.round(performance.now() - start)
 const allowance = 'map-authoring'
+const referenceImageLimit = 20 * 1024 * 1024
+const compactMapReference = ({ regions, lakes, ...report }) => {
+  const countPoints = ({ boundary, ...row }) => ({ ...row, points: boundary.length })
+  return { ...report, regions: regions.map(countPoints), lakes: lakes.map(countPoints) }
+}
 
 export const mapUsage = `Sceneweave map authoring
   node tools/harness/sceneweave.mjs map capabilities
-  node tools/harness/sceneweave.mjs map schema generate|inspect|edit
-  node tools/harness/sceneweave.mjs map example [landscape-reference|landscape|interior|forest|volcano|mixed|island|coast|layout]
+  node tools/harness/sceneweave.mjs map schema reference|generate|inspect|edit
+  node tools/harness/sceneweave.mjs map reference --image ABS_IMAGE --input ABS_GUIDE_JSON --output NEW_ABS_DIR --allow map-authoring [--stage draft|complete] [--budget standard]
+  node tools/harness/sceneweave.mjs map diagnose --input ABS_JSON --allow map-authoring [--budget standard] [--geometry full]
+  node tools/harness/sceneweave.mjs map example [landscape-reference|landscape-ascent|landscape|interior|forest|volcano|mixed|island|coast|layout]
   node tools/harness/sceneweave.mjs map generate --input ABS_JSON --output NEW_ABS_DIR --allow map-authoring [--stage draft|complete] [--budget standard]
   node tools/harness/sceneweave.mjs map inspect --project ABS_SCENEWEAVE --allow map-authoring [--floor ID] [--query TEXT] [--limit N] [--offset N]
   node tools/harness/sceneweave.mjs map edit --project ABS_SCENEWEAVE --input ABS_JSON --output NEW_ABS_DIR --allow map-authoring [--stage draft|complete] [--budget standard]
   node tools/harness/sceneweave.mjs map verify --candidate ABS_DIR --output NEW_ABS_DIR --allow map-authoring [--previews keep|redraw] [--editor reopen] [--budget standard]
 
-Start with landscape-reference for a few image anchors, or use the example for your map type.
+Use reference --stage draft for an editable map and reference overlay in one call.
+Use diagnose to check geometry without drawing or packaging.
 Use draft for a quick real preview, then verify the saved candidate for delivery.
 For edits, copy projectHash
 and floorId from inspect or the candidate result and use a fresh output directory.
@@ -68,10 +76,19 @@ export function parseMapCli([action, ...args]) {
     return { action }
   }
   if (action === 'example' || action === 'schema') {
-    assert(args.length <= 1 && (action === 'example' || ['generate', 'edit', 'inspect'].includes(args[0])), mapUsage)
+    assert(args.length <= 1 && (action === 'example' || ['reference', 'generate', 'edit', 'inspect'].includes(args[0])), mapUsage)
     return { action, value: args[0] }
   }
-  assert(['generate', 'edit', 'inspect', 'verify'].includes(action), mapUsage)
+  assert(['reference', 'diagnose', 'generate', 'edit', 'inspect', 'verify'].includes(action), mapUsage)
+  if (action === 'reference' || action === 'diagnose') {
+    const flags = readMapFlags(args, ['--allow', '--input', '--budget', ...(action === 'reference' ? ['--image', '--output', '--stage'] : ['--geometry'])])
+    assert(flags.get('--allow') === allowance, 'Expected explicit --allow map-authoring')
+    assert(!flags.has('--geometry') || flags.get('--geometry') === 'full', 'Choose --geometry full for detailed coordinates.')
+    return { action, input: absolute(flags, '--input'), budget: mapBudget(flags.get('--budget')),
+      ...(flags.has('--geometry') ? { geometry: true } : {}),
+      ...(action === 'reference' ? { image: absolute(flags, '--image'), output: absolute(flags, '--output'),
+        referenceStage: flags.has('--stage') ? mapStage(flags.get('--stage')) : undefined } : {}) }
+  }
   if (action === 'verify') {
     const flags = readMapFlags(args, ['--allow', '--candidate', '--output', '--budget', '--previews', '--editor'])
     assert(flags.get('--allow') === allowance, 'Expected explicit --allow map-authoring')
@@ -116,7 +133,9 @@ async function launchBrowser(channelPreference) {
 
 function schemaRequest(action, raw, definitions) {
   try {
-    return action === 'generate' ? definitions.parseMapGenerate(raw) : action === 'edit' ? definitions.parseMapEdit(raw) : definitions.parseMapInspect(raw)
+    return action === 'reference' ? definitions.parseMapReference(raw)
+      : action === 'generate' || action === 'diagnose' ? definitions.parseMapGenerate(raw)
+        : action === 'edit' ? definitions.parseMapEdit(raw) : definitions.parseMapInspect(raw)
   } catch (error) {
     if (!Array.isArray(error.issues)) throw error
     const issues = error.issues.slice(0, 12).map(({ path, message, maximum, minimum }) => ({
@@ -127,11 +146,13 @@ function schemaRequest(action, raw, definitions) {
 }
 
 /** CLI and MCP exercise the same immutable input, candidate and cold delivery. */
-export async function executeMap({ action, request: raw, project, candidate, output, budget = 'standard', stage = 'complete', previews = 'keep', editor = false, signal }) {
-  assert(['generate', 'inspect', 'edit', 'verify'].includes(action), 'Unknown map operation')
+export async function executeMap({ action, request: raw, image, project, candidate, output, budget = 'standard', stage = 'complete',
+  referenceStage, previews = 'keep', editor = false, geometry = false, signal, progress }) {
+  assert(['reference', 'diagnose', 'generate', 'inspect', 'edit', 'verify'].includes(action), 'Unknown map operation')
   mapStage(stage)
   mapPreviews(previews)
   assert(stage === 'complete' || action === 'generate' || action === 'edit', 'This operation requires the complete stage.')
+  assert(referenceStage === undefined || action === 'reference', '只可从参考图生成时指定参考图阶段。')
   assert(previews === 'keep' || action === 'verify', 'Redraw requires a saved candidate.')
   assert(typeof editor === 'boolean' && (!editor || action === 'verify'), 'Editor reopening requires a saved candidate.')
   const started = performance.now()
@@ -188,16 +209,53 @@ export async function executeMap({ action, request: raw, project, candidate, out
   try {
     checkCurrent()
     const captured = action === 'verify' ? await captureMapCandidate(candidate, previews) : undefined
-    const requestBytes = captured?.request ?? Buffer.from(JSON.stringify(raw) ?? '')
+    let requestBytes = captured?.request ?? Buffer.from(JSON.stringify(raw) ?? '')
     assert(requestBytes.length > 0 && requestBytes.length <= MAX_MAP_REQUEST_BYTES,
       `制图请求字节数 ${requestBytes.length}，允许 1–${MAX_MAP_REQUEST_BYTES} 字节。`)
     const archive = project ? await readBounded(project, MAX_ARCHIVE_BYTES) : undefined
     tooling = await startHarnessTooling(root, true, editor)
     const definitions = await tooling.mapAuthoring()
-    const request = captured ? schemaRequest(captured.source.action, JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(requestBytes)), definitions)
+    let request = captured ? schemaRequest(captured.source.action, JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(requestBytes)), definitions)
       : schemaRequest(action, raw, definitions)
     const browserInput = { action, request, archiveBase64: archive?.toString('base64'), budget, draft: stage === 'draft' }
     if (action === 'inspect') return (await call(await open(), browserInput)).result
+    if (action === 'diagnose') {
+      const { result } = await call(await open(), browserInput)
+      const { geometry: shapes, scene, ...report } = result
+      return { ...report, scene: { boundsMm: scene.boundsMm, counts: scene.counts },
+        ...(geometry ? { geometry: shapes } : {}), elapsedMs: milliseconds(started) }
+    }
+    let traced, referenceOverlay, openedReference
+    if (action === 'reference') {
+      assert(image !== undefined && output !== undefined, '请指定本地原图和新输出目录。')
+      const reference = await readBounded(image, referenceImageLimit)
+      openedReference = await open()
+      const { result, overlayBase64 } = await call(openedReference, { ...browserInput, referenceBase64: reference.toString('base64') })
+      const { request: reusable, ...report } = result
+      traced = { ...report, sourceSha256: digest(reference), elapsedMs: milliseconds(started) }
+      referenceOverlay = Buffer.from(overlayBase64, 'base64')
+      requestBytes = Buffer.from(json(reusable))
+      if (referenceStage !== undefined) {
+        action = 'generate'
+        stage = mapStage(referenceStage)
+        request = schemaRequest(action, reusable, definitions)
+        requestBytes = Buffer.from(json(request))
+        Object.assign(browserInput, { action, request, draft: stage === 'draft' })
+      }
+    }
+    if (action === 'reference') {
+      await closeBrowser()
+      checkCurrent()
+      await fs.mkdir(output, { mode: 0o700 })
+      const saved = await writeVerified(output, 'request.json', requestBytes, MAX_MAP_REQUEST_BYTES)
+      const overlay = await writeVerified(output, 'overlay.png', referenceOverlay, referenceImageLimit)
+      const receipt = { format: 'sceneweave-map-authoring-result', version: 1, action, status: 'traced',
+        ...traced, files: { request: saved.record, overlay: overlay.record }, elapsedMs: milliseconds(started) }
+      checkCurrent()
+      await fs.writeFile(path.join(output, 'result.json'), json(receipt), { flag: 'wx', mode: 0o600 })
+      return { ...receipt, ...compactMapReference(traced), output,
+        paths: { request: path.join(output, 'request.json'), overlay: path.join(output, 'overlay.png') } }
+    }
     const { workflowBinding } = await tooling.workflows()
     const workflow = workflowBinding(definitions.MAP_AUTHORING_WORKFLOW)
     const { assertTaskBudget } = await tooling.budget()
@@ -211,7 +269,16 @@ export async function executeMap({ action, request: raw, project, candidate, out
     await fs.writeFile(path.join(output, 'result.json'), json(record), { flag: 'wx', mode: 0o600 })
     const savedRequest = await writeVerified(output, 'request.json', requestBytes, MAX_MAP_REQUEST_BYTES)
     record.files = { request: savedRequest.record }
+    if (traced) {
+      const overlay = await writeVerified(output, 'overlay.png', referenceOverlay, referenceImageLimit)
+      record = { ...record, reference: traced, files: { ...record.files, overlay: overlay.record } }
+      await replaceResult(output, record, { checkCurrent })
+      const unresolved = traced.issues.filter(issue => issue.kind === 'design')
+      if (stage === 'complete' && unresolved.length) throw Object.assign(new Error('参考图仍有未落在有效陆地上的设计标记。请按叠图调整后重试。'),
+        { code: 'reference_design_unresolved', details: { issues: unresolved } })
+    }
     let projectBytes, previewBytes, obliqueBytes, diagnosticBytes, previewFailure, displayWorkMs = 0
+    let savedProject, savedTop
     if (captured) {
       projectBytes = captured.project; previewBytes = captured.preview; obliqueBytes = captured.oblique
       record = { ...record, projectHash: captured.projectHash, floorId: captured.floorId, expectedOblique: captured.expectedOblique,
@@ -232,15 +299,28 @@ export async function executeMap({ action, request: raw, project, candidate, out
       }
     } else {
       phase = action
-      const opened = await open()
+      const opened = openedReference ?? await open()
       record.browser = opened.info
+      if (stage === 'draft' || traced) await opened.page.exposeFunction('__sceneweavePublishMapTop', async partial => {
+        checkCurrent()
+        assert(!savedProject && !savedTop, '制图草稿的首图已落盘。')
+        savedProject = await writeVerified(output, 'map.sceneweave', Buffer.from(partial.archiveBase64, 'base64'))
+        savedTop = await writeVerified(output, 'preview.png', Buffer.from(partial.previewBase64, 'base64'))
+        const { projectHash, floorId, title, revision, expectedOblique } = partial
+        const firstPreviewMs = milliseconds(started)
+        record = { ...record, projectHash, floorId, title, revision, expectedOblique, topReadyAt: new Date().toISOString(), firstPreviewMs,
+          files: { ...record.files, project: savedProject.record, preview: savedTop.record } }
+        await replaceResult(output, record, { checkCurrent })
+        progress?.({ phase: 'top', preview: path.join(output, 'preview.png'), project: path.join(output, 'map.sceneweave'),
+          elapsedMs: firstPreviewMs })
+      })
       const generated = await call(opened, browserInput)
       const { profile, usage, timings } = generated.result
       displayWorkMs = Math.ceil(timings.packageExportMs + timings.previewMs)
       record = { ...record, ...generated.result,
         usage: assertTaskBudget(profile, { ...usage, activeExecutionMs: usage.activeExecutionMs + displayWorkMs }) }
-      projectBytes = Buffer.from(generated.archiveBase64, 'base64')
-      previewBytes = Buffer.from(generated.previewBase64, 'base64')
+      projectBytes = savedProject ? undefined : Buffer.from(generated.archiveBase64, 'base64')
+      previewBytes = savedTop ? undefined : Buffer.from(generated.previewBase64, 'base64')
       obliqueBytes = generated.obliqueBase64 && Buffer.from(generated.obliqueBase64, 'base64')
       diagnosticBytes = generated.diagnosticBase64 && Buffer.from(generated.diagnosticBase64, 'base64')
       previewFailure = generated.previewFailure
@@ -250,8 +330,8 @@ export async function executeMap({ action, request: raw, project, candidate, out
     }
     phase = 'save'
     checkCurrent()
-    const savedProject = await writeVerified(output, 'map.sceneweave', projectBytes)
-    const savedTop = await writeVerified(output, 'preview.png', previewBytes)
+    savedProject ??= await writeVerified(output, 'map.sceneweave', projectBytes)
+    savedTop ??= await writeVerified(output, 'preview.png', previewBytes)
     const savedOblique = obliqueBytes && await writeVerified(output, 'oblique.png', obliqueBytes)
     const savedDiagnostic = diagnosticBytes && await writeVerified(output, 'diagnostic.png', diagnosticBytes)
     record = { ...record, candidateReadyAt: new Date().toISOString(),
@@ -268,13 +348,13 @@ export async function executeMap({ action, request: raw, project, candidate, out
       await replaceResult(output, { ...record, status: 'verifying' }, { checkCurrent })
       const verificationStarted = performance.now(), cold = await open(record.browser?.channel)
       record.verificationBrowser = cold.info
-      const redrawn = await call(cold, { action: 'verify', budget, request: captured ? request : undefined,
+      const redrawn = await call(cold, { action: 'verify', budget, request,
         archiveBase64: savedProject.bytes.toString('base64'),
-        verify: { projectHash: record.projectHash, floorId: record.floorId, oblique: !!savedOblique, sourceAction: captured?.source.action } })
+        verify: { projectHash: record.projectHash, floorId: record.floorId, oblique: !!savedOblique, sourceAction: captured?.source.action ?? action } })
       await closeBrowser()
       if (redrawn.review) {
-        const { oblique: _oblique, ...review } = redrawn.review
-        record = { ...record, ...review, profile: redrawn.profile }
+        const { oblique: _oblique, usage, ...review } = redrawn.review
+        record = { ...record, ...review, usage: record.usage ?? usage, profile: redrawn.profile }
       }
       const { decodeCanonicalPng } = await tooling.png()
       const compare = (saved, base64, limit) => compareMapPng(saved.bytes, Buffer.from(base64, 'base64'), limit, decodeCanonicalPng)
@@ -308,12 +388,24 @@ export async function executeMap({ action, request: raw, project, candidate, out
     }
     checkCurrent()
     record = { ...record, status: stage, completedAt: new Date().toISOString(),
-      timings: { ...record.timings, deliveryWorkMs: displayWorkMs + verificationWorkMs, commandTotalMs: milliseconds(started) },
+      timings: { ...record.timings, ...(traced ? { throughReferenceMs: traced.elapsedMs } : {}),
+        deliveryWorkMs: displayWorkMs + verificationWorkMs, commandTotalMs: milliseconds(started) },
     }
     await replaceResult(output, record, { checkCurrent, onPublished: () => { published = true } })
-    return { ...record, output, paths: { project: path.join(output, 'map.sceneweave'), preview: path.join(output, 'preview.png'),
+    const paths = { project: path.join(output, 'map.sceneweave'), preview: path.join(output, 'preview.png'), request: path.join(output, 'request.json'),
       ...(savedOblique ? { oblique: path.join(output, 'oblique.png') } : {}),
-      ...(savedDiagnostic ? { diagnostic: path.join(output, 'diagnostic.png') } : {}), result: path.join(output, 'result.json') } }
+      ...(savedDiagnostic ? { diagnostic: path.join(output, 'diagnostic.png') } : {}),
+      ...(traced ? { overlay: path.join(output, 'overlay.png') } : {}), result: path.join(output, 'result.json') }
+    const blockingChecks = [...(record.routeChecks ?? []), ...(record.heightChecks ?? []), ...(record.ascentChecks ?? [])]
+      .filter(row => !row.ok && row.required !== false).map(row => ({ id: row.id, issues: row.issues ?? [], ...(!row.issues ? { riseMm: row.riseMm, minRiseMm: row.minRiseMm } : {}) }))
+    for (const issue of traced?.issues ?? []) if (issue.kind === 'design') blockingChecks.push({ id: issue.id, issues: [issue] })
+    const fileLink = file => '<' + file.split(path.sep).join('/') + '>'
+    const markdown = [`![地图正俯视](${fileLink(paths.preview)})`,
+      ...(paths.oblique ? [`![地图斜俯视](${fileLink(paths.oblique)})`] : []),
+      `[可编辑工程](${fileLink(paths.project)})`].join('\n\n')
+    return { ...record, ...(traced ? { reference: compactMapReference(traced) } : {}), output, paths,
+      delivery: { verified: stage === 'complete', editorReopened: !!record.editorVerification, blockingChecks, markdown,
+        ...(stage !== 'complete' ? { candidate: output, next: blockingChecks.length ? 'revise' : 'verify' } : {}) } }
   } catch (error) {
     const message = stopReason ?? (error.message || '浏览器或制图工具中止。请检查此阶段回执和可用内存。')
     if (outputOwned && record && !published) {
@@ -340,7 +432,7 @@ export async function runMapCli(args) {
       if (action === 'example') return definitions.mapAuthoringExample(value)
       if (action === 'schema') return definitions.mapAuthoringCapabilities().schemas[value]
       const { schemas: _schemas, ...description } = definitions.mapAuthoringCapabilities()
-      return { ...description, schemaCommand: 'node tools/harness/sceneweave.mjs map schema generate|inspect|edit' }
+      return { ...description, schemaCommand: 'node tools/harness/sceneweave.mjs map schema reference|generate|inspect|edit' }
     })
     process.stdout.write(json(output))
     return
@@ -350,7 +442,8 @@ export async function runMapCli(args) {
   try {
     const request = options.input ? await readRequest(options.input, MAX_MAP_REQUEST_BYTES) : options.request
     if (options.output) await fs.mkdir(path.dirname(options.output), { recursive: true })
-    process.stdout.write(json(await executeMap({ ...options, request, signal: controller.signal })))
+    process.stdout.write(json(await executeMap({ ...options, request, signal: controller.signal,
+      progress: ({ preview, elapsedMs }) => process.stderr.write(`首张实际预览已保存（${elapsedMs} ms） ${preview}\n`) })))
   } finally {
     process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel)
   }

@@ -131,7 +131,7 @@ export interface TerrainArea extends Editable {
   /** Saved height offsets relative to the area datum, in the terrain outline's bounds. */
   relief?: import('../geometry/terrain-relief.js').TerrainRelief
   /** Optional painted strata follow the actual relief, independent of support. */
-  reliefFinish?: 'weathered-v1'
+  reliefFinish?: 'weathered-v1' | 'weathered-v2'
 }
 export interface EdgeStyle { strokeWidthMm: number; color: string; bandWidthMm: number }
 export interface TerrainEdge extends Editable {

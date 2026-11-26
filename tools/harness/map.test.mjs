@@ -19,6 +19,14 @@ test('CLI and MCP require explicit local scope and accept a bounded default budg
   const args = ['generate', '--input', input, '--output', output, '--allow', 'map-authoring']
   assert.equal(parseMapCli(args).budget, 'standard')
   assert.equal(parseMapCli([...args, '--stage', 'draft']).stage, 'draft')
+  const referenceInput = ['reference', '--image', path.resolve('guide.png'), '--input', path.resolve('guide.json'),
+    '--output', path.resolve('new-outline'), '--allow', 'map-authoring']
+  assert.equal(parseMapCli(referenceInput).action, 'reference')
+  assert.equal(parseMapCli(referenceInput).referenceStage, undefined)
+  assert.equal(parseMapCli([...referenceInput, '--stage', 'draft']).referenceStage, 'draft')
+  assert.equal(parseMapCli(['diagnose', '--input', path.resolve('map.json'), '--allow', 'map-authoring']).action, 'diagnose')
+  assert.throws(() => parseMapCli(['reference', '--image', 'relative.png', '--input', path.resolve('guide.json'),
+    '--output', path.resolve('new-outline'), '--allow', 'map-authoring']), /absolute/i)
   assert.throws(() => parseMapCli(args.slice(0, -2)), /explicit/)
   assert.throws(() => parseMapCli([...args, '--budget', 'unlimited']), /budget/)
   assert.equal(parseMapServerArgs(['--workspace', output, '--allow', 'map-authoring']).workspace, output)
@@ -108,6 +116,7 @@ test('CLI and MCP deliver real candidates, preserve a dense contour, and revise 
   const { tools } = await host.call('tools/list')
   assert(tools.some(tool => tool.name === 'sceneweave_map_edit'))
   assert.equal(tools.find(tool => tool.name === 'sceneweave_map_verify').inputSchema.properties.editor.type, 'boolean')
+  assert.deepEqual(tools.find(tool => tool.name === 'sceneweave_map_reference').inputSchema.properties.stage.enum, ['draft', 'complete'])
   const workflow = await host.tool('sceneweave_workflow', { action: 'read', workflowId: 'sceneweave-map-authoring' })
   assert.equal(workflow.host, 'map-mcp')
   assert.equal(workflow.steps.find(step => step.id === 'revise').requirements[1].state, 'available')

@@ -12,8 +12,9 @@ import { decodeUtf8, sha256Bytes } from './binary.js'
 import { parseBoundedJson } from './json.js'
 import { failPackage, hasExactKeys, isSha256, PACKAGE_LIMITS } from './limits.js'
 import { inspectBoundedZip, projectDocumentPath, projectEnvelopePathBudget, zipPathBudget, type BoundedZip } from './zip.js'
-import { checkProjectReader, PROJECT_EXTENSIONS_READER_VERSION, PROJECT_FORMAT, PROJECT_SCHEMA_VERSION, PROJECT_WRITER_BUILD } from './format.js'
+import { checkProjectReader, PROJECT_EXTENSIONS_READER_VERSION, PROJECT_FORMAT, PROJECT_LANDSCAPE_READER_VERSION, PROJECT_SCHEMA_VERSION, PROJECT_WRITER_BUILD } from './format.js'
 import { decodeSceneCoordinates, encodeSceneCoordinates } from '../aggregates/scene-coordinates.js'
+import { LANDSCAPE_GROUND_SCATTER_VERSION } from '../geometry/scatter-algorithm.js'
 
 export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'extensions' | 'history'
   | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'snapshot-extensions' | 'asset' | 'license' | 'source'
@@ -33,6 +34,10 @@ const suffix: Record<AssetRecord['mimeType'], string> = { 'image/png': 'png', 'i
 const rootPaths = { scenePath: 'scene.json', identityPath: 'identity.json', appearancePath: 'appearance.json', sourcesPath: 'sources.json' }
 const extensionsPath = (scenePath: string) => scenePath.replace(/scene\.json$/, 'extensions.json')
 const containsExtensions = (entries: ManifestEntry[]) => entries.some(entry => entry.role === 'extensions' || entry.role === 'snapshot-extensions')
+const needsLandscapeReader = (document: ProjectData['document']) => document && (
+  Object.values(document.terrainAreas ?? {}).some(area => area?.reliefFinish === 'weathered-v2')
+  || Object.values(document.scatterGroups ?? {}).some(group => group?.algorithmVersion === LANDSCAPE_GROUND_SCATTER_VERSION)
+)
 const referenceKeys = ['scenePath', 'identityPath', 'appearancePath', 'sourcesPath', 'assetHashes', 'licenseHashes', 'sourceHashes', 'licenseBindings']
 const nonempty = (value: unknown, max = 256): value is string => typeof value === 'string' && value.length > 0 && value.length <= max
 const sorted = (values: string[]): string[] => values.sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
@@ -134,7 +139,7 @@ export async function prepareProjectArchive(input: HistoryArchive, mode: Project
   const archive = mode === 'history' ? await validateHistoryArchive(input, options) : { current: await validateProjectBundle(input.current, options), snapshots: [] }
   checkCancelled(options.signal)
   const files: Record<string, Uint8Array> = Object.create(null), entries: ManifestEntry[] = [], jsonBudget = { values: 0 }
-  let expanded = 0, documentBytes = 0
+  let expanded = 0, documentBytes = 0, minReaderVersion = 1
   const add = (path: string, role: PackageRole, bytes: Uint8Array, mimeType: string): void => {
     checkCancelled(options.signal)
     if (Object.hasOwn(files, path) || !bytes.length || bytes.length > zipPathBudget(path)) return failPackage('重复路径或单文件预算超限。')
@@ -149,6 +154,9 @@ export async function prepareProjectArchive(input: HistoryArchive, mode: Project
   const addJson = (path: string, role: PackageRole, value: unknown) => add(path, role, encodeUtf8(canonicalJson(value)), 'application/json')
   const addParts = (bundle: ProjectBundle, paths: typeof rootPaths, historical: boolean) => {
     const project = bundle.project, prefix = historical ? 'snapshot-' : ''
+    if (needsLandscapeReader(project.document)) {
+      minReaderVersion = Math.max(minReaderVersion, PROJECT_LANDSCAPE_READER_VERSION)
+    }
     addJson(paths.scenePath, `${prefix}scene` as PackageRole, encodeSceneCoordinates(project.document))
     addJson(paths.identityPath, `${prefix}identity` as PackageRole, project.historyIdentity)
     addJson(paths.appearancePath, `${prefix}appearance` as PackageRole, project.appearance)
@@ -194,9 +202,10 @@ export async function prepareProjectArchive(input: HistoryArchive, mode: Project
     if ((totalSources += bytes.length) > PACKAGE_LIMITS.totalSourceBytes || bytes.length !== size || sha256Bytes(bytes) !== hash) return failPackage('导出SVG源读取与已验证字节不一致或累计超限。')
     add(`sources/${hash}.svg`, 'source', bytes, 'image/svg+xml')
   }
+  if (containsExtensions(entries)) minReaderVersion = Math.max(minReaderVersion, PROJECT_EXTENSIONS_READER_VERSION)
   // Existing v1 readers require exact manifest keys. The baseline minimum of one is implicit.
   const manifest: ProjectManifest = { format: PROJECT_FORMAT, schemaVersion: archive.current.project.schemaVersion, application: 'Sceneweave', applicationVersion: PROJECT_WRITER_BUILD, packageMode: mode,
-    ...(containsExtensions(entries) ? { minReaderVersion: PROJECT_EXTENSIONS_READER_VERSION } : {}),
+    ...(minReaderVersion > 1 ? { minReaderVersion } : {}),
     sceneId: archive.current.project.document.sceneId, revision: archive.current.project.document.revision, entries, assetRecords: assets, licenseBindings: archive.current.project.licenseBindings }
   const manifestBytes = encodeUtf8(canonicalJson(manifest))
   if (manifestBytes.length > PACKAGE_LIMITS.manifestBytes || entries.length + 1 > PACKAGE_LIMITS.entries || expanded + manifestBytes.length > PACKAGE_LIMITS.expandedBytes) return failPackage('manifest、条目或展开累计预算超限。')
@@ -287,6 +296,9 @@ async function unpack(input: Uint8Array, expectedMode: ProjectManifest['packageM
       selectedLicenses[hash] = licenses[hash]; usedLicenses.add(hash)
     }
     const document = decodeSceneCoordinates(json(refs.scenePath))
+    if (needsLandscapeReader(document) && (manifest.minReaderVersion ?? 1) < PROJECT_LANDSCAPE_READER_VERSION) {
+      return failPackage('含新版自然地表或散布规则的工程须声明最低读取协议 v3。')
+    }
     const privatePath = extensionsPath(refs.scenePath)
     const project = validateProjectData({ format: PROJECT_FORMAT, schemaVersion: document?.schemaVersion, document,
       historyIdentity: json(refs.identityPath) as ProjectData['historyIdentity'], appearance: json(refs.appearancePath) as ProjectData['appearance'], authoringSources: json(refs.sourcesPath) as ProjectData['authoringSources'],

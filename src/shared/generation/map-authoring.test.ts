@@ -14,6 +14,7 @@ import { finishLandscape, landscapeRouteClearances } from '../terrain-generation
 import { createShoreBlankDocument } from '../../platform/browser/content/shore-blank.js'
 import { appendWholePlantDefinitions } from '../../platform/browser/content/whole-plant-catalog.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
+import { checkLandscapeAscents } from '../../application/workspace/landscape-map.js'
 
 const point = (x: number, y: number) => ({ x, y })
 const square = (x: number, y: number) => [point(x, y), point(x + 10, y), point(x + 10, y + 10), point(x, y + 10)]
@@ -159,7 +160,9 @@ describe('public map authoring contract', () => {
         const mirror = ({ x, y }: { x: number; y: number }) => point(1000 - x, y)
         copy.land[0].boundary = copy.land[0].boundary!.map(mirror).reverse()
         copy.landforms[0].at = mirror(copy.landforms[0].at)
-        copy.routes[0].via = copy.routes[0].via.map(anchor => ({ ...anchor, at: mirror(anchor.at) }))
+        const route = copy.routes[0]
+        if (!('via' in route)) throw new Error('Expected explicitly anchored route')
+        route.via = route.via.map(anchor => ({ ...anchor, at: mirror(anchor.at) }))
         copy.routes[0].around!.side = 'east'
       }
       shapeLandscape(fit.scene, fit.floor, copy, fit.frame, request.seed, fit.meter)
@@ -196,5 +199,38 @@ describe('public map authoring contract', () => {
       ])).toEqual([0, .3, .4, .5, 1])
     })
     expect(pairs).toBeLessThan(16)
+  })
+
+  it('checks the saved road from a low region to its named summit and rejects a shortened route', () => {
+    const input = parseMapGenerate(mapAuthoringExample('landscape-ascent'))
+    if (input.recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    const { scene, floor, frame, meter } = landscapeFixture(input)
+    shapeLandscape(scene, floor, input.recipe, frame, input.seed, meter)
+    const road = scene.paths.ascent, result = checkGradedRoadOnValidScene(scene, road)
+    expect(result.ok, JSON.stringify(result.issues)).toBe(true)
+    expect(result.treadCount).toBeGreaterThan(10)
+    expect(checkLandscapeAscents(scene, floor, input, true)).toMatchObject([{ ok: true, lowElevationMm: 500, highElevationMm: 7200, riseMm: 6700 }])
+    const requirement = input.recipe.routes[0]
+    if (!('ascent' in requirement)) throw new Error('Expected an ascent requirement')
+    requirement.ascent.from.at = input.recipe.landforms[0].at
+    expect(checkLandscapeAscents(scene, floor, input, false)[0].issues).toContainEqual(expect.objectContaining({ code: 'ASCENT_START' }))
+    expect(() => checkLandscapeAscents(scene, floor, input, true)).toThrow('标记低处')
+    const fallback = landscapeFixture(input), failed: LandscapeRoadFailure[] = []
+    requirement.ascent.from.radius = point(10, 10)
+    shapeLandscape(fallback.scene, fallback.floor, input.recipe, fallback.frame, input.seed, fallback.meter, failed)
+    expect(failed[0].issues[0].code).toBe('LANDSCAPE_ASCENT_START')
+    expect(fallback.scene.paths.ascent).toBeUndefined()
+  })
+
+  it('fits grouped stair flights and checks their actual end approaches', () => {
+    const input = parseMapGenerate(mapAuthoringExample('landscape-ascent'))
+    if (input.recipe.kind !== 'landscape' || !('ascent' in input.recipe.routes[0])) throw new Error('Expected landscape ascent')
+    input.recipe.routes[0].ascent.staircase = 'flight'
+    const { scene, floor, frame, meter } = landscapeFixture(input)
+    shapeLandscape(scene, floor, input.recipe, frame, input.seed, meter)
+    const travel = checkGradedRoadOnValidScene(scene, scene.paths.ascent, 650)
+    expect(travel.ok).toBe(true)
+    expect(travel.treadCount).toBeGreaterThan(12)
+    expect(travel.elevationsMm).toEqual([500, 7200])
   })
 })

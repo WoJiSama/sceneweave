@@ -77,21 +77,39 @@ export function pointInPolygon(p: PointMm, polygon: PointMm[], includeBoundary =
   }
   return inside
 }
-export function polygonValid(points: PointMm[], positive: boolean): boolean {
-  if (points.length < 3 || new Set(points.map(p => `${p.x}\0${p.y}`)).size !== points.length || (positive ? area(points) <= 0 : area(points) === 0)) return false
+export function polygonValid(points: PointMm[], positive: boolean, onInvalid?: (at: PointMm) => void): boolean {
+  const seen = new Set<string>()
+  for (const point of points) {
+    const key = `${point.x}\0${point.y}`
+    if (seen.has(key)) { onInvalid?.(point); return false }
+    seen.add(key)
+  }
+  if (points.length < 3) return false
+  const signed = area(points)
+  if (signed === 0 || positive && signed < 0) { onInvalid?.(points[0]); return false }
   const segments = edges(points)
   const candidates = points.length > 16 ? indexEdges(segments) : undefined
   for (let i = 0; i < segments.length; i++) {
     const [a, b] = segments[i], c = points[(i + 2) % points.length]
-    if (same(a, b) || (cross(a, b, c) === 0 && (b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y) < 0)) return false
-    const nearby = candidates?.(a, b, EPS)
-    if (nearby) {
-      const possible = nearby.filter(j => j > i + 1 && !(i === 0 && j === segments.length - 1))
+    if (same(a, b) || (cross(a, b, c) === 0 && (b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y) < 0)) { onInvalid?.(b); return false }
+    const other = candidates?.(a, b, EPS)
+    const last = segments.length - (i === 0 ? 1 : 0)
+    let hit: number | undefined
+    if (other) {
+      const possible = other.filter(j => j > i + 1 && j < last)
       observeGeometryPairs(possible.length)
-      if (possible.some(j => meet(a, b, ...segments[j]))) return false
+      hit = possible.find(j => meet(a, b, ...segments[j]))
     } else {
-      observeGeometryPairs(Math.max(0, segments.length - i - (i === 0 ? 3 : 2)))
-      for (let j = i + 2; j < segments.length; j++) if (!(i === 0 && j === segments.length - 1) && meet(a, b, ...segments[j])) return false
+      observeGeometryPairs(Math.max(0, last - i - 2))
+      for (let j = i + 2; j < last; j++) if (meet(a, b, ...segments[j])) { hit = j; break }
+    }
+    if (hit !== undefined) {
+      if (onInvalid) {
+        const other = segments[hit]
+        const shared = [a, b].find(p => onSegment(p, ...other)) ?? other.find(p => onSegment(p, a, b))
+        onInvalid(shared ?? at(a, b, segmentCuts(a, b, [other])[1]))
+      }
+      return false
     }
   }
   return true
@@ -149,12 +167,17 @@ export function segmentCuts(a: PointMm, b: PointMm, boundaries: [PointMm, PointM
   observeGeometryPairs(compared)
   return [...new Set(result)].sort((x, y) => x - y)
 }
-export function polygonInside(subject: PointMm[], container: PointMm[]): boolean {
-  if (!subject.length || container.length < 3 || subject.some(p => !pointInPolygon(p, container))) return false
+export function polygonInside(subject: PointMm[], container: PointMm[], onOutside?: (at: PointMm) => void): boolean {
+  if (!subject.length || container.length < 3) return false
+  const outside = subject.find(p => !pointInPolygon(p, container))
+  if (outside) { onOutside?.(outside); return false }
   const boundary = edges(container)
   for (const [a, b] of edges(subject)) {
     const cuts = segmentCuts(a, b, boundary)
-    for (let i = 1; i < cuts.length; i++) if (!pointInPolygon(at(a, b, (cuts[i - 1] + cuts[i]) / 2), container)) return false
+    for (let i = 1; i < cuts.length; i++) {
+      const point = at(a, b, (cuts[i - 1] + cuts[i]) / 2)
+      if (!pointInPolygon(point, container)) { onOutside?.(point); return false }
+    }
   }
   return true
 }

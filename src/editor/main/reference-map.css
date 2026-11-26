@@ -1,0 +1,44 @@
+.reference-map-tool,
+.reference-map-tool fieldset {
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+}
+.reference-map-tool fieldset { border: 0; margin: 0; padding: 0; }
+.reference-map-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  gap: 8px 12px;
+}
+.reference-map-fields label { display: grid; gap: 4px; }
+.reference-map-fields input,
+.reference-map-fields select { width: 100%; min-width: 0; }
+.reference-map-fields input[type='checkbox'] { width: auto; justify-self: start; }
+.reference-map-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.reference-map-tool button[aria-pressed='true'] { background: #e0eedf; border-color: #557960; }
+.reference-map-board {
+  position: relative;
+  width: min(100%, 500px);
+  margin-inline: auto;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #e2ebe4;
+}
+.reference-map-board img,
+.reference-map-board canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.reference-map-board canvas { cursor: crosshair; }
+.reference-map-board canvas[data-brush='active'] { touch-action: none; }
+.reference-map-instruction { margin: 0; font-size: .87rem; }
+.reference-map-markers { margin: 0; padding-inline-start: 1.2rem; }
+.reference-map-markers li { margin-block: 3px; }
+.reference-map-markers button { margin-inline-start: 8px; padding: 2px 8px; }
+.reference-map-diagnosis { padding: 10px; background: #eef4ec; border-radius: 6px; }
+.reference-map-diagnosis ol { margin-block: 5px 0; padding-inline-start: 1.45rem; }
+.reference-map-preview { display: grid; gap: 8px; }
+.reference-map-preview img { display: block; width: 100%; height: auto; border-radius: 6px; }

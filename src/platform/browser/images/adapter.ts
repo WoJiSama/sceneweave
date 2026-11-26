@@ -75,6 +75,12 @@ async function withDecodedRaster<T>(bytes: Uint8Array, header: ImageHeader, sign
   })
 }
 
+export function decodeBrowserSourceImage(input: Uint8Array, signal?: CancellationSignal): Promise<RasterImage> {
+  checkCancelled(signal)
+  const bytes = captureBytes(input, PACKAGE_LIMITS.imageBytes)
+  return withDecodedRaster(bytes, inspectImageBytes(bytes, false), signal, true, image => image)
+}
+
 async function encodeCanvasPng(canvas: HTMLCanvasElement, signal?: CancellationSignal): Promise<Uint8Array> {
   checkCancelled(signal)
   let blob: Blob

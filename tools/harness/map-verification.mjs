@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { assert, digest, MAX_ARCHIVE_BYTES, MAX_MAP_REQUEST_BYTES, readBounded } from './io.mjs'
 
-const filenames = { request: 'request.json', project: 'map.sceneweave', preview: 'preview.png', oblique: 'oblique.png', diagnostic: 'diagnostic.png' }
+const filenames = { request: 'request.json', project: 'map.sceneweave', preview: 'preview.png', oblique: 'oblique.png', diagnostic: 'diagnostic.png', overlay: 'overlay.png' }
 
 export async function openSavedMap(directory) {
   const folder = await fs.realpath(directory)
@@ -26,11 +26,12 @@ export async function openSavedMap(directory) {
 
 export async function captureMapCandidate(directory, previews = 'keep') {
   const source = await openSavedMap(directory), { record } = source
-  assert(['draft', 'verifying', 'complete', 'failed'].includes(record.status) && record.candidateReadyAt
+  assert(['draft', 'verifying', 'complete', 'failed'].includes(record.status) && (record.candidateReadyAt || record.status === 'failed' && record.topReadyAt)
     && record.files?.project && record.files?.preview && (record.action === 'generate' || record.action === 'edit' || record.action === 'verify')
     && /^[a-f0-9]{64}$/.test(record.projectHash ?? '') && typeof record.floorId === 'string',
   '候选还没有完整落盘。请选择有工程和预览的生成或编辑目录。')
   assert(record.error?.code !== 'operation_budget', '原候选超出预算，请调整输入并建立新候选。')
+  assert(!record.reference?.issues?.some(issue => issue.kind === 'design'), '参考图草稿仍有未解决的设计标记，请按叠图调整后建立新候选。')
   const action = record.action === 'verify' ? record.source?.action : record.action
   assert(action === 'generate' || action === 'edit', '候选缺少原始制图动作。')
   const request = await source.file('request')

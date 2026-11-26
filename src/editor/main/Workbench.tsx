@@ -232,6 +232,7 @@ const ForestGenerationPanel = lazyPanel(() => import('./ForestGenerationPanel'),
 const VolcanoGenerationPanel = lazyPanel(() => import('./VolcanoGenerationPanel'), '火山生成')
 const MixedGenerationPanel = lazyPanel(() => import('./MixedGenerationPanel'), '林中建筑生成')
 const TerrainGenerationPanel = lazyPanel(() => import('./TerrainGenerationPanel'), '自然地形生成')
+const ReferenceMapPanel = lazyPanel(() => import('./ReferenceMapPanel'), '参考图地形')
 const TerrainCompositionPanel = lazyPanel(() => import('./TerrainCompositionPanel'), '多域地形生成')
 const RegionalPanel = lazyPanel(() => import('./RegionalPanel'), '区域地图')
 const GenerationExecutionSettings = lazyPanel(() => import('./GenerationExecutionSettings'), '生成执行设置')
@@ -301,6 +302,7 @@ const generationTasks = [
   { id: 'mixed', label: '混合场景', description: '建筑与自然环境', size: [40000, 32000] },
   { id: 'natural', label: '自然地形', description: '岩岛、海岸、河湖与丘陵', size: [24000, 18000] },
   { id: 'composition', label: '组合地貌', description: '群岛、河谷与台地', size: [48000, 36000] },
+  { id: 'reference', label: '参考图地形', description: '从图片提取轮廓、标地貌和通路', size: [0, 0] },
   { id: 'regional', label: '区域地图', description: '规划旅程与地点', size: [0, 0] },
 ] as const
 type GenerationTask = typeof generationTasks[number]['id']
@@ -570,7 +572,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
   const [generationPick, setGenerationPick] = useState<{ first?: PointMm; cursor?: PointMm } | null>(null)
   const generationFloor = completeProject?.document.mapMode === 'scene' ? completeProject.document.floors[activeFloorId] : undefined
   const generationTask = generationTasks.find(task => task.id === generationTab)!
-  const generationSize = generationFloor && generationTab !== 'regional' ? generationBounds ?? {
+  const generationSize = generationFloor && generationTab !== 'regional' && generationTab !== 'reference' ? generationBounds ?? {
     ...generationFloor.boundsMm,
     width: Math.min(generationFloor.boundsMm.width, generationTask.size[0]),
     height: Math.min(generationFloor.boundsMm.height, generationTask.size[1]),
@@ -2768,7 +2770,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
               }}/></label>)}
         </div>
       </section>}
-      {!generationFloor && generationTab !== 'regional' && <p className="asset-muted">将生成并打开一个独立场景。</p>}
+      {(!generationFloor && generationTab !== 'regional' || generationTab === 'reference') && <p className="asset-muted">将生成并打开一个独立场景。</p>}
       {generationTab === 'regional' && <p className="asset-muted">区域地图用于规划地点和旅程。新建时会打开独立的区域工程。</p>}
       {transitionReason && !hasCandidate && !generationSummary.busy && !terrainBusy && <p className="asset-form-error" role="status">{transitionReason}</p>}
     <div className="workspace-task-section" hidden={generationTab !== 'interior'}><DeferredPanel open={generationFormOpen && generationTab === 'interior'} name="室内生成"><InteriorGenerationPanel canvasSize={generationSize} key={`interior-${interiorReset}`} busy={interiorBusy || busy} disabled={audience !== 'gm' || aiCritical || !!generationTransitionReason('interior')} dirty={interiorDraft} error={interiorError} candidate={interiorPreview} onChange={changeInterior} onGenerate={generateInterior} onAdopt={adoptInterior} onCancel={() => cancelInterior()}/></DeferredPanel></div>
@@ -2798,6 +2800,12 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     </div>
     <div className="workspace-task-section" hidden={generationTab !== 'composition'}><DeferredPanel open={generationFormOpen && generationTab === 'composition'} name="多域地形生成"><TerrainCompositionPanel canvasSize={generationSize} busy={terrainBusy || busy || aiCritical} error={terrainError} disabled={!terrainPreview?.composition && !terrainBusy && !!workspaceTransitionReason(transient())} disabledReason={workspaceTransitionReason(transient())} candidate={terrainPreview?.composition?terrainPreview:null} onGenerate={generateComposition} onAdopt={adoptTerrain} onCancel={cancelTerrain} onExport={exportTerrain}/></DeferredPanel></div>
     <div className="workspace-task-section" hidden={generationTab !== 'regional'}><DeferredPanel open={generationFormOpen && generationTab === 'regional'} name="区域地图">{audience === 'gm' && <RegionalPanel key={panelKey + '-regional-' + regionalReset} document={completeProject?.document ?? null} busy={regionalBusy || busy} disabled={!!workspaceTransitionReason({ ...transient(), terrainPreview: domainOperations.summary().blocking || terrainBlocking(), busy: busy || domainOperations.summary().busy || terrainOperations.summary().busy || catalogBusy || aiCritical })} error={regionalError} candidate={regionalPreview} sourceComparison={regionalComparison} onPreviewCreate={input => previewRegional('create', input)} onPreviewEdit={input => previewRegional('edit', input)} onPreviewDrillDown={input => previewRegional('drillDown', input)} onCompareSource={compareRegional} onAdopt={adoptRegional} onCancel={cancelRegional} onDraftChange={setRegionalDraft}/>}</DeferredPanel></div>
+    <div className="workspace-task-section" hidden={generationTab !== 'reference'}>
+      <DeferredPanel open={generationFormOpen && generationTab === 'reference'} name="参考图地形">
+        <ReferenceMapPanel active={generationFormOpen && generationTab === 'reference'} disabled={toolDisabled([])}
+          onAdopt={project => { if (prepare(async () => project, '参考图地形')) setGenerationDialogOpen(false) }}/>
+      </DeferredPanel>
+    </div>
     </GenerationDialog>
   const resourcePanels = <div className="layer-library-stack history-library-stack">
           {hasCandidate && (sidebar === 'building' || sidebar === 'outdoor' || sidebar === 'library') && <p className="workspace-tool-status" role="status">

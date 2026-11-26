@@ -764,6 +764,7 @@ function drawTerrainShorelines(ctx: CanvasRenderingContext2D, projection: Projec
   for (const { points, closed, dryAreaId, wetAreaId, waterInward, style } of planProjectedShorelines(projection)) {
     checkCancelled(signal)
     const width = style.bandWidthMm
+    const detailed = projection.terrain.some(area => area.id === dryAreaId && area.reliefFinish === 'weathered-v2')
     const paintBounds = expandedBounds(points, shorelinePaintPadding(style))
     if (!intersectsVisualBounds(projection.bounds, paintBounds)) continue
     const path = trace(points, closed)
@@ -780,21 +781,21 @@ function drawTerrainShorelines(ctx: CanvasRenderingContext2D, projection: Projec
     }
     ctx.save()
     if (clipShoreSurface(ctx, projection, dryAreaId, paintBounds)) {
-      band(.21, .075, '#BE9E70', .27)
-      band(.065, .028, '#A9926A', .18)
+      band(.21, detailed ? .036 : .075, '#BE9E70', .27)
+      band(.065, .028, detailed ? '#826747' : '#A9926A', detailed ? .31 : .18)
     }
     ctx.restore()
     if (clipShoreSurface(ctx, projection, wetAreaId, paintBounds, true)) {
-      band(.92, .14, '#86C6BE', .29)
-      band(.59, .15, '#97CBAC', .32)
-      band(.23, .08, '#A6C9AA', .2)
+      band(.92, detailed ? .21 : .14, detailed ? '#83B6A8' : '#86C6BE', detailed ? .22 : .29)
+      band(.59, detailed ? .12 : .15, detailed ? '#9BC5B5' : '#97CBAC', detailed ? .23 : .32)
+      band(.23, detailed ? .057 : .08, detailed ? '#C5D7B9' : '#A6C9AA', detailed ? .28 : .2)
       if (style.strokeWidthMm > 0) {
         setCanvasBlur(ctx, 0); ctx.strokeStyle = style.color
         const direction = waterInward ? 1 : -1
         const unit = Math.max(76, Math.min(480, width * .24))
         for (const [distance, opacity, phase] of [[.085, .56, 0], [.25, .26, 1.65]]) {
           const offset = points.map(({ x, y }) => direction * width * (distance + Math.sin(x / 1700 + y / 980 + phase) * distance * .21))
-          ctx.globalAlpha = opacity
+          ctx.globalAlpha = detailed ? opacity * .78 : opacity
           ctx.lineWidth = style.strokeWidthMm * (phase ? .72 : 1)
           ctx.setLineDash([unit * 1.55, unit * .89, unit * .7, unit * 1.52, unit * 2.5, unit * 1.8])
           ctx.lineDashOffset = phase * unit

@@ -32,6 +32,7 @@ import TerrainInlayTools from './TerrainInlayTools'
 import { WaterSurfaceTools } from './OceanTools'
 import ShorelineSegmentPicker from './ShorelineSegmentPicker'
 import { outdoorEntityKind } from './outdoor-entity-kind'
+import { captureExecutionBudget, taskBudgetProfile } from '../../shared/budget/task-budget'
 
 export default function OutdoorInspector({ scene, id, disabled, onPreview, onVisualPreview, onSelect, onBoundaryEditor, onFocusCanvas, contour, onOpenLayers, onFocusPartition, onSelectPartition, onExportPartition, onPreviewPartition, onDrawScatterExclusion, onEditAutomaticRoad }: {
   scene: SceneDocument; id: string; disabled: boolean; onPreview: (commands: SceneCommand[], description: string) => void
@@ -63,7 +64,10 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
   const [density, setDensity] = useState(String(scatter?.densityFactor ?? 0.4)), [spacing, setSpacing] = useState(String(scatter?.minDistanceMm ?? 300)), [cell, setCell] = useState(String(scatter?.cellSizeMm ?? 2500))
   const [extraBoundary, setExtraBoundary] = useState(''), [extraMaterial, setExtraMaterial] = useState(''), [blend, setBlend] = useState('150'), [segment, setSegment] = useState(area?.boundaryMm[0]?.segmentId ?? ''), [exclusionReason, setExclusionReason] = useState<'manual' | 'entrance'>('manual')
   const [error, setError] = useState<string | null>(null), [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [aroundId, setAroundId] = useState(''), [aroundSide, setAroundSide] = useState<'north' | 'east' | 'south' | 'west'>('north')
+  const [aroundBusy, setAroundBusy] = useState(false)
   const [boundaryBlend, setBoundaryBlend] = useState(area?.boundaryBlendMm ?? 0)
+  const [reliefFinish, setReliefFinish] = useState<NonNullable<typeof area>['reliefFinish']>(area?.reliefFinish)
   const relatedEdges = area ? Object.values(scene.terrainEdges).filter(item => item.source.areaId === id || item.neighborAreaId === id) : []
   const [remapEdges, setRemapEdges] = useState(false), [edgeSegments, setEdgeSegments] = useState<Record<string, number>>({})
   const [edgeSource, setEdgeSource] = useState(edge ? `${edge.source.areaId}\n${edge.source.segmentId}` : '')
@@ -76,6 +80,22 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
   const run = (prepare: () => SceneCommand[], label: string) => { try { setError(null); onPreview(prepare(), label) } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) } }
   if (!kind) return null
   const locked = effectiveEditLocked(scene, id)
+  const landmarks = path?.automaticRoute?.algorithm === AUTOMATIC_ROAD_VERSION && !path.automaticRoute.landings?.length
+    ? Object.values(scene.regions).filter(row => row.floorId === path.floorId && !!row.name && (row.kind === 'terrain' || row.kind === 'partition'))
+    : []
+  const previewAround = async () => {
+    const landmark = landmarks.find(row => row.id === aroundId)
+    if (!path || !landmark || aroundBusy) return
+    const floor = scene.floors[path.floorId]
+    setError(null); setAroundBusy(true)
+    try {
+      const { planMapPathAround } = await import('../../application/workspace/map-authoring')
+      const command = planMapPathAround(scene, floor, path, landmark, { landmarkId: landmark.id, side: aroundSide },
+        captureExecutionBudget(taskBudgetProfile('standard')), 'gm')
+      onPreview([command], '调整道路绕行方向')
+    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
+    finally { setAroundBusy(false) }
+  }
   const editLocalWidth = !!path && !path.assembly && !Object.values(scene.pathAttachments ?? {}).some(row => row.pathId === path.id)
   const shoreSegments = new Set(relatedEdges.filter(edge => edge.source.areaId === id && (edge.shoreline || edge.kind === 'shore')).map(edge => edge.source.segmentId))
   if (area) {
@@ -161,7 +181,30 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
     <EntityLockNotice scene={scene} id={id} onSelect={onSelect} onOpenLayers={onOpenLayers} description={scatter && !scatterRegenerationLocked ? '以下编辑锁保护相关内容，配置与删除保持禁用。重新散布保留固定成员，并按实际变化重新检查全部锁。' : undefined}/>
     {area && contour && <TerrainContourEditor key={contour.resetKey} scene={scene} areaId={id} disabled={contour.disabled || locked}
       onBoundaryEditor={contour.onBoundaryEditor} onFocusCanvas={contour.onFocusCanvas} onPreview={contour.onPreview}/>}
+    {area?.relief && <fieldset className="workspace-form-pair" disabled={disabled || locked}>
+      <label>坡面岩纹 <select value={reliefFinish ?? ''} onChange={event => {
+        const value = event.target.value as '' | NonNullable<typeof reliefFinish>
+        setReliefFinish(value || undefined)
+      }}>
+        <option value="">关闭</option><option value="weathered-v1">细岩层</option><option value="weathered-v2">风化岩面</option>
+      </select></label>
+      <button type="button" className="secondary" disabled={reliefFinish === area.reliefFinish} onClick={() => run(() => [
+        { type: 'updateTerrainArea', id, changes: { reliefFinish: reliefFinish ?? null } },
+      ], '调整坡面岩纹')}>预览坡面岩纹</button>
+    </fieldset>}
     {path?.automaticRoute && onEditAutomaticRoad && <button type="button" className="secondary asset-wide" disabled={disabled || locked} onClick={() => onEditAutomaticRoad(path)}>调整自动道路</button>}
+    {!!landmarks.length && <details data-outdoor-view-control><summary>绕行地标</summary>
+      <fieldset disabled={disabled || locked || aroundBusy} className="workspace-form-pair">
+        <label>绕行地标 <select value={aroundId} onChange={event => setAroundId(event.target.value)}>
+          <option value="">选择地标</option>{landmarks.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
+        </select></label>
+        <label>绕行方向 <select value={aroundSide} onChange={event => setAroundSide(event.target.value as typeof aroundSide)}>
+          <option value="north">北侧</option><option value="east">东侧</option>
+          <option value="south">南侧</option><option value="west">西侧</option>
+        </select></label>
+        <button type="button" className="secondary" disabled={!aroundId} onClick={() => void previewAround()}>预览绕行调整</button>
+      </fieldset>
+    </details>}
     {partition && <fieldset disabled={disabled} aria-label="分区操作">
       {onFocusPartition && <button type="button" className="secondary asset-wide" onClick={() => onFocusPartition(id)}>放大到分区</button>}
       {onPreviewPartition && region.visibility === 'public' && <button type="button" className="secondary asset-wide" onClick={() => onPreviewPartition(id)}>预览玩家揭开此分区</button>}

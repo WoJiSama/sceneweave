@@ -137,7 +137,7 @@ export async function verifyDiskDelivery({ archiveBase64, previewBase64, expecte
   } finally { bitmap.close(); canvas.width = 0 }
 }
 
-export async function runMapInBrowser({ action, request, archiveBase64, budget, draft = false, verify }) {
+export async function runMapInBrowser({ action, request, archiveBase64, referenceBase64, budget, draft = false, verify }) {
   const elapsed = start => Math.round((performance.now() - start) * 1000) / 1000
   const base64 = blob => new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -145,24 +145,33 @@ export async function runMapInBrowser({ action, request, archiveBase64, budget, 
     reader.onload = () => resolve(String(reader.result).split(',')[1])
     reader.readAsDataURL(blob)
   })
-  const location = '/src/platform/browser/content/map-authoring.ts'
-  const { generateMapCandidate, editMapCandidate, inspectMapCandidate, reviewSavedMap } = await import(location)
   const bytes = archiveBase64 && Uint8Array.from(atob(archiveBase64), character => character.charCodeAt(0))
   const started = performance.now()
   try {
+    if (action === 'reference') {
+      const path = '/src/platform/browser/content/map-reference.ts'
+      const { traceReferencePreview } = await import(path)
+      const reference = Uint8Array.from(atob(referenceBase64), character => character.charCodeAt(0))
+      const { result, overlay } = await traceReferencePreview(reference, request)
+      return { result, overlayBase64: await base64(overlay) }
+    }
+    const location = '/src/platform/browser/content/map-authoring.ts'
+    const { generateMapCandidate, editMapCandidate, inspectMapCandidate, reviewSavedMap, diagnoseMapCandidate, mapDiagnosticMarkers } = await import(location)
     if (action === 'inspect') return { result: await inspectMapCandidate(bytes, request) }
     const budgetPath = '/src/shared/budget/task-budget.ts', projectPath = '/src/application/workspace/project.ts'
     const validationPath = '/src/platform/browser/project-validation.ts', filePath = '/src/shared/project/file.ts'
     const hashPath = '/src/shared/project/validate.ts', rendererPath = '/src/platform/browser/render/renderer.ts'
     const { taskBudgetProfile } = await import(budgetPath)
     const profile = taskBudgetProfile(budget)
+    if (action === 'diagnose') return { result: await diagnoseMapCandidate(request, profile) }
     const { browserProjectValidation } = await import(validationPath)
     const { exportProject, importProject } = await import(filePath)
     const { projectContentHash } = await import(hashPath)
     const { exportPng } = await import(rendererPath)
-    const render = async (bundle, floorId, oblique, keepTop = false) => {
+    const render = async (bundle, floorId, oblique, keepTop = false, progress) => {
       const view = { audience: 'player', floorId }
       const preview = await exportPng(bundle, { ...view, longEdgePx: 2048 })
+      if (progress) await progress(preview)
       if (!oblique) return { preview }
       const obliquePath = '/src/platform/browser/render/oblique-renderer.ts'
       try {
@@ -198,15 +207,13 @@ export async function runMapInBrowser({ action, request, archiveBase64, budget, 
     if (projectContentHash(delivery.project) !== projectHash) throw new Error('生成工程导出后内容摘要变化。')
     const packageExportMs = performance.now() - exportStarted
     const previewStarted = performance.now()
-    const { preview, obliquePreview, previewFailure } = await render(delivery, result.floorId, oblique, true)
-    const diagnosticMarkers = draft ? [
-      ...result.routeChecks.flatMap(check => check.ok ? [] : check.issues.flatMap(issue => issue.atMm
-        ? [{ id: check.id, atMm: issue.atMm, message: issue.message }] : [])),
-      ...result.heightChecks.flatMap(check => check.ok ? [] : [{ id: check.id, atMm: check.highMm,
-        message: `实际高差 ${check.riseMm ?? '未知'} mm，目标至少 ${check.minRiseMm} mm。` }]),
-      ...(result.landmarks ?? []).flatMap(landmark => landmark.issue
-        ? [{ id: landmark.id, atMm: landmark.atMm, message: landmark.issue }] : []),
-    ].slice(0, 12) : []
+    const publishTop = globalThis.__sceneweavePublishMapTop
+    const { preview, obliquePreview, previewFailure } = await render(delivery, result.floorId, oblique, true,
+      typeof publishTop === 'function' ? async preview => {
+        await publishTop({ archiveBase64: await base64(new Blob([archive])), previewBase64: await base64(preview),
+          projectHash, floorId: result.floorId, title: project.document.title, revision: project.document.revision, expectedOblique: oblique })
+      } : undefined)
+    const diagnosticMarkers = draft ? mapDiagnosticMarkers(result) : []
     let diagnosticPreview
     if (diagnosticMarkers.length) {
       // Annotate the player-visible top image. The unmarked export remains
@@ -244,7 +251,7 @@ export async function runMapInBrowser({ action, request, archiveBase64, budget, 
     }
     const previewMs = performance.now() - previewStarted
     return {
-      archiveBase64: await base64(new Blob([archive])), previewBase64: await base64(preview),
+      ...(typeof publishTop === 'function' ? {} : { archiveBase64: await base64(new Blob([archive])), previewBase64: await base64(preview) }),
       ...(obliquePreview ? { obliqueBase64: await base64(obliquePreview) } : {}),
       ...(diagnosticPreview ? { diagnosticBase64: await base64(diagnosticPreview) } : {}),
       ...(previewFailure ? { previewFailure } : {}),

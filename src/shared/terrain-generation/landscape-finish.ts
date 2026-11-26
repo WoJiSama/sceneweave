@@ -2,7 +2,7 @@ import type { ExecutionBudget } from '../budget/task-budget.js'
 import type { MapCoverZone, MapLandscapeRecipe, MapRouteCheck, MapSceneryZone } from '../generation/map-authoring.js'
 import { pointInPolygon, polygonValid, polygonsOverlap, terrainPoints } from '../geometry/geometry.js'
 import { buildScatterRegeneration } from '../geometry/scatter.js'
-import { LANDSCAPE_SCATTER_VERSION } from '../geometry/scatter-algorithm.js'
+import { LANDSCAPE_GROUND_SCATTER_VERSION, LANDSCAPE_SCATTER_VERSION } from '../geometry/scatter-algorithm.js'
 import { createSupportQuery } from '../geometry/support-sample.js'
 import { reliefBounds, sampleTerrainRelief } from '../geometry/terrain-relief.js'
 import { terrainRouteBand } from '../geometry/terrain-travel.js'
@@ -10,7 +10,7 @@ import type { Floor, PointMm, SceneDocument, ScatterGroup, SurfaceOverlay, Terra
 import { naturalStoneDefinitionId } from '../visual/natural-stone-shapes.js'
 import { sha256Text } from '../validation/hash.js'
 import { LANDSCAPE_WATER_ID, landscapeEllipse, landscapePaint } from './landscape-authoring.js'
-import { terrainRandomUnit } from './field.js'
+import { terrainRandomUnit, terrainValueNoise } from './field.js'
 
 const sceneryDefinitions = [
   ['whole-plants-v1-prop-pine-branched', 'pine', 6], ['whole-plants-v1-prop-oak-spreading', 'tree', 4],
@@ -20,11 +20,12 @@ const sceneryDefinitions = [
 ] as const
 const paletteKeys = { woodland: ['pine', 'tree', 'bush'], scrub: ['bush', 'heath', 'grass'], stone: ['stone', 'chips'] }
 
-function sceneryPalette(scene: SceneDocument, kind?: MapSceneryZone['palette']) {
+function sceneryPalette(scene: SceneDocument, kind?: MapSceneryZone['palette'], natural = false) {
   return sceneryDefinitions.flatMap(([id, key, weight]) => {
     const definition = scene.propDefinitions[id]
-    return definition && (!kind || paletteKeys[kind].includes(key))
-      ? [{ key, weight, propDefinitionRef: { id, version: definition.version } }] : []
+    const understory = key === 'heath' || key === 'grass'
+    return definition && (!kind || paletteKeys[kind].includes(key) || natural && kind === 'woodland' && understory)
+      ? [{ key, weight: natural && understory ? weight * 2 : weight, propDefinitionRef: { id, version: definition.version } }] : []
   })
 }
 
@@ -73,12 +74,13 @@ export function landscapeSceneryExclusions(groupId: string, boundaryMm: PointMm[
     .map(row => ({ id: `landscape/clear/${sha256Text(JSON.stringify([groupId, row.id]))}`, boundaryMm: row.boundaryMm, reason: 'entrance', sourceCandidateKey: null }))
 }
 
-export function landscapeSceneryZone(scene: SceneDocument, floor: Floor, area: TerrainArea, zone: MapSceneryZone, frame: SceneryFrame, seed: string) {
+export function landscapeSceneryZone(scene: SceneDocument, floor: Floor, area: TerrainArea, zone: MapSceneryZone, frame: SceneryFrame, seed: string,
+  natural = area.reliefFinish === 'weathered-v2') {
   const boundaryMm = landscapeZoneBoundary(floor, area, zone, frame)
-  const palette = sceneryPalette(scene, zone.palette)
+  const palette = sceneryPalette(scene, zone.palette, natural)
   if (!palette.length) throw new Error(`工程中没有「${zone.palette}」所需的固定布景素材。`)
   const box = reliefBounds(boundaryMm)
-  const cellSizeMm = Math.round(Math.max(zone.pattern ? 1250 : 1750, Math.max(box.width, box.height) / 26))
+  const cellSizeMm = Math.round(Math.max(zone.pattern ? natural ? 1050 : 1250 : 1750, Math.max(box.width, box.height) / 26))
   const config = { domain: { kind: 'area' as const, areaId: area.id, boundaryMm }, palette,
     seed: `${seed.slice(0, 72)}/${zone.id.slice(0, 50)}`, algorithmVersion: LANDSCAPE_SCATTER_VERSION as typeof LANDSCAPE_SCATTER_VERSION,
     gridOriginMm: { x: box.x, y: box.y }, cellSizeMm, densityFactor: zone.density, minDistanceMm: 390,
@@ -97,11 +99,11 @@ export function landscapeSceneryZone(scene: SceneDocument, floor: Floor, area: T
 
 export function finishLandscape(scene: SceneDocument, floor: Floor, recipe: MapLandscapeRecipe, forms: MapLandscapeRecipe['landforms'],
   frame: SceneryFrame, seed: string, meter: ExecutionBudget, clearances: ReturnType<typeof landscapeRouteClearances> = []) {
-  const coastal = recipe.environment === 'coast', floorId = floor.id
+  const coastal = recipe.environment === 'coast', natural = recipe.finish === 'natural', floorId = floor.id
   const layers = Object.values(scene.userLayers).filter(row => row.floorId === floorId).sort((a, b) => a.order - b.order)
   const detailLayer = layers[1]?.id ?? layers[0].id, propLayer = layers[2]?.id ?? detailLayer
   const support = createSupportQuery(scene, floorId, undefined, false)
-  const stone = { base: landscapePaint(scene, 'rockWet', '#9D9DA2'), overlays: [] }
+  const stone = { base: landscapePaint(scene, 'rockWet', natural ? '#777682' : '#9D9DA2'), overlays: [] }
   const scatter = (group: ScatterGroup, fieldEvaluations: number) => {
     meter.charge({ fieldEvaluations })
     scene.scatterGroups[group.id] = group; scene.entityLayers[group.id] = propLayer
@@ -123,9 +125,13 @@ export function finishLandscape(scene: SceneDocument, floor: Floor, recipe: MapL
       const inside = support.rootAt({ x: mid.x + normal.x, y: mid.y + normal.y })
       const outside = support.rootAt({ x: mid.x - normal.x, y: mid.y - normal.y })
       if (inside?.id !== owner.id || outside?.id !== LANDSCAPE_WATER_ID) continue
-      const edgeId = `landscape/${owner.id}/shore/${i}`, cliff = owner.groundElevationMm !== 0
+      const edgeId = `landscape/${owner.id}/shore/${i}`
+      const edgeRelief = natural && owner.relief ? sampleTerrainRelief(owner.relief, box, mid).offsetMm : 0
+      const cliff = owner.groundElevationMm !== 0 || Math.abs(edgeRelief) >= 400
       const shelf = owner.relief && sampleTerrainRelief(owner.relief, box, { x: mid.x + normal.x * 18000, y: mid.y + normal.y * 18000 })
-      const waveDepth = row.form === 'reef' ? 560 : shelf && shelf.normal.z < .88 ? 780 : 1330
+      const steep = shelf && shelf.normal.z < .88
+      const waveDepth = natural ? row.form === 'reef' ? 740 : steep || cliff ? 920 : 1780
+        : row.form === 'reef' ? 560 : steep ? 780 : 1330
       scene.terrainEdges[edgeId] = { id: edgeId, floorId, editLocked: false, visibility: 'public',
         source: { areaId: owner.id, segmentId: point.segmentId }, neighborAreaId: LANDSCAPE_WATER_ID,
         kind: cliff ? 'cliff' : 'shore', shoreline: true, blocksMovement: cliff, blocksSight: false,
@@ -133,12 +139,12 @@ export function finishLandscape(scene: SceneDocument, floor: Floor, recipe: MapL
         ...(row.shore === 'hard'
           ? { styleOverride: { strokeWidthMm: 35, bandWidthMm: 0, color: '#5C5147' }, shoreStyle: { strokeWidthMm: 0, bandWidthMm: 0, color: '#D8D3AC' } }
           : { styleOverride: null,
-            shoreStyle: { strokeWidthMm: row.form === 'reef' ? 24 : 29, bandWidthMm: waveDepth, color: '#DAECE5' } }),
+            shoreStyle: { strokeWidthMm: row.form === 'reef' ? 24 : natural ? 38 : 29, bandWidthMm: waveDepth, color: natural ? '#DEEDD9' : '#DAECE5' } }),
       }
       scene.entityLayers[edgeId] = detailLayer
     }
     if (row.cover === 'natural' && row.form === 'natural') {
-      const style = owner.surfaceStyle!, tile = Math.max(4100, Math.max(box.width, box.height) / 10), spots = []
+      const style = owner.surfaceStyle!, tile = Math.max(natural ? 3000 : 4100, Math.max(box.width, box.height) / (natural ? 15 : 10)), spots = []
       const nx = Math.ceil(box.width / tile), ny = Math.ceil(box.height / tile)
       meter.charge({ fieldEvaluations: nx * ny, intersectionPairs: nx * ny * outline.length })
       for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) {
@@ -146,45 +152,58 @@ export function finishLandscape(scene: SceneDocument, floor: Floor, recipe: MapL
         const at = { x: Math.round(box.x + (x + .12 + rand(`${key}/x`) * .72) * tile), y: Math.round(box.y + (y + .12 + rand(`${key}/y`) * .72) * tile) }
         if (!pointInPolygon(at, outline)) continue
         const relief = owner.relief && sampleTerrainRelief(owner.relief, box, at)
-        const rocky = !!relief && relief.normal.z < .945
+        const slope = relief?.normal.z ?? 1
+        const moisture = natural ? terrainValueNoise(seed, `${row.id}/ground`, at.x / 6200, at.y / 5450) : 0
+        const rocky = slope < (natural ? .92 - .04 * moisture : .945)
         const wet = coastal && (relief?.offsetMm ?? 0) + owner.groundElevationMm < 690
-        if (wet || !rocky && rand(`${key}/keep`) < (coastal ? .43 : .18)) continue
-        const tilt = rocky ? Math.atan2(relief.normal.y, relief.normal.x) + Math.PI / 2 : rand(`${key}/angle`) * Math.PI
-        const span = (rocky ? .29 + .24 * rand(`${key}/size`) : .43 + .23 * rand(`${key}/size`)) * tile
-        spots.push({ key, at, tilt, span, rocky, score: rand(`${key}/score`) })
+        if (wet || !rocky && rand(`${key}/keep`) < (coastal ? .43 : .18) - moisture * .26) continue
+        const tilt = rocky && relief ? Math.atan2(relief.normal.y, relief.normal.x) + Math.PI / 2 : rand(`${key}/angle`) * Math.PI
+        const span = (rocky ? .29 + .24 * rand(`${key}/size`) : .43 + .23 * rand(`${key}/size`) + (natural ? .24 : 0)) * tile
+        spots.push({ key, at, tilt, span, rocky, moisture, score: rand(`${key}/score`) + (rocky ? 0 : moisture * .46) })
       }
       const scored = spots.sort((a, b) => b.score - a.score)
-      const selected = [...scored.filter(spot => spot.rocky).slice(0, 13), ...scored.filter(spot => !spot.rocky).slice(0, 13)]
-      for (const [i, { key, at, tilt, span, rocky }] of selected.entries()) {
-        const boundaryMm = landscapeEllipse(at, { x: span, y: span * (.57 + .28 * rand(`${key}/aspect`)) }, 13, tilt,
+      const selected = [...scored.filter(spot => spot.rocky).slice(0, natural ? 17 : 13),
+        ...scored.filter(spot => !spot.rocky).slice(0, natural ? 25 : 13)]
+      for (const [i, { key, at, tilt, span, rocky, moisture }] of selected.entries()) {
+        const aspect = rocky && natural ? .34 + .27 * rand(`${key}/aspect`) : .57 + .28 * rand(`${key}/aspect`)
+        const boundaryMm = landscapeEllipse(at, { x: span, y: span * aspect }, 13, tilt,
           angle => 1 + .13 * Math.sin(angle * 3 + rand(key) * 7) + .085 * Math.cos(angle * 5))
-        const paint = landscapePaint(scene, rocky ? 'rockDry' : 'grass', rocky ? '#AAB3B6' : coastal ? '#B4BD95' : '#A9BA93')
+        const tint = rocky ? natural ? moisture > .10 ? '#8D8983' : '#AB9680' : '#AAB3B6'
+          : natural ? moisture > .10 ? '#849658' : '#B1BD81' : coastal ? '#B4BD95' : '#A9BA93'
+        const paint = landscapePaint(scene, rocky ? 'rockDry' : 'grass', tint)
         style.overlays.push({ id: `landscape/${row.id}/cover/${i}`, boundaryMm, paint: { ...paint, opacity: rocky ? .72 : .76 },
           blendWidthMm: Math.round(span * .26), renderOrder: rocky ? 2 : 1 })
       }
     }
     for (const form of forms) if (form.areaId === owner.id && form.cover) {
       const grass = form.cover === 'grass', sand = form.cover === 'sand'
-      const reach = form.shape === 'hill' ? .36 : .54
+      const reach = form.shape === 'hill' ? .36 : natural && form.shape === 'plateau' ? .63 : .54
       const boundaryMm = landscapeEllipse(form.at, { x: form.radius.x * reach, y: form.radius.y * reach }, 17,
         form.rotationDeg * Math.PI / 180, angle => 1 + .17 * Math.sin(3 * angle + rand(form.id) * 6) + .11 * Math.cos(5 * angle))
-      const paint = landscapePaint(scene, grass ? 'grass' : sand ? 'sandDry' : 'rockDry', grass ? '#ADB996' : sand ? '#F4E1B5' : '#A7ADB0')
-      owner.surfaceStyle!.overlays.push({ id: `landscape/${form.id}/cover`, boundaryMm, paint: { ...paint, opacity: .77 },
-        blendWidthMm: Math.round(Math.min(2600, Math.min(form.radius.x, form.radius.y) * .26)), renderOrder: 3 })
+      const paint = landscapePaint(scene, grass ? 'grass' : sand ? 'sandDry' : 'rockDry',
+        grass ? natural ? '#A6B678' : '#ADB996' : sand ? '#F4E1B5' : natural ? '#B9A58D' : '#A7ADB0')
+      owner.surfaceStyle!.overlays.push({ id: `landscape/${form.id}/cover`, boundaryMm, paint: { ...paint, opacity: natural ? .86 : .77 },
+        blendWidthMm: Math.round(Math.min(natural ? 1100 : 2600, Math.min(form.radius.x, form.radius.y) * (natural ? .16 : .26))), renderOrder: 3 })
     }
     for (const zone of recipe.covers.filter(zone => zone.areaId === row.id)) {
       owner.surfaceStyle!.overlays.push(landscapeCover(scene, floor, owner, zone, frame))
     }
     for (const zone of localZones) {
-      const { config, exclusions, fieldEvaluations } = landscapeSceneryZone(scene, floor, owner, zone, frame, seed)
+      const { config, exclusions, fieldEvaluations } = landscapeSceneryZone(scene, floor, owner, zone, frame, seed, natural)
       scatter({ ...config, id: zone.id, floorId, visibility: 'public', editLocked: false, members: {},
         exclusions: [...exclusions, ...landscapeSceneryExclusions(zone.id, config.domain.boundaryMm, clearances)] }, fieldEvaluations)
+      if (natural && zone.palette === 'woodland' && zone.density > 0) {
+        const paint = landscapePaint(scene, 'grass', '#9BAE77')
+        owner.surfaceStyle!.overlays.push({ id: `landscape/${zone.id}/forest-floor`, boundaryMm: config.domain.boundaryMm,
+          paint: { ...paint, opacity: .45 + zone.density * .27 }, renderOrder: 2,
+          blendWidthMm: Math.min(900, Math.round(config.cellSizeMm * .62)) })
+      }
     }
     if (row.form === 'reef' && box.width * box.height < 24_000_000) continue
-    const palette = sceneryPalette(scene)
-    const cellSizeMm = Math.round(Math.max(2150, Math.max(box.width, box.height) / 27))
+    const palette = sceneryPalette(scene, undefined, natural)
+    const cellSizeMm = Math.round(Math.max(natural ? 1750 : 2150, Math.max(box.width, box.height) / (natural ? 31 : 27)))
     const group: ScatterGroup = { id: `landscape/${row.id}/scenery`, floorId,
-      visibility: 'public', editLocked: false, algorithmVersion: LANDSCAPE_SCATTER_VERSION,
+      visibility: 'public', editLocked: false, algorithmVersion: natural ? LANDSCAPE_GROUND_SCATTER_VERSION : LANDSCAPE_SCATTER_VERSION,
       domain: { kind: 'area', areaId: owner.id }, palette, seed: `${seed.slice(0, 75)}/${row.id.slice(0, 50)}`, gridOriginMm: { x: 0, y: 0 },
       densityFactor: recipe.density, cellSizeMm, minDistanceMm: 210, rotationRangeDeg: { min: 0, max: 359.9 }, members: {},
       exclusions: [

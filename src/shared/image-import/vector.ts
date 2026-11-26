@@ -136,7 +136,7 @@ function mergeSmallRegions(image: ImagePixels, sampled: Palette, radius: number)
 }
 
 /** Directed grid edges form genuine connected outlines, including oppositely oriented holes. */
-function contours(image: ImagePixels, labels: Int16Array): Map<number, ImagePoint[][]> {
+function contours(image: Pick<ImagePixels, 'width' | 'height'>, labels: Int16Array): Map<number, ImagePoint[][]> {
   const stride = image.width + 1, sets = new Map<number, Set<number>>()
   let edgeCount = 0
   const labelAt = (x: number, y: number) => x >= 0 && y >= 0 && x < image.width && y < image.height ? labels[y * image.width + x] : -1
@@ -179,7 +179,8 @@ function contours(image: ImagePixels, labels: Int16Array): Map<number, ImagePoin
 // Shared exact-grid topology only; callers own their colour/paint semantics.
 export { contours as traceIndexedContours }
 
-function simplifyOpen(points: ImagePoint[], tolerance: number): ImagePoint[] {
+export function simplifyOpenPolyline(points: ImagePoint[], tolerance: number): ImagePoint[] {
+  if (points.length < 3) return points
   const keep = new Uint8Array(points.length), stack: Array<[number, number]> = [[0, points.length - 1]]
   keep[0] = keep[points.length - 1] = 1
   while (stack.length) {
@@ -197,15 +198,15 @@ function simplifyOpen(points: ImagePoint[], tolerance: number): ImagePoint[] {
   return points.filter((_point, index) => keep[index])
 }
 
-function simplifyRing(ring: ImagePoint[], tolerance: number): ImagePoint[] {
+export function simplifyRing(ring: ImagePoint[], tolerance: number): ImagePoint[] {
   if (!tolerance || ring.length < 5) return ring
   let opposite = 1, maximum = 0
   for (let index = 1; index < ring.length; index++) {
     const distance = (ring[index].x - ring[0].x) ** 2 + (ring[index].y - ring[0].y) ** 2
     if (distance > maximum) { maximum = distance; opposite = index }
   }
-  const result = [...simplifyOpen(ring.slice(0, opposite + 1), tolerance).slice(0, -1),
-    ...simplifyOpen([...ring.slice(opposite), ring[0]], tolerance).slice(0, -1)]
+  const result = [...simplifyOpenPolyline(ring.slice(0, opposite + 1), tolerance).slice(0, -1),
+    ...simplifyOpenPolyline([...ring.slice(opposite), ring[0]], tolerance).slice(0, -1)]
   return result.length >= 3 && area(result) * area(ring) > 0 ? result : ring
 }
 

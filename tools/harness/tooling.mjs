@@ -26,7 +26,7 @@ export async function startHarnessTooling(root, listen = false, editor = false) 
         watch: null,
         fs: { strict: true, allow: [root, cacheDirectory] } },
       optimizeDeps: { noDiscovery: !editor, include: ['dexie', 'fflate', 'zod', 'polygon-clipping',
-        ...(editor ? ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'konva', 'react-konva', 'zustand', 'lucide-react'] : [])] },
+        ...(editor ? ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'lucide-react'] : [])] },
       plugins: [{ name: 'semantic-generation-harness', configureServer(instance) {
         instance.middlewares.use((request, response, next) => {
           if (request.url !== pathname) { next(); return }

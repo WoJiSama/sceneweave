@@ -92,9 +92,9 @@ export const FOREST_CAMP_FINISH = {
   stoneDefinitionRef: { id: 'refined-prop-island-debris-scree', version: 1 },
 } as const
 
-export async function createShoreBlankProject(palette: ShoreVisualPalette, options: BlankOptions, signal?: AbortSignal, includeTerrainVariants = false,
+async function createShoreBlankContent(palette: ShoreVisualPalette, options: BlankOptions, signal?: AbortSignal, includeTerrainVariants = false,
   includeTerrainVariantV2 = false, woodland?: ReadonlySet<string> | { plants: ReadonlySet<string>; campFinish: true },
-  coastalDressing: CoastalDressing = false): Promise<EditableProject> {
+  coastalDressing: CoastalDressing = false) {
   signal?.throwIfAborted()
   let scene = createShoreBlankDocument(palette, options, includeTerrainVariants, includeTerrainVariantV2, coastalDressing)
   scene.artStyle = newMapArtStyle()
@@ -131,16 +131,26 @@ export async function createShoreBlankProject(palette: ShoreVisualPalette, optio
       batches.push({ artwork, licenseText: THEME_PACK_LICENSE, assetId })
     }
   }
-  return materializeVisualArtBatches(scene, batches, signal)
+  return { scene, batches }
+}
+
+export async function createShoreBlankProject(...args: Parameters<typeof createShoreBlankContent>): Promise<EditableProject> {
+  const { scene, batches } = await createShoreBlankContent(...args)
+  return materializeVisualArtBatches(scene, batches, args[2])
 }
 
 export function createCoastalAscentBlankProject(palette: ShoreVisualPalette, options: BlankOptions, signal?: AbortSignal) {
   return createShoreBlankProject(palette, options, signal, false, false, undefined, 'naturalStone')
 }
 
-export function createLandscapeBlankProject(options: BlankOptions, signal?: AbortSignal) {
-  return createShoreBlankProject('coast', options, signal, false, false,
+export function createLandscapeBlankContent(options: BlankOptions, signal?: AbortSignal) {
+  return createShoreBlankContent('coast', options, signal, false, false,
     new Set(['pine-branched', 'oak-spreading', 'hazel-bush']), 'naturalStone')
+}
+
+export async function createLandscapeBlankProject(options: BlankOptions, signal?: AbortSignal) {
+  const { scene, batches } = await createLandscapeBlankContent(options, signal)
+  return materializeVisualArtBatches(scene, batches, signal)
 }
 
 const forestPlants = ['oak-spreading', 'pine-branched', 'hazel-bush', 'bramble-fruiting', 'fern-full-crown', 'wildflower-whole-clump']

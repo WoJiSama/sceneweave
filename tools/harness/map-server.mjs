@@ -54,10 +54,10 @@ function confined(workspace, candidate) {
   return candidate
 }
 
-async function scopedFile(workspace, value) {
-  assert(typeof value === 'string', 'Provide a workspace-relative .sceneweave path.')
+async function scopedFile(workspace, value, suffix = /\.sceneweave$/) {
+  assert(typeof value === 'string', 'Provide a workspace-relative file path.')
   const parts = value.split(/[\\/]/).map(safeName)
-  assert(parts.at(-1).endsWith('.sceneweave'), 'Select a .sceneweave file.')
+  assert(suffix.test(parts.at(-1)), 'Select a file of the expected type.')
   return confined(workspace, await fs.realpath(path.join(workspace, ...parts)))
 }
 
@@ -72,28 +72,41 @@ function defineTools(definitions, discovery) {
   const { examples, schemas } = definitions.mapAuthoringCapabilities()
   // Use the actual JSON carried by MCP, excluding non-enumerable metadata
   // attached by Zod's converter before the shared catalogue hashes the tools.
-  const { generate, inspect, edit } = JSON.parse(JSON.stringify(schemas))
+  const { reference, generate, inspect, edit } = JSON.parse(JSON.stringify(schemas))
   return [
     { name: discovery.name, description: discovery.description, inputSchema: discovery.parameters },
     { name: 'sceneweave_map_example', description: 'Return a small runnable generation request for a map recipe or free layout.',
       inputSchema: objectSchema({ kind: { type: 'string', enum: examples } }) },
+    { name: 'sceneweave_map_reference', description: 'Trace editable land from a local PNG, JPEG or WebP. Set stage to generate from the outline and design marks in one call.',
+      inputSchema: objectSchema({ image: { type: 'string', description: 'Workspace-relative reference image path.' }, request: reference, output: name,
+        stage: { type: 'string', enum: ['draft', 'complete'], description: 'Omit the stage to trace only.' },
+        includePreview: { type: 'boolean', description: 'Return a PNG in the response. Defaults to true when a stage is specified.' } }, ['image', 'request', 'output']) },
+    { name: 'sceneweave_map_diagnose', description: 'Run the same geometry and route checks as draft generation before any rendering, export or adoption.',
+      inputSchema: objectSchema({ request: generate, geometry: { type: 'boolean', default: false } }, ['request']) },
     { name: 'sceneweave_map_generate', description: 'Create a map candidate in a new authorized folder. Returns the editable project, preview paths and actual diagnostics.',
-      inputSchema: objectSchema({ output: name, request: generate, stage }, ['output', 'request']) },
+      inputSchema: objectSchema({ output: name, request: generate, stage, includePreview: { type: 'boolean', default: false } }, ['output', 'request']) },
     { name: 'sceneweave_map_inspect', description: 'Read public geometry, stable object IDs and the baseline hash from a local map.',
       inputSchema: objectSchema({ project: projectPath, request: inspect }, ['project']) },
     { name: 'sceneweave_map_edit', description: 'Apply one validated local edit to the exact input project and deliver a separate editable candidate.',
-      inputSchema: objectSchema({ project: projectPath, output: name, request: edit, stage }, ['project', 'output', 'request']) },
+      inputSchema: objectSchema({ project: projectPath, output: name, request: edit, stage, includePreview: { type: 'boolean', default: false } }, ['project', 'output', 'request']) },
     { name: 'sceneweave_map_verify', description: 'Independently reopen a saved candidate and verify the exact project and all of its saved preview pixels in a separate delivery directory.',
       inputSchema: objectSchema({ candidate: name, output: name,
         previews: { enum: ['keep', 'redraw'], type: 'string', default: 'keep', description: 'Redraw missing or broken previews from the existing project, then verify the redraw.' },
-        editor: { type: 'boolean', default: false, description: 'Also open the exact file through the regular editor in a disposable browser.' } }, ['candidate', 'output']) },
+        editor: { type: 'boolean', default: false, description: 'Also open the exact file through the regular editor in a disposable browser.' },
+        includePreview: { type: 'boolean', default: false, description: 'Return the exact verified top PNG as image content.' } }, ['candidate', 'output']) },
     { name: 'sceneweave_map_preview', description: 'View a verified map preview, or explicitly opt into viewing an unverified draft.',
-      inputSchema: objectSchema({ output: name, view: { type: 'string', enum: ['top', 'oblique', 'diagnostic'], default: 'top' },
+      inputSchema: objectSchema({ output: name, view: { type: 'string', enum: ['top', 'oblique', 'diagnostic', 'overlay'], default: 'top' },
         draft: { type: 'boolean', default: false } }, ['output']) },
   ]
 }
 
 const content = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value })
+
+async function savedMapImage(file, key) {
+  const bytes = await file(key)
+  assert(bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a', 'The candidate does not contain a PNG preview.')
+  return { type: 'image', mimeType: 'image/png', data: bytes.toString('base64') }
+}
 
 export async function openMapToolHost(options) {
   const workspace = await fs.realpath(options.workspace)
@@ -102,7 +115,7 @@ export async function openMapToolHost(options) {
   const tools = defineTools(definitions, catalog.WORKFLOW_DISCOVERY_TOOL)
   const host = catalog.mapMcpWorkflowHost(tools.map(({ name, inputSchema }) => ({ name, parameters: inputSchema })))
   const allowed = new Map(tools.map(tool => [tool.name, tool.inputSchema]))
-  return { tools, async call(tool, args = {}, signal) {
+  return { tools, async call(tool, args = {}, signal, progress) {
     const schema = allowed.get(tool)
     assert(schema && args && typeof args === 'object' && !Array.isArray(args), 'Unknown map tool or invalid arguments.')
     assert(Object.keys(args).every(key => Object.hasOwn(schema.properties, key)), 'Unexpected tool argument.')
@@ -115,27 +128,37 @@ export async function openMapToolHost(options) {
         return content(definitions.mapAuthoringExample(args.kind))
       case 'sceneweave_map_preview': {
         const view = args.view ?? 'top', draft = args.draft ?? false
-        assert(view === 'top' || view === 'oblique' || view === 'diagnostic', 'Choose top, oblique or diagnostic.')
+        assert(['top', 'oblique', 'diagnostic', 'overlay'].includes(view), 'Choose top, oblique, diagnostic or overlay.')
         assert(typeof draft === 'boolean', 'Draft preview permission must be a boolean.')
         const directory = confined(workspace, await fs.realpath(path.join(workspace, safeName(args.output))))
         const { record, file } = await openSavedMap(directory)
         const key = view === 'top' ? 'preview' : view
-        assert(record.files?.[key] && (record.status === 'complete'
-          || draft && record.candidateReadyAt && ['draft', 'verifying', 'failed'].includes(record.status)),
+        assert(record.files?.[key] && (view === 'overlay' || record.status === 'complete'
+          || draft && ((view === 'top' && record.topReadyAt && ['running', 'failed'].includes(record.status))
+            || record.candidateReadyAt && ['draft', 'verifying', 'failed'].includes(record.status))),
         'This candidate has no verified preview for the requested view. For an unverified candidate, explicitly request a draft preview.')
-        const bytes = await file(key)
-        assert(bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a', 'The candidate does not contain a PNG preview.')
-        return { content: [{ type: 'image', mimeType: 'image/png', data: bytes.toString('base64') }] }
+        return { content: [await savedMapImage(file, key)] }
       }
       default: {
         const action = tool.slice('sceneweave_map_'.length)
+        const image = action === 'reference' ? await scopedFile(workspace, args.image, /\.(?:png|jpe?g|webp)$/i) : undefined
         const project = action === 'inspect' || action === 'edit' ? await scopedFile(workspace, args.project) : undefined
         const candidate = action === 'verify' ? confined(workspace, await fs.realpath(path.join(workspace, safeName(args.candidate)))) : undefined
-        const outputName = action !== 'inspect' ? safeName(args.output) : undefined
+        const outputName = args.output === undefined ? undefined : safeName(args.output)
         const output = outputName === undefined ? undefined : path.join(workspace, outputName)
+        assert(args.includePreview === undefined || typeof args.includePreview === 'boolean', 'Preview permission must be a boolean.')
         const result = await executeMap({ action, request: action === 'inspect' ? args.request ?? {} : args.request,
-          output, project, candidate, stage: mapStage(args.stage), previews: mapPreviews(args.previews), editor: args.editor, budget: options.budget, signal })
-        return content(outputName === undefined ? result : { ...result, relativeProject: outputName + '/map.sceneweave' })
+          output, image, project, candidate, stage: action === 'reference' ? undefined : mapStage(args.stage),
+          referenceStage: action === 'reference' && args.stage !== undefined ? mapStage(args.stage) : undefined,
+          previews: mapPreviews(args.previews), editor: args.editor, geometry: args.geometry === true, budget: options.budget, signal, progress })
+        const response = content(outputName === undefined ? result : { ...result,
+          relativeRequest: outputName + '/request.json',
+          ...(result.files?.project ? { relativeProject: outputName + '/map.sceneweave' } : {}) })
+        if (args.includePreview ?? (action === 'reference' && args.stage !== undefined)) {
+          const { file } = await openSavedMap(output)
+          response.content.push(await savedMapImage(file, result.files.preview ? 'preview' : 'overlay'))
+        }
+        return response
       }
     }
   } }
@@ -176,7 +199,11 @@ async function main(args) {
     else if (method === 'tools/call') {
       if (running) { response({ ...content({ message: 'A map tool call is already running.' }), isError: true }); return }
       const controller = new AbortController()
-      const done = host.call(params?.name, params?.arguments, controller.signal)
+      const token = params?._meta?.progressToken
+      const progress = typeof token === 'string' || typeof token === 'number'
+        ? ({ preview, elapsedMs }) => send({ method: 'notifications/progress', params: { progressToken: token, progress: 1, total: 2,
+          message: `首张实际预览已保存（${elapsedMs} ms） ${preview}` } }) : undefined
+      const done = host.call(params?.name, params?.arguments, controller.signal, progress)
         .then(response, error => response({ ...content({ code: error.code ?? 'map_tool_failed', message: error.message,
           ...(error.issues ? { issues: error.issues } : {}), ...(error.details ? { details: error.details } : {}) }), isError: true }))
         .finally(() => { running = undefined })

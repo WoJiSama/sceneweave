@@ -7,7 +7,9 @@ const available = (entry: string, toolNames?: string[]): WorkflowCapability => (
 export function pageWorkflowHost(): WorkflowHost {
   return { name: 'page', tools: [], capabilities: {
     'map-discovery': page('外部助手调用资料', '本机 CLI 或 MCP 可以调用通用制图入口。'),
-    'map-generate': page('生成 → 预览', '页面使用现有生成和绘制工具；外部调用通过本机 harness。'),
+    'map-reference': available('生成 → 参考图地形 → 提取轮廓'),
+    'map-diagnose': available('生成 → 参考图地形 → 检查几何'),
+    'map-generate': available('生成 → 参考图地形 → 生成地图预览，或选择对应场景类型'),
     'map-inspect': page('选择并查看场景对象', '页面通过画布与详情检查候选。'),
     'map-edit': page('打开工程文件 → 编辑', '在页面审阅工程副本后可继续编辑。'),
     'map-verify': page('打开工程文件 → 导入核对', '本机制图工具可独立复核保存的候选及预览。'),
@@ -32,6 +34,8 @@ export function pageWorkflowHost(): WorkflowHost {
 export function harnessWorkflowHost(): WorkflowHost {
   return { name: 'harness', tools: [], capabilities: {
     'map-discovery': available('sceneweave.mjs map capabilities / map example / map schema'),
+    'map-reference': available('sceneweave.mjs map reference [--stage draft]'),
+    'map-diagnose': available('sceneweave.mjs map diagnose'),
     'map-generate': available('sceneweave.mjs map generate'),
     'map-inspect': available('sceneweave.mjs map inspect'),
     'map-edit': available('sceneweave.mjs map edit'),
@@ -50,7 +54,7 @@ export function harnessWorkflowHost(): WorkflowHost {
 export function mapMcpWorkflowHost(tools: WorkflowHost['tools']): WorkflowHost {
   const names = new Set(tools.map(tool => tool.name))
   const entries = {
-    'map-discovery': 'sceneweave_map_example', 'map-generate': 'sceneweave_map_generate',
+    'map-discovery': 'sceneweave_map_example', 'map-reference': 'sceneweave_map_reference', 'map-diagnose': 'sceneweave_map_diagnose', 'map-generate': 'sceneweave_map_generate',
     'map-inspect': 'sceneweave_map_inspect', 'map-edit': 'sceneweave_map_edit', 'map-verify': 'sceneweave_map_verify',
     'project-preview': 'sceneweave_map_preview', 'project-delivery': 'sceneweave_map_generate',
   } as const

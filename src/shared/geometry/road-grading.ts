@@ -1,6 +1,6 @@
 import type { Path, PointMm } from '../model/scene.js'
 import { connectionArcFrame } from './connection-route.js'
-import { ROAD_LANDING_LENGTH_MM, ROAD_MIN_GOING_MM, ROAD_PPM, ROAD_RISER_LIMIT_MM, ROAD_SHOULDER_LIMIT_MM, ROAD_STATION_LIMIT, ROAD_SURFACE_DEPTH_MM, RoadFootprintConflict,
+import { ROAD_LANDING_LENGTH_MM, ROAD_MIN_GOING_MM, ROAD_PPM, ROAD_RISER_LIMIT_MM, ROAD_SHOULDER_LIMIT_MM, ROAD_STATION_LIMIT, ROAD_SURFACE_DEPTH_MM, RoadFootprintConflict, RoadProfileConflict,
   pointPair, roadSurfaceFrame, toRoadPpm, type RoadLanding, type RoadSpanKind, type RoadStation, type RoadSurface } from './road-surface.js'
 
 type GroundHeight = (point: PointMm) => number | null
@@ -23,7 +23,7 @@ export function gradeRoadSurface(path: Pick<Path, 'centerlineMm' | 'widthMm' | '
   const ppm = (distance: number) => toRoadPpm(distance, length)
   const height = (point: PointMm) => {
     const value = heightAt(point)
-    if (value === null) throw new RoadFootprintConflict(TERRAIN_CONFLICT)
+    if (value === null) throw new RoadFootprintConflict(TERRAIN_CONFLICT, undefined, point)
     return value
   }
   const crossAt = (distance: number) => pointPair(side => height(frame.pointAt(ppm(distance), side ? .5 : -.5)))
@@ -50,7 +50,8 @@ export function gradeRoadSurface(path: Pick<Path, 'centerlineMm' | 'widthMm' | '
     if (i < 1 || i >= fixed.length - 1) throw new Error('歇脚平台须绑定内部固定点。')
     return { start: anchors[i] - landing.lengthMm / 2, end: anchors[i] + landing.lengthMm / 2, slope: 0 as const, landingZ: landing.elevationMm }
   }).sort((a, b) => a.start - b.start)
-  if (pinned.some((range, i) => range.start < CAP_MM || range.end > length - CAP_MM || i > 0 && range.start < pinned[i - 1].end + 260)) throw new Error('固定平台需要足够的两端接入距离，请拉开端点或其他平台。')
+  const crowded = pinned.find((range, i) => range.start < CAP_MM || range.end > length - CAP_MM || i > 0 && range.start < pinned[i - 1].end + 260)
+  if (crowded) throw new RoadProfileConflict('固定平台需要足够的两端接入距离，请拉开端点或其他平台。', arc.at((crowded.start + crowded.end) / 2))
 
   const findLanding = ({ start, end }: Range): Range | undefined => {
     const low = Math.max(start + 160, CAP_MM), high = Math.min(end - 160, length - CAP_MM)
@@ -116,7 +117,8 @@ export function gradeRoadSurface(path: Pick<Path, 'centerlineMm' | 'widthMm' | '
     if (landingZ !== undefined) { intervals.push({ start, end, kind: 'landing', from: landingZ, to: landingZ }); continue }
     if ((!range.slope && rise <= runLength * .38) || rise < 115 && rise <= runLength * .40) { intervals.push({ start, end, kind: 'trail', from, to }); continue }
     const count = Math.ceil(rise / ROAD_RISER_LIMIT_MM)
-    if (runLength + .01 < count * ROAD_MIN_GOING_MM) throw new Error(`沿线有一段 ${Math.round(runLength / 10)} 厘米内升降过急，无法排出有足够深度的踏步。请调整转弯或平台。`)
+    if (runLength + .01 < count * ROAD_MIN_GOING_MM) throw new RoadProfileConflict(
+      `沿线有一段 ${Math.round(runLength / 10)} 厘米内升降过急，无法排出有足够深度的踏步。请调整转弯或平台。`, arc.at((start + end) / 2))
     // Invert the local elevation profile at each half-rise. The treads have
     // bounded risers and can lengthen naturally on a less steep part of a flight.
     const direction = Math.sign(to - from), samples = Math.max(2, Math.ceil(runLength / 150))
@@ -164,8 +166,9 @@ export function gradeRoadSurface(path: Pick<Path, 'centerlineMm' | 'widthMm' | '
     })
     const outer = frame.sectionAt(atPpm, shoulderMm)
     const bankZMm = pointPair(side => {
-      const ground = height(outer[side ? 3 : 0])
-      if (Math.abs(ground - z[side]) > ROAD_SURFACE_DEPTH_MM) throw new Error(`局部挖填深度 ${Math.round(Math.abs(ground - z[side]))} 毫米，超过路肩接合范围。请调整道路走向或净宽。`)
+      const point = outer[side ? 3 : 0], ground = height(point)
+      if (Math.abs(ground - z[side]) > ROAD_SURFACE_DEPTH_MM) throw new RoadProfileConflict(
+        `局部挖填深度 ${Math.round(Math.abs(ground - z[side]))} 毫米，超过路肩接合范围。请调整道路走向或净宽。`, point)
       return Math.round(ground)
     })
     if (previous) {

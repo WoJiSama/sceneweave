@@ -17,7 +17,10 @@ export const ROAD_MIN_GOING_MM = 240
 export const ROAD_SHOULDER_LIMIT_MM = 500
 export const ROAD_SURFACE_DEPTH_MM = 980
 export class RoadFootprintConflict extends Error {
-  constructor(message: string, readonly shoulderMm?: number) { super(message) }
+  constructor(message: string, readonly shoulderMm?: number, readonly atMm?: PointMm) { super(message) }
+}
+export class RoadProfileConflict extends Error {
+  constructor(message: string, readonly atMm: PointMm, readonly reason: 'grading' | 'turn' = 'grading') { super(message) }
 }
 export const ROAD_PROFILE_KINDS = ['trail', 'landing', 'tread'] as const
 const coordinatePair = z.tuple([int, int])
