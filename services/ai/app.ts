@@ -37,7 +37,7 @@ export function authenticate(config: AiConfig, authorization: string | undefined
 const errorPayload = (code: string, requestState: AiError['requestState'] = 'not_sent') => ({ schemaVersion: 1 as const, error: { code, message: code === 'unauthorized' ? '需要有效的应用访问凭据。' : code === 'origin_rejected' ? '此站点未获准访问任务服务。' : code === 'not_found' ? '任务不存在。' : code === 'snapshot_required' ? '事件游标无效，请先读取任务检查点。' : '请求未完成，请检查任务状态或服务配置。', retryable: false, requestState } satisfies AiError })
 export interface AiAppOptions { store?: TaskStore; engine?: TaskEngine; provider?: ProviderAdapter; bodyTimeoutMs?: number; imageEditFetch?: typeof fetch }
 export function createAiApp(config: AiConfig, options: AiAppOptions = {}) {
-  const store = options.store ?? options.engine?.store ?? new TaskStore(config.dataDir)
+  const store = options.store ?? options.engine?.store ?? new TaskStore(config.dataDir, { ownerLimits: config.ownerLimits })
   const engine = options.engine ?? new TaskEngine(store, options.provider ?? createChatProvider(config.provider), connectionInfo(config), { maxConcurrent: config.maxConcurrent, authoringOutputTokens: config.authoringOutputTokens, preserveReasoning: config.provider.preserveReasoning })
   const baseMaps = createBaseMapService({ maxConcurrent: Math.min(config.maxConcurrent, 2), execution: {
     begin: (owner, request) => store.beginBaseMap(owner, request), measure: (token, run) => store.measureBaseMapWork(token, run), finish: (token, elapsedMs, resultHash) => store.finishBaseMap(token, elapsedMs, resultHash),

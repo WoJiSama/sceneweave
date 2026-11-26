@@ -12,6 +12,7 @@ export interface AiConfig {
   accessTokens: ReadonlyMap<string, string>
   provider: ChatProviderConfig
   maxConcurrent: number
+  ownerLimits?: { tasks: number; concurrent: number }
   authoringOutputTokens?: number
   imageEdit?: ImageEditProviderConfig
 }
@@ -46,6 +47,16 @@ export function loadAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
     }
   }
   if (!accessTokens.size) invalid('ACCESS_TOKEN')
+  const multipleOwners = new Set(accessTokens.values()).size > 1
+  const maxConcurrent = 4
+  const ownerLimit = (name: string, fallback: number, maximum: number): number => {
+    const value = read(name)
+    if (value === undefined) return fallback
+    if (!/^[1-9]\d*$/.test(value) || Number(value) > maximum) invalid(name)
+    return Number(value)
+  }
+  const ownerLimits = { tasks: ownerLimit('TASKS_PER_OWNER', multipleOwners ? 64 : AI_LIMITS.tasks, AI_LIMITS.tasks),
+    concurrent: ownerLimit('CONCURRENT_PER_OWNER', multipleOwners ? 2 : maxConcurrent, maxConcurrent) }
   const base = read('PROVIDER_BASE_URL'), apiKey = read('PROVIDER_API_KEY'), model = read('PROVIDER_MODEL'), visionModel = read('PROVIDER_VISION_MODEL')
   if (!base || !apiKey || !isProviderModel(model) || /[\x00-\x1f\x7f]/.test(apiKey)) invalid('PROVIDER')
   if (visionModel !== undefined && !isProviderModel(visionModel)) invalid('PROVIDER_VISION_MODEL')
@@ -71,5 +82,5 @@ export function loadAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
   }
   return { host, port, dataDir: resolve(read('DATA_DIR') ?? 'local-data/ai'), allowedOrigins, accessTokens,
     provider: { baseUrl: base.replace(/\/$/, ''), apiKey, model, ...(visionModel !== undefined ? { visionModel } : {}), vision: vision as 'unverified' | 'disabled' | 'enabled', preserveReasoning,
-      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) }, maxConcurrent: 4, authoringOutputTokens, ...(imageEdit ? { imageEdit } : {}) }
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}) }, maxConcurrent, ownerLimits, authoringOutputTokens, ...(imageEdit ? { imageEdit } : {}) }
 }

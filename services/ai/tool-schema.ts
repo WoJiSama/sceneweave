@@ -20,11 +20,13 @@ function children(schema: Schema, transform: (schema: Schema) => Schema): Schema
 }
 
 function compactSchema(input: Schema): Schema {
-  const source = json(input), occurrences = new Map<string, number>()
+  const source = json(input), occurrences = new Map<string, number>(), keys = new WeakMap<Schema, string>()
   let hasScope = false
   const count = (schema: Schema): Schema => {
     if (Object.keys(schema).some(key => scoped.has(key))) hasScope = true
-    const key = JSON.stringify(schema)
+    const key = JSON.stringify(schema, (_key, value: unknown) =>
+      object(value) ? Object.fromEntries(Object.keys(value).sort().map(name => [name, value[name]])) : value)
+    keys.set(schema, key)
     occurrences.set(key, (occurrences.get(key) ?? 0) + 1)
     children(schema, count)
     return schema
@@ -35,21 +37,43 @@ function compactSchema(input: Schema): Schema {
   if (hasScope) return source
   const definitions: Schema = {}, names = new Map<string, string>()
   const transform = (schema: Schema, root = false): Schema => {
-    const key = JSON.stringify(schema), count = occurrences.get(key) ?? 0
-    // Keep small leaves readable and avoid a definition whose reference costs
-    // more than its repetition. Root object fields remain visible to readers.
-    if (!root && key.length >= 40 && count > 1 && (count - 1) * key.length > count * 25 + 32) {
+    const key = keys.get(schema)!, count = occurrences.get(key) ?? 0
+    const nextName = `c${names.size.toString(36)}`
+    const referenceLength = JSON.stringify({ $ref: `#/$defs/${nextName}` }).length
+    const definitionKeyLength = JSON.stringify(nextName).length + 2
+    // Require a saving at the actual reference length. Root fields remain visible.
+    if (!root && (names.has(key) || count > 1 && (count - 1) * key.length > count * referenceLength + definitionKeyLength)) {
       let name = names.get(key)
       if (!name) {
-        name = `c${names.size}`; names.set(key, name)
+        name = nextName; names.set(key, name)
         definitions[name] = children(schema, child => transform(child))
       }
       return { $ref: `#/$defs/${name}` }
     }
     return children(schema, child => transform(child))
   }
-  const compact = transform(source, true)
-  if (Object.keys(definitions).length) compact.$defs = definitions
+  let compact = transform(source, true)
+  // Children counted through identical parents may appear only once after the
+  // parents have been shared. Inline those children to avoid extra indirection.
+  const uses = new Map<string, number>(), referencedName = (schema: Schema) =>
+    typeof schema.$ref === 'string' ? schema.$ref.slice('#/$defs/'.length) : undefined
+  const countUses = (schema: Schema): Schema => {
+    const name = referencedName(schema)
+    if (name) uses.set(name, (uses.get(name) ?? 0) + 1)
+    else children(schema, countUses)
+    return schema
+  }
+  countUses(compact)
+  for (const definition of Object.values(definitions)) if (object(definition)) countUses(definition)
+  const inline = (schema: Schema): Schema => {
+    const name = referencedName(schema)
+    if (name) return uses.get(name) === 1 ? inline(definitions[name] as Schema) : schema
+    return children(schema, inline)
+  }
+  compact = inline(compact)
+  const retained = Object.fromEntries(Object.entries(definitions).filter(([name]) => uses.get(name) !== 1)
+    .map(([name, value]) => [name, inline(value as Schema)]))
+  if (Object.keys(retained).length) compact.$defs = retained
   // Repeated parents may hide repeated children; retain the original if the
   // complete serialized representation would not actually be smaller.
   return JSON.stringify(compact).length < JSON.stringify(source).length ? compact : source

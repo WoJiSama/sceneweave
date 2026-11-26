@@ -59,14 +59,16 @@ const system = DEFAULT_PROJECT_WORKFLOW_INSTRUCTIONS + '\n\nYou are the Scenewea
 export const safeTaskError = (code: string, requestState: AiError['requestState'] = 'unknown'): AiError => ({ code, message: code === 'execution_unknown' ? '服务中断后的执行消耗无法完整确认；已保留合法草稿，原流程不能继续。' : code === 'service_restarted' ? '服务已重启；上一请求结果未知，请明确选择是否继续。' : code === 'execution_limit' ? '任务执行时间已达上限。' : code === 'provider_rate_limit' ? '模型渠道触发限流；已保留现有草稿与进度，未自动重试。' : code.endsWith('_limit') ? '任务已达到本次执行预算上限。' : '任务未完成；已保留可查询的进度。', retryable: false, requestState })
 
 export class TaskStore {
+  private readonly ownerLimits?: { readonly tasks: number; readonly concurrent: number }
   readonly root: string
   readonly artifacts: PrivateArtifacts
   private readonly db: DatabaseSync
   private readonly now: () => number
   private listeners = new Map<string, Set<() => void>>()
   private deletionListeners = new Set<(id: string) => void>()
-  constructor(dataDir: string, options: { now?: () => number } = {}) {
+  constructor(dataDir: string, options: { now?: () => number; ownerLimits?: { tasks: number; concurrent: number } } = {}) {
     this.now = options.now ?? Date.now
+    this.ownerLimits = options.ownerLimits && { ...options.ownerLimits }
     this.root = resolve(dataDir)
     const access = new PrivateStorage(this.root)
     this.artifacts = new PrivateArtifacts(this.root, access)
@@ -144,6 +146,10 @@ export class TaskStore {
     return row ? this.read(row.id, owner).snapshot : undefined
   }
   activeCount() { return Number((this.db.prepare("SELECT count(*) AS count FROM tasks WHERE status='running'").get() as { count: number }).count) }
+  private checkConcurrency(owner: string, maxConcurrent: number) {
+    const personal = this.ownerLimits && (this.db.prepare("SELECT count(*) AS count FROM tasks WHERE owner=? AND status='running'").get(owner) as { count: number }).count
+    if (this.activeCount() >= maxConcurrent || personal !== undefined && personal >= this.ownerLimits!.concurrent) throw new TaskFault('concurrency_limit', 429)
+  }
   private checkScene(owner: string, sceneId: string | undefined, except?: string) {
     if (sceneId && this.db.prepare("SELECT 1 FROM tasks WHERE owner=? AND scene_id=? AND id<>? AND status IN ('running','paused','waiting_browser','ready','applying') LIMIT 1").get(owner, sceneId, except ?? '')) throw new TaskFault('scene_task_active')
   }
@@ -151,7 +157,11 @@ export class TaskStore {
   beginBaseMap(owner: string, request: BaseMapRequestV2 | BaseMapRequestV3): BaseMapExecutionToken {
     if (this.db.prepare('SELECT 1 FROM authoring_flows WHERE owner=? AND flow_id=?').get(owner, request.flowId)) throw new TaskFault('flow_already_started')
     const requestHash = createHash('sha256').update(canonicalJson(request)).digest('hex'), existing = this.baseMapWork(owner, request.flowId)
-    if (!existing && Number((this.db.prepare('SELECT count(*) AS count FROM base_map_work').get() as { count: number }).count) >= AI_LIMITS.tasks) throw new TaskFault('task_limit', 429)
+    if (!existing) {
+      const total = (this.db.prepare('SELECT count(*) AS count FROM base_map_work').get() as { count: number }).count
+      const personal = this.ownerLimits && (this.db.prepare('SELECT count(*) AS count FROM base_map_work WHERE owner=?').get(owner) as { count: number }).count
+      if (total >= AI_LIMITS.tasks || personal !== undefined && personal >= this.ownerLimits!.tasks) throw new TaskFault('task_limit', 429)
+    }
     if (physicalBytes(this.root) + 32768 > AI_LIMITS.storageBytes) throw new TaskFault('storage_limit', 503)
     const work: StoredBaseMapWork = existing ?? { requestHash, resultHash: null, attempts: 0, runtimeMs: 0, startedAt: null, expiresAt: this.now() + AI_LIMITS.retentionDays * 86400000 }
     if (work.requestHash !== requestHash) throw new TaskFault('flow_source_conflict')
@@ -209,7 +219,8 @@ export class TaskStore {
     if (prior) { const task = JSON.parse(prior.data) as StoredTask; if (task.fingerprint !== fingerprint && task.fingerprint !== serialized) throw new TaskFault('idempotency_conflict'); return { task, created: false } }
     if (isClassifiedAuthoring(request.authoring) && this.db.prepare('SELECT 1 FROM authoring_flows WHERE owner=? AND flow_id=?').get(owner, request.authoring.source.flowId)) throw new TaskFault('flow_already_started')
     if (this.count() >= AI_LIMITS.tasks) throw new TaskFault('task_limit', 429)
-    if (this.activeCount() >= maxConcurrent) throw new TaskFault('concurrency_limit', 429)
+    if (this.ownerLimits && (this.db.prepare('SELECT count(*) AS count FROM tasks WHERE owner=?').get(owner) as { count: number }).count >= this.ownerLimits.tasks) throw new TaskFault('task_limit', 429)
+    this.checkConcurrency(owner, maxConcurrent)
     this.checkScene(owner, request.context?.sceneId)
     const now = this.now(), id = randomUUID()
     const forestLoop = request.forestLoop ? ForestLoopContextSchema.parse(request.forestLoop) : undefined
@@ -382,7 +393,7 @@ export class TaskStore {
     if (task.forestLoop) throw new TaskFault('forest_decision_single_request')
     this.assertExecutionWorkBudget(task)
     if (isClassifiedAuthoring(task.authoring?.start) && (task.authoring.executionUncertain || task.authoring.executionCheckpoint?.uncertain)) throw new TaskFault('execution_unknown')
-    if (this.activeCount() >= maxConcurrent) throw new TaskFault('concurrency_limit', 429)
+    this.checkConcurrency(task.owner, maxConcurrent)
     this.checkScene(task.owner, task.snapshot.context?.sceneId, task.snapshot.id)
     if (task.authoring?.claim) throw new TaskFault('claim_unresolved')
     if (!this.remaining(task) || task.snapshot.usage.requests >= this.limits(task).modelRequests || task.snapshot.lastSequence >= AI_LIMITS.events - 4 || utf8Size(task.snapshot.text) >= AI_LIMITS.outputBytes) throw new TaskFault('execution_limit')

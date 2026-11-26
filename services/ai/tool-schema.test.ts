@@ -32,7 +32,7 @@ function expand(value: unknown, root?: Record<string, unknown>): unknown {
   const object = value as Record<string, unknown>, source = root ?? object
   if ('$ref' in object) {
     expect(Object.keys(object)).toEqual(['$ref'])
-    expect(object.$ref).toMatch(/^#\/\$defs\/c\d+$/)
+    expect(object.$ref).toMatch(/^#\/\$defs\/c[0-9a-z]+$/)
     const key = (object.$ref as string).split('/').at(-1)!
     expect((source.$defs as Record<string, unknown>)[key]).toBeDefined()
     return expand((source.$defs as Record<string, unknown>)[key], source)

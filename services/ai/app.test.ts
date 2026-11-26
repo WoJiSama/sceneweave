@@ -25,10 +25,10 @@ import type { ForestFurnitureDiagnostics } from '../../src/shared/generation/for
 const tokenA = 'a'.repeat(40), tokenB = 'b'.repeat(40), origin = 'https://editor.example.test'
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const clean of cleanups.splice(0).reverse()) clean() })
-function setup(provider?: ProviderAdapter, now?: () => number) {
+function setup(provider?: ProviderAdapter, now?: () => number, ownerLimits?: { tasks: number; concurrent: number }) {
   const directory = mkdtempSync(join(tmpdir(), 'sceneweave-ai-test-'))
   const config = loadAiConfig({ SCENEWEAVE_AI_DATA_DIR: directory, SCENEWEAVE_AI_ALLOWED_ORIGINS: origin, SCENEWEAVE_AI_ACCESS_TOKENS: JSON.stringify({ alice: tokenA, bob: tokenB }), SCENEWEAVE_AI_PROVIDER_BASE_URL: 'http://127.0.0.1:9999/v1', SCENEWEAVE_AI_PROVIDER_API_KEY: 'private-provider-key', SCENEWEAVE_AI_PROVIDER_MODEL: 'test-model' })
-  const store = new TaskStore(directory, { now })
+  const store = new TaskStore(directory, { now, ownerLimits })
   const providerImpl = provider ?? { complete: () => new Promise<ProviderCompletion>(() => {}) }
   const engine = new TaskEngine(store, providerImpl, connectionInfo(config), { now })
   const app = createAiApp(config, { store, engine })
@@ -687,6 +687,17 @@ describe('task lifecycle and physical private storage', () => {
       store.change(task.snapshot.id, 1, current => { current.snapshot.status = 'completed'; current.runStartedAt = null; return [] })
     }
     expect(() => store.create('alice', taskRequest(), 4)).toThrow('task_limit')
+  }, 30000)
+
+  it('reserves capacity independently for different owner identities', () => {
+    const { store, config } = setup(undefined, undefined, { tasks: 1, concurrent: 1 })
+    expect(config.ownerLimits).toEqual({ tasks: 64, concurrent: 2 })
+    const alice = store.create('alice', taskRequest(), 4).task
+    const bob = store.create('bob', taskRequest(), 4).task
+    expect(store.read(bob.snapshot.id, 'bob').owner).toBe('bob')
+    expect(() => store.read(bob.snapshot.id, 'alice')).toThrow('not_found')
+    expect(() => store.create('alice', taskRequest(), 4)).toThrow('task_limit')
+    expect(() => store.assertCanResume(alice, 4)).toThrow('concurrency_limit')
   })
 })
 
