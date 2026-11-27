@@ -44,7 +44,7 @@ Codex 的地图和图片 Skill 从这份目录选择流程。应用及图片MCP�
 ```sh
 node tools/harness/sceneweave.mjs map capabilities
 node tools/harness/sceneweave.mjs map reference --image /absolute/work/reference.jpg --input /absolute/work/guide.json --output /absolute/work/first-map --allow map-authoring --stage draft
-node tools/harness/sceneweave.mjs map verify --candidate /absolute/work/first-map --output /absolute/work/delivery --allow map-authoring --editor reopen
+node tools/harness/sceneweave.mjs map verify --candidate /absolute/work/first-map --output /absolute/work/delivery --allow map-authoring --editor reopen --delivery copy
 node tools/harness/sceneweave.mjs map inspect --project /absolute/work/first-map/map.sceneweave --allow map-authoring
 node tools/harness/sceneweave.mjs map schema edit
 node tools/harness/sceneweave.mjs map edit --project /absolute/work/first-map/map.sceneweave --input /absolute/work/edit.json --output /absolute/work/revised-map --allow map-authoring --stage draft
@@ -52,9 +52,11 @@ node tools/harness/sceneweave.mjs map edit --project /absolute/work/first-map/ma
 
 Windows PowerShell 可用 `| Set-Content -Encoding utf8NoBOM -LiteralPath <路径>` 保存示例请求。
 
-参考图取样用原图整数像素。用 `map capabilities` 的 `referenceGuide` 查看如何标地貌和登高路线。在输出的 `overlay.png` 核对拟合轮廓和编号。取代表性陆地颜色用 `foreground`，保留局部小块用 `keep`，修正局部轮廓用 `corrections`。可省略 `--stage` 单独提取轮廓。估计的草地和林丛会进入可编辑配方，可用 `surfaceFromReference: false` 关闭。文字题可用 `map example` 选配方后交给 `map generate`。
+已有生成请求时，可用 `map diagnose --input ABS_JSON --allow map-authoring` 查看通行和高程。加 `--output NEW_ABS_DIR` 可保存已检查的工程，随后的 `map verify --candidate` 会直接打开这份工程出图。MCP 的 `sceneweave_map_diagnose` 提供同一个可选 `output`。
 
-用 `landscape` 指定主要轮廓和地貌。`outline: "smooth"` 按段平滑岸线并保留共享边。山脚到高处用 `ascent: { from: { at, radius }, toLandmarkId, minRiseMm }`，可加 `around: { landmarkId, side }` 指定绕行。程序按实际地形选落脚点和路线，核对净宽与起终点高差。允许收窄时可填 `ascent.minWidthMm`。运行 `map example landscape-ascent` 查看可执行的请求。已知途经点用 `via`。文字配方默认用每轴 0–1000 的相对坐标。参考图用 `referenceSizePx` 及像素锚点，地图等比对齐。有图中已知距离时用 `referenceScale` 标定。净宽、高程和绕行距离用毫米。室内布局用 `interior`，林地用 `forest`，精确坐标与对象组合用 `layout`。
+参考图取样用原图整数像素。用 `map capabilities` 的 `referenceGuide` 查看如何标地貌和登高路线。程序自动拟合湾口、浅水、礁石和次要岸崖，按主要标记拟合台地、山脊和低地。打开 `paths.overlay` 核对形状和编号。局部可用 `keep` 保留礁石、`shallow` 取浅水色、`design.shallows` 圈浅水，或在地貌里用 `structure` 给范围和坡折线。可省略 `--stage` 单独提取轮廓。详细字段和关闭选项见[参考图步骤](workflows/map-authoring.md#reference)。
+
+用 `landscape` 指定主要轮廓和地貌。`outline: "smooth"` 按段平滑岸线并保留共享边。山脚到高处用 `ascent: { from: { at, radius }, toLandmarkId, minRiseMm }`，可加 `around: { landmarkId, side }` 指定绕行。程序按实际地形选落脚点和路线，核对净宽与起终点高差。允许收窄时可填 `ascent.minWidthMm`，实际降宽时回执给出被拒宽度和原因。运行 `map example landscape-ascent` 查看可执行的请求。已知途经点用 `via`。文字配方默认用每轴 0–1000 的相对坐标。参考图用 `referenceSizePx` 及像素锚点，地图等比对齐。有图中已知距离时用 `referenceScale` 标定。净宽、高程和绕行距离用毫米。室内布局用 `interior`，林地用 `forest`，精确坐标与对象组合用 `layout`。
 
 `ascent.staircase: "flight"` 可把主要高差集中成梯段。两端接入和实际踏步继续按净宽检查。`finish: "natural"` 按坡向和干湿分配岸边、岩面、地被并保留低地中的局部凸起。参考图提取自动启用。特殊凸起可设 `preserveRelief: true`。地表覆盖用 `covers`，每项给 `id`、`areaId`、`region` 和 `cover`（`grass`、`sand` 或 `rock`）。布景可选 `pattern: "meadow"` 或 `"grove"`。在 `checks` 中声明必须可走的走廊，布景会预留完整净宽。在 `heightChecks` 中可用 `id`、`low`、`high`、`minRiseMm` 核对实际高差。将 `required` 设为 `false` 可作观察项。
 
@@ -73,9 +75,11 @@ Windows PowerShell 可用 `| Set-Content -Encoding utf8NoBOM -LiteralPath <路�
 
 用 `terrain-shape` 局部塑形，用 `cover-zone` 在指定地块新增或按原 ID 更新覆盖。用 `scenery-zone` 新增布景区，`scenery-density` 调整已有组。`region` 可给 `at` 和 `radius`，也可用 `boundary` 圈定范围。对同一工程单独提交 `{ "kind": "art-style", "style": "tea" }` 操作，可对照画风。回执中的 `artStyle` 是实际生效的画风。编辑默认用毫米，使用原图像素时设置 `referenceSizePx`，等比映射选择 `referenceMapping: "fit"`。编辑请求可带上仍需通过的 `checks` 和 `heightChecks`。生成和编辑各支持最多 256 条显式操作，输入与重放文件上限 256 KiB。实际展开、几何和资源按任务档计量。
 
-生成或编辑默认走完整交付检查。`--stage draft` 在第一张正俯视图就绪时写入可打开的 `map.sceneweave` 和真实 `preview.png`，在 `result.json` 记录 `topReadyAt`。有地形高差或指定 `oblique: true` 时继续输出 `oblique.png`，全部草稿产物落盘后，回执标记 `draft`。有可定位的问题时，`diagnostic.png` 的编号对应 `diagnosticMarkers`。画面可用后运行 `map verify`，在新目录逐像素验证独立冷读的重绘。`--editor reopen` 加验普通首页导入和视图，在独立浏览器上下文完成。回执为 `complete` 后可交付。旧图片缺失或损坏时可用 `--previews redraw` 从同一工程重绘复核。
+自动生成的岸线按所属地块计入任务的编辑目标。岸线边段仍逐段计入几何预算，实际引用与资源分别计量。查看 `usage` 可判断哪项达到当前档位的保护值。
 
-使用本机 stdio MCP 时，启动 `node tools/harness/map-server.mjs --workspace /absolute/work --allow map-authoring`。从 `tools/list` 获取实际能力。用目录内的相对路径读取原图或工程，输出传一个新目录名。`sceneweave_map_reference` 传 `stage: "draft"` 会返回实际 PNG 和可编辑候选。用 `sceneweave_map_preview` 看草稿、叠图和诊断图。用 `sceneweave_map_verify` 复核，`editor: true` 加验普通编辑器，`includePreview: true` 随交付返回已复核 PNG，`previews: "redraw"` 可重绘。CLI 与 MCP 都会返回 `delivery.markdown` 供助手展示图片并链接工程。
+生成或编辑默认做完整冷读检查。`--stage draft` 在首张正俯视就绪时给出工程和实际预览路径，并记录 `topReadyAt`。有地形高差或指定 `oblique: true` 时继续出斜俯视。预览、叠图和诊断在每个输出父目录下共用 64 MiB 可回收缓存，按 `paths` 读取。诊断图的编号对应 `diagnosticMarkers`。运行 `map verify` 可逐像素检查独立冷读的重绘，默认只写回执。`--editor reopen` 加验普通首页导入和视图。用 `--delivery copy` 可显式保存独立 PNG，草稿模式保存已生成的诊断和叠图，单独描轮廓时保存叠图。图片缺失或损坏时可用 `--previews redraw` 从同一工程重绘复核。`storage` 提供写入、复用、缓存回收与回执字节。
+
+使用本机 stdio MCP 时，启动 `node tools/harness/map-server.mjs --workspace /absolute/work --allow map-authoring`。从 `tools/list` 获取实际能力。用目录内的相对路径读取原图或工程，输出传一个新目录名。`sceneweave_map_reference` 传 `stage: "draft"` 会返回实际 PNG 和可编辑候选。用 `sceneweave_map_preview` 看草稿、叠图和诊断图。用 `sceneweave_map_verify` 复核，`editor: true` 加验普通编辑器，`delivery: "copy"` 保存独立交付，`includePreview: true` 随回执返回已复核 PNG，`previews: "redraw"` 可重绘。CLI 与 MCP 都会返回 `delivery.markdown` 供助手展示图片并链接工程。
 
 <a id="forest-loop-mcp"></a>
 原林中建筑 CLI 使用 `example`、`generate --allow forest-building --budget standard` 和 `repair-furniture`。其参数与通用制图请求各有 schema。
@@ -96,7 +100,7 @@ node tools/image-import/server.mjs --image /absolute/map.jpg --license-file /abs
 
 先按实际tools/list和`image_import_workflow`发现操作，每次修改使用最新generation。页面和MCP共用[制作步骤](docs/reference/image-item-workflow.md)；原图、独立制作工作包、普通工程和个人库分别保全。外部模型必须实际具备工具与视觉能力，图片外发按本次授权。
 
-MCP 交付目录包含 `map.sceneweave`、`preview.png`、`recipe.json` 和 `result.json`。以 `complete` 回执核对任务 ID、流程绑定、源图摘要、各文件的真实字节摘要和工程冷读结果。
+MCP 工程候选目录保存 `map.sceneweave`、`recipe.json` 和 `result.json`。预览与其它拆件审阅图使用同一输出目录下 64 MiB 的共享缓存，从 `paths` 打开。需要独立保存 PNG 时传 `saveImages: true`。以 `complete` 回执核对任务 ID、流程绑定、源图摘要、各文件的真实字节摘要和工程冷读结果。
 
 <a id="legacy-svg-recovery"></a>
 已发布 v1 工程中使用第一版 SVG 栅格器的固定素材，可用[独立恢复工具](tools/migration/migrate-legacy-svg.mjs)在匹配环境中验证原字节，并生成新的完整 v1 工程。早期开发工程格式已停用。此工具接收现行完整 v1 容器并保留原档。
