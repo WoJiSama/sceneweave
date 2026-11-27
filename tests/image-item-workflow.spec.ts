@@ -46,6 +46,7 @@ test('downloads and removes the selected saved image draft while keeping the new
   await workbench.locator('summary').filter({ hasText: '本机制作草稿' }).click()
   const drafts = workbench.getByLabel('选择本机制作草稿')
   await expect(drafts.locator('option')).toHaveCount(2)
+  await expect(workbench.getByText(/其中共享图像/)).toBeVisible()
   const older = drafts.locator('option').filter({ hasText: '先做的草稿' })
   await drafts.selectOption(await older.getAttribute('value') ?? '')
   const pending = page.waitForEvent('download')

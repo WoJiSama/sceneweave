@@ -14,6 +14,16 @@ export function rememberLocalProjects(present = true) {
 }
 
 export type BrowserStorageStatus = { persistent?: boolean; used?: number; quota?: number; requestable: boolean }
+export function storageBytes(bytes: number): string {
+  if (Math.abs(bytes) < 1024) return `${bytes} B`
+  if (Math.abs(bytes) < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`
+  if (Math.abs(bytes) >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`
+  return `${(bytes / 1024 ** 2).toFixed(1)} MiB`
+}
+
+export function storageDelta(bytes: number): string {
+  return bytes > 0 ? `新增 ${storageBytes(bytes)}` : bytes < 0 ? `减少 ${storageBytes(-bytes)}` : '变化 0 B'
+}
 export function nearProjectStorageLimit(usage: { resourceBytes: number; documentBytes: number } | undefined): boolean {
   return !!usage && (usage.resourceBytes >= HISTORY_LIMITS.storedResourceBytes * .85 || usage.documentBytes >= HISTORY_LIMITS.storedDocumentBytes * .85)
 }

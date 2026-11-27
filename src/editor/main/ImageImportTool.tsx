@@ -19,6 +19,7 @@ import { canonicalJson } from '../../shared/validation/json'
 import { sha256Bytes } from '../../shared/project/binary'
 import { parseImageWorkState, writeImageWorkPackage, type ImageWorkState, type ImageWorkPackage } from '../../shared/image-import/workflow'
 import { ImageWorkflowStore, readBrowserImageWorkPackage, type LocalImageDraft } from '../../platform/browser/content/image-workflow-store'
+import { storageDelta } from '../../platform/browser/storage/local-retention'
 import ImageWorkDrafts, { downloadImageWork } from './ImageWorkDrafts'
 import { IMAGE_ITEM_WORKFLOW } from '../../shared/image-import/workflow-instructions'
 import { analyzeImageImportRepair } from '../../shared/image-import/neighborhood-analysis'
@@ -352,10 +353,10 @@ export default function ImageImportTool({ disabled = false, requestKey = 0, onDr
       saveQueue.current = saveQueue.current.catch(() => {}).then(async () => {
         if (state.id !== workflowId.current) return
         const bytes = await writeImageWorkPackage(state, capturedSource.originalBytes!, capturedSource.normalizedBytes!)
-        await workStore.current!.save(bytes, storedRevision.current)
+        const saved = await workStore.current!.save(bytes, storedRevision.current)
         if (state.id !== workflowId.current) return
         storedRevision.current = state.revision
-        if (capturedKey === latestWorkKey.current) setWorkSaveStatus(`制作进度已保存 · ${state.revision} · ${state.active?.name ?? '房间任务'}`)
+        if (capturedKey === latestWorkKey.current) setWorkSaveStatus(`制作进度已保存 · ${state.revision} · ${state.active?.name ?? '房间任务'} · ${storageDelta(saved.storageDeltaBytes)}`)
       }).catch(error => { if (state.id === workflowId.current && capturedKey === latestWorkKey.current) setWorkSaveStatus(`制作进度保存失败：${failureText(error)}；可导出工作包保全当前结果。`) })
     }, 800)
     return () => clearTimeout(timer)

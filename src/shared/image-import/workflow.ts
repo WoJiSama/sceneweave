@@ -151,15 +151,17 @@ export async function writeImageWorkPackage(input: unknown, rawOriginal: Uint8Ar
   return bytes
 }
 
-export async function readImageWorkPackage(input: Uint8Array, signal?: CancellationSignal): Promise<ImageWorkPackage> {
-  checkCancelled(signal)
-  const bytes = captureBytes(input, IMAGE_WORK_LIMITS.packageBytes)
+export function inspectImageWorkZip(input: Uint8Array, signal?: CancellationSignal) {
   const paths = ['state.json', 'original.bin', 'normalized.png']
-  const zip = inspectBoundedZip(bytes, { requiredPaths: paths, documentPath: name => name === 'state.json',
+  return inspectBoundedZip(input, { compressedBytes: IMAGE_WORK_LIMITS.packageBytes, requiredPaths: paths, documentPath: name => name === 'state.json',
     pathBudget(name) {
       if (!paths.includes(name)) throw new Error('图片工作包包含未知或不安全路径。')
       return name === 'state.json' ? IMAGE_WORK_LIMITS.stateBytes : IMAGE_WORK_LIMITS.imageBytes
     } }, signal)
+}
+
+export async function readImageWorkPackage(input: Uint8Array, signal?: CancellationSignal): Promise<ImageWorkPackage> {
+  const zip = inspectImageWorkZip(input, signal)
   const state = parseImageWorkState(parseBoundedJson(await zip.read('state.json')))
   const original = await zip.read('original.bin'), normalized = await zip.read('normalized.png')
   validateImages(state, original, normalized)
