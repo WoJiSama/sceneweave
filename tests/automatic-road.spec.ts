@@ -95,6 +95,7 @@ test('a snowline route retains a fixed bend and platform after regrade, reload a
   const path = Object.values(first.document.paths)[0] as Path
   expect(path.automaticRoute?.fixedPointsMm[1]).toEqual(fixed)
   expect(path.automaticRoute?.algorithm).toBe('terrain-road3')
+  expect(path.roadFinish).toBe('terrain-v1')
   expect(landings(path)).toEqual([{ pointMm: fixed, lengthMm: 1650, elevationMm: expect.any(Number) }])
   expect(path.roadSurface?.stations.map(row => row.kind)).toEqual(expect.arrayContaining(['trail', 'tread', 'landing']))
   expect(path.roadSurface?.stations.some(row => row.shoulderMm.some(width => width > 0) && !!row.outZMm)).toBe(true)
@@ -134,6 +135,7 @@ test('a snowline route retains a fixed bend and platform after regrade, reload a
     expect(actual.automaticRoute?.fixedPointsMm.slice(1)).toEqual(path.automaticRoute?.fixedPointsMm.slice(1))
     expect(landings(actual)).toEqual(landings(path))
     expect(actual.widthMm).toBe(1250)
+    expect(actual.roadFinish).toBe('terrain-v1')
     expect(actual.staircase?.material).toBe('slate')
     expect(actual.surfaceStyle).toEqual(path.surfaceStyle)
     expect(actual.automaticRoute?.fixedPointsMm[0]).not.toEqual(path.automaticRoute?.fixedPointsMm[0])
@@ -157,6 +159,18 @@ test('a snowline route retains a fixed bend and platform after regrade, reload a
     await keyboardWorkspaceSaved(cold)
     const undone = await keyboardProjectBackup(cold, info.outputPath('undo.sceneweave'))
     expect(undone.document.paths).toEqual(moved.document.paths)
+
+    await openDetailsBySummary(inspector, /^踏步材质与覆盖$/)
+    await inspector.getByRole('button', { name: '预览原有铺面', exact: true }).click()
+    await adopt(cold)
+    const legacy = await keyboardProjectBackup(cold, info.outputPath('original-road-finish.sceneweave'))
+    const { roadFinish: _finish, ...sameProfile } = actual
+    expect(legacy.document.paths[path.id]).toEqual(sameProfile)
+    await openDetailsBySummary(inspector, /^踏步材质与覆盖$/)
+    await inspector.getByRole('button', { name: '预览接合路肩与梯段', exact: true }).click()
+    await adopt(cold)
+    const integrated = await keyboardProjectBackup(cold, info.outputPath('integrated-road-finish.sceneweave'))
+    expect(integrated.document.paths[path.id]).toEqual(actual)
   } finally { await cold.close() }
   expect(errors).toEqual([])
 })
@@ -186,6 +200,7 @@ test('private grading leaves both player PNGs byte-identical', async ({ page }) 
     const request = { floorId, layerId, widthMm: 1200, visibility: 'gm' as const }, fixedPointsMm = [{ x: 4300, y: 16000 }, { x: 22500, y: 16000 }]
     const path = road.createAutomaticRoadPlanner(bundle.project.document, request)(fixedPointsMm)
     fix([{ type: 'createPath', id: 'private-snow-road', ...request, centerlineMm: path.centerlineMm, supportRefs: path.supportRefs, roadSurface: path.roadSurface,
+      roadFinish: 'terrain-v1',
       automaticRoute: { algorithm: 'terrain-road3', fixedPointsMm, automaticStairs: true } }])
     return { before, after: await pngs() }
   })

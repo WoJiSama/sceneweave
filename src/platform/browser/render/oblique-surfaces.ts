@@ -16,7 +16,7 @@ import { atHeight, rectangle, type MeshMask, type MeshMaterial, type ObliqueMesh
 import type { WallGeometry } from '../../../shared/geometry/wall-paint-geometry.js'
 import { projectGround, spatialWallFrame } from './projected-ground.js'
 import { earthenRoad, planEarthenRoad } from './earthen-road.js'
-import { gradedRiserPalette } from './graded-road-paint.js'
+import { gradedRiserPalette, gradedRoadDecks, gradedStoneJoint } from './graded-road-paint.js'
 import { ERODED_CLIFF_PROFILE, isWeatheredCliffProfile, spatialCliffProfile, STRATIFIED_CLIFF_PROFILE, weatheredCliffWidth } from '../../../shared/visual/terrain-cliff-plan.js'
 import type { VisualEdgeLook } from '../../../shared/visual/types.js'
 import { cliffStrata, strataColor } from './stratified-cliff.js'
@@ -400,21 +400,31 @@ function addGradedRoad(input: SurfaceMeshes, road: ReturnType<typeof visibleGrad
     return materials.get(color)!
   }
   const finishes = path.gradedFinish?.covers ?? []
+  const faceClips = [...clipped ? masks : [], ...finishes.flatMap(cover => edgesOf(cover.polygonMm))]
+  const treadNoses = new Set(path.roadFinish === 'terrain-v1' ? gradedRoadDecks(geometry)
+    .flatMap(({ spans, nose }) => nose && spans[0].kind === 'tread' ? [nose] : []) : [])
   // The atlas already contains the slope lighting. A little occlusion at the
   // vertical cut keeps the source texture visible without lighting it twice.
   const deckFace: MeshMaterial = { ...paint, color: [.77, .74, .70] }
   const bankFace: MeshMaterial = { ...paint, color: [.96, .96, .96] }
-  for (const { lower, upper, ascending } of geometry.risers) for (const lane of [0, 1, 2] as const) {
+  for (const riser of geometry.risers) for (const lane of [0, 1, 2] as const) {
+    const { lower, upper, ascending } = riser
     const [a, b] = ascending ? [lane, lane + 1] : [lane + 1, lane]
     const u = lower[a], v = lower[b]
     if (Math.hypot(u.x - v.x, u.y - v.y) < .01) continue
-    const cuts = segmentCuts(u, v, [...clipped ? masks : [], ...finishes.flatMap(cover => edgesOf(cover.polygonMm))])
+    const cuts = segmentCuts(u, v, faceClips)
+    const joint = lane === 1 && treadNoses.has(riser) ? gradedStoneJoint(path, riser) : undefined
+    const split = joint && (ascending ? [joint.from, joint.to] : [1 - joint.to, 1 - joint.from])
+    if (split) { cuts.push(...split); cuts.sort((a, b) => a - b) }
     for (let i = 1; i < cuts.length; i++) {
       const from = cuts[i - 1], to = cuts[i], p = { x: mix(u.x, v.x, from), y: mix(u.y, v.y, from) }, q = { x: mix(u.x, v.x, to), y: mix(u.y, v.y, to) }
+      if (split && from === to) continue
       const mid = midpoint(p, q)
       if (!allowed(mid)) continue
       const cover = finishes.findLast(row => pointInPolygon(mid, row.polygonMm))?.kind
-      const material = lane !== 1 || cover ? bankFace : path.gradedFinish ? facePaint(palette.alternate) : deckFace
+      const middle = (from + to) / 2
+      const stone = split && middle > split[0] && middle < split[1] ? palette.shadow : palette.alternate
+      const material = lane !== 1 || cover ? bankFace : path.gradedFinish || treadNoses.has(riser) ? facePaint(stone) : deckFace
       // Map the actual soil and snow across the whole riser. On a bank, this
       // carries the same contact material through the tapered end of the step.
       mesh.quad(material, [atHeight(q, zOffset + mix(u.z, v.z, to)), atHeight(p, zOffset + mix(u.z, v.z, from)),

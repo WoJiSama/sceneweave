@@ -19,6 +19,7 @@ export function projectPath(path: Path, theme: Projection['theme'], masks: Point
   const result: ProjectedPath = { id: path.id, points: pathPolygon(path), style: cloneJson(path.surfaceStyle), edgeStyle: pathEdgeStyle(theme) }
   if (path.roadSurface) {
     result.gradedSurface = buildRoadSurface(path, path.roadSurface)
+    if (path.roadFinish) result.roadFinish = path.roadFinish
     result.points = result.gradedSurface.coreMm
     if (path.staircase) result.gradedFinish = { preset: path.staircase.preset, material: path.staircase.material,
       covers: planStaircase(path.centerlineMm, path.widthMm, { ...path.staircase, layout: { kind: 'stretch', stepCount: 1 } }, path.widthSections).covers }

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { unzipSync, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { fixtureRuntime, layerScene, outdoorProject } from '../../tests/helpers/current-project-fixtures.js'
+import { applyCompositionDraftCommands } from './appearance/commands.js'
 import { createCompositionContent } from './appearance/graph.js'
 import { LANDSCAPE_GROUND_SCATTER_VERSION } from './geometry/scatter-algorithm.js'
 import type { SceneDocument } from './model/scene.js'
@@ -10,7 +11,8 @@ import type { CompleteValidationOptions } from './ports/resources.js'
 import { createMemoryResources } from './project/resources.js'
 import type { HistoryArchive } from './project/history.js'
 import { exportHistoryArchive, exportProject, importHistoryArchive, importProject, importProjectArchive } from './project/file.js'
-import { PROJECT_EXTENSIONS_READER_VERSION, PROJECT_LANDSCAPE_READER_VERSION, PROJECT_READER_VERSION, PROJECT_WRITER_BUILD, ProjectReaderVersionError } from './project/format.js'
+import { PROJECT_EXTENSIONS_READER_VERSION, PROJECT_LANDSCAPE_READER_VERSION, PROJECT_READER_VERSION, PROJECT_TERRAIN_FINISH_READER_VERSION, PROJECT_REGION_OUTLINE_READER_VERSION,
+  PROJECT_WRITER_BUILD, ProjectReaderVersionError } from './project/format.js'
 import { captureBytes, crc32, decodeUtf8, sha256Bytes } from './project/binary.js'
 import { parseBoundedJson } from './project/json.js'
 import { PACKAGE_LIMITS } from './project/limits.js'
@@ -107,6 +109,38 @@ describe('complete-v1 native portable container', () => {
     expect(readJson(unzipSync(bytes)['manifest.json']).minReaderVersion).toBe(PROJECT_LANDSCAPE_READER_VERSION)
     expect((await importProject(bytes, options)).project).toEqual(input.project)
     await expect(importProject(modify(bytes, (_, manifest) => { manifest.minReaderVersion = 2 }), options)).rejects.toThrow(/最低读取协议/)
+  })
+  it('uses the terrain finish reader when the finish occurs only in selected history', async () => {
+    const input = archiveFixture(), snapshot = input.snapshots[0], previous = snapshot.bundle.project
+    const { document, historyIdentity, appearance } = previous, floorId = Object.keys(document.floors)[0]
+    const updated = applyCompositionDraftCommands({ document, historyIdentity, appearance }, [{ type: 'createTerrainArea', id: 'rock-slope', floorId,
+      boundaryMm: [{ x: 1000, y: 1000 }, { x: 2500, y: 1000 }, { x: 2500, y: 2500 }, { x: 1000, y: 2500 }],
+      relief: { version: 1, rows: 2, columns: 2, offsetsMm: [0, 1500, 0, 1500] }, reliefFinish: 'weathered-v3' }], fixtureRuntime())
+    snapshot.bundle.project = { ...previous, ...updated }
+    snapshot.sourceRevision = updated.document.revision
+    snapshot.contentHash = projectContentHash(snapshot.bundle.project)
+    const bytes = await exportHistoryArchive(input, options)
+    expect(readJson(unzipSync(bytes)['manifest.json']).minReaderVersion).toBe(PROJECT_TERRAIN_FINISH_READER_VERSION)
+    expect((await importHistoryArchive(bytes, options)).snapshots[0].bundle.project).toEqual(snapshot.bundle.project)
+    await expect(importHistoryArchive(modify(bytes, (_, m) => { m.minReaderVersion = PROJECT_LANDSCAPE_READER_VERSION }), options))
+      .rejects.toThrow(/最低读取协议 v4/)
+  })
+  it('declares the region outline reader only for projects containing the optional field', async () => {
+    const { project, resources } = outdoorProject(), floorId = Object.keys(project.document.floors)[0]
+    const commands = [{ type: 'createRegion' as const, id: 'terrain-mark', floorId, kind: 'terrain' as const,
+      boundaryMm: [{ x: 1000, y: 1000 }, { x: 2500, y: 1000 }, { x: 2500, y: 2500 }, { x: 1000, y: 2500 }] }]
+    const { document, historyIdentity, appearance } = project
+    const withRegion = applyCompositionDraftCommands({ document, historyIdentity, appearance }, commands, fixtureRuntime())
+    const old = await exportProject({ project: { ...project, ...withRegion }, resources }, options)
+    expect(readJson(unzipSync(old)['manifest.json']).minReaderVersion).toBeUndefined()
+    expect((await importProject(old, options)).project.document.regions['terrain-mark'].showOutlineInOutput).toBeUndefined()
+    const next = applyCompositionDraftCommands(withRegion, [{ type: 'updateRegion', id: 'terrain-mark',
+      changes: { showOutlineInOutput: false } }], fixtureRuntime())
+    const bytes = await exportProject({ project: { ...project, ...next }, resources }, options)
+    expect(readJson(unzipSync(bytes)['manifest.json']).minReaderVersion).toBe(PROJECT_REGION_OUTLINE_READER_VERSION)
+    expect((await importProject(bytes, options)).project.document.regions['terrain-mark'].showOutlineInOutput).toBe(false)
+    await expect(importProject(modify(bytes, (_, manifest) => { manifest.minReaderVersion = PROJECT_TERRAIN_FINISH_READER_VERSION }), options))
+      .rejects.toThrow(/最低读取协议 v5/)
   })
   it('carries opaque private text per project and snapshot, even when only a historical snapshot has extensions', async () => {
     const input = archiveFixture(), snapshot = input.snapshots[0]

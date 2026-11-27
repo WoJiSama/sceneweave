@@ -2,6 +2,7 @@ import { reliefBounds, sampleTerrainRelief } from '../../../shared/geometry/terr
 import type { ProjectedSurface } from '../../../shared/projection/types.js'
 import type { VisualEnvironment } from '../../../shared/visual/types.js'
 import { directionToLight } from '../../../shared/visual/directional-light.js'
+import { paintReliefOutcrops } from './relief-outcrop-paint.js'
 
 const clamp = (x: number) => Math.max(0, Math.min(1, x))
 const ramp = (x: number) => { const t = clamp(x); return t * t * (3 - 2 * t) }
@@ -30,7 +31,7 @@ function paintBrokenRock(data: Uint8ClampedArray, i: number, x: number, y: numbe
 
 /** A world-space pigment layer over exposed slopes. The saved surface
  * supplies height and slope; both terrain views use the same brush. */
-export function drawWeatheredRelief(ctx: CanvasRenderingContext2D, area: ProjectedSurface, clip: Path2D) {
+export function drawWeatheredRelief(ctx: CanvasRenderingContext2D, area: ProjectedSurface, clip: Path2D, environment?: VisualEnvironment) {
   const relief = area.relief
   if (!relief || !area.reliefFinish) return
   const box = reliefBounds(area.points), canvas = document.createElement('canvas')
@@ -43,14 +44,26 @@ export function drawWeatheredRelief(ctx: CanvasRenderingContext2D, area: Project
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     heights[y * width + x] = sampleTerrainRelief(relief, box, { x: box.x + (x + .5) * stepX, y: box.y + (y + .5) * stepY }).offsetMm
   }
+  if (area.reliefFinish === 'weathered-v3') paintReliefOutcrops(pigment, image, box, heights, environment)
+  else paintLegacyRelief(pigment, image, box, heights, area.elevationMm, area.reliefFinish)
+  ctx.save(); ctx.clip(clip, 'evenodd')
+  ctx.imageSmoothingEnabled = true
+  ctx.drawImage(canvas, box.x, box.y, box.width, box.height)
+  ctx.restore()
+  canvas.width = canvas.height = 0
+}
+
+function paintLegacyRelief(pigment: CanvasRenderingContext2D, image: ImageData, box: ReturnType<typeof reliefBounds>, heights: Float32Array,
+  elevationMm: number, finish: 'weathered-v1' | 'weathered-v2') {
+  const { width, height } = image, stepX = box.width / width, stepY = box.height / height
   const span = Math.max(1, Math.round(310 / Math.min(stepX, stepY)))
   const at = (x: number, y: number) => heights[Math.max(0, Math.min(height - 1, y)) * width + Math.max(0, Math.min(width - 1, x))]
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    const wx = box.x + (x + .5) * stepX, wy = box.y + (y + .5) * stepY, z = area.elevationMm + at(x, y)
+    const wx = box.x + (x + .5) * stepX, wy = box.y + (y + .5) * stepY, z = elevationMm + at(x, y)
     const dx = (at(x + span, y) - at(x - span, y)) / (2 * span * stepX)
     const dy = (at(x, y + span) - at(x, y - span)) / (2 * span * stepY)
     const i = (y * width + x) * 4
-    if (area.reliefFinish === 'weathered-v2') {
+    if (finish === 'weathered-v2') {
       paintBrokenRock(image.data, i, wx, wy, z, dx, dy)
       continue
     }
@@ -73,11 +86,6 @@ export function drawWeatheredRelief(ctx: CanvasRenderingContext2D, area: Project
     image.data[i + 3] = Math.round(exposure * (130 + 44 * strata + 32 * fissure))
   }
   pigment.putImageData(image, 0, 0)
-  ctx.save(); ctx.clip(clip, 'evenodd')
-  ctx.imageSmoothingEnabled = true
-  ctx.drawImage(canvas, box.x, box.y, box.width, box.height)
-  ctx.restore()
-  canvas.width = canvas.height = 0
 }
 
 export function drawTerrainReliefLight(ctx: CanvasRenderingContext2D, area: ProjectedSurface, clip: Path2D, environment?: VisualEnvironment) {

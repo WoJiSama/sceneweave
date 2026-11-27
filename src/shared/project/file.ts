@@ -12,7 +12,8 @@ import { decodeUtf8, sha256Bytes } from './binary.js'
 import { parseBoundedJson } from './json.js'
 import { failPackage, hasExactKeys, isSha256, PACKAGE_LIMITS } from './limits.js'
 import { inspectBoundedZip, projectDocumentPath, projectEnvelopePathBudget, zipPathBudget, type BoundedZip } from './zip.js'
-import { checkProjectReader, PROJECT_EXTENSIONS_READER_VERSION, PROJECT_FORMAT, PROJECT_LANDSCAPE_READER_VERSION, PROJECT_SCHEMA_VERSION, PROJECT_WRITER_BUILD } from './format.js'
+import { checkProjectReader, PROJECT_EXTENSIONS_READER_VERSION, PROJECT_FORMAT, PROJECT_LANDSCAPE_READER_VERSION, PROJECT_REGION_OUTLINE_READER_VERSION, PROJECT_SCHEMA_VERSION,
+  PROJECT_TERRAIN_FINISH_READER_VERSION, PROJECT_WRITER_BUILD } from './format.js'
 import { decodeSceneCoordinates, encodeSceneCoordinates } from '../aggregates/scene-coordinates.js'
 import { LANDSCAPE_GROUND_SCATTER_VERSION } from '../geometry/scatter-algorithm.js'
 
@@ -34,10 +35,18 @@ const suffix: Record<AssetRecord['mimeType'], string> = { 'image/png': 'png', 'i
 const rootPaths = { scenePath: 'scene.json', identityPath: 'identity.json', appearancePath: 'appearance.json', sourcesPath: 'sources.json' }
 const extensionsPath = (scenePath: string) => scenePath.replace(/scene\.json$/, 'extensions.json')
 const containsExtensions = (entries: ManifestEntry[]) => entries.some(entry => entry.role === 'extensions' || entry.role === 'snapshot-extensions')
-const needsLandscapeReader = (document: ProjectData['document']) => document && (
-  Object.values(document.terrainAreas ?? {}).some(area => area?.reliefFinish === 'weathered-v2')
-  || Object.values(document.scatterGroups ?? {}).some(group => group?.algorithmVersion === LANDSCAPE_GROUND_SCATTER_VERSION)
-)
+function documentReaderVersion(document: ProjectData['document'] | undefined) {
+  if (Object.values(document?.regions ?? {}).some(region => region?.showOutlineInOutput !== undefined)) return PROJECT_REGION_OUTLINE_READER_VERSION
+  const terrain = Object.values(document?.terrainAreas ?? {})
+  if (terrain.some(area => area?.reliefFinish === 'weathered-v3') || Object.values(document?.paths ?? {}).some(path => path?.roadFinish === 'terrain-v1')) {
+    return PROJECT_TERRAIN_FINISH_READER_VERSION
+  }
+  if (terrain.some(area => area?.reliefFinish === 'weathered-v2')
+    || Object.values(document?.scatterGroups ?? {}).some(group => group?.algorithmVersion === LANDSCAPE_GROUND_SCATTER_VERSION)) {
+    return PROJECT_LANDSCAPE_READER_VERSION
+  }
+  return 1
+}
 const referenceKeys = ['scenePath', 'identityPath', 'appearancePath', 'sourcesPath', 'assetHashes', 'licenseHashes', 'sourceHashes', 'licenseBindings']
 const nonempty = (value: unknown, max = 256): value is string => typeof value === 'string' && value.length > 0 && value.length <= max
 const sorted = (values: string[]): string[] => values.sort((a, b) => a < b ? -1 : a > b ? 1 : 0)
@@ -154,9 +163,7 @@ export async function prepareProjectArchive(input: HistoryArchive, mode: Project
   const addJson = (path: string, role: PackageRole, value: unknown) => add(path, role, encodeUtf8(canonicalJson(value)), 'application/json')
   const addParts = (bundle: ProjectBundle, paths: typeof rootPaths, historical: boolean) => {
     const project = bundle.project, prefix = historical ? 'snapshot-' : ''
-    if (needsLandscapeReader(project.document)) {
-      minReaderVersion = Math.max(minReaderVersion, PROJECT_LANDSCAPE_READER_VERSION)
-    }
+    minReaderVersion = Math.max(minReaderVersion, documentReaderVersion(project.document))
     addJson(paths.scenePath, `${prefix}scene` as PackageRole, encodeSceneCoordinates(project.document))
     addJson(paths.identityPath, `${prefix}identity` as PackageRole, project.historyIdentity)
     addJson(paths.appearancePath, `${prefix}appearance` as PackageRole, project.appearance)
@@ -296,8 +303,9 @@ async function unpack(input: Uint8Array, expectedMode: ProjectManifest['packageM
       selectedLicenses[hash] = licenses[hash]; usedLicenses.add(hash)
     }
     const document = decodeSceneCoordinates(json(refs.scenePath))
-    if (needsLandscapeReader(document) && (manifest.minReaderVersion ?? 1) < PROJECT_LANDSCAPE_READER_VERSION) {
-      return failPackage('含新版自然地表或散布规则的工程须声明最低读取协议 v3。')
+    const required = documentReaderVersion(document)
+    if ((manifest.minReaderVersion ?? 1) < required) {
+      return failPackage(`该工程内容须声明最低读取协议 v${required}。`)
     }
     const privatePath = extensionsPath(refs.scenePath)
     const project = validateProjectData({ format: PROJECT_FORMAT, schemaVersion: document?.schemaVersion, document,

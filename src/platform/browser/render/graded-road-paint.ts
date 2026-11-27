@@ -1,5 +1,5 @@
 import { pointInPolygon } from '../../../shared/geometry/geometry.js'
-import type { RoadRow, RoadSurfaceGeometry } from '../../../shared/geometry/road-surface.js'
+import type { RoadRow, RoadRiser, RoadSpan, RoadSurfaceGeometry } from '../../../shared/geometry/road-surface.js'
 import type { PointMm } from '../../../shared/model/scene.js'
 import { playerMaskContains } from '../../../shared/projection/player-mask.js'
 import type { RoadBankMaterial } from '../../../shared/projection/road-material.js'
@@ -108,11 +108,25 @@ function dab(ctx: CanvasRenderingContext2D, center: PointMm, tangent: PointMm, n
 }
 
 /** Source terrain is already visible at the margin. Only exposed soil needs a cut face or loose fill. */
-export function paintRoadBanks(ctx: CanvasRenderingContext2D, geometry: RoadSurfaceGeometry, bankAt: ReturnType<typeof roadBankSampler>) {
+export function paintRoadBanks(ctx: CanvasRenderingContext2D, geometry: RoadSurfaceGeometry, bankAt: ReturnType<typeof roadBankSampler>, integrated = false) {
   for (const { start, end } of geometry.spans) {
     const from = mix(start[1], start[2], .5), to = mix(end[1], end[2], .5)
     const length = widthOf(from, to), count = Math.min(16, Math.max(1, Math.ceil(length / 115)))
     const tangent = { x: (to.x - from.x) / length, y: (to.y - from.y) / length }
+    if (integrated) for (const side of [0, 1] as const) {
+      const [outer, inner] = side ? [3, 2] : [0, 1]
+      const bank = mix(start[outer], end[outer], .5), verge = mix(start[inner], end[inner], .5)
+      const height = (start[outer].z + end[outer].z - start[inner].z - end[inner].z) / 2
+      const ground = bankAt(bank)
+      if (!ground || widthOf(bank, verge) < 2 || Math.abs(height) < 95) continue
+      const face = ctx.createLinearGradient(verge.x, verge.y, bank.x, bank.y)
+      const color = height > 0 ? '#403a30' : bankColors[ground.material].fill
+      face.addColorStop(0, alpha(color, Math.min(.47, Math.abs(height) / (height > 0 ? 1060 : 1700))))
+      face.addColorStop(.51, alpha(color, .11))
+      face.addColorStop(1, alpha(color, 0))
+      ctx.fillStyle = face
+      ctx.fill(polygon([start[inner], end[inner], end[outer], start[outer]]))
+    }
     for (let i = 0; i < count; i++) {
       const row = rowAt(start, end, (i + .5) / count), width = widthOf(row[1], row[2])
       for (const side of [0, 1] as const) {
@@ -194,6 +208,111 @@ export function paintRoadWear(ctx: CanvasRenderingContext2D, geometry: RoadSurfa
 }
 
 export const gradedRiserPalette = (path: ProjectedPath) => staircaseMaterial(path.gradedFinish?.material ?? 'earth').palette
+
+/** Splits are measured on the actual riser so the same joint meets its tread in both views. */
+export function gradedStoneJoint(path: ProjectedPath, { lower }: RoadRiser) {
+  const preset = path.gradedFinish?.preset
+  if (preset !== 'rough-stone' && preset !== 'cut-stone') return
+  const { x, y } = mix(lower[1], lower[2], .5), seed = `${Math.round(x / 49)}/${Math.round(y / 49)}`
+  const width = widthOf(lower[1], lower[2])
+  if (width < 1060 || terrainRandomUnit(seed, 'whole-stone') < .23) return
+  const t = .28 + .44 * terrainRandomUnit(seed, 'split-stone'), gap = Math.min(.030, 29 / width)
+  return { from: t - gap / 2, to: t + gap / 2 }
+}
+
+/** Extra stations on turns are subdivisions of a tread or platform. Only a
+ * real riser or a change in use ends a strip of the wearing surface. */
+export function gradedRoadDecks({ spans, risers }: RoadSurfaceGeometry) {
+  const faces = new Map(risers.map(riser => [riser.atPpm, riser]))
+  const decks: { spans: RoadSpan[]; startFace?: RoadRiser; endFace?: RoadRiser; blendStart: boolean; blendEnd: boolean }[] = []
+  for (let i = 0; i < spans.length; i++) {
+    const span = spans[i]
+    if (span.kind === 'trail') continue
+    const startFace = faces.get(span.aPpm), endFace = faces.get(span.bPpm)
+    const blendEnd = !endFace && (!spans[i + 1] || spans[i + 1].kind === 'trail')
+    if (span.kind === spans[i - 1]?.kind && !startFace) {
+      const deck = decks.at(-1)!
+      deck.spans.push(span)
+      deck.endFace = endFace
+      deck.blendEnd = blendEnd
+    } else decks.push({ spans: [span], startFace, endFace, blendEnd, blendStart: !startFace && (!spans[i - 1] || spans[i - 1].kind === 'trail') })
+  }
+  return decks.map(deck => ({ ...deck,
+    nose: deck.startFace?.ascending ? deck.startFace : deck.endFace?.ascending === false ? deck.endFace : undefined,
+  }))
+}
+
+export function paintIntegratedRoadDeck(ctx: CanvasRenderingContext2D, geometry: RoadSurfaceGeometry, path: ProjectedPath, shadeRisers: boolean) {
+  const palette = gradedRiserPalette(path)
+  const center = (row: RoadRow) => mix(row[1], row[2], .5)
+  const margin = (row: RoadRow, side: 0 | 1, landing: boolean) => {
+    const [outer, edge, other] = side ? [row[3], row[2], row[1]] : [row[0], row[1], row[2]]
+    const rough = terrainValueNoise('graded-deck', 'edge', edge.x / 380, edge.y / 380)
+    const cut = Math.max(0, Math.min(1, (outer.z - edge.z) / 500))
+    const inset = (landing ? 118 : 74) + 65 * rough - 26 * cut
+    return mix(edge, other, Math.max(.012, Math.min(.15, inset / widthOf(edge, other))))
+  }
+  ctx.save()
+  ctx.clip(polygon(geometry.coreMm))
+  for (const { spans, startFace, endFace, nose, blendStart, blendEnd } of gradedRoadDecks(geometry)) {
+    const first = spans[0], last = spans.at(-1)!, landing = first.kind === 'landing'
+    const start = first.start, end = last.end, a = center(start), b = center(end)
+    const distance = widthOf(a, b)
+    if (!distance) continue
+    const rows = [start, ...spans.map(span => span.end)]
+    const inset = polygon([...rows.map(row => margin(row, 0, landing)), ...rows.toReversed().map(row => margin(row, 1, landing))])
+    const paint = ctx.createLinearGradient(a.x, a.y, b.x, b.y)
+    const blend = Math.min(.43, (landing ? 540 : 245) / distance)
+    const hasNoseAtStart = startFace?.ascending, hasNoseAtEnd = endFace && !endFace.ascending
+    const middle = landing ? .65 : .87
+    const patch = terrainValueNoise('graded-deck', 'stone', a.x / 580, a.y / 580)
+    const tone = !landing && patch > .18 ? palette.alternate : palette.top
+    paint.addColorStop(0, alpha(hasNoseAtStart ? palette.alternate : tone, blendStart ? 0 : middle))
+    paint.addColorStop(blend, alpha(tone, middle))
+    paint.addColorStop(1 - blend, alpha(tone, middle))
+    paint.addColorStop(1, alpha(hasNoseAtEnd ? palette.alternate : tone, blendEnd ? 0 : middle))
+    ctx.fillStyle = paint
+    ctx.fill(inset)
+    const joint = nose && !landing && gradedStoneJoint(path, nose)
+    if (joint) {
+      const stations = nose === startFace ? rows : rows.toReversed()
+      const left = stations.map((row, i) => mix(row[1], row[2], joint.from + Math.min(.045, i * .011)))
+      const right = stations.map((row, i) => mix(row[1], row[2], joint.to + Math.min(.045, i * .011)))
+      const flank = patch > 0 ? stations.map(row => margin(row, 1, false)).reverse() : stations.map(row => margin(row, 0, false))
+      ctx.fillStyle = alpha(patch > 0 ? palette.light : palette.shadow, .11 + .13 * Math.abs(patch))
+      ctx.fill(polygon(patch > 0 ? [...right, ...flank] : [...flank, ...left.toReversed()]))
+      ctx.fillStyle = alpha(palette.joint, .57)
+      ctx.fill(polygon([...left, ...right.reverse()]))
+    }
+  }
+  if (shadeRisers) {
+    const byStart = new Map(geometry.spans.map(span => [span.aPpm, span]))
+    const byEnd = new Map(geometry.spans.map(span => [span.bPpm, span]))
+    for (const { lower, upper, atPpm, ascending } of geometry.risers) {
+      const downhill = (ascending ? byEnd : byStart).get(atPpm)!
+      const back = ascending ? downhill.start : downhill.end
+      const crest = center(lower), toe = center(back)
+      const reach = widthOf(crest, toe), rise = ((upper[1].z - lower[1].z) + (upper[2].z - lower[2].z)) / 2
+      const depth = Math.min(.70, (31 + rise * .54) / reach)
+      const left = margin(lower, 0, false), right = margin(lower, 1, false)
+      const aftLeft = margin(back, 0, false), aftRight = margin(back, 1, false)
+      const seed = `${Math.round(crest.x / 49)}/${Math.round(crest.y / 49)}`
+      const edge = [0, .16, .35, .53, .72, .89, 1].map((t, i) => {
+        const front = mix(left, right, t), back = mix(aftLeft, aftRight, t)
+        const reach = (.27 + .73 * Math.sin(Math.PI * t) ** .38) * (.73 + .27 * terrainRandomUnit(seed, `edge/${i}`))
+        return mix(front, back, depth * reach)
+      })
+      const far = mix(crest, toe, depth)
+      const shade = ctx.createLinearGradient(crest.x, crest.y, far.x, far.y)
+      shade.addColorStop(0, alpha(palette.joint, .87))
+      shade.addColorStop(.30, alpha(palette.shadow, .72))
+      shade.addColorStop(1, alpha(palette.shadow, 0))
+      ctx.fillStyle = shade
+      ctx.fill(polygon([left, right, ...edge.reverse()]))
+    }
+  }
+  ctx.restore()
+}
 
 export function paintGradedRoadRisers(ctx: CanvasRenderingContext2D, geometry: RoadSurfaceGeometry, path: ProjectedPath, shadeFace: boolean) {
   const { risers, spans } = geometry
@@ -277,16 +396,22 @@ export function paintGradedRoadCovers(ctx: CanvasRenderingContext2D, finish: Pro
   ctx.restore()
 }
 
-export function fadeGradedRoadEnds(ctx: CanvasRenderingContext2D, { spans, footprintMm }: RoadSurfaceGeometry) {
+export function fadeGradedRoadEnds(ctx: CanvasRenderingContext2D, { spans, footprintMm }: RoadSurfaceGeometry, integrated = false) {
   const first = spans[0], last = spans.at(-1)!
-  const lengthMm = spans.reduce((total, { start, end }) => total + widthOf(mix(start[1], start[2], .5), mix(end[1], end[2], .5)), 0)
+  const lengthOf = ({ start, end }: RoadSpan) => widthOf(mix(start[1], start[2], .5), mix(end[1], end[2], .5))
+  const lengthMm = spans.reduce((total, span) => total + lengthOf(span), 0)
   ctx.save()
   ctx.clip(polygon(footprintMm))
   ctx.globalCompositeOperation = 'destination-out'
-  for (const [cap, toward] of [[first.start, first.end], [last.end, last.start]]) {
+  for (const atStart of [true, false]) {
+    const [cap, toward] = atStart ? [first.start, first.end] : [last.end, last.start]
     const a = mix(cap[1], cap[2], .5), b = mix(toward[1], toward[2], .5)
     const length = Math.hypot(b.x - a.x, b.y - a.y), width = Math.hypot(cap[2].x - cap[1].x, cap[2].y - cap[1].y)
-    const dx = (b.x - a.x) / length, dy = (b.y - a.y) / length, reach = Math.min(1850, width * 1.15, lengthMm * .23)
+    const approach = integrated ? (atStart ? spans : spans.toReversed()) : undefined
+    const firstBuilt = approach?.findIndex(span => span.kind !== 'trail') ?? -1
+    const reach = Math.min(1850, width * 1.15, lengthMm * .23,
+      firstBuilt === 0 ? length * .36 : firstBuilt > 0 ? approach!.slice(0, firstBuilt).reduce((total, span) => total + lengthOf(span), 0) : Infinity)
+    const dx = (b.x - a.x) / length, dy = (b.y - a.y) / length
     const corner = (along: number, side: number) => ({ x: a.x + dx * along - dy * side, y: a.y + dy * along + dx * side })
     const tip = corner(reach, 0), wash = ctx.createLinearGradient(a.x, a.y, tip.x, tip.y)
     wash.addColorStop(0, '#000')

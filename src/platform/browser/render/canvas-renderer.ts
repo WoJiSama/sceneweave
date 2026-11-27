@@ -51,7 +51,7 @@ import { planStaircase, staircasePatch, staircasePointAt, type StaircaseGeometry
 import { earthenRoad } from './earthen-road.js'
 import { drawEarthenRoadPaint, erodeRoadPaintEdge } from './earthen-road-paint.js'
 import { projectGround } from './projected-ground.js'
-import { fadeGradedRoadEnds, paintGradedRoadCovers, paintGradedRoadRisers, paintRoadBanks, paintRoadWear, paintRoadWearMask, roadBankSampler } from './graded-road-paint.js'
+import { fadeGradedRoadEnds, paintGradedRoadCovers, paintGradedRoadRisers, paintIntegratedRoadDeck, paintRoadBanks, paintRoadWear, paintRoadWearMask, roadBankSampler } from './graded-road-paint.js'
 import { planProjectedShorelines, shorelinePaintPadding } from '../../../shared/projection/shorelines.js'
 import { intersectsVisualBounds, variableOffsetPolyline } from './visual-geometry'
 import { drawTerrainFacadeFace } from './terrain-facade-renderer.js'
@@ -411,8 +411,10 @@ function drawTerrainSurface(ctx: CanvasRenderingContext2D, area: ProjectedSurfac
         drawGroundPigment(target, path, pointsBounds(area.points), brush)
         target.restore()
       } : undefined)
-    drawWeatheredRelief(target, area, path)
-    drawTerrainReliefLight(target, area, path, projection.visual?.environment)
+    const environment = projection.visual?.environment
+    if (area.reliefFinish === 'weathered-v3') drawTerrainReliefLight(target, area, path, environment)
+    drawWeatheredRelief(target, area, path, environment)
+    if (area.reliefFinish !== 'weathered-v3') drawTerrainReliefLight(target, area, path, environment)
   }
   if (!area.boundaryBlendMm) { paint(ctx); return }
   const layer = canvas(ctx.canvas.width, ctx.canvas.height), mask = canvas(ctx.canvas.width, ctx.canvas.height)
@@ -764,7 +766,7 @@ function drawTerrainShorelines(ctx: CanvasRenderingContext2D, projection: Projec
   for (const { points, closed, dryAreaId, wetAreaId, waterInward, style } of planProjectedShorelines(projection)) {
     checkCancelled(signal)
     const width = style.bandWidthMm
-    const detailed = projection.terrain.some(area => area.id === dryAreaId && area.reliefFinish === 'weathered-v2')
+    const detailed = projection.terrain.some(area => area.id === dryAreaId && (area.reliefFinish === 'weathered-v2' || area.reliefFinish === 'weathered-v3'))
     const paintBounds = expandedBounds(points, shorelinePaintPadding(style))
     if (!intersectsVisualBounds(projection.bounds, paintBounds)) continue
     const path = trace(points, closed)
@@ -1105,11 +1107,12 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
       ctx.save()
       const graded = path.gradedSurface
       if (graded && roadBankAt) {
+        const integrated = path.roadFinish === 'terrain-v1'
         drawPavementLayer(ctx, projection, raster, graded.footprintMm, (target, local) => {
           target.save()
           target.clip(outline)
           fillPavement(target, null, path, local, raster)
-          paintRoadWear(target, graded)
+          if (!integrated) paintRoadWear(target, graded)
           target.restore()
           const mask = canvas(target.canvas.width, target.canvas.height)
           try {
@@ -1122,9 +1125,12 @@ function drawPaths(ctx: CanvasRenderingContext2D, projection: Projection, raster
             target.drawImage(mask, 0, 0)
             target.restore()
           } finally { disposeCanvas(mask) }
-          paintRoadBanks(target, graded, roadBankAt)
-          paintGradedRoadRisers(target, graded, path, !raster.spatialTexture)
-          fadeGradedRoadEnds(target, graded)
+          paintRoadBanks(target, graded, roadBankAt, integrated)
+          if (integrated) {
+            paintIntegratedRoadDeck(target, graded, path, !raster.spatialTexture)
+            paintRoadWear(target, graded)
+          } else paintGradedRoadRisers(target, graded, path, !raster.spatialTexture)
+          fadeGradedRoadEnds(target, graded, integrated)
           paintGradedRoadCovers(target, path.gradedFinish)
         }, polygonPath(graded.footprintMm))
         if (raster.lineGuide) {

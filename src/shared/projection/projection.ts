@@ -243,7 +243,7 @@ export function getPlayerCoverageDiagnostics(scene: SceneDocument, appearance?: 
 /** GM session hiding uses the intact source; no support or stored relationship is removed. */
 export function projectEditorScene(scene: SceneDocument, options: EditorProjectionOptions = {}, appearance?: import('../model/appearance.js').AppearanceGraph): Projection {
   const checked = checkedScene(scene); copyScenePresentations(scene, checked); if (appearance) associateScenePresentations(checked, appearance)
-  const projection = projectSceneInternal(checked, 'gm', selectedFloorOutput(checked, options.floorId), options.hiddenLayerIds?.size ? options.hiddenLayerIds : undefined, options.floorId !== undefined, !!options.spatial)
+  const projection = projectSceneInternal(checked, 'gm', selectedFloorOutput(checked, options.floorId), options.hiddenLayerIds?.size ? options.hiddenLayerIds : undefined, options.floorId !== undefined, !!options.spatial, undefined, true)
   if (options.spatial) projectSpatialProps(checked, projection)
   return projection
 }
@@ -262,7 +262,7 @@ export function assertAllFloorPlayerProjections(scene: SceneDocument, appearance
 }
 
 function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOutput: FloorOutput, hiddenLayerIds?: ReadonlySet<string>, explicitFloor = false, spatial = false,
-  onVisibleWalls?: ProjectSceneOptions['onVisibleWalls']): Projection {
+  onVisibleWalls?: ProjectSceneOptions['onVisibleWalls'], editor = false): Projection {
   const targetFloorId = floorOutput.floorId
   const floorValues = <T extends { floorId: string }>(record: Record<string, T>): T[] => Object.values(record).filter(row => row.floorId === targetFloorId)
   const regional = scene.mapMode==='regional' && scene.regional ? {
@@ -688,7 +688,10 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
   for (const prop of props) if (prop.appearance.kind === 'image') assetIds.add(prop.appearance.assetId)
   for (const value of decorations) assetIds.add(value.assetId)
   for (const row of [...(regional?.landmarks ?? []), ...(regional?.symbols ?? [])]) assetIds.add(row.assetId)
-  const regions = floorValues(scene.regions).filter(r => (r.kind === 'terrain' || r.kind === 'hazard') && entityShown(r.id) && (audience === 'gm' || regionVisible(r.id))).map(r => ({ id: r.id, points: clone(r.boundaryMm), kind: r.kind as 'terrain' | 'hazard' })).sort((a, b) => compareLayer(a, b) || regionOrder.get(a.id)! - regionOrder.get(b.id)! || a.id.localeCompare(b.id))
+  const regions = floorValues(scene.regions).filter(r => (r.kind === 'terrain' || r.kind === 'hazard')
+    && (editor || r.showOutlineInOutput !== false) && entityShown(r.id) && (audience === 'gm' || regionVisible(r.id)))
+    .map(r => ({ id: r.id, points: clone(r.boundaryMm), kind: r.kind as 'terrain' | 'hazard' }))
+    .sort((a, b) => compareLayer(a, b) || regionOrder.get(a.id)! - regionOrder.get(b.id)! || a.id.localeCompare(b.id))
   const openingRanks = new Map(walls.flatMap(wall => wall.openings).map(opening => [opening.id, layerOrder(opening.id)]))
   const projectedOpeningRanks = new Map<string, number>()
   const bindings = floorValues(scene.pathAttachments ?? {})

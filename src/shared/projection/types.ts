@@ -82,6 +82,7 @@ export interface ProjectedDoorThreshold {
 export interface ProjectedPath {
   id: string; points: PointMm[]; style: SurfaceStyle | null; edgeStyle: EdgeStyle; bridge?: ProjectedBridge
   gradedSurface?: import('../geometry/road-surface.js').RoadSurfaceGeometry
+  roadFinish?: import('../model/scene.js').Path['roadFinish']
   gradedFinish?: { preset: import('../stairs/contracts.js').StaircasePresetId; material: import('../stairs/contracts.js').StaircaseMaterialId
     covers: import('../stairs/geometry.js').StaircaseGeometry['covers'] }
   /** Inward paint blend over the already audience-filtered ground. */

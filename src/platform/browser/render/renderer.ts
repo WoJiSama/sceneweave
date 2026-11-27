@@ -58,6 +58,8 @@ interface PreviewFrame { key: string; frame: NonNullable<ReturnType<ArtStylePrev
 let activeArtworkFrames: { owner: WeakRef<ProjectBundle>; frames: Map<string, PreviewFrame>; svg: Map<string, Promise<NormalizedStaticSvg>>;
   imageBlobs: Map<string, Promise<Blob>>; imageBytes: number } | undefined
 let previewProjections: { owner: WeakRef<ProjectBundle>; projections: Map<string, { source: Projection; drawing: Projection }> } | undefined
+const hasEditorRegionOutlines = (scene: ProjectBundle['project']['document']) =>
+  Object.values(scene.regions).some(region => region.showOutlineInOutput === false)
 
 function fullMapProjections(bundle: ProjectBundle, editor: EditorProjectRenderOptions, floorId?: string) {
   if (previewProjections?.owner.deref() !== bundle) previewProjections = { owner: new WeakRef(bundle), projections: new Map() }
@@ -66,7 +68,8 @@ function fullMapProjections(bundle: ProjectBundle, editor: EditorProjectRenderOp
   let result = projections.get(key)
   if (result) return result
   const source = projectScene(document, 'gm', appearance, { floorId })
-  const drawing = editor.hiddenLayerIds?.size ? projectEditorScene(document, { floorId, hiddenLayerIds: editor.hiddenLayerIds }, appearance) : source
+  const drawing = editor.hiddenLayerIds?.size || hasEditorRegionOutlines(document)
+    ? projectEditorScene(document, { floorId, hiddenLayerIds: editor.hiddenLayerIds }, appearance) : source
   result = { source, drawing }
   projections.set(key, result)
   if (projections.size > 3) projections.delete(projections.keys().next().value!)
@@ -165,7 +168,7 @@ async function renderInternal(input: ProjectBundle, options: RenderOptions, edit
     return result
   }
   function drawable(source: Projection): Projection {
-    const drawing = source === fullMapPreview?.source ? fullMapPreview.drawing : options.audience === 'gm' && editor?.hiddenLayerIds?.size
+    const drawing = source === fullMapPreview?.source ? fullMapPreview.drawing : options.audience === 'gm' && editor && (editor.hiddenLayerIds?.size || hasEditorRegionOutlines(scene))
       ? projectEditorScene(scene, { floorId: source.floorId ?? options.floorId, hiddenLayerIds: editor.hiddenLayerIds }, project.appearance) : source
     if (options.audience === 'gm' && editor?.atmosphereBypass) return atmosphereComparison(drawing)
     return draftStyle ? { ...drawing, artStyles: activeArtStyles(draftStyle), materialBrushes: projectMaterialBrushes(scene, drawing, draftStyle) } : drawing

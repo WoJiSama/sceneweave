@@ -49,6 +49,7 @@ export interface Region extends Editable {
   kind: 'terrain' | 'hazard' | 'manualMask' | 'partition'
   name?: string
   blocksMovement: boolean; movementCostMultiplier: number; visibility: Visibility
+  showOutlineInOutput?: boolean
   /** Fixed player masks may retain only interiors of currently public rooms.
    * Private content is still filtered before every geometric/visual derivation. */
   preservePublicRooms?: boolean
@@ -131,7 +132,7 @@ export interface TerrainArea extends Editable {
   /** Saved height offsets relative to the area datum, in the terrain outline's bounds. */
   relief?: import('../geometry/terrain-relief.js').TerrainRelief
   /** Optional painted strata follow the actual relief, independent of support. */
-  reliefFinish?: 'weathered-v1' | 'weathered-v2'
+  reliefFinish?: 'weathered-v1' | 'weathered-v2' | 'weathered-v3'
 }
 export interface EdgeStyle { strokeWidthMm: number; color: string; bandWidthMm: number }
 export interface TerrainEdge extends Editable {
@@ -161,6 +162,8 @@ export interface Path extends Editable {
   automaticRoute?: AutomaticRoute
   /** Adopted elevations for the deck, risers and banks. Rendered and sampled directly on reopen. */
   roadSurface?: RoadSurface
+  /** Optional appearance derived from the deck and bank sections. */
+  roadFinish?: 'terrain-v1'
   widthSections?: import('../geometry/route-width.js').RouteWidthSection[]
   staircase?: import('../stairs/contracts.js').StaircaseConfig
   /** Paint feather inside the path outline, independent of travel width. */

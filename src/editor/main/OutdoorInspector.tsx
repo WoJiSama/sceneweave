@@ -52,6 +52,7 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
   const name = useMemo(() => createEntityLabeler(scene), [scene])
   const partitionIds = useMemo(() => partition ? partitionDecorationIds(scene, partition) : [], [partition, scene])
   const [partitionName, setPartitionName] = useState(partition?.name ?? '')
+  const [showRegionOutline, setShowRegionOutline] = useState(region?.showOutlineInOutput !== false)
   const surface = area?.surfaceStyle ?? edge?.surfaceStyle ?? connection?.surfaceStyle ?? path?.surfaceStyle ?? null
   const [points, setPoints] = useState(pointText(area?.boundaryMm.map(point => point.positionMm) ?? path?.centerlineMm ?? region?.boundaryMm ?? []))
   const [elevation, setElevation] = useState(String(area?.groundElevationMm ?? 0)), [priority, setPriority] = useState(String(area?.coveragePriority ?? 0)), [material, setMaterial] = useState(surface?.base.materialRef.id ?? '')
@@ -173,7 +174,8 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
     }
     if (scatter) return [{ type: 'configureScatter', id, changes: { densityFactor: Number(density), minDistanceMm: Number(spacing), cellSizeMm: Number(cell), visibility } }]
     return [{ type: 'updateRegion', id, changes: { boundaryMm: outdoorPoints(points), visibility,
-      ...(partition ? { name: partitionName.trim() } : { blocksMovement: blocking, movementCostMultiplier: Number(cost) }) } }]
+      ...(partition ? { name: partitionName.trim() } : { blocksMovement: blocking, movementCostMultiplier: Number(cost),
+        ...(showRegionOutline !== (region?.showOutlineInOutput !== false) ? { showOutlineInOutput: showRegionOutline } : {}) }) } }]
   }, '编辑室外对象')
   return <section className="outdoor-inspector" aria-label="室外对象属性">
     <div className="asset-section-heading"><Mountain size={16}/><h2>{name(id)}</h2></div><details><summary>对象编号</summary><code>{id}</code></details>
@@ -186,7 +188,7 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
         const value = event.target.value as '' | NonNullable<typeof reliefFinish>
         setReliefFinish(value || undefined)
       }}>
-        <option value="">关闭</option><option value="weathered-v1">细岩层</option><option value="weathered-v2">风化岩面</option>
+        <option value="">关闭</option><option value="weathered-v1">细岩层</option><option value="weathered-v2">风化岩面</option><option value="weathered-v3">断续露岩</option>
       </select></label>
       <button type="button" className="secondary" disabled={reliefFinish === area.reliefFinish} onClick={() => run(() => [
         { type: 'updateTerrainArea', id, changes: { reliefFinish: reliefFinish ?? null } },
@@ -224,6 +226,9 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
     </details>}
     {path && !path.assembly?.bridge && <details className="outdoor-advanced"><summary>{path.roadSurface ? '踏步材质与覆盖' : '沿道路铺阶'}</summary>
       <fieldset disabled={disabled || locked}>
+        {path.roadSurface && <button type="button" className="secondary asset-wide" onClick={() => onPreview([
+          { type: 'updatePath', id, changes: { roadFinish: path.roadFinish ? null : 'terrain-v1' } },
+        ], '调整梯段与路肩外观')}>{path.roadFinish ? '预览原有铺面' : '预览接合路肩与梯段'}</button>}
         <StaircaseFields value={roadStairs} onChange={setRoadStairs} centerlineMm={path.centerlineMm} widthMm={path.widthMm} paintOnly={!!path.roadSurface}/>
         <button type="button" className="primary asset-wide" onClick={() => onPreview([{ type: 'updatePath', id, changes: { staircase: roadStairs } }], path.roadSurface ? '修改踏步材质与覆盖' : '按道路实际净宽铺阶')}>
           {path.roadSurface ? '预览踏步外观' : '预览道路铺阶'}
@@ -277,6 +282,9 @@ export default function OutdoorInspector({ scene, id, disabled, onPreview, onVis
       {edge && <><details><summary>来源地形与边段</summary><button type="button" className="secondary asset-wide" onClick={() => onSelect(edge.source.areaId)}>选择源地形</button><p className="asset-muted">{name(edge.source.segmentId)}。修改来源需完整检查相邻地面。</p><label>地形编号 / 边段编号<textarea aria-label="边缘来源映射" rows={2} value={edgeSource} onChange={event => setEdgeSource(event.target.value)}/></label></details><label>边缘类型<select aria-label="对象边缘类型" value={edgeKind} onChange={event => setEdgeKind(event.target.value as typeof edgeKind)}><option value="materialTransition">材质边界</option><option value="cliff">崖边</option><option value="shore">岸地边缘</option></select></label><label className="composition-check"><input type="checkbox" aria-label="显示岸线" checked={shoreline || edgeKind === 'shore'} onChange={event => { setShoreline(event.target.checked); if (!event.target.checked && edgeKind === 'shore') setEdgeKind('materialTransition') }}/>显示岸线</label></>}
       {scatter && <><NumberInput label="生成采样间隔" ariaLabel="对象散布格距" displayUnit={scene.units.display} value={Number(cell)} onCommit={value => setCell(String(value))}/><NumberInput label="物件最小间距" ariaLabel="对象散布间距" displayUnit={scene.units.display} value={Number(spacing)} onCommit={value => setSpacing(String(value))}/><small>保存配置不自动重新散布。手工移动、删除、退出和锁定保持。</small></>}
       {!partition && 'blocksMovement' in entity && <label className="composition-check"><input aria-label="对象阻挡移动" type="checkbox" checked={blocking} onChange={event => setBlocking(event.target.checked)}/>阻挡移动</label>}
+      {region && !partition && <label className="composition-check">
+        <input type="checkbox" checked={showRegionOutline} onChange={event => setShowRegionOutline(event.target.checked)}/>出图时显示区域轮廓
+      </label>}
       {!partition && (area || 'movementCostMultiplier' in entity) && <details><summary>覆盖与通行设置</summary>{area && <label>覆盖优先级<input aria-label="对象覆盖优先级" type="number" step="1" value={priority} onChange={event => setPriority(event.target.value)}/></label>}{'movementCostMultiplier' in entity && <label>移动代价倍率<input aria-label="对象移动代价" type="number" min="1" step="0.1" value={cost} onChange={event => setCost(event.target.value)}/></label>}</details>}
       {!path?.assembly?.bridge && <label>可见性<select aria-label="对象室外可见性" value={visibility} onChange={event => setVisibility(event.target.value as typeof visibility)}><option value="public">公开</option><option value="gm">仅主持人</option></select></label>}
       <button className="primary asset-wide" onClick={edit}>预览对象修改</button>

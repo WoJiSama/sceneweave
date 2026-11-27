@@ -51,7 +51,8 @@ export const outdoorCommandSchemas = [
   z.object({ type: z.literal('updateTerrainConnection'), id, changes: connectionFields.partial().extend({ route: connectionRouteSchema.nullable().optional(), staircase: staircaseSchema.nullable().optional() }).strict() }).strict(),
   z.object({ type: z.literal('createPath'), ...base, ...pathFields.omit({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).shape,
     ...pathFields.pick({ visibility: true, surfaceStyle: true, movementCostMultiplier: true, renderOrder: true }).partial().shape, materialRef: version.optional() }).strict(),
-  z.object({ type: z.literal('updatePath'), id, changes: pathFields.partial().extend({ widthSections: pathFields.shape.widthSections.nullable(), staircase: staircaseSchema.nullable().optional() }).strict() }).strict(),
+  z.object({ type: z.literal('updatePath'), id, changes: pathFields.partial().extend({ widthSections: pathFields.shape.widthSections.nullable(), staircase: staircaseSchema.nullable().optional(),
+    roadFinish: pathFields.shape.roadFinish.nullable() }).strict() }).strict(),
   z.object({ type: z.literal('rerouteTerrainPath'), id, areaId: id, relief: areaFields.shape.relief.unwrap(),
     changes: z.object({ centerlineMm: pathFields.shape.centerlineMm, widthMm: pathFields.shape.widthMm,
       supportRefs: pathFields.shape.supportRefs, roadSurface: pathFields.shape.roadSurface.unwrap(),
@@ -445,6 +446,7 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       scene.paths[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, centerlineMm: cloneJson(command.centerlineMm), widthMm: command.widthMm, supportRefs: cloneJson(command.supportRefs), visibility: command.visibility ?? 'public',
         ...(command.automaticRoute ? { automaticRoute: cloneJson(command.automaticRoute) } : {}),
         ...(command.roadSurface ? { roadSurface: cloneJson(command.roadSurface) } : {}),
+        ...(command.roadFinish ? { roadFinish: command.roadFinish } : {}),
         ...(command.widthSections ? { widthSections: cloneJson(command.widthSections) } : {}),
         ...(command.staircase ? { staircase: cloneJson(command.staircase) } : {}),
         ...(command.boundaryBlendMm !== undefined ? { boundaryBlendMm: command.boundaryBlendMm } : {}),
@@ -453,7 +455,7 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
     }
     case 'updatePath': {
       const path = required(scene.paths, command.id, '道路')
-      const { widthSections, staircase, ...changes } = command.changes
+      const { widthSections, staircase, roadFinish, ...changes } = command.changes
       if (path.roadSurface && !changes.roadSurface && (changes.centerlineMm && !equal(changes.centerlineMm, path.centerlineMm)
         || changes.widthMm !== undefined && changes.widthMm !== path.widthMm || widthSections !== undefined && !equal(widthSections ?? undefined, path.widthSections))) {
         throw new Error('路线或净宽变化需要同时预览新的道路地表。')
@@ -464,6 +466,8 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
       else if (widthSections) path.widthSections = cloneJson(widthSections)
       if (staircase === null) delete path.staircase
       else if (staircase) path.staircase = cloneJson(staircase)
+      if (roadFinish === null) delete path.roadFinish
+      else if (roadFinish) path.roadFinish = roadFinish
       break
     }
     case 'rerouteTerrainPath': {

@@ -135,9 +135,10 @@ export function useAutomaticRoad(sketch: OutdoorSketch | null, setSketch: Dispat
       : { algorithm: intent?.algorithm === 'terrain-road1' ? 'terrain-road1' : 'terrain-road2', fixedPointsMm: fixed, automaticStairs: false }
     const command: SceneCommand = existing
       ? { type: 'updatePath', id: session.id, changes: { centerlineMm, supportRefs, automaticRoute, ...(roadSurface ? { roadSurface } : {}),
-        ...(roadSurface && !existing.roadSurface && intent?.automaticStairs ? { staircase: null } : {}) } }
+        ...(roadSurface && !existing.roadSurface ? { roadFinish: 'terrain-v1', ...(intent?.automaticStairs ? { staircase: null } : {}) } : {}) } }
       : { type: 'createPath', id: session.id, floorId: session.floorId, layerId: session.layerId, visibility: session.visibility, widthMm: session.widthMm,
-        centerlineMm, supportRefs, automaticRoute, ...(session.materialRef ? { materialRef: session.materialRef } : {}), ...(roadSurface ? { roadSurface } : {}) }
+        centerlineMm, supportRefs, automaticRoute, ...(session.materialRef ? { materialRef: session.materialRef } : {}),
+        ...(roadSurface ? { roadSurface, roadFinish: 'terrain-v1' } : {}) }
     preview([command], existing ? '调整自动道路' : '铺设自动道路', session.id)
   }
   const cancel = () => { clearLive(); setSketch(null) }
