@@ -45,6 +45,7 @@ import { inspectDependencies } from '../commands/dependencies.js'
 import {pathCheckSchema,PATH_CHECK_LIMITS} from '../geometry/path-check-contracts.js'
 import { USER_LAYER_LIMIT, type SceneDocument, type Issue } from '../model/scene.js'
 import { openingHeightSchema, spatialWallHeight, wallHeightSchema } from '../model/building-height.js'
+import { doorPresentationSchema } from '../model/door-presentation.js'
 import { propVolumeSchema } from '../model/prop-volume.js'
 import {
   id, int, positive, nonnegative, rank, angle, opacity, color, point, size, bounds, unique, ids, strings,
@@ -80,7 +81,8 @@ const sceneShape = {
     accessExpectation: z.enum(['unspecified', 'required', 'intentionalIsolation']), supportRef: groundRef, groundElevationMm: int, floorStyle: style, furnishingPlan: roomFurnishingPlanSchema.optional() }).strict()),
   walls: record(z.object({ ...editable, startVertexId: id, endVertexId: id, thicknessMm: positive, heightMm: wallHeightSchema.optional(), blocksMovement: z.boolean(), blocksSight: z.boolean(), topStyle: style, edgeProfile: z.literal('stone-blocks-v1').optional() }).strict().refine(wall => !wall.edgeProfile || supportsWallReliefStyle(wall.topStyle), '块石外缘需要遗迹石灰岩墙顶材质；更换材质前请先恢复平直外缘。')),
   openings: record(z.object({ ...editable, wallId: id, offsetReferenceVertexId: id, offsetMm: nonnegative, widthMm: positive,
-    kind: z.enum(['door', 'window']), state: z.enum(['open', 'closed']), locked: z.boolean(), secret: z.boolean(), revealed: z.boolean(), vertical: openingHeightSchema.optional() }).strict()),
+    kind: z.enum(['door', 'window']), state: z.enum(['open', 'closed']), locked: z.boolean(), secret: z.boolean(), revealed: z.boolean(),
+    vertical: openingHeightSchema.optional(), presentation: doorPresentationSchema.optional() }).strict()),
   props: record(z.object({ ...editable, ...templateShape, visibility, supportRef: surfaceRef, roomId: id.optional() }).strict()),
   notes: record(z.object({ ...editable, anchor, kind: z.enum(['note', 'clue', 'label']), title: z.string().optional(), text: z.string(), visibility, discovered: z.boolean().optional() }).strict()),
   propDefinitions: record(z.object({ ...identity, name: z.string(), tags: strings, defaultAppearance: appearance, defaultVisualBoundsMm: bounds,
@@ -168,6 +170,7 @@ export function inspectSceneDocumentDomains(document: SceneDocument, geometry: R
   errors.push(...oceanErrors, ...inspectPathAssemblies(document), ...inspectBridgeRoadLinks(document), ...inspectPipeLinks(document))
   for (const opening of Object.values(document.openings)) {
     const wall = Object.hasOwn(document.walls, opening.wallId) ? document.walls[opening.wallId] : undefined
+    if (opening.presentation && opening.kind !== 'door') errors.push({ code: 'OPENING_PRESENTATION', entityId: opening.id, message: '开门表现仅适用于门。' })
     if (opening.vertical && wall && opening.vertical.sillMm + opening.vertical.heightMm > spatialWallHeight(wall)) {
       errors.push({ code: 'OPENING_HEIGHT', entityId: opening.id, message: '门窗底边与洞口高度之和须在所属墙高内。' })
     }

@@ -13,7 +13,7 @@ import { parseBoundedJson } from './json.js'
 import { failPackage, hasExactKeys, isSha256, PACKAGE_LIMITS } from './limits.js'
 import { inspectBoundedZip, projectDocumentPath, projectEnvelopePathBudget, zipPathBudget, type BoundedZip } from './zip.js'
 import { checkProjectReader, PROJECT_EXTENSIONS_READER_VERSION, PROJECT_FORMAT, PROJECT_LANDSCAPE_READER_VERSION, PROJECT_REGION_OUTLINE_READER_VERSION, PROJECT_SCHEMA_VERSION,
-  PROJECT_TERRAIN_FINISH_READER_VERSION, PROJECT_VOLCANO_LAYOUT_READER_VERSION, PROJECT_WRITER_BUILD } from './format.js'
+  PROJECT_TERRAIN_FINISH_READER_VERSION, PROJECT_VOLCANO_LAYOUT_READER_VERSION, PROJECT_INTERIOR_PROGRAM_READER_VERSION, PROJECT_WRITER_BUILD } from './format.js'
 import { decodeSceneCoordinates, encodeSceneCoordinates } from '../aggregates/scene-coordinates.js'
 import { LANDSCAPE_GROUND_SCATTER_VERSION } from '../geometry/scatter-algorithm.js'
 import { VOLCANO_CALDERA_VERSION } from '../generation/domains/volcano/contracts.js'
@@ -39,6 +39,9 @@ const extensionsPath = (scenePath: string) => scenePath.replace(/scene\.json$/, 
 const containsExtensions = (entries: ManifestEntry[]) => entries.some(entry => entry.role === 'extensions' || entry.role === 'snapshot-extensions')
 function documentReaderVersion(document: ProjectData['document'] | undefined) {
   const recipes = Object.values(document?.generation?.legacy.recipes ?? {})
+  if (Object.values(document?.openings ?? {}).some(opening => opening?.presentation !== undefined)) {
+    return PROJECT_INTERIOR_PROGRAM_READER_VERSION
+  }
   if (recipes.some(recipe => 'domain' in recipe
     && (recipe.domain === 'volcano' && recipe.algorithmVersion === VOLCANO_CALDERA_VERSION
       || recipe.domain === 'mixed' && recipe.algorithmVersion === MIXED_VOLCANO_LAYOUT_VERSION))) {

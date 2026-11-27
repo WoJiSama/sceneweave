@@ -62,6 +62,7 @@ import { inspectBuildingChanges, roomMoveParts } from '../../shared/commands/bui
 import { effectiveEditLocked } from '../../shared/commands/layers'
 import type { BoundsMm, Path, SceneDocument, PointMm, Prop, SurfaceRef } from '../../shared/model/scene'
 import { defaultBuildingWallHeight, defaultOpeningHeight } from '../../shared/model/building-height'
+import { wideDoorPresentation } from '../../shared/model/door-presentation'
 import { attachmentLocalPoint } from '../../shared/attachments/contact'
 import { bindPropTopSnap, propTopSnap } from '../../shared/attachments/prop-top-snap'
 import { createFurnitureRoomQuery, furnitureRoom } from '../../shared/geometry/furniture-room'
@@ -2382,7 +2383,9 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
     try {
       const attachment = openingAtPoint(completeProject.document, point, openingTool.widthMm, scopedHiddenIds)
       const vertical = defaultOpeningHeight(completeProject.document.walls[attachment.wallId], openingTool.kind)
-      previewBuilding([{ type: 'addOpening', id: newId(), ...attachment, kind: openingTool.kind, vertical, state: 'closed', locked: false, secret: false, revealed: false, layerId: currentLayerId }], `新增${openingTool.kind === 'door' ? '门' : '窗'}`, 'openingTool')
+      const presentation = wideDoorPresentation(openingTool.kind, attachment.widthMm)
+      previewBuilding([{ type: 'addOpening', id: newId(), ...attachment, kind: openingTool.kind, vertical, state: 'closed', locked: false, secret: false, revealed: false, layerId: currentLayerId,
+        ...(presentation ? { presentation } : {}) }], `新增${openingTool.kind === 'door' ? '门' : '窗'}`, 'openingTool')
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)) }
   } } : null
   const cancelElevation = () => { elevationEpoch.current++; setElevationSession(null); finishFormDraft('elevationForm', true); setMessage('已取消高程草稿，工程未修改。') }

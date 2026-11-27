@@ -539,10 +539,21 @@ function drawOpening(ctx: CanvasRenderingContext2D, opening: ProjectedOpening, w
     ctx.strokeRect(0, -half * .58, width, wall.thicknessMm * .58); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(width, 0); ctx.moveTo(width / 2, -half * .58); ctx.lineTo(width / 2, half * .58); ctx.stroke()
   } else {
     ctx.lineWidth = style.doorStrokeWidthMm
-    if (opening.state === 'closed') { ctx.fillRect(0, -style.doorStrokeWidthMm, width, style.doorStrokeWidthMm * 2); ctx.strokeRect(0, -style.doorStrokeWidthMm, width, style.doorStrokeWidthMm * 2) }
-    else {
-      ctx.fillRect(-style.doorStrokeWidthMm, -width, style.doorStrokeWidthMm * 2, width); ctx.strokeRect(-style.doorStrokeWidthMm, -width, style.doorStrokeWidthMm * 2, width)
-      ctx.save(); ctx.globalAlpha = .55; ctx.lineWidth = Math.max(10, style.doorStrokeWidthMm * .6); ctx.setLineDash([55, 45]); ctx.beginPath(); ctx.arc(0, 0, width, -Math.PI / 2, 0); ctx.stroke(); ctx.restore()
+    if (opening.state === 'closed') {
+      ctx.fillRect(0, -style.doorStrokeWidthMm, width, style.doorStrokeWidthMm * 2); ctx.strokeRect(0, -style.doorStrokeWidthMm, width, style.doorStrokeWidthMm * 2)
+      if (opening.presentation?.kind === 'double') {
+        ctx.beginPath(); ctx.moveTo(width / 2, -style.doorStrokeWidthMm); ctx.lineTo(width / 2, style.doorStrokeWidthMm); ctx.stroke()
+      }
+    } else if (opening.presentation?.kind !== 'frame') {
+      const double = opening.presentation?.kind === 'double', radius = double ? width / 2 : width
+      const stroke = style.doorStrokeWidthMm, direction = opening.presentation?.side === 'right' ? -1 : 1
+      const drawLeaf = (end: boolean) => {
+        ctx.save(); ctx.translate(end ? width : 0, 0); ctx.scale(end ? -1 : 1, direction)
+        ctx.fillRect(-stroke, -radius, stroke * 2, radius); ctx.strokeRect(-stroke, -radius, stroke * 2, radius)
+        ctx.globalAlpha = .55; ctx.lineWidth = Math.max(10, stroke * .6); ctx.setLineDash([55, 45]); ctx.beginPath(); ctx.arc(0, 0, radius, -Math.PI / 2, 0); ctx.stroke(); ctx.restore()
+      }
+      drawLeaf(false)
+      if (double) drawLeaf(true)
     }
     if (opening.secret) { ctx.strokeStyle = '#AD7A42'; ctx.setLineDash([50, 35]); ctx.lineWidth = Math.max(24, style.doorStrokeWidthMm); ctx.beginPath(); ctx.moveTo(0, half + 65); ctx.lineTo(width, half + 65); ctx.stroke() }
   }

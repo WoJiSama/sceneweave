@@ -107,6 +107,7 @@ export interface Opening extends Editable {
   wallId: Id; offsetReferenceVertexId: Id; offsetMm: number; widthMm: number
   kind: 'door' | 'window'; state: 'open' | 'closed'; locked: boolean; secret: boolean; revealed: boolean
   vertical?: import('./building-height.js').OpeningHeight
+  presentation?: import('./door-presentation.js').DoorPresentation
 }
 export interface Prop extends Editable {
   volume?: import('./prop-volume.js').PropVolume

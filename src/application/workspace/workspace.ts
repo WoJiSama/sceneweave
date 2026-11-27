@@ -198,7 +198,7 @@ function freeze<T>(value: T): T {
 function captureCommands(commands: readonly CompositionCommand[]): readonly CompositionCommand[] {
   const captured = freeze(captureJson(commands))
   const removedStructureIds = new Set(captured.flatMap(command => command.type === 'deleteOpening' || command.type === 'deleteNote' || command.type === 'deleteRoom' ? [command.id] : []))
-  if (captured.some(command => (command.type === 'addOpening' || command.type === 'createNote' || command.type === 'createRoom') && removedStructureIds.has(command.id))) {
+  if (captured.some(command => (command.type === 'addOpening' || command.type === 'addRoomOpening' || command.type === 'createNote' || command.type === 'createRoom') && removedStructureIds.has(command.id))) {
     throw new Error('同一事务不能删除后重建同一结构 ID；请使用明确更新，结构删除重建不能用于历史恢复。')
   }
   return captured

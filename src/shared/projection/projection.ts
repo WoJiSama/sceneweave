@@ -564,7 +564,8 @@ function projectSceneInternal(scene: SceneDocument, audience: Audience, floorOut
       if (entityShown(o.id)) visibleOpeningIds.add(o.id)
       const [a, b] = openingEndpoints(scene, o)
       return { id: o.id, start: { ...a }, end: { ...b }, widthMm: o.widthMm, kind: o.kind, state: o.state, secret: audience === 'gm' && o.secret,
-        ...(spatial && o.vertical ? { vertical: clone(o.vertical) } : {}), ...(!entityShown(o.id) ? { paintSymbol: false } : {}) }
+        ...(spatial && o.vertical ? { vertical: clone(o.vertical) } : {}), ...(o.presentation ? { presentation: clone(o.presentation) } : {}),
+        ...(!entityShown(o.id) ? { paintSymbol: false } : {}) }
     })
     walls.push({ id: wall.id, sourceIds: [wall.id], blocksLight: wall.blocksSight, start, end, thicknessMm: wall.thicknessMm,
       ...(spatial && wall.heightMm !== undefined ? { heightMm: wall.heightMm } : {}), ...(wall.edgeProfile ? { edgeProfile: wall.edgeProfile } : {}), style: clone(wall.topStyle), openings })

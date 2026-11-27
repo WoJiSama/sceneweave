@@ -9,6 +9,9 @@ import { cloneJson, inspectJsonInput } from '../validation/json.js'
 import { polygonsOverlap, roomPoints } from '../geometry/geometry.js'
 import type { Editable, GroundSurfaceRef, Opening, PointMm, Room, SurfaceStyle, VersionRef, Wall } from '../model/scene.js'
 import { openingHeightSchema, wallHeightSchema } from '../model/building-height.js'
+import { doorPresentationSchema } from '../model/door-presentation.js'
+import { wallOpeningAtPoint } from '../geometry/opening-placement.js'
+import { createPublicVisibility } from '../geometry/visibility.js'
 import { geometryIdentityIds } from './domain.js'
 import { orderedLayers } from './layers.js'
 import { validateSceneDocument } from '../validation/scene.js'
@@ -41,8 +44,9 @@ export type BuildingCommand =
   | { type: 'transformBuilding'; id: string; offsetMm: PointMm; pivotMm: PointMm; quarterTurns: 0 | 1 | 2 | 3 }
   | { type: 'transformAggregateBuilding'; id: string; offsetMm: PointMm; pivotMm: PointMm; quarterTurns: 0 | 1 | 2 | 3 }
   | { type: 'repairBuildingTopology'; id: string; operation: 'mergeCollinear' | 'splitJunctions' }
-  | { type: 'addOpening'; id: string; wallId: string; offsetReferenceVertexId: string; offsetMm: number; widthMm: number; kind: Opening['kind']; state?: Opening['state']; locked?: boolean; secret?: boolean; revealed?: boolean; layerId?: string; vertical?: Opening['vertical'] }
-  | { type: 'updateOpening'; id: string; changes: Partial<Pick<Opening, 'wallId' | 'offsetReferenceVertexId' | 'offsetMm' | 'widthMm' | 'kind' | 'state' | 'locked' | 'secret' | 'revealed'>> & { vertical?: Opening['vertical'] | null } }
+  | { type: 'addOpening'; id: string; wallId: string; offsetReferenceVertexId: string; offsetMm: number; widthMm: number; kind: Opening['kind']; state?: Opening['state']; locked?: boolean; secret?: boolean; revealed?: boolean; layerId?: string; vertical?: Opening['vertical']; presentation?: Opening['presentation'] }
+  | { type: 'addRoomOpening'; id: string; roomId: string; adjoiningRoomId?: string; exterior?: boolean; atMm: PointMm; widthMm: number; kind: Opening['kind']; state?: Opening['state']; layerId?: string; presentation?: Opening['presentation']; publicOnly?: true }
+  | { type: 'updateOpening'; id: string; changes: Partial<Pick<Opening, 'wallId' | 'offsetReferenceVertexId' | 'offsetMm' | 'widthMm' | 'kind' | 'state' | 'locked' | 'secret' | 'revealed'>> & { vertical?: Opening['vertical'] | null; presentation?: Opening['presentation'] | null } }
   | { type: 'deleteOpening'; id: string }
   | { type: 'setEntranceOpenings'; ids: string[] }
 
@@ -69,8 +73,10 @@ export const buildingCommandSchemas = [
   z.object({ type: z.literal('transformBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: quarterTurnsSchema }).strict(),
   z.object({ type: z.literal('transformAggregateBuilding'), id, offsetMm: point, pivotMm: point, quarterTurns: quarterTurnsSchema }).strict(),
   z.object({ type: z.literal('repairBuildingTopology'), id, operation: z.enum(['mergeCollinear', 'splitJunctions']) }).strict(),
-  z.object({ type: z.literal('addOpening'), id, ...openingFields, state: openingFields.state.optional(), locked: z.boolean().optional(), secret: z.boolean().optional(), revealed: z.boolean().optional(), layerId: id.optional(), vertical: openingHeightSchema.optional() }).strict(),
-  z.object({ type: z.literal('updateOpening'), id, changes: z.object({ ...openingFields, vertical: openingHeightSchema.nullable() }).partial().strict() }).strict(),
+  z.object({ type: z.literal('addOpening'), id, ...openingFields, state: openingFields.state.optional(), locked: z.boolean().optional(), secret: z.boolean().optional(), revealed: z.boolean().optional(), layerId: id.optional(), vertical: openingHeightSchema.optional(), presentation: doorPresentationSchema.optional() }).strict(),
+  z.object({ type: z.literal('addRoomOpening'), id, roomId: id, adjoiningRoomId: id.optional(), exterior: z.boolean().optional(), atMm: point,
+    widthMm: positive, kind: openingFields.kind, state: openingFields.state.optional(), layerId: id.optional(), presentation: doorPresentationSchema.optional(), publicOnly: z.literal(true).optional() }).strict(),
+  z.object({ type: z.literal('updateOpening'), id, changes: z.object({ ...openingFields, vertical: openingHeightSchema.nullable(), presentation: doorPresentationSchema.nullable() }).partial().strict() }).strict(),
   z.object({ type: z.literal('deleteOpening'), id }).strict(),
   z.object({ type: z.literal('setEntranceOpenings'), ids: z.array(id).max(COMMAND_LIMIT).refine(values => new Set(values).size === values.length, '入口 ID 不能重复') }).strict(),
 ] as const
@@ -685,7 +691,7 @@ function mergeCollinearWalls(scene: SceneDocument, seedId: string, affected: Set
     if (jointDistance === null || fullLength === null) continue
     const stations = new Map([[startVertexId, 0], [vertexId, jointDistance], [endVertexId, fullLength]])
     const attached = Object.values(scene.openings).filter(opening => opening.wallId === left.id || opening.wallId === right.id)
-    let openingMapping: { opening: Opening; offset: number }[] = []
+    const openingMapping: { opening: Opening; offset: number; reference: string }[] = []
     let representable = true
     for (const opening of attached) {
       const oldWall = scene.walls[opening.wallId], oldLength = exactDistance(position(scene, oldWall.startVertexId), position(scene, oldWall.endVertexId)), refStation = stations.get(opening.offsetReferenceVertexId)
@@ -693,14 +699,15 @@ function mergeCollinearWalls(scene: SceneDocument, seedId: string, affected: Set
       const startStation = stations.get(oldWall.startVertexId)!, endStation = stations.get(oldWall.endVertexId)!, low = Math.min(startStation, endStation), high = Math.max(startStation, endStation)
       const near = refStation === low ? low + opening.offsetMm : high - opening.offsetMm - opening.widthMm
       if (!Number.isSafeInteger(near) || near < 0) { representable = false; break }
-      openingMapping.push({ opening, offset: near })
+      const reverse = opening.presentation && refStation !== low
+      openingMapping.push({ opening, offset: reverse ? fullLength - near - opening.widthMm : near, reference: reverse ? endVertexId : startVertexId })
     }
     if (!representable) continue
     const candidateWall = cloneJson(left)
     candidateWall.startVertexId = startVertexId; candidateWall.endVertexId = endVertexId
     const dependants = buildingDependants(scene, [left.id, right.id], [vertexId])
     assertUnlocked(scene, dependants, affected, ignoreLocks)
-    for (const opening of openingMapping) { opening.opening.wallId = left.id; opening.opening.offsetReferenceVertexId = startVertexId; opening.opening.offsetMm = opening.offset }
+    for (const { opening, offset, reference } of openingMapping) { opening.wallId = left.id; opening.offsetReferenceVertexId = reference; opening.offsetMm = offset }
     scene.walls[left.id] = candidateWall
     delete scene.walls[right.id]; delete scene.entityLayers[right.id]
     for (const roomId of leftRooms) scene.rooms[roomId].boundaryVertexIds = scene.rooms[roomId].boundaryVertexIds.filter(id => id !== vertexId)
@@ -872,12 +879,30 @@ function mutate(scene: SceneDocument, command: BuildingCommand, affected: Set<st
       if (command.operation === 'mergeCollinear') mergeCollinearWalls(scene, command.id, affected, ignoreLocks)
       else splitJunctions(scene, command.id, affected, ignoreLocks)
       break
+    case 'addRoomOpening': {
+      const room = own(scene.rooms, command.roomId), neighbor = command.adjoiningRoomId === undefined ? undefined : own(scene.rooms, command.adjoiningRoomId)
+      const visibility = command.publicOnly ? createPublicVisibility(scene) : undefined
+      if (!room || visibility && !visibility.room(room.id) || command.adjoiningRoomId !== undefined && (!neighbor || neighbor.id === room.id
+        || neighbor.floorId !== room.floorId || visibility && !visibility.room(neighbor.id) || command.exterior)) {
+        throw new OperationRejected('outside_scope', '请为门窗选择实际同层房间，以及有效的相邻房间或外墙。')
+      }
+      const geometry = wallOpeningAtPoint(scene, command.atMm, command.widthMm, wall => {
+        if (wall.floorId !== room.floorId || !roomOwnsWall(room, wall) || neighbor && !roomOwnsWall(neighbor, wall)) return false
+        if (!command.exterior && !visibility) return true
+        const attached = Object.values(scene.rooms).filter(owner => roomOwnsWall(owner, wall))
+        return (!command.exterior || attached.length === 1) && (!visibility || attached.every(owner => visibility.room(owner.id)))
+      })
+      mutate(scene, { type: 'addOpening', id: command.id, ...geometry, kind: command.kind, state: command.state,
+        layerId: command.layerId, presentation: command.presentation }, affected, ignoreLocks, fixedUprightIds)
+      break
+    }
     case 'addOpening': {
       reserveId(scene, command.id, geometryIdentityIds(scene))
       const wall = requireEntity(scene.walls, command.wallId, '附着墙'), layerId = targetLayer(scene, wall.floorId, command.layerId ?? scene.entityLayers[wall.id], ignoreLocks)
       assertUnlocked(scene, buildingDependants(scene, [wall.id]), affected, ignoreLocks)
       scene.openings[command.id] = { id: command.id, floorId: wall.floorId, editLocked: false, wallId: wall.id, offsetReferenceVertexId: command.offsetReferenceVertexId, offsetMm: command.offsetMm, widthMm: command.widthMm, kind: command.kind, state: command.state ?? 'closed', locked: command.locked ?? false, secret: command.secret ?? false, revealed: command.revealed ?? false }
       if (command.vertical) scene.openings[command.id].vertical = cloneJson(command.vertical)
+      if (command.presentation) scene.openings[command.id].presentation = cloneJson(command.presentation)
       scene.entityLayers[command.id] = layerId; break
     }
     case 'updateOpening': {
@@ -886,10 +911,12 @@ function mutate(scene: SceneDocument, command: BuildingCommand, affected: Set<st
       const wall = requireEntity(scene.walls, command.changes.wallId ?? opening.wallId, '附着墙')
       if (wall.floorId !== opening.floorId) throw new Error('门窗重新附着须保持同Floor。')
       assertUnlocked(scene, buildingDependants(scene, [opening.wallId, wall.id], [opening.id]), affected, ignoreLocks)
-      const { vertical, ...changes } = cloneJson(command.changes)
+      const { vertical, presentation, ...changes } = cloneJson(command.changes)
       Object.assign(opening, changes)
       if (vertical === null) delete opening.vertical
       else if (vertical) opening.vertical = vertical
+      if (presentation === null || (opening.kind === 'window' && presentation === undefined)) delete opening.presentation
+      else if (presentation) opening.presentation = presentation
       break
     }
     case 'deleteOpening': {
