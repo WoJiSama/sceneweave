@@ -5,7 +5,7 @@ import { normalizeForestInput, runForestGeneration } from './forest/index.js'
 import { normalizeVolcanoInput, runVolcanoGeneration } from './volcano/index.js'
 import { VOLCANO_CALDERA_VERSION, volcanoSideSchema } from './volcano/contracts.js'
 import { normalizeMixedInput, runMixedGeneration, mixedReportSchema, MIXED_VOLCANO_LAYOUT_VERSION } from './mixed/index.js'
-import { interiorFurnitureRoleSchema } from './interior/contracts.js'
+import { INTERIOR_PROGRAM_VERSION, INTERIOR_SEATS_PER_GROUP, interiorFurnitureRoleSchema, interiorSideSchema } from './interior/contracts.js'
 import type { DomainGenerationKind } from './kinds.js'
 export { domainGenerationKinds, type DomainGenerationKind } from './kinds.js'
 
@@ -19,9 +19,11 @@ const rectangle = z.object({ x: integer, y: integer, width: integer.positive(), 
 const layoutSchema = z.object({ rooms: z.array(z.object({ requirementId: id, roomId: id, boundsMm: rectangle, clearAreaMm2: count }).strict()).max(24),
   corridors: z.array(z.object({ roomId: id, boundsMm: rectangle }).strict()).max(24) }).strict()
 const interiorReportSchema = z.object({ connectivity: z.object({ openingIds: ids, entranceOpeningId: id.nullable(), notes,
+  entrances: z.array(z.object({ requirementId: id, openingId: id, roomId: id, role: z.enum(['main', 'service']), side: interiorSideSchema }).strict()).optional(),
   routes: z.array(z.object({ id, fromRoomId: id.nullable(), toRoomId: id, openingId: id, from: point, to: point, pointsMm: z.array(point).max(4096), widthMm: integer.positive(), status: z.enum(['clear', 'unavailable']), notes }).strict()).max(8192) }).strict(),
   furnishing: z.object({ propIds: ids, notes, testedPlacements: count,
     rooms: z.array(z.object({ requirementId: id, roomId: id, recommended: z.array(interiorFurnitureRoleSchema).max(64),
+      seatingGroups: z.array(z.object({ tableId: id, seatIds: z.array(id).length(INTERIOR_SEATS_PER_GROUP) }).strict()).optional(), counterId: id.optional(),
       circulation: z.array(z.object({ propId: id, role: interiorFurnitureRoleSchema, openingId: id.nullable(), pointsMm: z.array(point).max(4096), widthMm: integer.positive(), status: z.enum(['clear', 'unavailable']), notes }).strict()).max(8192).optional(),
       placed: z.array(z.object({ propId: id, role: interiorFurnitureRoleSchema, definitionRef: ref }).strict()).max(8192), notes }).strict()).max(24) }).strict(), notes }).strict()
 const forestReportSchema = z.object({ groundAreaId: id.nullable(), pathIds: ids, surfaceRuleIds: ids, propIds: ids, decorationIds: ids,
@@ -36,7 +38,7 @@ const resultBase = { input: z.unknown(), candidate: domainGenerationCandidateSch
  * algorithms, local capability declarations and host presentation preparation.
  * Transport schemas and Workspace lifecycle derive their dispatch from here. */
 export const generationDomains = Object.freeze({
-  interior: Object.freeze({ algorithm: Object.freeze({ id: 'interior-layout', version: 21 }), normalize: normalizeInteriorInput, run: runInteriorGeneration,
+  interior: Object.freeze({ algorithm: Object.freeze({ id: 'interior-layout', version: INTERIOR_PROGRAM_VERSION }), normalize: normalizeInteriorInput, run: runInteriorGeneration,
     resultSchema: z.object({ ...resultBase, layout: layoutSchema, report: interiorReportSchema }).strict(),
     presentation: 'default', localOperations: Object.freeze(['interior-furniture']) }),
   forest: Object.freeze({ algorithm: Object.freeze({ id: 'forest-layout', version: 2 }), normalize: normalizeForestInput, run: runForestGeneration,

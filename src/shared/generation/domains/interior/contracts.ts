@@ -38,6 +38,27 @@ export const directedInteriorLayoutParametersSchema = interiorLayoutParametersSc
   const roomId = parameters.arrangement.entranceRoomRequirementId
   if (roomId !== undefined && (!parameters.arrangement.entrance || !parameters.rooms.some(room => room.id === roomId))) ctx.addIssue({ code: 'custom', path: ['arrangement', 'entranceRoomRequirementId'], message: '指定入口房间须引用现存需求，并启用对外入口。' })
 })
+export const INTERIOR_PROGRAM_VERSION = 23
+export const INTERIOR_FURNITURE_ROLE_LIMIT = 64
+export const INTERIOR_SEATS_PER_GROUP = 4
+export const DEFAULT_INTERIOR_CORRIDOR_ID = '@corridor'
+export const interiorSideSchema = z.enum(['north', 'east', 'south', 'west'])
+const doorWidth = positive.max(5000)
+export const interiorProgramSchema = z.object({
+  corridorId: id.optional(),
+  entrances: z.array(z.object({ id, roomId: id, role: z.enum(['main', 'service']), side: interiorSideSchema.optional(), widthMm: doorWidth.optional() }).strict()).max(24).optional(),
+  connections: z.array(z.object({ a: id, b: id, widthMm: doorWidth.optional() }).strict()).max(256).optional(),
+  furnishings: z.array(z.object({ roomId: id, seatingGroups: positive.max(Math.floor((INTERIOR_FURNITURE_ROLE_LIMIT - 1) / (1 + INTERIOR_SEATS_PER_GROUP))).optional(),
+    counterNextTo: id.optional() }).strict()).max(24).optional(),
+  roomLabels: z.boolean().optional(),
+  exteriorWindows: z.boolean().optional(),
+}).strict()
+export type InteriorProgram = z.infer<typeof interiorProgramSchema>
+export type InteriorSide = z.infer<typeof interiorSideSchema>
+export const interiorApproachMarginMm = (program: InteriorProgram | undefined, clearWidthMm: number) => program?.entrances?.length ? clearWidthMm + 1 : 0
+export const programmedInteriorLayoutParametersSchema = directedInteriorLayoutParametersSchema.safeExtend({
+  program: interiorProgramSchema.optional(), seatingRugRef: ref.optional(),
+})
 /** Explicit replay selectors: v2 keeps legacy identity-sensitive ordering;
  * v3 separates layout choices from entity identities; v4 adds finite oriented
  * furniture and functional seating candidates; v5 reserves complete functional
@@ -58,9 +79,13 @@ export const directedInteriorLayoutParametersSchema = interiorLayoutParametersSc
  * v19 proposes complete seated office/reception units with single-sided work seats.
  * v20 optionally requires the first exterior entrance to enter one named demand.
  * v21 connects furniture access to the actual exterior door approach.
- * v22 places kitchen essentials before extra worktops and packs pantry wall runs. */
-export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(15), z.literal(16), z.literal(17), z.literal(18), z.literal(19), z.literal(20), z.literal(21), z.literal(22)]), seed: z.string().min(1).max(128), parameters: directedInteriorLayoutParametersSchema }).strict().superRefine((input, ctx) => {
+ * v22 places kitchen essentials before extra worktops and packs pantry wall runs.
+ * v23 fits named circulation, exterior entries and functional groups as one layout. */
+export const interiorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(15), z.literal(16), z.literal(17), z.literal(18), z.literal(19), z.literal(20), z.literal(21), z.literal(22), z.literal(INTERIOR_PROGRAM_VERSION)]), seed: z.string().min(1).max(128), parameters: programmedInteriorLayoutParametersSchema }).strict().superRefine((input, ctx) => {
   if (input.algorithmVersion < 20 && Object.hasOwn(input.parameters.arrangement, 'entranceRoomRequirementId')) ctx.addIssue({ code: 'custom', path: ['parameters', 'arrangement', 'entranceRoomRequirementId'], message: '指定入口房间需要室内算法20，旧配方不接收该字段。' })
+  if (input.algorithmVersion < INTERIOR_PROGRAM_VERSION && (input.parameters.program !== undefined || input.parameters.seatingRugRef !== undefined)) ctx.addIssue({
+    code: 'custom', path: ['parameters', 'program'], message: '多入口与指定动线须使用支持室内布置需求的算法版本。',
+  })
 })
 /** A separate replay contract adds real terrain support without changing the
  * original floor-only interior-layout@2 parameters or deterministic results. */
@@ -73,7 +98,7 @@ export const approachedInteriorParametersSchema = supportedInteriorParametersSch
 export const directedApproachedInteriorParametersSchema = directedInteriorLayoutParametersSchema.safeExtend({ supportRef: supportedInteriorParametersSchema.shape.supportRef, entranceApproach: buildingEntranceApproachSchema }).strict()
 const legacySupportedInteriorGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9)]), seed: z.string().min(1).max(128), parameters: supportedInteriorParametersSchema }).strict()
 export const supportedInteriorGenerationInputSchema = z.union([legacySupportedInteriorGenerationInputSchema, z.object({ version: z.literal(1), algorithmVersion: z.literal(10), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(11), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(12), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(13), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(14), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(15), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(16), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(17), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(18), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(19), seed: z.string().min(1).max(128), parameters: approachedInteriorParametersSchema }).strict(), z.object({ version: z.literal(1), algorithmVersion: z.literal(20), seed: z.string().min(1).max(128), parameters: directedApproachedInteriorParametersSchema }).strict()])
-export type InteriorLayoutParameters = z.infer<typeof directedInteriorLayoutParametersSchema>
+export type InteriorLayoutParameters = z.infer<typeof programmedInteriorLayoutParametersSchema>
 export type InteriorGenerationInput = z.infer<typeof interiorGenerationInputSchema>
 export type SupportedInteriorGenerationInput = z.infer<typeof supportedInteriorGenerationInputSchema>
 const supportedInteriorLayoutVersions = { 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16, 17: 17, 18: 18, 19: 19, 20: 20 } as const

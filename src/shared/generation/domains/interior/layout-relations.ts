@@ -7,9 +7,10 @@ export interface InteriorPartitionGroup { rooms: readonly InteriorRoomRequiremen
  * groups. This rejects only provably impossible partial partitions; every full
  * arrangement still reaches the caller's metered independent layout check. */
 export function partialInteriorRelationsPossible(groups: readonly InteriorPartitionGroup[], relations: InteriorGenerationInput['parameters']['relations'],
-  checkCancelled: () => void, charge: () => void): boolean {
-  // Complete geometric candidates belong to the existing four-attempt gate.
-  if (groups.every(group => group.rooms.length === 1)) return true
+  checkCancelled: () => void, charge: () => void, program?: { corridor?: { id: string; axis: 'x' | 'y'; band: number } }): boolean {
+  // Older recipes assigned even provably incompatible complete cuts to their
+  // candidate comparison budget. Keep that ordering for their replay.
+  if (!program && groups.every(group => group.rooms.length === 1)) return true
   for (const relation of relations) {
     checkCancelled(); charge()
     const a = groups.find(group => group.rooms.some(room => room.id === relation.a))
@@ -21,7 +22,14 @@ export function partialInteriorRelationsPossible(groups: readonly InteriorPartit
       continue
     }
     const shared = sharedWallLength(a.bounds, b.bounds)
-    if (relation.kind === 'adjacent' && shared < Math.max(1, relation.minimumSharedWallMm)) return false
+    if (relation.kind === 'adjacent') {
+      const corridor = program?.corridor, fitted = corridor && (relation.a === corridor.id || relation.b === corridor.id)
+      // A fixed-width corridor cannot supply an arbitrarily long wall at
+      // either of its ends, even when its current parent box touches broadly.
+      const isVerticalContact = a.bounds.x + a.bounds.width === b.bounds.x || b.bounds.x + b.bounds.width === a.bounds.x
+      const available = fitted && (isVerticalContact ? corridor.axis === 'y' : corridor.axis === 'x') ? Math.min(shared, corridor.band) : shared
+      if (available < Math.max(1, relation.minimumSharedWallMm)) return false
+    }
     if (relation.kind === 'separate' && a.rooms.length === 1 && b.rooms.length === 1 && shared > 0) return false
   }
   return true

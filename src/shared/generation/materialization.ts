@@ -7,7 +7,7 @@ import { generationWriteCollectionSchema, type DeepReadonly, type GenerationPhas
 const entities = {
   structure: ['vertices', 'rooms', 'walls', 'terrainAreas', 'terrainEdges', 'regions'],
   connectivity: ['openings', 'terrainConnections', 'paths'],
-  content: ['props', 'prefabInstances', 'scatterGroups', 'decorations', 'decorationClusters', 'surfaceRules'],
+  content: ['props', 'prefabInstances', 'scatterGroups', 'decorations', 'decorationClusters', 'surfaceRules', 'notes'],
   presentation: [],
 } as const
 const styled = ['rooms', 'walls', 'terrainAreas', 'terrainEdges', 'terrainConnections', 'paths'] as const

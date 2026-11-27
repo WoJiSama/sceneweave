@@ -19,6 +19,7 @@ import { arrangeInteriorConnections, type InteriorConnectivityReport } from './c
 import { furnishInterior, type InteriorFurnishingReport } from './furnishing.js'
 import { InteriorGenerationError, checkInteriorLayout, clearArea, interiorEntityId, rectanglePoints, solveInteriorLayout } from './layout.js'
 import { interiorFloorFinish } from './floor-finish.js'
+import { normalizeInteriorProgram } from './program.js'
 
 export * from './contracts.js'
 export * from './layout.js'
@@ -51,6 +52,8 @@ export function normalizeInteriorInput(raw: unknown): InteriorGenerationInput {
   palette.sort((a, b) => canonicalJson(a) < canonicalJson(b) ? -1 : canonicalJson(a) > canonicalJson(b) ? 1 : 0)
   p.rooms.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
   p.relations = [...relations.values()].sort((a, b) => canonicalJson(a) < canonicalJson(b) ? -1 : canonicalJson(a) > canonicalJson(b) ? 1 : 0)
+  const program = normalizeInteriorProgram(p)
+  if (program) p.program = program
   return freezeJson(input)
 }
 
@@ -99,6 +102,13 @@ function assertBase(document: SceneDocument, input: InteriorInput): void {
   const b = p.boundsMm, f = floor.boundsMm
   if (b.x < f.x || b.y < f.y || b.x + b.width > f.x + f.width || b.y + b.height > f.y + f.height) throw new InteriorGenerationError('contradiction', '输入矛盾：建筑范围越过实际Floor边界。')
   for (const row of p.arrangement.palette) if (document.propDefinitions[row.ref.id]?.version !== row.ref.version) throw new InteriorGenerationError('invalid-input', '室内家具授权素材缺失或固定版本不符。')
+  const rug = 'seatingRugRef' in p && p.seatingRugRef
+  if (rug) {
+    const definition = document.propDefinitions[rug.id]
+    if (!definition || definition.version !== rug.version || definition.defaultRenderLayer !== 'ground' || definition.defaultBlocksMovement || definition.defaultBlocksSight) {
+      throw new InteriorGenerationError('invalid-input', '桌椅组的织毯须使用不阻挡通行和视线的固定地面素材。')
+    }
+  }
   for (const { role, ref } of interiorMaterialBindings(p.materials)) {
     const material = document.materials[ref.id]
     if (!material || material.version !== ref.version || !material.applicableSurfaces.includes(role === 'wall' ? 'wall' : 'room')) throw new InteriorGenerationError('invalid-input', '室内固定材质缺失、版本不符或不适用对应表面。')
@@ -110,7 +120,7 @@ function persistGeneration(document: SceneDocument, input: InteriorInput, layout
   const recipeId = id('recipe'), ruleId = id('layout-rule')
   const bindings = { materials: cloneJson(interiorMaterialBindings(p.materials)), props: cloneJson(p.arrangement.palette), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
   const common = { id: recipeId, domain: 'interior' as const, mapMode: 'scene' as const, seed: input.seed, ...bindings }
-  const recipe: GenerationRecipe = input.algorithmVersion === 21 || input.algorithmVersion === 22
+  const recipe: GenerationRecipe = input.algorithmVersion >= 21
     ? interiorGenerationRecipeSchema.parse({ ...common, recipeVersion: input.algorithmVersion, algorithmVersion: input.algorithmVersion, algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) })
     : input.algorithmVersion === 20
     ? isSupported(input) ? { ...common, recipeVersion: 20, algorithmVersion: 20, algorithmId: 'supported-interior', parameters: cloneJson(input.parameters) } : { ...common, recipeVersion: 20, algorithmVersion: 20, algorithmId: 'interior-layout', parameters: cloneJson(input.parameters) }
@@ -217,7 +227,8 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
     },
   })
   registry.register({ id: connectionsId, version, phase: 'connectivity', owner: 'connectivity', consumes: ['wall', 'support-surface'], produces: ['opening'], publishFacts: ['opening'], requires: [{ id: structureId, version }], determinism: { replayVersion: 1, seedDerivation: 'request/recipe/step/operator/key' },
-    writes: ({ document }) => [...generationCreationWrites(document, ['openings']), { kind: 'update', collection: 'generation.legacy.rules', ids: [interiorEntityId(document.sceneId, input.seed, 'layout-rule')], fields: ['outputs'] }, ...(interior.parameters.arrangement.entranceRoomRequirementId === undefined ? [] : [{ kind: 'field' as const, path: 'constraints.entranceOpeningIds' as const }])],
+    writes: ({ document }) => [...generationCreationWrites(document, ['openings']), { kind: 'update', collection: 'generation.legacy.rules', ids: [interiorEntityId(document.sceneId, input.seed, 'layout-rule')], fields: ['outputs'] },
+      ...(interior.parameters.arrangement.entranceRoomRequirementId !== undefined || interior.parameters.program?.entrances?.length ? [{ kind: 'field' as const, path: 'constraints.entranceOpeningIds' as const }] : [])],
     parseParameters,
     run() { return { outputs: [] } },
     materialize({ document: before, context }) {
@@ -229,7 +240,7 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
     },
   })
   registry.register({ id: furnishingId, version, phase: 'content', owner: 'content', consumes: ['opening', 'support-surface'], produces: ['prop-placement', 'footprint'], publishFacts: ['prop-placement', 'footprint'], requires: [{ id: connectionsId, version }], determinism: { replayVersion: 1, seedDerivation: 'request/recipe/step/operator/key' },
-    writes: ({ document }) => [...generationCreationWrites(document, ['props']), { kind: 'update', collection: 'generation.legacy.rules', ids: [interiorEntityId(document.sceneId, input.seed, 'layout-rule')], fields: ['outputs'] }],
+    writes: ({ document }) => [...generationCreationWrites(document, interior.parameters.program?.roomLabels ? ['props', 'notes'] : ['props']), { kind: 'update', collection: 'generation.legacy.rules', ids: [interiorEntityId(document.sceneId, input.seed, 'layout-rule')], fields: ['outputs'] }],
     parseParameters,
     run() { return { outputs: [] } },
     materialize({ document: before, context }) {
@@ -237,8 +248,16 @@ function runInteriorKernel<Input extends InteriorInput>(base: SceneDocument, inp
       const result = furnishInterior(cloneJson(before) as SceneDocument, interior, layout, connectivity, { profile, checkCancelled: context.checkCancelled })
       furnishing = result.report
       connectivity = result.connectivity ?? connectivity
-      persist(result.document)
-      return result.document
+      const requiresPassage = interior.parameters.program?.connections !== undefined || interior.parameters.program?.entrances?.length
+      const blocked = requiresPassage ? connectivity.routes.find(route => route.status !== 'clear') : undefined
+      if (blocked) throw new InteriorGenerationError('search-exhausted', `室内通路净宽复核失败：${blocked.notes.join('；')}`)
+      const next = interior.parameters.program?.roomLabels ? applyCommands(result.document,
+        [...layout.rooms, ...layout.corridors].map(({ roomId }) => ({ type: 'createNote', id: interiorEntityId(document.sceneId, input.seed, `label:${roomId}`),
+          floorId: p.floorId, layerId: p.layerId, anchor: { type: 'entity', entityKind: 'room', entityId: roomId }, kind: 'label',
+          text: result.document.rooms[roomId].purpose, visibility: 'public' })),
+        { ids: { nextId: () => { throw new Error('房间标注必须有确定身份。') } }, clock: { now: () => document.updatedAt } }, { budget: profile }) : result.document
+      persist(next)
+      return next
     },
   })
   const supportRef = isSupported(input) ? input.parameters.supportRef : { kind: 'floor', id: p.floorId }

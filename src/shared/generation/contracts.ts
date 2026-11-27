@@ -111,7 +111,7 @@ export interface OperatorContext {
  * this stage's input; it never permits changing an earlier operator's record. */
 export const generationWriteCollectionSchema = z.enum([
   'vertices', 'rooms', 'walls', 'openings', 'terrainAreas', 'terrainEdges', 'regions', 'terrainConnections', 'paths',
-  'props', 'prefabInstances', 'scatterGroups', 'decorations', 'decorationClusters', 'surfaceRules', 'entityLayers',
+  'props', 'prefabInstances', 'scatterGroups', 'decorations', 'decorationClusters', 'surfaceRules', 'notes', 'entityLayers',
   'assets', 'materials', 'propDefinitions', 'prefabDefinitions', 'styleThemes',
   'generation.legacy.recipes', 'generation.legacy.rules', 'generation.legacy.ownership', 'generation.legacy.constraints',
   'generation.legacy.checks', 'generation.legacy.exclusions', 'generation.legacy.surroundings', 'generation.legacy.topology',

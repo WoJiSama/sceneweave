@@ -1,4 +1,4 @@
-import type { InteriorLayoutParameters, InteriorGenerationInput } from '../../shared/generation/domains/interior/contracts.js'
+import { INTERIOR_PROGRAM_VERSION, interiorApproachMarginMm, type InteriorLayoutParameters, type InteriorGenerationInput } from '../../shared/generation/domains/interior/contracts.js'
 import { defaultBuildingWallHeight } from '../../shared/model/building-height.js'
 import { forestRectangle } from '../../shared/generation/domains/forest/index.js'
 import type { ForestGenerationInput, ForestVegetation } from '../../shared/generation/domains/forest/contracts.js'
@@ -22,6 +22,7 @@ export interface InteriorGenerationUiRequest {
   relations: InteriorLayoutParameters['relations']
   corridor: InteriorLayoutParameters['corridor']
   arrangement: Omit<InteriorLayoutParameters['arrangement'], 'palette'>
+  program?: InteriorLayoutParameters['program']
 }
 export interface ForestGenerationUiRequest {
   title: string
@@ -81,6 +82,7 @@ export interface GenerationContentPort {
   interior(input: GenerationBaseIntent, options: ResourceOptions): Promise<{
     base: EditableProject; palette: InteriorLayoutParameters['arrangement']['palette']
     materials?: InteriorLayoutParameters['materials']
+    seatingRugRef?: NonNullable<InteriorLayoutParameters['seatingRugRef']>
   }>
   forest(input: GenerationBaseIntent, options: ResourceOptions): Promise<{
     base: EditableProject; groundMaterial: MaterialRef; routeMaterial: MaterialRef
@@ -139,12 +141,17 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       const owned = intent.request, content = await options.content.interior(baseIntent, resourceOptions)
       checkCancelled(options.signal)
       const { floor, layer } = groundLayer(content.base, '室内布局'), palette = captureJson(content.palette)
+      const bounds = floor.boundsMm
+      const margin = interiorApproachMarginMm(owned.program, owned.arrangement.clearWidthMm)
+      const building = { x: bounds.x + margin, y: bounds.y + margin, width: bounds.width - 2 * margin, height: bounds.height - 2 * margin }
       return { kind: 'new-project', domain: 'interior', base: content.base, profile: profile(), input: {
-        version: 1, algorithmVersion: 22, seed: owned.seed, parameters: {
-          floorId: floor.id, layerId: layer.id, boundsMm: { ...floor.boundsMm }, wallThicknessMm: owned.wallThicknessMm,
+        version: 1, algorithmVersion: owned.program ? INTERIOR_PROGRAM_VERSION : 22, seed: owned.seed, parameters: {
+          floorId: floor.id, layerId: layer.id, boundsMm: building, wallThicknessMm: owned.wallThicknessMm,
           wallHeightMm: defaultBuildingWallHeight(owned.rooms.map(room => room.purpose)),
           rooms: owned.arrangement.furniture ? furnishLounges(owned.rooms) : owned.rooms, relations: owned.relations, corridor: owned.corridor,
           materials: captureJson(content.materials ?? { floor: null, wall: null }), arrangement: { ...owned.arrangement, palette },
+          ...(owned.program ? { program: owned.program } : {}),
+          ...(owned.program?.furnishings?.some(row => row.seatingGroups) && content.seatingRugRef ? { seatingRugRef: content.seatingRugRef } : {}),
         },
       } }
     }

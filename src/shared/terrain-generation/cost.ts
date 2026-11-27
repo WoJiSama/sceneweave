@@ -6,8 +6,8 @@ import { extendedIdentityDescriptors } from './identities.js'
 import type { SceneDocument } from '../model/scene.js'
 import type { CompositionContent } from '../model/appearance.js'
 import { visualCommandCost } from '../visual/commands.js'
-import { equalCheckedJson } from '../validation/json.js'
-import type { GenerationSystem3, GenerationSystem4 } from './contracts.js'
+import { canonicalJson, equalCheckedJson } from '../validation/json.js'
+import type { GenerationReference, GenerationRule, GenerationSystem3, GenerationSystem4 } from './contracts.js'
 const recordDiff = (a:Record<string,unknown>,b:Record<string,unknown>, extra:(v:unknown)=>number=()=>0) => [...new Set([...Object.keys(a),...Object.keys(b)])].reduce((sum,id)=>equalCheckedJson(a[id]??null,b[id]??null)?sum:sum+1+Math.max(extra(a[id]),extra(b[id])),0)
 const geometry = (value:unknown):number => {
   if(!value||typeof value!=='object') return 0
@@ -43,6 +43,25 @@ function decorationRecordCost(before: SceneDocument, after: SceneDocument): numb
   }
   return cost
 }
+
+function ruleReferenceDelta(before: readonly GenerationReference[] = [], after: readonly GenerationReference[] = []) {
+  if (equalCheckedJson(before, after)) return 0
+  const previous = new Set(before.map(canonicalJson))
+  const added = after.reduce((sum, row) => sum + Number(!previous.has(canonicalJson(row))), 0)
+  return Math.max(added, before.length - after.length + added)
+}
+
+function ruleRecordCost(before: Record<string, GenerationRule>, after: Record<string, GenerationRule>) {
+  let total = 0
+  for (const id of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const a = Object.hasOwn(before, id) ? before[id] : undefined, b = Object.hasOwn(after, id) ? after[id] : undefined
+    if (equalCheckedJson(a ?? null, b ?? null)) continue
+    // Managed-output hashes and state can change after a single native edit.
+    // The rule record is work, as are new and removed reference slots.
+    total += 1 + ruleReferenceDelta(a?.inputs, b?.inputs) + ruleReferenceDelta(a?.outputs, b?.outputs)
+  }
+  return total
+}
 /** Full materialized delta, never seed-only or one-operation island accounting. */
 export function terrainCommandCost(before:SceneDocument,after:SceneDocument,metadata?:TerrainCostMetadata) {
   const originalBefore=before,originalAfter=after
@@ -56,8 +75,8 @@ export function terrainCommandCost(before:SceneDocument,after:SceneDocument,meta
       + recordDiff(Object.fromEntries((a?.sections ?? []).map(row => [row.id, row])), Object.fromEntries((b?.sections ?? []).map(row => [row.id, row])))
   }
   // References are finite closed-over dependencies, not free opaque arrays.
-  const ruleGeometry=(v:unknown)=>geometry(v)+((v as {inputs?:unknown[];outputs?:unknown[]}|undefined)?.inputs?.length??0)+((v as {outputs?:unknown[]}|undefined)?.outputs?.length??0)
-  for(const key of ['recipes','intents','rules','ownership','exclusions','constraints','checks','sourceLinks'] as const) items[`generation.${key}`]=recordDiff(beforeLegacy.generation?.[key]??{},afterLegacy.generation?.[key]??{},key==='rules'?ruleGeometry:geometry)
+  items['generation.rules'] = ruleRecordCost(beforeLegacy.generation?.rules ?? {}, afterLegacy.generation?.rules ?? {})
+  for(const key of ['recipes','intents','ownership','exclusions','constraints','checks','sourceLinks'] as const) items[`generation.${key}`]=recordDiff(beforeLegacy.generation?.[key]??{},afterLegacy.generation?.[key]??{},geometry)
   if(beforeLegacy.generation?.version!==afterLegacy.generation?.version) items['generation.version']=1
   const strokes=(scene:ReturnType<typeof legacyTerrainView>)=>scene.generation && scene.generation.version!==1?scene.generation.strokes:{}
   items['generation.strokes']=recordDiff(strokes(beforeLegacy),strokes(afterLegacy),geometry)

@@ -2,7 +2,8 @@ import { WorkspaceReview } from '../workspace/WorkspacePresentation'
 import { useId, useRef, useState } from 'react'
 import type { SizeMm } from '../../shared/model/scene'
 import type { InteriorPreview } from '../../application/workspace/workspace'
-import type { InteriorLayoutParameters } from '../../shared/generation/domains/interior/contracts'
+import { DEFAULT_INTERIOR_CORRIDOR_ID, interiorApproachMarginMm, interiorProgramSchema, type InteriorLayoutParameters, type InteriorProgram } from '../../shared/generation/domains/interior/contracts'
+import InteriorProgramFields from './InteriorProgramFields'
 import './terrain-generation.css'
 import './interior-generation.css'
 
@@ -26,6 +27,7 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
   const [rooms, setRooms] = useState(initialRooms), [relations, setRelations] = useState<InteriorLayoutParameters['relations']>([])
   const [corridor, setCorridor] = useState<InteriorLayoutParameters['corridor']>({ axis: 'none', clearWidthMm: 1500 })
   const [arrangement, setArrangement] = useState<InteriorGenerationUiRequest['arrangement']>({ doors: true, entrance: true, furniture: true, doorWidthMm: 1100, clearWidthMm: 900 })
+  const [program, setProgram] = useState<InteriorProgram>({})
   const nextRoom = useRef(3)
   const validationId = useId()
   const locked = busy || disabled
@@ -33,7 +35,25 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
   const updateRoom = (id: string, patch: Partial<InteriorLayoutParameters['rooms'][number]>) => change(() => setRooms(current => current.map(room => room.id === id ? { ...room, ...patch } : room)))
   const updateRelation = (index: number, patch: Partial<InteriorLayoutParameters['relations'][number]>) => change(() => setRelations(current => current.map((relation, at) => at === index ? { ...relation, ...patch } : relation)))
   const widthMm = canvasSize?.width ?? standaloneWidth, heightMm = canvasSize?.height ?? standaloneHeight
-  const wallInset = 2 * Math.ceil(wallThicknessMm / 2) + wallThicknessMm
+  const specifiedEntries = !!program.entrances?.length, specifiedDoors = !!program.connections?.length
+  const allowProgram = specifiedEntries || specifiedDoors || !!program.furnishings?.length || !!program.roomLabels || program.exteriorWindows === true
+  const requestedProgram: InteriorProgram | undefined = allowProgram ? {
+    ...(specifiedEntries ? { entrances: program.entrances!.map(({ widthMm, side, ...row }) => ({ ...row, ...(widthMm !== undefined ? { widthMm } : {}), ...(side ? { side } : {}) })) } : {}),
+    ...(specifiedDoors ? { connections: program.connections!.map(({ widthMm, ...row }) => ({ ...row, ...(widthMm !== undefined ? { widthMm } : {}) })) } : {}),
+    ...(program.furnishings?.length ? { furnishings: program.furnishings.map(({ seatingGroups, counterNextTo, roomId }) => ({ roomId,
+      ...(seatingGroups ? { seatingGroups } : {}), ...(counterNextTo ? { counterNextTo } : {}) })) } : {}),
+    ...(program.roomLabels ? { roomLabels: true } : {}),
+    ...(program.exteriorWindows !== undefined ? { exteriorWindows: program.exteriorWindows } : {}),
+  } : undefined
+  const { entranceRoomRequirementId, ...unassigned } = arrangement
+  const requestedArrangement = { ...unassigned, doors: arrangement.doors || specifiedDoors, entrance: arrangement.entrance || specifiedEntries,
+    furniture: arrangement.furniture || !!program.furnishings?.length, ...(!specifiedEntries && entranceRoomRequirementId ? { entranceRoomRequirementId } : {}) }
+  const removeSpace = (id: string) => setProgram(current => ({ ...current,
+    entrances: current.entrances?.filter(item => item.roomId !== id), connections: current.connections?.filter(item => item.a !== id && item.b !== id),
+    furnishings: current.furnishings?.filter(item => item.roomId !== id && (item.counterNextTo !== id || item.seatingGroups))
+      .map(item => item.counterNextTo === id ? { roomId: item.roomId, seatingGroups: item.seatingGroups } : item),
+  }))
+  const wallInset = 2 * Math.ceil(wallThicknessMm / 2) + wallThicknessMm + 2 * interiorApproachMarginMm(requestedProgram, arrangement.clearWidthMm)
   const innerWidth = widthMm - wallInset, innerHeight = heightMm - wallInset
   const usableArea = Math.max(1, innerWidth * innerHeight)
   const roomRequirements = rooms.map(room => ({ ...room, purpose: room.purpose.trim(),
@@ -65,6 +85,7 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
     if (!(Number.isSafeInteger(corridor.clearWidthMm) && corridor.clearWidthMm > 0 && corridor.clearWidthMm <= 1_000_000)) return corridor.axis === 'none' ? '走廊净宽须大于0且不超过1000米，请先选择横向或纵向走廊后调整净宽。' : '走廊净宽须大于0且不超过1000米，请调整净宽。'
     if (!(Number.isSafeInteger(arrangement.doorWidthMm) && arrangement.doorWidthMm > 0 && arrangement.doorWidthMm <= 5000)) return '建议门宽须大于0且不超过5米，请调整门宽。'
     if (!(Number.isSafeInteger(arrangement.clearWidthMm) && arrangement.clearWidthMm > 0 && arrangement.clearWidthMm <= 5000)) return '建议通路净宽须大于0且不超过5米，请调整净宽。'
+    if (requestedProgram && !interiorProgramSchema.safeParse(requestedProgram).success) return '请检查外门、内门的净宽和家具组数。'
     return null
   })()
   const valid = validationReason === null
@@ -75,7 +96,8 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
     <p>填写各房间的用途，查看自动安排的平面。</p>
     <details className="workspace-detail-disclosure workspace-generation-help"><summary>生成与后续编辑说明</summary><p className="asset-muted">首次生成按房间用途选石板或木板，再按实际空间建议门和家具并检查通路净空。候选详情会说明布置缺项，保存后可继续编辑。</p></details>
     {dirty && !busy && !candidate && !error && <p className="terrain-generation-notice" role="status">参数已修改，请预览当前设置。当前工程尚未改变。</p>}
-    <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed, wallThicknessMm, rooms: roomRequirements, relations, corridor, arrangement }) }}>
+    <form onSubmit={event => { event.preventDefault(); if (valid && !locked) void onGenerate({ title: cleanTitle, widthMm, heightMm, seed: cleanSeed,
+      wallThicknessMm, rooms: roomRequirements, relations, corridor, arrangement: requestedArrangement, ...(requestedProgram ? { program: requestedProgram } : {}) }) }}>
       <fieldset disabled={locked}>
         {!canvasSize && <>        <label>工程名称<input aria-label="室内工程名称" value={title} maxLength={120} onChange={event => change(() => setTitle(event.target.value))}/></label>
         <div className="interior-field-pair">
@@ -90,6 +112,7 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
             <button className="secondary" type="button" disabled={rooms.length <= 1} onClick={() => change(() => {
               setRooms(current => current.filter(item => item.id !== room.id))
               setRelations(current => current.filter(item => item.a !== room.id && item.b !== room.id))
+              removeSpace(room.id)
               if (arrangement.entranceRoomRequirementId === room.id) {
                 const { entranceRoomRequirementId: _removed, ...rest } = arrangement
                 setArrangement(rest)
@@ -121,17 +144,22 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
           <button className="secondary" type="button" onClick={() => change(() => setRelations(current => current.filter((_, at) => at !== index)))}>移除关系 {index + 1}</button>
         </fieldset>)}
         <button className="secondary asset-wide" type="button" disabled={rooms.length < 2 || relations.length >= 256} onClick={() => change(() => setRelations(current => [...current, { a: rooms[0].id, b: rooms[1].id, kind: 'adjacent', minimumSharedWallMm: 1000 }]))}>增加房间关系</button>
-        <label>走廊<select aria-label="室内走廊方向" value={corridor.axis} onChange={event => change(() => setCorridor(current => ({ ...current, axis: event.target.value as InteriorLayoutParameters['corridor']['axis'] })))}><option value="none">不单独安排走廊</option><option value="horizontal">横向走廊</option><option value="vertical">纵向走廊</option></select></label>
+        <label>走廊<select aria-label="室内走廊方向" value={corridor.axis} onChange={event => change(() => {
+          const axis = event.target.value as InteriorLayoutParameters['corridor']['axis']
+          if (axis === 'none') removeSpace(DEFAULT_INTERIOR_CORRIDOR_ID)
+          setCorridor(current => ({ ...current, axis }))
+        })}><option value="none">不单独安排走廊</option><option value="horizontal">横向走廊</option><option value="vertical">纵向走廊</option></select></label>
         {corridor.axis !== 'none' && <label>走廊净宽（米）<input aria-label="室内走廊净宽米" type="number" min="0.1" step="0.1" value={corridor.clearWidthMm / 1000} onChange={event => change(() => setCorridor(current => ({ ...current, clearWidthMm: mm(event.target.value) })))}/></label>}
         <fieldset className="interior-arrangement"><legend>首次布置建议</legend>
-          <label><input aria-label="自动安排房间门" type="checkbox" checked={arrangement.doors} onChange={event => change(() => setArrangement(current => ({ ...current, doors: event.target.checked })))}/>安排房间之间的门</label>
-          <label><input aria-label="自动安排建筑入口" type="checkbox" checked={arrangement.entrance} onChange={event => change(() => setArrangement(current => { const { entranceRoomRequirementId, ...rest } = current; return event.target.checked ? { ...current, entrance: true } : { ...rest, entrance: false } }))}/>安排一个对外入口</label>
-          {arrangement.entrance && <><label>入口通向<select aria-label="室内入口房间" value={arrangement.entranceRoomRequirementId ?? ''} onChange={event => change(() => setArrangement(current => { const { entranceRoomRequirementId: _previous, ...rest } = current; return event.target.value ? { ...rest, entranceRoomRequirementId: event.target.value } : rest }))}><option value="">自动选择外墙</option>{rooms.map((room, index) => <option key={room.id} value={room.id}>{index + 1} · {room.purpose}</option>)}</select></label><p className="asset-muted">指定房间须有足宽外门；无法满足时会明确失败。仅约束首次生成，保存后仍可手工修改。</p></>}
-          <label><input aria-label="自动安排用途家具" type="checkbox" checked={arrangement.furniture} onChange={event => change(() => setArrangement(current => ({ ...current, furniture: event.target.checked })))}/>按用途和空间安排家具</label>
+          <label><input aria-label="自动安排房间门" type="checkbox" disabled={specifiedDoors} checked={requestedArrangement.doors} onChange={event => change(() => setArrangement(current => ({ ...current, doors: event.target.checked })))}/>安排房间之间的门</label>
+          <label><input aria-label="自动安排建筑入口" type="checkbox" disabled={specifiedEntries} checked={requestedArrangement.entrance} onChange={event => change(() => setArrangement(current => { const { entranceRoomRequirementId, ...rest } = current; return event.target.checked ? { ...current, entrance: true } : { ...rest, entrance: false } }))}/>{specifiedEntries ? '按指定入口安排外门' : '安排一个对外入口'}</label>
+          {arrangement.entrance && !specifiedEntries && <><label>入口通向<select aria-label="室内入口房间" value={arrangement.entranceRoomRequirementId ?? ''} onChange={event => change(() => setArrangement(current => { const { entranceRoomRequirementId: _previous, ...rest } = current; return event.target.value ? { ...rest, entranceRoomRequirementId: event.target.value } : rest }))}><option value="">自动选择外墙</option>{rooms.map((room, index) => <option key={room.id} value={room.id}>{index + 1} · {room.purpose}</option>)}</select></label><p className="asset-muted">指定房间须有足宽外门。仅约束首次生成，保存后仍可手工修改。</p></>}
+          <label><input aria-label="自动安排用途家具" type="checkbox" disabled={!!program.furnishings?.length} checked={requestedArrangement.furniture} onChange={event => change(() => setArrangement(current => ({ ...current, furniture: event.target.checked })))}/>按用途和空间安排家具</label>
           <label>建议门宽（米）<input aria-label="室内建议门宽米" type="number" min="0.1" max="5" step="0.1" value={arrangement.doorWidthMm / 1000} onChange={event => change(() => setArrangement(current => ({ ...current, doorWidthMm: mm(event.target.value) })))}/></label>
           <label>建议通路净宽（米）<input aria-label="室内建议通路净宽米" type="number" min="0.1" max="5" step="0.1" value={arrangement.clearWidthMm / 1000} onChange={event => change(() => setArrangement(current => ({ ...current, clearWidthMm: mm(event.target.value) })))}/></label>
           <p className="asset-muted">空间不足时保留合法布局并列出未完成建议。生成后的编辑不会强制维持这些建议。</p>
         </fieldset>
+        <InteriorProgramFields rooms={rooms} corridor={corridor} value={program} onChange={value => change(() => setProgram(value))}/>
         </details>
         <div className="interior-submit">
         {!candidate && validationReason && <p id={validationId} className="asset-form-error" role="status">{validationReason}</p>}
@@ -143,8 +171,10 @@ export default function InteriorGenerationPanel({ busy, disabled, error, candida
     {candidate && <WorkspaceReview><div className="interior-generation-panel workspace-review-panel">{feedback}<div className="interior-candidate" aria-label="室内布局候选摘要"><div className="workspace-review-body"><h3>候选 · {candidate.layout.rooms.length} 个房间</h3>
       <p>{candidate.layout.corridors.length ? '包含独立走廊。' : ''}画布展示完整候选，当前工程尚未改变。</p>
       <ul>{candidate.layout.rooms.map(room => <li key={room.requirementId}>{candidate.input.parameters.rooms.find(item => item.id === room.requirementId)?.purpose ?? '房间'} · 净面积 {(room.clearAreaMm2 / 1_000_000).toFixed(1)} 平方米</li>)}</ul>
-      <p aria-label="室内首次布置结果">实际安排 {Object.keys(candidate.project.document.openings).length} 扇门、{Object.keys(candidate.project.document.props).length} 件家具；{candidate.report.connectivity.routes.filter(route => route.status === 'clear').length}/{candidate.report.connectivity.routes.length} 条建议通路通过净空检查。</p>
-      {candidate.report.connectivity.entranceOpeningId && <p aria-label="室内入口结果">对外入口通向：{candidate.project.document.rooms[candidate.report.connectivity.routes.find(route => route.openingId === candidate.report.connectivity.entranceOpeningId && route.fromRoomId === null)?.toRoomId ?? '']?.purpose ?? '房间'}。{candidate.input.parameters.arrangement.entranceRoomRequirementId ? '已按指定房间安排。' : '按可用外墙自动选择。'}</p>}
+      <p aria-label="室内首次布置结果">实际安排 {candidate.report.connectivity.openingIds.length} 扇门、{Object.values(candidate.project.document.openings).filter(row => row.kind === 'window').length} 扇窗、{Object.keys(candidate.project.document.props).length} 件家具。{candidate.report.connectivity.routes.filter(route => route.status === 'clear').length}/{candidate.report.connectivity.routes.length} 条建议通路通过净空检查。</p>
+      {candidate.report.connectivity.entrances?.length ? <ul aria-label="室内入口结果">{candidate.report.connectivity.entrances.map(entry => <li key={entry.openingId}>{entry.role === 'main' ? '主入口' : '辅助入口'} · {candidate.project.document.rooms[entry.roomId].purpose}</li>)}</ul>
+        : candidate.report.connectivity.entranceOpeningId && <p aria-label="室内入口结果">对外入口通向 {candidate.project.document.rooms[candidate.report.connectivity.routes.find(route => route.openingId === candidate.report.connectivity.entranceOpeningId && route.fromRoomId === null)?.toRoomId ?? '']?.purpose ?? '房间'}。{candidate.input.parameters.arrangement.entranceRoomRequirementId ? '已按指定房间安排。' : '按可用外墙自动选择。'}</p>}
+      {candidate.report.furnishing.rooms.filter(room => room.seatingGroups?.length || room.counterId).map(room => <p key={room.roomId}>{candidate.project.document.rooms[room.roomId].purpose} · {room.seatingGroups?.length ? `${room.seatingGroups.length} 组完整桌椅` : ''}{room.counterId ? ' · 已安排服务台' : ''}</p>)}
       {candidate.report.notes.length > 0 && <div aria-label="室内未完成建议"><h3>布置说明</h3><ul>{candidate.report.notes.map((note, index) => <li key={index}>{note}</li>)}</ul></div>}
       <p className="asset-muted">门、家具及通路检查反映本次生成结果。保存后可继续删改，系统不会自动恢复被删除的内容。</p>
       </div>

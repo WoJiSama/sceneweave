@@ -12,6 +12,21 @@ const envelope = (shape: FurnishingShape, pose: FurnishingPose) => {
     top: Math.min(...points.map(p => p.y)), bottom: Math.max(...points.map(p => p.y)) }
 }
 
+/** Spread requested groups across the usable room, then let the native fit
+ * and access checks decide whether a target slot or a nearby pose works. */
+export function distributedSeatingPoses(bounds: InteriorRectangle, index: number, count: number, inset: number): FurnishingPose[] {
+  const width = bounds.width - 2 * inset, height = bounds.height - 2 * inset
+  const columns = Math.min(count, Math.max(1, Math.round(Math.sqrt(count * width / height))))
+  const lines = Math.ceil(count / columns), line = Math.floor(index / columns), column = index % columns
+  const countInLine = Math.min(columns, count - line * columns)
+  const preferredRotations = width / columns >= height / lines ? [0, 90] : [90, 0]
+  return [[0, 0], [0, .14], [0, -.14], [.14, 0], [-.14, 0], [0, .24], [0, -.24]].flatMap(([dx, dy]) => {
+    const positionMm = { x: Math.round(bounds.x + inset + width * (column + .5 + dx) / countInLine),
+      y: Math.round(bounds.y + inset + height * (line + .5 + dy) / lines) }
+    return preferredRotations.map(rotationDeg => ({ positionMm, rotationDeg }))
+  })
+}
+
 /** Repair-only partial-sided anchor proposals. Unlike a four-sided envelope,
  * these allow an unused side against a wall. The caller still reserves and
  * verifies each complete actual chair and its use/access space. */

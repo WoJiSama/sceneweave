@@ -10,7 +10,7 @@ import { validateSceneDocument } from '../validation/scene.js'
 import { roomPoints } from '../geometry/geometry.js'
 import { clearArea, interiorEntityId } from './domains/interior/layout.js'
 import { supportedInteriorLayoutVersion, type InteriorGenerationInput, type InteriorLayout } from './domains/interior/contracts.js'
-import { furnishInterior, recommendInteriorFurniture, type InteriorFurnitureSlot } from './domains/interior/furnishing.js'
+import { furnishInterior, interiorFurnitureRoles, type InteriorFurnitureSlot } from './domains/interior/furnishing.js'
 import { inspectInteriorConnections } from './domains/interior/connectivity.js'
 import { assertLocalManaged, finishLocalOwnership, localOwner, type LocalDomainResult, type LocalWrite } from './local-common.js'
 
@@ -89,10 +89,10 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
   const owners = Object.values(gen.ownership).filter(owner => gen.rules[owner.ruleId]?.recipeRef.id === recipe.id && owner.target.kind === 'prop')
   const slots = new Map<string, { owner?: OutputOwnership; prop?: Prop; propId?: string; suppressed: boolean }>(), used = geometryIdentityIds(before)
   for (const id of Object.keys(content.historyIdentity.propTokens)) used.add(id)
-  const currentRoles = recommendInteriorFurniture(room.purpose, layout.rooms[0].clearAreaMm2, input.algorithmVersion, input.parameters.rooms[0].furnishingFocus)
+  const currentRoles = interiorFurnitureRoles(input, input.parameters.rooms[0], layout.rooms[0].clearAreaMm2)
   // Include original-role slots so a changed room purpose cannot bypass a
   // previously deleted or manually reserved furniture slot with a new identity.
-  const originalRoles = recommendInteriorFurniture(requirement.purpose, layout.rooms[0].clearAreaMm2, input.algorithmVersion, requirement.furnishingFocus)
+  const originalRoles = interiorFurnitureRoles(input, requirement, layout.rooms[0].clearAreaMm2)
   const notes: string[] = []
   for (const [index, role] of currentRoles.entries()) {
     const slot = { requirementId: requirement.id, role, index }, key = slotKey(slot), stableKey = `${recipe.id}:${key}`
@@ -122,9 +122,10 @@ export function regenerateRoomFurniture(content: CompositionContent, request: { 
     // functions remain real read-only obstacles instead of being displaced by
     // a late successful chair reservation.
     const preservedFunction = request.strategy === 'seating-v1' && prop && !['seat', 'table', 'work'].includes(role)
-    if (preservedFunction) suppressed = true
+    const serviceCounter = role === 'work' && index === 0 && input.parameters.program?.furnishings?.some(row => row.roomId === requirement.id && row.counterNextTo)
+    if (preservedFunction || serviceCounter) suppressed = true
     slots.set(key, { owner, prop, propId: prop?.id, suppressed })
-    if (suppressed) notes.push(`${preservedFunction ? '保留座位组范围外家具槽位' : '保留人工修改、删除、退出或锁定家具槽位'}：${key}`)
+    if (suppressed) notes.push(`${serviceCounter ? '保留相邻房间的服务台槽位' : preservedFunction ? '保留座位组范围外家具槽位' : '保留人工修改、删除、退出或锁定家具槽位'}：${key}`)
   }
   const allocate = (slot: InteriorFurnitureSlot): string | null => {
     const row = slots.get(slotKey(slot))!

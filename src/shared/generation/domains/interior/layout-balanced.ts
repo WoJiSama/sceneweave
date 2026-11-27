@@ -3,6 +3,7 @@ import { captureExecutionBudget, type TaskBudgetProfile } from '../../../budget/
 import { hashGenerationValue } from '../../contracts.js'
 import { checkInteriorLayout, clearArea, interiorEntityId, InteriorGenerationError, sharedWallLength } from './layout.js'
 import { partialInteriorRelationsPossible } from './layout-relations.js'
+import { availableExteriorWall, interiorWallRun, programCorridorId, programRelations } from './program.js'
 
 type Group = { rooms: readonly InteriorRoomRequirement[]; bounds: InteriorRectangle }
 type Placed = InteriorLayout['rooms'][number]
@@ -19,7 +20,20 @@ const preferredAspect = (r: InteriorRoomRequirement) => /走廊|长廊|展廊|co
 export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGenerationInput, profile: TaskBudgetProfile, seed: string, checkCancelled: () => void): InteriorLayout {
   const p = input.parameters, t = p.wallThicknessMm, inset = Math.ceil(t / 2), meter = captureExecutionBudget(profile)
   const root = { x: p.boundsMm.x + inset, y: p.boundsMm.y + inset, width: p.boundsMm.width - 2 * inset, height: p.boundsMm.height - 2 * inset }
-  const limit = Math.min(8192, profile.limits.gridNodes), maxAttempts = profile.limits.candidateAttempts
+  const corridorId = p.program && programCorridorId(p), corridorAxis: 'x' | 'y' = p.corridor.axis === 'horizontal' ? 'y' : 'x'
+  const corridorBand = p.corridor.clearWidthMm + t
+  const corridorDemand = corridorId ? { id: corridorId, purpose: '通道', minAreaMm2: p.corridor.clearWidthMm * p.arrangement.clearWidthMm,
+    maxAreaMm2: Math.max(1, clearArea(root, t)), minClearSideMm: Math.min(p.corridor.clearWidthMm, p.arrangement.clearWidthMm) } : undefined
+  const demands = corridorDemand ? [...p.rooms, corridorDemand] : p.rooms
+  const relations = p.program ? programRelations(p) : p.relations
+  const minimumTotal = demands.reduce((total, room) => total + room.minAreaMm2, 0)
+  const roomWeight = (room: InteriorRoomRequirement) => p.program
+    ? Math.min(room.maxAreaMm2, room.minAreaMm2 * (clearArea(root, t) / minimumTotal))
+    : targetArea(room)
+  const entries = p.program?.entrances ?? []
+  const limit = p.program ? Math.min(profile.limits.gridNodes, Math.floor(profile.limits.fieldEvaluations / Math.max(8, demands.length + relations.length)))
+    : Math.min(8192, profile.limits.gridNodes)
+  const maxAttempts = profile.limits.candidateAttempts
   let nodes = 0, attempts = 0
   const tick = (fields = 1) => {
     checkCancelled()
@@ -27,24 +41,29 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
     nodes++; meter.charge({ gridNodes: 1, fieldEvaluations: fields })
   }
   const fits = (r: InteriorRoomRequirement, b: InteriorRectangle) => b.width - t >= r.minClearSideMm && b.height - t >= r.minClearSideMm && clearArea(b, t) >= r.minAreaMm2 && clearArea(b, t) <= r.maxAreaMm2
+    && (r.id !== corridorId || (corridorAxis === 'y' ? b.height : b.width) === corridorBand)
   const possible = ({ rooms, bounds: b }: Group) => b.width > t && b.height > t && rooms.every(r => Math.min(b.width, b.height) - t >= r.minClearSideMm)
     && rooms.reduce((n, r) => n + r.minAreaMm2, 0) <= b.width * b.height && (rooms.length !== 1 || fits(rooms[0], b))
-  if (root.width <= t || root.height <= t || p.rooms.some(r => Math.min(root.width, root.height) - t < r.minClearSideMm)
-    || p.rooms.reduce((n, r) => n + r.minAreaMm2, 0) > root.width * root.height) throw new InteriorGenerationError('contradiction', '输入矛盾：建筑范围无法容纳最小净边长或最小面积总和。')
+    && (!corridorId || !rooms.some(r => r.id === corridorId) || (corridorAxis === 'y' ? b.height : b.width) >= corridorBand)
+    && entries.every(entry => !rooms.some(room => room.id === entry.roomId) || availableExteriorWall(b, root, entry.side) >= interiorWallRun(entry.widthMm ?? p.arrangement.doorWidthMm, t))
+  if (root.width <= t || root.height <= t || demands.some(r => Math.min(root.width, root.height) - t < r.minClearSideMm)
+    || minimumTotal > root.width * root.height) throw new InteriorGenerationError('contradiction', '输入矛盾：建筑范围无法容纳最小净边长或最小面积总和。')
   const rank = (key: string) => hashGenerationValue([seed, key])
-  const relationAware = input.algorithmVersion >= 16 && p.relations.some(relation => relation.kind !== 'no-direct-connection')
-  const relationsPossible = (groups: readonly Group[]) => !relationAware || partialInteriorRelationsPossible(groups, p.relations, checkCancelled, () => meter.charge({ fieldEvaluations: 1 }))
-  const placedGroups = (rows: readonly Placed[]): Group[] => rows.map(row => ({ rooms: [p.rooms.find(room => room.id === row.requirementId)!], bounds: row.boundsMm }))
-  const remaining = [...p.rooms].sort((a, b) => compare(rank(a.id), rank(b.id))), ordered: InteriorRoomRequirement[] = []
+  const relationAware = input.algorithmVersion >= 16 && relations.some(relation => relation.kind !== 'no-direct-connection')
+  const relationProgram = p.program ? { corridor: corridorId ? { id: corridorId, axis: corridorAxis, band: corridorBand } : undefined } : undefined
+  const relationsPossible = (groups: readonly Group[]) => !relationAware || partialInteriorRelationsPossible(groups, relations, checkCancelled, () => meter.charge({ fieldEvaluations: 1 }), relationProgram)
+  const placedGroups = (rows: readonly Placed[]): Group[] => rows.map(row => ({ rooms: [demands.find(room => room.id === row.requirementId)!], bounds: row.boundsMm }))
+  const remaining = [...demands].sort((a, b) => compare(rank(a.id), rank(b.id))), ordered: InteriorRoomRequirement[] = []
   while (remaining.length) {
     const last = ordered.at(-1)
-    const neighbor = last ? remaining.findIndex(r => p.relations.some(q => q.kind === 'adjacent' && (q.a === last.id && q.b === r.id || q.b === last.id && q.a === r.id))) : 0
+    const neighbor = last ? remaining.findIndex(r => relations.some(q => q.kind === 'adjacent' && (q.a === last.id && q.b === r.id || q.b === last.id && q.a === r.id))) : 0
     ordered.push(remaining.splice(Math.max(0, neighbor), 1)[0])
   }
   const leafScore = (r: InteriorRoomRequirement, b: InteriorRectangle) => {
     const w = b.width - t, h = b.height - t
     if (w <= 0 || h <= 0) return Infinity
-    return Math.max(0, Math.max(w / h, h / w) - preferredAspect(r)) ** 2 + .08 * Math.log(clearArea(b, t) / targetArea(r)) ** 2
+    if (r.id === corridorId) return clearArea(b, t) / clearArea(root, t)
+    return Math.max(0, Math.max(w / h, h / w) - preferredAspect(r)) ** 2 + .08 * Math.log(clearArea(b, t) / roomWeight(r)) ** 2
   }
   // A lower bound from group elongation and room count, not an unmetered full
   // trial layout. Exact one-room scores guide split choices at the leaves.
@@ -84,7 +103,7 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
       }
     }
   }
-  if (p.corridor.axis === 'none') addPlan([{ rooms: ordered, bounds: root }], undefined, 'plain', 'plain')
+  if (p.corridor.axis === 'none' || corridorDemand) addPlan([{ rooms: ordered, bounds: root }], undefined, 'plain', 'plain')
   else {
     if (p.corridor.clearWidthMm + 2 * t >= (vertical ? root.width : root.height)) throw new InteriorGenerationError('contradiction', '输入矛盾：走廊净宽及墙厚占满建筑范围。')
     corridorPlans(ordered, root)
@@ -118,17 +137,34 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
     // A seeded contiguous order cannot isolate a middle room. In v11 every
     // room can be an end group, without enumerating permutations or complete
     // trial layouts in a score. All partial work shares the same node budget.
-    if (input.algorithmVersion >= 11 && p.corridor.axis === 'none' && depth === 0) for (const room of rooms.slice(1, -1)) {
+    if (p.program) {
+      const seen = new Set(divisions.map(row => row.left.map(room => room.id).sort().join('\0')))
+      const add = (left: InteriorRoomRequirement[]) => {
+        if (left.length === rooms.length) return
+        const key = left.map(room => room.id).sort().join('\0')
+        if (seen.has(key)) return
+        seen.add(key)
+        divisions.push({ left, right: rooms.filter(room => !left.includes(room)), key })
+      }
+      for (const room of rooms) add([room])
+      for (const [i, first] of rooms.entries()) for (const second of rooms.slice(i + 1)) {
+        if (nodes >= stopAt) return
+        tick()
+        add([first, second])
+      }
+      for (const row of [...divisions]) add([...row.right])
+    } else if (input.algorithmVersion >= 11 && p.corridor.axis === 'none' && depth === 0) for (const room of rooms.slice(1, -1)) {
       divisions.push({ left: [room], right: rooms.filter(r => r !== room), key: `single:${room.id}` })
     }
     for (const axis of ['x', 'y'] as const) for (const division of divisions) {
       if (nodes >= stopAt) return
       tick(rooms.length)
       const { left, right } = division, size = axis === 'x' ? b.width : b.height, cross = axis === 'x' ? b.height : b.width
-      const weight = (rs: readonly InteriorRoomRequirement[]) => rs.reduce((n, r) => n + targetArea(r), 0)
+      const weight = (rs: readonly InteriorRoomRequirement[]) => rs.reduce((n, r) => n + roomWeight(r), 0)
       const positions = [Math.round(size * weight(left) / weight(rooms)), Math.floor(size / 2)]
       for (const [rs, reverse] of [[left, false], [right, true]] as const) if (rs.length === 1) {
-        for (const area of [rs[0].minAreaMm2, targetArea(rs[0]), rs[0].maxAreaMm2]) {
+        if (axis === corridorAxis && rs[0].id === corridorId) positions.push(reverse ? size - corridorBand : corridorBand)
+        for (const area of [rs[0].minAreaMm2, roomWeight(rs[0]), rs[0].maxAreaMm2]) {
           for (const length of new Set([Math.floor(area / (cross - t)) + t, Math.ceil(area / (cross - t)) + t])) positions.push(reverse ? size - length : length)
         }
         const length = Math.round((cross - t) / preferredAspect(rs[0])) + t
@@ -147,7 +183,7 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
       }
     }
     splits.sort((a, b) => a.score - b.score || compare(rank(a.key), rank(b.key)))
-    if (input.algorithmVersion >= 11 && p.corridor.axis === 'none' && depth === 0) {
+    if (input.algorithmVersion >= 11 && (p.corridor.axis === 'none' || corridorDemand) && depth === 0) {
       // Give distinct root groupings a real comparison before exploring many
       // millimetre variants of one cut. Suspended generators do no hidden work;
       // each yielded full layout is charged by the existing caller.
@@ -159,9 +195,10 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
       }
       for (const split of [...first, ...rest]) {
         if (nodes >= stopAt) return
+        const branchStop = p.program ? Math.min(stopAt, nodes + Math.max(768, rooms.length ** 2 * 24)) : stopAt
         const rows = (function* (): Generator<Placed[]> {
-          for (const a of partition(split.a.rooms, split.a.bounds, stopAt, depth + 1, relationAware ? [...outside, split.b] : []))
-            for (const b of partition(split.b.rooms, split.b.bounds, stopAt, depth + 1, relationAware ? [...outside, ...placedGroups(a)] : [])) yield [...a, ...b]
+          for (const a of partition(split.a.rooms, split.a.bounds, branchStop, depth + 1, relationAware ? [...outside, split.b] : []))
+            for (const b of partition(split.b.rooms, split.b.bounds, branchStop, depth + 1, relationAware ? [...outside, ...placedGroups(a)] : [])) yield [...a, ...b]
         })()
         // This branch offers one full comparison per root cut. The remaining
         // budget moves to another cut, rather than repeatedly changing a child.
@@ -177,6 +214,11 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
   }
   function* complete(plan: Plan, stopAt: number, at = 0, placed: Placed[] = []): Generator<InteriorLayout> {
     if (at === plan.groups.length) {
+      if (corridorId) {
+        const passage = placed.find(row => row.requirementId === corridorId)!
+        yield { rooms: placed.filter(row => row !== passage), corridors: [{ roomId: interiorEntityId(sceneId, input.seed, 'corridor'), boundsMm: passage.boundsMm }] }
+        return
+      }
       yield { rooms: placed, corridors: plan.corridor ? [{ roomId: interiorEntityId(sceneId, input.seed, 'corridor'), boundsMm: plan.corridor }] : [] }
       return
     }
@@ -190,6 +232,7 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
   const families = new Set<Plan['family']>(), first: Plan[] = [], rest: Plan[] = []
   for (const plan of plans) { if (families.has(plan.family)) rest.push(plan); else { families.add(plan.family); first.push(plan) } }
   let best: InteriorLayout | undefined, bestScore = Infinity
+  const conflicts = new Set<string>()
   for (const plan of [...first, ...rest]) {
     const stopAt = plan.family === 'plain' ? limit : Math.min(limit, nodes + Math.max(1024, p.rooms.length * 128))
     for (const layout of complete(plan, stopAt)) {
@@ -197,11 +240,12 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
       attempts++
       const rowCount = layout.rooms.length + layout.corridors.length
       meter.charge({ candidateAttempts: 1, fieldEvaluations: p.relations.length + layout.rooms.length, intersectionPairs: rowCount * (rowCount - 1) / 2 })
-      if (!checkInteriorLayout(input, layout).length) {
-        const score = layout.rooms.reduce((n, r) => n + leafScore(p.rooms.find(q => q.id === r.requirementId)!, r.boundsMm), 0)
+      const issues = checkInteriorLayout(input, layout)
+      if (!issues.length) {
+        const score = layout.rooms.reduce((n, r) => n + leafScore(demands.find(q => q.id === r.requirementId)!, r.boundsMm), 0)
           + layout.corridors.reduce((n, c) => n + 2 * clearArea(c.boundsMm, t) / clearArea(root, t), 0)
         if (score < bestScore) { best = layout; bestScore = score }
-      }
+      } else if (p.program) for (const issue of issues) conflicts.add(issue)
       // Reserve a comparison for another family; no full candidates are hidden
       // inside a partial score or silently omitted from candidateAttempts.
       if (attempts >= maxAttempts) break
@@ -210,5 +254,6 @@ export function solveBalancedInteriorLayout(sceneId: string, input: InteriorGene
     if (attempts >= maxAttempts || nodes >= limit) break
   }
   if (best) return { rooms: [...best.rooms].sort((a, b) => compare(a.requirementId, b.requirementId)), corridors: best.corridors }
+  if (p.program) throw new InteriorGenerationError('search-exhausted', `有限室内试排未找到同时满足外门、共墙、走廊和净尺寸的布局。${[...conflicts].slice(0, 4).join(' ')}`)
   throw new InteriorGenerationError('search-exhausted', `有限比例与走廊布局搜索未找到符合全部净面积和关系${p.arrangement.entranceRoomRequirementId === undefined ? '' : '及指定入口房间外墙'}要求的结果；可调整范围或需求，这不证明需求不可行。`)
 }

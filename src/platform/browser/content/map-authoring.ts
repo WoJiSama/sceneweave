@@ -8,6 +8,7 @@ import { defaultForestCampCoverages } from '../../../application/workspace/woodl
 import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, measureTaskBudget, type BudgetUsage, type TaskBudgetProfile } from '../../../shared/budget/task-budget.js'
 import { VOLCANO_DEFAULTS } from '../../../shared/generation/domains/volcano/contracts.js'
 import { reviewSavedVolcano } from '../../../shared/generation/domains/volcano/index.js'
+import { reviewSavedInterior } from '../../../shared/generation/domains/interior/review.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import { ERODED_COAST_VERSION } from '../../../shared/terrain-generation/generate.js'
 import type { LandscapeRoadFailure, LandscapeWidthAttempt } from '../../../shared/terrain-generation/landscape-authoring.js'
@@ -44,8 +45,10 @@ function generationIntent(input: MapGenerateRequest): GenerationIntent {
   switch (recipe.kind) {
     case 'interior':
       return { domain: 'interior', request: { ...base, wallThicknessMm: 180,
-        rooms: recipe.rooms.map(({ minAreaM2, ...room }) => ({ ...room, minAreaMm2: Math.max(1, Math.round(minAreaM2 * 1_000_000)), maxAreaMm2: widthMm * heightMm })),
+        rooms: recipe.rooms.map(({ minAreaM2, maxAreaM2, ...room }) => ({ ...room, minAreaMm2: Math.max(1, Math.round(minAreaM2 * 1_000_000)),
+          maxAreaMm2: maxAreaM2 === undefined ? widthMm * heightMm : Math.max(1, Math.round(maxAreaM2 * 1_000_000)) })),
         relations: recipe.relations, corridor: recipe.corridor ?? { axis: 'none', clearWidthMm: recipe.clearWidthMm },
+        ...(recipe.program ? { program: recipe.program } : {}),
         arrangement: { doors: true, entrance: true, furniture: recipe.furniture,
           doorWidthMm: Math.max(1100, recipe.clearWidthMm), clearWidthMm: recipe.clearWidthMm,
           ...(recipe.entranceRoom ? { entranceRoomRequirementId: recipe.entranceRoom } : {}) },
@@ -298,7 +301,11 @@ export function reviewSavedMap(bundle: ProjectBundle, action: 'generate' | 'edit
   const usage = assertTaskBudget(profile, measureTaskBudget(document, document, { before: project, after: project }, {}, 'map-spatial-v2'))
   if (action === 'generate') {
     const input = parseMapGenerate(raw)
+    const interior = input.recipe.kind === 'interior' && input.recipe.program
+      ? reviewSavedInterior(publicTerrainView(document), floor.id, input.seed, profile) : undefined
+    if (interior && !interior.ok) throw new OperationRejected('invalid_geometry', `保存工程的室内需求未通过：${interior.issues.join('；')}`)
     return { ...reviewedGeneration(document, floor.id, input, true),
+      ...(interior ? { interior } : {}),
       usage, title: document.title, revision: document.revision }
   }
   const input = parseMapEdit(raw)

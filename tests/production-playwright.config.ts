@@ -16,7 +16,7 @@ export default defineConfig({
   ] : development.projects,
   testMatch: [
     ...productionOnlySpecs,
-    '**/backup-delivery-ux.spec.ts', '**/export-privacy-ux.spec.ts', '**/room-privacy-ux.spec.ts', '**/natural-detail-queue.spec.ts',
+    '**/backup-delivery-ux.spec.ts', '**/export-privacy-ux.spec.ts', '**/room-privacy-ux.spec.ts', '**/natural-detail-queue.spec.ts', '**/programmed-interior.spec.ts',
     ...(process.env.SCENEWEAVE_DETAIL_ARTIFACT ? ['**/detail-floor-privacy-acceptance.spec.ts'] : []),
     ...(process.env.SCENEWEAVE_NOTE_PRIVACY_INPUTS ? ['**/note-privacy-notice.spec.ts'] : []),
   ],

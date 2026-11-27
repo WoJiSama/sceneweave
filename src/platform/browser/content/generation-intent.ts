@@ -124,7 +124,7 @@ export const browserGenerationContent: GenerationContentPort = {
       ['storage', 'cupboard-linen'], ['work', 'counter-kitchen'], ['work', 'desk-writing'], ['hearth', 'stove-masonry'], ['shelf', 'shelf-books']] as const)
       .map(([role, key]) => ({ role, ref: preferredObliqueProp(base.document, 'refined-prop-interior-' + key) }))
       .filter(row => base.document.propDefinitions[row.ref.id]?.version === row.ref.version)
-    return { base, palette, materials: interiorSurfaces('', true) }
+    return { base, palette, materials: interiorSurfaces('', true), seatingRugRef: ref('refined-prop-interior-rug-geometric') }
   }),
   forest: (input, options) => withNativeSignal(options, async signal => {
     const base = await createForestCampBlankProject(blankOptions(input), signal)

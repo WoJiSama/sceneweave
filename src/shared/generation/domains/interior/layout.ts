@@ -3,6 +3,7 @@ import { captureExecutionBudget, type TaskBudgetProfile } from '../../../budget/
 import { GenerationError } from '../../orchestrator.js'
 import { hashGenerationValue } from '../../contracts.js'
 import { solveBalancedInteriorLayout } from './layout-balanced.js'
+import { checkInteriorProgramLayout } from './program.js'
 
 export type InteriorFailure = 'invalid-input' | 'unsupported' | 'contradiction' | 'search-exhausted' | 'budget-exceeded' | 'cancelled'
 export class InteriorGenerationError extends GenerationError {
@@ -52,6 +53,7 @@ export function checkInteriorLayout(input: InteriorGenerationInput, layout: Inte
   }
   if (p.corridor.axis === 'none' ? layout.corridors.length !== 0 : layout.corridors.length !== 1) issues.push('通道数量不符')
   if (layout.corridors.some(row => (p.corridor.axis === 'horizontal' ? row.boundsMm.height : row.boundsMm.width) - p.wallThicknessMm !== p.corridor.clearWidthMm)) issues.push('通道实际净宽不符')
+  if (p.program) issues.push(...checkInteriorProgramLayout(p, layout, { x: bounds.x + inset, y: bounds.y + inset, width: bounds.width - 2 * inset, height: bounds.height - 2 * inset }))
   return issues
 }
 

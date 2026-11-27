@@ -1,6 +1,6 @@
 import { z } from 'zod'
+import { programmedInteriorLayoutParametersSchema } from './domains/interior/contracts.js'
 import { VOLCANO_DEFAULTS, volcanoBreachSchema, volcanoPercentSchema, volcanoShapeSchema, volcanoSideSchema, volcanoWidthSchema } from './domains/volcano/contracts.js'
-import { directedInteriorLayoutParametersSchema } from './domains/interior/contracts.js'
 import { AUTOMATIC_ROAD_MAX_FIXED_POINTS, ROAD_LANDING_MIN_MM, ROAD_LANDING_MAX_MM } from '../geometry/road-surface.js'
 import { commandSelectionLimit } from '../budget/command-budget.js'
 import { ART_STYLE_PRESETS } from '../visual/art-style.js'
@@ -119,14 +119,14 @@ export const mapReferenceSchema = z.object({
   design: referenceDesign.optional(),
 }).strict()
 
-const interior = directedInteriorLayoutParametersSchema.shape
+const interior = programmedInteriorLayoutParametersSchema.shape
 const recipeSchema = z.discriminatedUnion('kind', [
   landscapeRecipe,
   z.object({ kind: z.literal('layout'), palette: z.enum(['starter', 'interior', 'coast', 'forest']).default('starter') }).strict(),
   z.object({ kind: z.literal('interior'), rooms: z.array(z.object({ id, purpose: label,
-    minAreaM2: z.number().positive().max(10000).default(9), minClearSideMm: width.default(1800) }).strict()).min(1).max(24),
+    minAreaM2: z.number().positive().max(10000).default(9), maxAreaM2: z.number().positive().max(10000).optional(), minClearSideMm: width.default(1800) }).strict()).min(1).max(24),
   relations: interior.relations.default([]), entranceRoom: id.optional(), furniture: z.boolean().default(true),
-  clearWidthMm: width.max(5000).default(1100), corridor: interior.corridor.optional() }).strict(),
+  clearWidthMm: width.max(5000).default(1100), corridor: interior.corridor.optional(), program: interior.program }).strict(),
   z.object({ kind: z.literal('forest'), entranceSide: z.enum(['west', 'east', 'north', 'south']).default('west'),
     density: z.number().min(0).max(2).default(1), routeWidthMm: width.max(5000).default(1400),
     clearings: z.array(z.object({ id, boundsMm: z.object({ x: integer.nonnegative(), y: integer.nonnegative(),
@@ -310,6 +310,12 @@ const examples = {
     recipe: { kind: 'interior', entranceRoom: 'reception', furniture: false,
       rooms: [{ id: 'reception', purpose: '接待室' }, { id: 'ward', purpose: '病房', minAreaM2: 16 }],
       relations: [{ a: 'reception', b: 'ward', kind: 'adjacent', minimumSharedWallMm: 2200 }] } },
+  'interior-program': { title: '社区活动室', widthMm: 16000, heightMm: 12000,
+    recipe: { kind: 'interior', clearWidthMm: 1000,
+      rooms: [{ id: 'activity', purpose: '活动室', minAreaM2: 48 }, { id: 'supply', purpose: '物资室', minAreaM2: 14, maxAreaM2: 52 }],
+      program: { entrances: [{ id: 'front', roomId: 'activity', role: 'main', side: 'south', widthMm: 1600 },
+        { id: 'supply-door', roomId: 'supply', role: 'service', side: 'north', widthMm: 1300 }], connections: [{ a: 'activity', b: 'supply', widthMm: 1600 }],
+        furnishings: [{ roomId: 'activity', seatingGroups: 1, counterNextTo: 'supply' }], roomLabels: true } } },
   forest: { title: '林中营地', recipe: { kind: 'forest', entranceSide: 'south' } },
   volcano: { title: '火口调查站', recipe: { kind: 'volcano', entranceSide: 'west', breachSide: 'east', lava: 'hot' }, oblique: true },
   mixed: { title: '林中哨站', recipe: { kind: 'mixed' } },

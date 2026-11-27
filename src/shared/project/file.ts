@@ -18,6 +18,7 @@ import { decodeSceneCoordinates, encodeSceneCoordinates } from '../aggregates/sc
 import { LANDSCAPE_GROUND_SCATTER_VERSION } from '../geometry/scatter-algorithm.js'
 import { VOLCANO_CALDERA_VERSION } from '../generation/domains/volcano/contracts.js'
 import { MIXED_VOLCANO_LAYOUT_VERSION } from '../generation/domains/mixed/contracts.js'
+import { INTERIOR_PROGRAM_VERSION } from '../generation/domains/interior/contracts.js'
 
 export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'extensions' | 'history'
   | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'snapshot-extensions' | 'asset' | 'license' | 'source'
@@ -39,7 +40,8 @@ const extensionsPath = (scenePath: string) => scenePath.replace(/scene\.json$/, 
 const containsExtensions = (entries: ManifestEntry[]) => entries.some(entry => entry.role === 'extensions' || entry.role === 'snapshot-extensions')
 function documentReaderVersion(document: ProjectData['document'] | undefined) {
   const recipes = Object.values(document?.generation?.legacy.recipes ?? {})
-  if (Object.values(document?.openings ?? {}).some(opening => opening?.presentation !== undefined)) {
+  if (Object.values(document?.openings ?? {}).some(opening => opening?.presentation !== undefined)
+    || recipes.some(recipe => 'domain' in recipe && recipe.domain === 'interior' && recipe.algorithmId === 'interior-layout' && recipe.algorithmVersion === INTERIOR_PROGRAM_VERSION)) {
     return PROJECT_INTERIOR_PROGRAM_READER_VERSION
   }
   if (recipes.some(recipe => 'domain' in recipe
