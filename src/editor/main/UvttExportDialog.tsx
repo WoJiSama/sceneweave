@@ -5,6 +5,7 @@ import { buildUvttPlan } from '../../shared/export/uvtt'
 import { exportUvtt, exportUvttFloors, UVTT_TARGET } from '../../platform/browser/export/uvtt'
 import { exportPng } from '../../platform/browser/render/renderer'
 import { downloadFile } from '../main-shell/recovery-file'
+import { storageBytes } from '../../platform/browser/storage/local-retention'
 
 export default function UvttExportDialog({ project, floorId, onClose }: { project: EditableProject; floorId: string; onClose: () => void }) {
   const [acknowledged, setAcknowledged] = useState(false), [working, setWorking] = useState(false), [message, setMessage] = useState('')
@@ -45,7 +46,7 @@ export default function UvttExportDialog({ project, floorId, onClose }: { projec
         : allFloors ? await exportUvttFloors(bundle, abort.signal, wideMap) : await exportUvtt(bundle, abort.signal, floorId, wideMap)
       abort.signal.throwIfAborted()
       downloadFile(blob, fallback ? 'sceneweave-player-map.png' : allFloors ? 'sceneweave-vtt-floors.zip' : 'sceneweave-vtt.zip')
-      setMessage(fallback ? '玩家 PNG 已生成。' : '导入包已生成；请按包内说明在目标软件核对。')
+      setMessage(fallback ? `玩家 PNG 已生成 · ${storageBytes(blob.size)}。` : `导入包已生成 · ${storageBytes(blob.size)}。请按包内说明在目标软件核对。`)
     } catch (error) { setMessage(abort.signal.aborted ? '已取消，工程保持不变。' : (error as Error).message) }
     finally { controller.current = null; setWorking(false) }
   }

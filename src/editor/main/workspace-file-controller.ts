@@ -7,6 +7,7 @@ import { projectContentHash } from '../../shared/project/validate'
 import type { WorkspaceBackupAttempt } from './WorkspaceBackupFeedback'
 import { resolvePartitionOutput } from '../../shared/geometry/partitions'
 import { zipSync } from 'fflate'
+import { storageBytes } from '../../platform/browser/storage/local-retention'
 
 export type MapImageOptions = { format?: 'png' | 'webp'; longEdgePx?: number }
 type FloorImageOptions = { audience: 'gm' | 'player'; floorId: string; longEdgePx: number; partitionId?: string }
@@ -96,8 +97,8 @@ export function createWorkspaceFileController(ports: WorkspaceFilePorts) {
       ports.download(file, selected ? 'sceneweave-history.sceneweave' : 'sceneweave-complete.sceneweave')
       attempt = {
         sceneId, baseline: new WeakRef(current), kind: 'download-started',
-        detail: selected ? `（含秘密及所选 ${selected.length} 份历史快照）`
-          : backedUpFromMemory ? '（含全部资源、许可和秘密，以及当前页面的最新编辑）' : '（含全部资源、许可和秘密）',
+        detail: (selected ? `（含秘密及所选 ${selected.length} 份历史快照）`
+          : backedUpFromMemory ? '（含全部资源、许可和秘密，以及当前页面的最新编辑）' : '（含全部资源、许可和秘密）') + ` · ${storageBytes(file.size)}`,
       }
     } catch (error) {
       const cancelled = signal?.aborted === true
@@ -127,7 +128,7 @@ export function createWorkspaceFileController(ports: WorkspaceFilePorts) {
     workspace.assertCheckpoint(checkpoint)
     if (workspace.getState().project?.document.sceneId !== document.sceneId) throw new Error('导出所属工程已切换，请重新导出地图。')
     const range = partition ? `分区 ${partition.region.name}` : `${document.floors[floorId].name}固定范围`
-    const message = `${audience === 'gm' ? '主持人' : '玩家'} ${format === 'png' ? 'PNG' : 'WebP'} 已生成 · r${document.revision} · ${range} · 长边 ${longEdgePx} px`
+    const message = `${audience === 'gm' ? '主持人' : '玩家'} ${format === 'png' ? 'PNG' : 'WebP'} 已生成 · r${document.revision} · ${range} · 长边 ${longEdgePx} px · ${storageBytes(blob.size)}`
     ports.download(blob, `sceneweave-${audience}-${partition ? 'partition' : 'map'}.${format}`)
     onSuccess(message)
   }
@@ -144,7 +145,9 @@ export function createWorkspaceFileController(ports: WorkspaceFilePorts) {
       entries[`floor-${String(++index).padStart(2, '0')}.${format}`] = new Uint8Array(await image.arrayBuffer())
     }
     workspace.assertCheckpoint(checkpoint)
-    ports.download(new Blob([zipSync(entries, { level: 0 }) as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), 'sceneweave-player-floors.zip')
+    const archive = new Blob([zipSync(entries, { level: 0 }) as Uint8Array<ArrayBuffer>], { type: 'application/zip' })
+    ports.download(archive, 'sceneweave-player-floors.zip')
+    return `已生成全部楼层的玩家地图 ZIP · ${storageBytes(archive.size)}。`
   }
 
   return { backup, exportImage, exportAllPlayerFloors }

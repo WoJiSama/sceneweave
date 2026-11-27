@@ -493,6 +493,7 @@ export class ProjectRepository implements ProjectStore, ProjectDirectoryStore {
     return review
   }
   recentStorageTotals(): StorageTotals | undefined { return this.accounting.recentTotals() }
+  recentStorageChange(): StorageTotals | undefined { return this.accounting.recentChange() }
   private async confirmedMaintenance<T>(review: object, options: ResourceOptions, run: (owner: string) => Promise<T>): Promise<T> {
     const checked = this.maintenanceReviews.get(review)
     if (!checked) throw new Error('请先选择并重新确认要整理的工程。')

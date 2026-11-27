@@ -2308,8 +2308,7 @@ export default function Workbench({ onBack, onImportFile, active = true, startIn
   const exportAllPlayerFloors = (options: MapImageOptions) => {
     if (!completeProject) return
     void action(async () => {
-      await fileController.exportAllPlayerFloors(completeProject, options)
-      announceSuccess('已生成全部楼层的玩家地图 ZIP。')
+      announceSuccess(await fileController.exportAllPlayerFloors(completeProject, options))
     }, '导出全部楼层', '正在逐层生成玩家地图…')
   }
   const canFinishCanvas = (completing: readonly WorkspaceDraft[]) => active && audience === 'gm' && !catalogBusy

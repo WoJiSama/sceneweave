@@ -13,6 +13,7 @@ const advance = (name: string) => generations.set(name, generation(name) + 1)
 /** Session evidence follows a full scan, never a persisted byte counter. All owned writes are measured before commit. */
 export class StorageAccounting {
   private receipt: Receipt | null = null
+  private lastChange?: StorageTotals
   private readonly pending = new WeakMap<Transaction, StorageTotals>()
   private readonly foreign = new WeakSet<Transaction>()
   private readonly maintenance = new WeakSet<Transaction>()
@@ -98,6 +99,9 @@ export class StorageAccounting {
   recentTotals(): StorageTotals | undefined {
     return this.receipt?.generation === generation(this.db.name) ? { ...this.receipt.totals } : undefined
   }
+  recentChange(): StorageTotals | undefined {
+    return this.lastChange && { ...this.lastChange }
+  }
   /** Explicit removal uses native keys so a corrupt body can be removed. No
    * budget receipt survives it, and every subsequent save reaudits the store. */
   async runMaintenance<T>(operation: () => Promise<T>, expectedEpoch?: number): Promise<T> {
@@ -133,12 +137,16 @@ export class StorageAccounting {
     const epoch = this.checkedEpoch(await this.db.storageState.get('epoch'))
     if (epoch === Number.MAX_SAFE_INTEGER) throw new Error('存储事务版本已耗尽。')
     const totals = await this.totals(prepared)
+    const before = { ...totals }
     this.pending.set(tx, totals)
     try {
       const result = await operation()
       await this.db.storageState.put({ key: 'epoch', epoch: epoch + 1 })
       const current = generation(this.db.name), receipt = { totals: { ...totals }, epoch: epoch + 1, generation: current }
-      tx.on('complete', () => { if (generation(this.db.name) === current) this.receipt = receipt })
+      tx.on('complete', () => {
+        if (generation(this.db.name) === current) this.receipt = receipt
+        this.lastChange = { documentBytes: totals.documentBytes - before.documentBytes, resourceBytes: totals.resourceBytes - before.resourceBytes }
+      })
       tx.on('abort', () => { this.invalidate() })
       return result
     } finally { this.pending.delete(tx) }

@@ -521,7 +521,7 @@ describe('workspace PNG export', () => {
     expect(ports.download).toHaveBeenCalledExactlyOnceWith(png, `sceneweave-${audience}-map.png`)
     expect(ports.download.mock.calls[0][0]).toBe(png)
     expect(ports.download.mock.results[0].type).toBe('return')
-    expect(onSuccess).toHaveBeenCalledExactlyOnceWith(`${label} PNG 已生成 · r7 · 上层固定范围 · 长边 4096 px`)
+    expect(onSuccess).toHaveBeenCalledExactlyOnceWith(`${label} PNG 已生成 · r7 · 上层固定范围 · 长边 4096 px · ${png.size} B`)
     expect(ports.download.mock.invocationCallOrder[0]).toBeLessThan(onSuccess.mock.invocationCallOrder[0])
   })
 

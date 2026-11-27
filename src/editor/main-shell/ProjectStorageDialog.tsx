@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ProjectDirectoryCursor, ProjectDirectoryEntry } from '../../application/ports/project-directory'
 import { HISTORY_LIMITS } from '../../shared/model/history'
-import { browserStorageStatus, nearProjectStorageLimit, type BrowserStorageStatus } from '../../platform/browser/storage/local-retention'
+import { browserStorageStatus, nearProjectStorageLimit, storageBytes, storageDelta, type BrowserStorageStatus } from '../../platform/browser/storage/local-retention'
+import type { ImageDraftUsage, ImageWorkflowStore } from '../../platform/browser/content/image-workflow-store'
 import { downloadFile } from './recovery-file'
 import './project-storage.css'
 
 type StorageUse = { resourceBytes: number; documentBytes: number }
-const mib = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
 type Confirmation = { id: string; title: string; kind: 'remove' | 'trim'; review: object }
+
+async function withImageDrafts<T>(action: (store: ImageWorkflowStore) => Promise<T>): Promise<T> {
+  const { ImageWorkflowStore } = await import('../../platform/browser/content/image-workflow-store')
+  const store = new ImageWorkflowStore()
+  try { return await action(store) } finally { store.close() }
+}
 
 export function ProjectStorageDialog({ onClose, onChange, activeSceneId, onReleaseActive }: {
   onClose(): void; onChange?(): void; activeSceneId?: string; onReleaseActive?(): Promise<void>
@@ -17,6 +23,7 @@ export function ProjectStorageDialog({ onClose, onChange, activeSceneId, onRelea
   const [selected, setSelected] = useState(''), [confirmation, setConfirmation] = useState<Confirmation>()
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState(''), [error, setError] = useState('')
   const [usage, setUsage] = useState<StorageUse>(), [browser, setBrowser] = useState<BrowserStorageStatus>()
+  const [projectChange, setProjectChange] = useState<StorageUse>(), [draftUsage, setDraftUsage] = useState<ImageDraftUsage>()
   useEffect(() => {
     const node = dialog.current!
     node.showModal()
@@ -37,14 +44,30 @@ export function ProjectStorageDialog({ onClose, onChange, activeSceneId, onRelea
   const row = entries.find(value => value.sceneId === selected)
   const checkUsage = () => run(async () => {
     const { projectRepository } = await import('../../platform/browser/runtime')
-    setUsage(await projectRepository.usage('local-storage-overview'))
-    setBrowser(await browserStorageStatus())
+    const [project, drafts, status] = await Promise.allSettled([
+      projectRepository.usage('local-storage-overview'), withImageDrafts(store => store.usage()), browserStorageStatus(),
+    ] as const)
+    if (project.status === 'fulfilled') setUsage(project.value)
+    if (drafts.status === 'fulfilled') setDraftUsage(drafts.value)
+    if (status.status === 'fulfilled') setBrowser(status.value)
+    setProjectChange(projectRepository.recentStorageChange())
+    const problems = [project, drafts, status].filter(result => result.status === 'rejected')
+    if (problems.length) throw new Error(problems.map(result => String(result.reason instanceof Error ? result.reason.message : result.reason)).join(' · '))
+  })
+  const compactDrafts = () => run(async () => {
+    const { result, usage } = await withImageDrafts(async store => {
+      const result = await store.compactLegacyDrafts()
+      return { result, usage: await store.usage() }
+    })
+    setDraftUsage(usage); setBrowser(await browserStorageStatus())
+    setNotice(`已整理 ${result.drafts} 份旧草稿 · ${storageDelta(-result.bytesFreed)}${result.skipped ? ` · ${result.skipped} 份原包已保留` : ''}。`)
   })
   const reclaim = () => run(async () => {
     const { projectRepository } = await import('../../platform/browser/runtime')
     const result = await projectRepository.reclaimProjectStorage()
     setUsage(undefined)
-    setNotice(`已回收 ${result.resourceCount} 份资源、${result.licenseCount} 份许可和 ${result.blockCount} 个工程内容块。`)
+    setBrowser(await browserStorageStatus())
+    setNotice(`已回收 ${result.resourceCount} 份资源、${result.licenseCount} 份许可和 ${result.blockCount} 个工程内容块 · 资源与许可减少 ${storageBytes(result.resourceBytes + result.licenseBytes)}。`)
     onChange?.()
   })
   const backup = () => run(async () => {
@@ -54,8 +77,9 @@ export function ProjectStorageDialog({ onClose, onChange, activeSceneId, onRelea
     ])
     const project = await projectRepository.load(row.sceneId)
     if (!project) throw new Error('工程没有可读取的已保存版本。')
-    downloadFile(await exportProjectBackup(project, { ...validation, signal: undefined }), 'sceneweave-complete.sceneweave')
-    setNotice('已发起完整工程备份下载。文件含主持人信息，请在浏览器下载列表确认。')
+    const archive = await exportProjectBackup(project, { ...validation, signal: undefined })
+    downloadFile(archive, 'sceneweave-complete.sceneweave')
+    setNotice(`已发起完整工程备份下载 · ${storageBytes(archive.size)}。文件含主持人信息，请在浏览器下载列表确认。`)
   })
   const verifySelected = () => run(async () => {
     if (!row) return
@@ -105,12 +129,19 @@ export function ProjectStorageDialog({ onClose, onChange, activeSceneId, onRelea
     onCancel={event => { event.preventDefault(); if (!busy) onClose() }}>
     <h2 id="project-storage-title">管理本地存储</h2>
     <div className="project-storage-actions">
-      <button type="button" className="secondary" disabled={busy} onClick={() => void checkUsage()}>检查工程库用量</button>
+      <button type="button" className="secondary" disabled={busy} onClick={() => void checkUsage()}>检查本地存储用量</button>
       <button type="button" className="secondary" disabled={busy} onClick={() => void reclaim()}>回收无引用数据</button>
     </div>
-    {usage && <p>工程资源 {mib(usage.resourceBytes)} / {mib(HISTORY_LIMITS.storedResourceBytes)} · 工程与历史 {mib(usage.documentBytes)} / {mib(HISTORY_LIMITS.storedDocumentBytes)}</p>}
+    {usage && <p>工程资源 {storageBytes(usage.resourceBytes)} / {storageBytes(HISTORY_LIMITS.storedResourceBytes)} · 工程与历史 {storageBytes(usage.documentBytes)} / {storageBytes(HISTORY_LIMITS.storedDocumentBytes)}</p>}
+    {projectChange && <p>本页最近一次工程写入 · 资源{storageDelta(projectChange.resourceBytes)} · 工程与历史{storageDelta(projectChange.documentBytes)}</p>}
+    {draftUsage && <section aria-label="图片草稿占用">
+      <p>图片草稿 {draftUsage.drafts} 份 · {storageBytes(draftUsage.bytes)}。草稿记录 {storageBytes(draftUsage.draftBytes)} · 共享图像 {storageBytes(draftUsage.sharedImageBytes)}。</p>
+      {draftUsage.lastChange && <p>本页最近一次草稿操作 · {storageDelta(draftUsage.lastChange.bytes)}</p>}
+      {draftUsage.legacyDrafts > 0 && <button type="button" className="secondary" disabled={busy} onClick={() => void compactDrafts()}>整理旧图片草稿（{draftUsage.legacyDrafts} 份）</button>}
+    </section>}
     {(nearLimit || nearBrowserLimit) && <p role="status" className="home-diagnostic">存储接近上限。请先下载并验证备份，再整理历史或移除不需要的工程。</p>}
     {browser && <section aria-label="浏览器保留状态">
+      {browser.used !== undefined && <p>浏览器报告的站点占用约 {storageBytes(browser.used)}{browser.quota !== undefined && ` / ${storageBytes(browser.quota)}`}。</p>}
       <p>{browser.persistent ? '浏览器已允许持久存储。' : '浏览器可能在空间紧张时回收站点数据。'} 请定期下载工程、素材库和模板库备份。</p>
       {!browser.persistent && browser.requestable && <button type="button" className="secondary" disabled={busy} onClick={() => void run(async () => {
         const status = await browserStorageStatus(true)
