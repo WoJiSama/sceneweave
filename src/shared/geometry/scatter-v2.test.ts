@@ -12,7 +12,7 @@ import { validateSceneDocument } from '../validation/scene.js'
 import { applySceneryCandidate, prepareSceneryRegeneration } from '../visual/scenery.js'
 import { polygonDistance, polygonInside, propFootprint, terrainPoints, validateGeometry } from './geometry.js'
 import * as scatter from './scatter.js'
-import type { ScatterAlgorithmVersion } from './scatter-algorithm.js'
+import { LANDSCAPE_FITTED_WOODLAND_SCATTER_VERSION, type ScatterAlgorithmVersion } from './scatter-algorithm.js'
 
 let sequence=0
 const runtime={ids:{nextId:()=>`scatter-test-${++sequence}`},clock:{now:()=> '2026-10-29T00:00:00.000Z'}}
@@ -26,7 +26,9 @@ function fixture():SceneDocument {
 }
 const create=(algorithmVersion?:ScatterAlgorithmVersion)=>({type:'createScatter' as const,id:'trees',floorId:'visual-floor',layerId:'visual-layer-props',domain:{kind:'area' as const,areaId:'meadow'},palette:[{key:'z-tree',propDefinitionRef:{id:'tree',version:1},weight:3},{key:'a-shrub',propDefinitionRef:{id:'shrub',version:1},weight:1}],seed:'礁岸-织境',gridOriginMm:{x:123,y:-456},cellSizeMm:2200,densityFactor:.7,minDistanceMm:100,rotationRangeDeg:{min:10,max:350},...(algorithmVersion?{algorithmVersion}:{})})
 function populated(version:ScatterAlgorithmVersion='scatter-cell-v2') {
- return applyCommands(fixture(),[create(version),{type:'regenerateScatter',id:'trees'}],runtime)
+ const command=create(version)
+ if(version===LANDSCAPE_FITTED_WOODLAND_SCATTER_VERSION)command.palette[0].key='tree'
+ return applyCommands(fixture(),[command,{type:'regenerateScatter',id:'trees'}],runtime)
 }
 function vectorGroup():ScatterGroup {
  return {...create(),algorithmVersion:'scatter-cell-v1',editLocked:false,visibility:'public',cellSizeMm:1600,members:{},exclusions:[]} as ScatterGroup
@@ -92,8 +94,8 @@ describe('explicit scatter-cell-v2 contract',()=>{
   group.algorithmVersion='future-scatter-v9';expect(validateSceneDocument(scene).ok).toBe(true)
   expect(()=>scatter.buildScatterRegeneration(scene,'trees')).toThrow(/不可重新生成/)
  })
- it('preserves manual appearance, delete suppression, detached props and entity/layer locks',()=>{
-  let scene=populated(),members=Object.entries(scene.scatterGroups.trees.members).filter(([,member])=>member.propId!==null)
+ it.each(['scatter-cell-v2', LANDSCAPE_FITTED_WOODLAND_SCATTER_VERSION] as const)('preserves manual appearance, delete suppression, detached props and entity/layer locks: %s',version=>{
+  let scene=populated(version),members=Object.entries(scene.scatterGroups.trees.members).filter(([,member])=>member.propId!==null)
   expect(members.length).toBeGreaterThanOrEqual(6)
   const [[manualKey,manual],[deletedKey,deleted],[detachedKey,detached],[lockedKey,locked],[layerKey,layerLocked]]=members
   scene=applyCommands(scene,[{type:'updateProp',id:manual.propId!,changes:{rotationDeg:22.123}},{type:'deleteProp',id:deleted.propId!},{type:'detachScatterMember',groupId:'trees',propId:detached.propId!}],runtime)

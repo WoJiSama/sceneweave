@@ -47,7 +47,10 @@ const onSegment = (p: PointMm, a: PointMm, b: PointMm): boolean => {
 }
 const properCross = (a: PointMm, b: PointMm, c: PointMm, d: PointMm): boolean => {
   const ac = cross(a, b, c), ad = cross(a, b, d), ca = cross(c, d, a), cb = cross(c, d, b)
-  return ((ac < 0 && ad > 0) || (ac > 0 && ad < 0)) && ((ca < 0 && cb > 0) || (ca > 0 && cb < 0))
+  if (!((ac < 0 && ad > 0) || (ac > 0 && ad < 0)) || !((ca < 0 && cb > 0) || (ca > 0 && cb < 0))) return false
+  // Derived rails and their shoulder triangles can represent the same point
+  // through different interpolations. Use the same contact test as pointInPolygon.
+  return !onSegment(c, a, b) && !onSegment(d, a, b) && !onSegment(a, c, d) && !onSegment(b, c, d)
 }
 const meet = (a: PointMm, b: PointMm, c: PointMm, d: PointMm): boolean => {
   if (Math.max(a.x, b.x) < Math.min(c.x, d.x) - EPS || Math.max(c.x, d.x) < Math.min(a.x, b.x) - EPS
@@ -848,7 +851,7 @@ export function validateGeometry(scene: SceneDocument): { errors: Issue[]; warni
     if (!polygon(band, path.id)) continue
     const crossing = path.centerlineMm.slice(1).some((b, i) => path.centerlineMm.slice(i + 3).some((d, k) => meet(path.centerlineMm[i], b, path.centerlineMm[i + 2 + k], d)))
     if (crossing) error('PATH_SELF_OVERLAP', '路径中心线/带区不能自交或折返。', path.id)
-    if (path.roadSurface || path.automaticRoute?.algorithm === AUTOMATIC_ROAD_VERSION) {
+    if (path.roadSurface || path.roadFinish || path.automaticRoute?.algorithm === AUTOMATIC_ROAD_VERSION) {
       try {
         validateAdoptedRoad(scene, path)
         if (path.staircase) planStaircase(path.centerlineMm, path.widthMm, { ...path.staircase, layout: { kind: 'stretch', stepCount: 1 } }, path.widthSections)

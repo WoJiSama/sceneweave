@@ -19,7 +19,7 @@ export function reachesLandmarkSide(centerline: readonly PointMm[], landmark: Po
 /** Trace both approaches to the requested side. Each alternative includes the
  * side itself and a bend beyond it before approaching the destination. */
 export function landmarkRoutes(from: PointMm, to: PointMm, landmark: PointMm, side: keyof typeof bearing, radiusMm: number,
-  widthMm: number, fits: (band: PointMm[]) => boolean, fitRadius = true, onTurnConflict?: (at: PointMm) => void) {
+  widthMm: number, fits: (band: PointMm[]) => boolean, fitRadius = true, onTurnConflict?: (at: PointMm) => void, extendArrival = false) {
   const facing = bearing[side], start = Math.atan2(from.y - landmark.y, from.x - landmark.x)
   const destination = Math.atan2(to.y - landmark.y, to.x - landmark.x), destinationRadius = distance(to, landmark)
   const candidates: { anchors: PointMm[]; score: number }[] = [], seen = new Set<string>()
@@ -48,20 +48,22 @@ export function landmarkRoutes(from: PointMm, to: PointMm, landmark: PointMm, si
       const entry = relativeStart < -.96 ? Math.max(-2.75, relativeStart + .38) : -.68
       const approachesCenter = destinationRadius < radius * .74
       const relativeEnd = signedAngle(destination - facing) * turn
-      const exit = approachesCenter ? .78 : Math.max(.46, Math.min(2.2, relativeEnd - .28))
       const pieces = Math.ceil(-entry / .53)
-      const after = Math.min(Math.ceil(exit / .53), AUTOMATIC_ROAD_MAX_FIXED_POINTS - pieces - (approachesCenter ? 4 : 3))
-      const offsets = [...Array.from({ length: pieces }, (_, i) => entry * (1 - i / pieces)),
-        ...Array.from({ length: after + 1 }, (_, i) => exit * i / after)]
-      const arc = (approachesCenter ? [...offsets, exit + .50] : offsets).map(offset => {
-        const angle = facing + offset * turn
-        const reach = radius * (offset < 0 ? 1 + .12 * offset / entry : offset <= exit ? 1 - .14 * offset / exit : .53)
-        return { x: Math.round(landmark.x + reach * Math.cos(angle)), y: Math.round(landmark.y + reach * Math.sin(angle)) }
-      })
-      // Rounding to the full road width needs room to swing into each turn.
-      const anchors = [from, ...arc.filter((p, i) => i === pieces || distance(p, from) > widthMm * 1.2 && distance(p, to) > widthMm * 1.2), to]
-      if (distance(from, landmark) >= radius * .75 && distanceToSegment(landmark, from, anchors[1]) < radius * .63) continue
-      add(anchors, Math.abs(1 - scale) * radiusMm * 3)
+      const exits = approachesCenter ? extendArrival ? [.78, 1.13, 1.50] : [.78] : [Math.max(.46, Math.min(2.2, relativeEnd - .28))]
+      for (const exit of exits) {
+        const after = Math.min(Math.ceil(exit / .53), AUTOMATIC_ROAD_MAX_FIXED_POINTS - pieces - (approachesCenter ? 4 : 3))
+        const offsets = [...Array.from({ length: pieces }, (_, i) => entry * (1 - i / pieces)),
+          ...Array.from({ length: after + 1 }, (_, i) => exit * i / after)]
+        const arc = (approachesCenter ? [...offsets, exit + .50] : offsets).map(offset => {
+          const angle = facing + offset * turn
+          const reach = radius * (offset < 0 ? 1 + .12 * offset / entry : offset <= exit ? 1 - .14 * offset / exit : .53)
+          return { x: Math.round(landmark.x + reach * Math.cos(angle)), y: Math.round(landmark.y + reach * Math.sin(angle)) }
+        })
+        // Rounding to the full road width needs room to swing into each turn.
+        const anchors = [from, ...arc.filter((p, i) => i === pieces || distance(p, from) > widthMm * 1.2 && distance(p, to) > widthMm * 1.2), to]
+        if (distance(from, landmark) >= radius * .75 && distanceToSegment(landmark, from, anchors[1]) < radius * .63) continue
+        add(anchors, Math.abs(1 - scale) * radiusMm * 3)
+      }
     }
   }
   const arcs = candidates.sort((a, b) => a.score - b.score).map(candidate => candidate.anchors)

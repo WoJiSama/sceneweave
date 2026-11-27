@@ -148,11 +148,6 @@ export function createLandscapeBlankContent(options: BlankOptions, signal?: Abor
     new Set(['pine-branched', 'oak-spreading', 'hazel-bush']), 'naturalStone')
 }
 
-export async function createLandscapeBlankProject(options: BlankOptions, signal?: AbortSignal) {
-  const { scene, batches } = await createLandscapeBlankContent(options, signal)
-  return materializeVisualArtBatches(scene, batches, signal)
-}
-
 const forestPlants = ['oak-spreading', 'pine-branched', 'hazel-bush', 'bramble-fruiting', 'fern-full-crown', 'wildflower-whole-clump']
 
 export function createForestBlankProject(options: BlankOptions, signal?: AbortSignal) {

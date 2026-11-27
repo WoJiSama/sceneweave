@@ -8,31 +8,12 @@ const directions = { west: { x: -1, y: 0 }, east: { x: 1, y: 0 }, north: { x: 0,
 type Turn = { at: PointMm; side: keyof typeof directions; radius: number; fixed: boolean }
 const distance = (a: PointMm, b: PointMm) => Math.hypot(a.x - b.x, a.y - b.y)
 
-/** Find alternative traverses by sampling room for both banks and local grade.
- * These scores only choose which courses go through full grading and validation. */
-export function terrainLandscapeCourses(from: PointMm, to: PointMm, width: number, outline: PointMm[], water: PointMm[][],
-  height: (at: PointMm) => number, meter: ExecutionBudget, disturbance: (course: PointMm[]) => number, turn?: Turn) {
+export function terrainLandscapeCourses(from: PointMm, to: PointMm, width: number, turn?: Turn) {
   const direction = turn ? directions[turn.side] : { x: (to.x - from.x) / distance(from, to), y: (to.y - from.y) / distance(from, to) }
   const point = (origin: PointMm, along: number, across: number) => ({
     x: Math.round(origin.x + direction.x * along - direction.y * across),
     y: Math.round(origin.y + direction.y * along + direction.x * across),
   })
-  const edges: SegmentMm[] = [outline, ...water].flatMap(ring => ring.map((a, i) => [a, ring[(i + 1) % ring.length]] as const))
-  const find = indexEdges(edges), padding = width / 2 + ROAD_SHOULDER_LIMIT_MM * 2
-  const samples = new Map<string, { clearance: number; elevation: number }>()
-  const measure = (p: PointMm) => {
-    const key = `${p.x}/${p.y}`, prior = samples.get(key)
-    if (prior) return prior
-    let clearance = 0
-    if (pointInPolygon(p, outline, false) && water.every(ring => !pointInPolygon(p, ring))) {
-      const local = find(p, p, padding)
-      observeGeometryPairs(local.length)
-      clearance = local.reduce((r, i) => Math.min(r, distanceToSegment(p, ...edges[i])), padding)
-    }
-    const sample = { clearance, elevation: clearance ? height(p) : 0 }
-    samples.set(key, sample)
-    return sample
-  }
   const options: PointMm[][] = []
   if (turn) {
     const minRadius = width * 2.1
@@ -60,26 +41,56 @@ export function terrainLandscapeCourses(from: PointMm, to: PointMm, width: numbe
     }
   }
 
-  const start = measure(from).elevation, end = measure(to).elevation
+  return options
+}
+
+/** Sample room for the road banks and local grade. The resulting order
+ * determines which courses proceed to exact grading and travel checks. */
+export function rankLandscapeCourses(options: PointMm[][], width: number, outline: PointMm[], water: PointMm[][],
+  height: (at: PointMm) => number, meter: ExecutionBudget, disturbance: (course: PointMm[]) => number) {
+  if (options.length < 2) return options
+  const edges: SegmentMm[] = [outline, ...water].flatMap(ring => ring.map((a, i) => [a, ring[(i + 1) % ring.length]] as const))
+  const find = indexEdges(edges), padding = width / 2 + ROAD_SHOULDER_LIMIT_MM * 4
+  const samples = new Map<string, { clearance: number; elevation: number }>()
+  const measure = (p: PointMm) => {
+    const key = `${p.x}/${p.y}`, prior = samples.get(key)
+    if (prior) return prior
+    let clearance = 0
+    if (pointInPolygon(p, outline, false) && water.every(ring => !pointInPolygon(p, ring))) {
+      const local = find(p, p, padding)
+      observeGeometryPairs(local.length)
+      clearance = local.reduce((r, i) => Math.min(r, distanceToSegment(p, ...edges[i])), padding)
+    }
+    const sample = { clearance, elevation: clearance ? height(p) : 0 }
+    samples.set(key, sample)
+    return sample
+  }
   const seen = new Set<string>()
   const ranked = options.flatMap(course => {
     const key = course.map(p => `${p.x}/${p.y}`).join(';')
-    if (seen.has(key) || course.slice(1).some((p, i) => distance(p, course[i]) < width * .95)) return []
+    if (seen.has(key)) return []
     seen.add(key)
     const lengths = course.slice(1).map((p, i) => distance(p, course[i])), length = lengths.reduce((a, b) => a + b)
-    if (Math.abs(end - start) > length * .59) return []
-    let walked = 0, cost = length + disturbance(course) * 8200
+    if (lengths.some(span => !span)) return []
+    const start = measure(course[0]).elevation, end = measure(course.at(-1)!).elevation
+    const steepness = Math.max(0, Math.abs(end - start) - length * .59)
+    let walked = 0, cost = length + disturbance(course) * 11000 + steepness * 15
     for (const [i, span] of lengths.entries()) {
+      cost += Math.max(0, width * .95 - span) * 15
       const a = course[i], b = course[i + 1], count = Math.min(32, Math.ceil(span / Math.max(600, width * .55)))
       let prev = measure(a)
       for (let k = 1; k <= count; k++) {
         const t = k / count
         const site = measure({ x: Math.round(a.x + (b.x - a.x) * t), y: Math.round(a.y + (b.y - a.y) * t) })
-        if (site.clearance < width * .44) return []
         const step = span / count, grade = Math.abs(site.elevation - prev.elevation) / step
+        if (site.clearance < width * .44) cost += step * 16
         const target = start + (end - start) * (walked + span * t) / length
         const pad = Math.max(0, padding - site.clearance) / padding
-        cost += step * (3.7 * grade ** 2 + Math.abs(site.elevation - target) / 9250 + pad * 3.8)
+        // Do not let a brief terrace edge dominate the whole route's score.
+        // Grading and the full-width check evaluate the actual crossing.
+        const gradeAtTransition = Math.min(grade, .4)
+        const slopeCost = gradeAtTransition * (2 * grade - gradeAtTransition)
+        cost += step * (3.7 * slopeCost + Math.abs(site.elevation - target) / 9250 + pad * 3.8)
         prev = site
       }
       walked += span
@@ -87,5 +98,5 @@ export function terrainLandscapeCourses(from: PointMm, to: PointMm, width: numbe
     return [{ course, cost }]
   }).sort((a, b) => a.cost - b.cost)
   meter.charge({ fieldEvaluations: samples.size })
-  return ranked.slice(0, 16).map(row => row.course)
+  return ranked.map(row => row.course)
 }

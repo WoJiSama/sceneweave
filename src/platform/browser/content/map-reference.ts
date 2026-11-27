@@ -1,5 +1,7 @@
 import { traceMapReference, type MapReferenceIssue, type MapReferenceResult } from '../../../shared/generation/map-reference.js'
+import type { MapLandform, MapShallowZone } from '../../../shared/generation/map-authoring.js'
 import type { ImagePixels } from '../../../shared/image-import/pixels.js'
+import type { PointMm } from '../../../shared/model/scene.js'
 import { decodeBrowserSourceImage } from '../images/adapter.js'
 
 export async function readMapReference(bytes: Uint8Array, signal?: AbortSignal): Promise<ImagePixels> {
@@ -26,6 +28,29 @@ export function drawReferenceIssues(ctx: CanvasRenderingContext2D, issues: reado
     ctx.fillStyle = '#933F25'; ctx.fill()
     ctx.strokeStyle = '#FFEDD9'; ctx.stroke()
     ctx.fillStyle = '#FFF'; ctx.fillText(String(index + 1), x, y)
+  }
+  ctx.restore()
+}
+
+export function drawReferenceFeatures(ctx: CanvasRenderingContext2D, landforms: readonly MapLandform[], shallows: readonly MapShallowZone[], scale: number) {
+  const trace = (points: PointMm[], color: string, fill?: string) => {
+    ctx.beginPath()
+    points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))
+    if (fill) { ctx.closePath(); ctx.fillStyle = fill; ctx.fill() }
+    ctx.strokeStyle = color; ctx.stroke()
+  }
+  ctx.save()
+  ctx.lineWidth = 2.1 / scale
+  ctx.lineJoin = 'round'
+  for (const { boundary } of shallows) trace(boundary, '#92F0F9', '#31E1EE35')
+  for (const { structure } of landforms) if (structure) {
+    if (structure.kind === 'area') trace(structure.boundary, '#FFB95F', '#FFB95F28')
+    else trace(structure.centerline, '#FFB95F')
+    if (structure.breakline) {
+      ctx.setLineDash([5 / scale, 3 / scale])
+      trace(structure.breakline, '#FF596F')
+      ctx.setLineDash([])
+    }
   }
   ctx.restore()
 }
@@ -61,7 +86,8 @@ async function drawReferenceOverlay(image: ImagePixels, result: MapReferenceResu
       output.fillStyle = '#FFFDF5'; output.fillText(id, x, y)
       output.restore()
     }
-    for (const [key, color] of [['background', '#5CF2FF'], ['foreground', '#79FFAA'], ['keep', '#FFF170'], ['omit', '#FF967A']] as const) {
+    if (result.request.recipe.kind === 'landscape') drawReferenceFeatures(output, result.request.recipe.landforms, result.coastFeatures.shallows, scale)
+    for (const [key, color] of [['background', '#5CF2FF'], ['foreground', '#79FFAA'], ['keep', '#FFF170'], ['shallow', '#97DED2'], ['omit', '#FF967A']] as const) {
       for (const p of result.guide[key]) {
         output.beginPath(); output.arc(p.x, p.y, 4 / scale, 0, Math.PI * 2)
         output.fillStyle = color; output.fill()

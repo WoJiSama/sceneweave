@@ -22,7 +22,7 @@ import { visualBase } from '../../shared/visual/base.js'
 import { canonicalJson } from '../../shared/validation/json.js'
 import { OperationRejected } from '../../shared/validation/operation-rejection.js'
 import { assertTaskBudget, captureExecutionBudget, captureGeometryPairBudget, measureDocumentBudget, measureTaskBudget, type ExecutionBudget, type TaskBudgetProfile } from '../../shared/budget/task-budget.js'
-import { LANDSCAPE_SCATTER_VERSION } from '../../shared/geometry/scatter-algorithm.js'
+import { LANDSCAPE_SCATTER_ALGORITHM_VERSIONS } from '../../shared/geometry/scatter-algorithm.js'
 import { gradeLandscapeRouteRelief, landscapeRouteAnchors, LANDSCAPE_WATER_ID, type LandscapeRoadFailure } from '../../shared/terrain-generation/landscape-authoring.js'
 import { landscapeCover, landscapeRouteClearances, landscapeSceneryExclusions, landscapeSceneryZone } from '../../shared/terrain-generation/landscape-finish.js'
 import { prepareCompositionCommands, type PrepareOptions } from './prepare.js'
@@ -372,7 +372,7 @@ export async function prepareMapOperations(base: EditableProject, floor: Floor,
   try { commands = withGeometryPairCounter(pairs.add, () => compileMapOperations(base.document, floor, input, options.runtime, preserveAspect, meter)) }
   catch (error) { throw scopedGeometryError(base.document, floor, error) }
   const project = await prepareCompositionCommands(base, commands, {
-    ...options, terrainPairAccounting: 'spatial-v1', onGeometryPairs: pairs.add, onOperationCost: () => {},
+    ...options, terrainPairAccounting: 'map-spatial-v2', onGeometryPairs: pairs.add, onOperationCost: () => {},
   }).catch(error => {
     if (error instanceof OperationRejected && error.code === 'operation_budget') {
       const targets = [...new Set(input.operations.map(row => row.id))]
@@ -383,8 +383,8 @@ export async function prepareMapOperations(base: EditableProject, floor: Floor,
   })
   const changes = mapChanges(base.document, project.document, floor.id)
   const usage = assertTaskBudget(options.budget, measureTaskBudget(base.document, project.document, { before: base, after: project },
-    { ...meter.snapshot(), activeExecutionMs: Math.ceil(performance.now() - started), intersectionPairs: pairs.count() }, 'spatial-v1'))
-  const geometryWork = { model: 'spatial-v1', previousEstimate: measureDocumentBudget(base.document, project.document).intersectionPairs,
+    { ...meter.snapshot(), activeExecutionMs: Math.ceil(performance.now() - started), intersectionPairs: pairs.count() }, 'map-spatial-v2'))
+  const geometryWork = { model: 'map-spatial-v2', previousEstimate: measureDocumentBudget(base.document, project.document).intersectionPairs,
     checkedPairs: pairs.count(), billedPairs: usage.intersectionPairs }
   return { project, changes, usage, geometryWork }
 }
@@ -462,7 +462,8 @@ export function mapSceneSummary(scene: SceneDocument, floor: Floor, query = '', 
       return { kind: 'region', id: row.id, name: row.name, boundary: points, at, locked: row.editLocked,
         ...(sample ? { support: sample.rootSupportRef, elevationMm: Math.round(sample.zMm) } : {}) }
     }),
-    ...onFloor(view.scatterGroups).filter(row => visibility.scatterGroup(row.id) && row.algorithmVersion === LANDSCAPE_SCATTER_VERSION)
+    ...onFloor(view.scatterGroups).filter(row => visibility.scatterGroup(row.id)
+      && LANDSCAPE_SCATTER_ALGORITHM_VERSIONS.some(version => row.algorithmVersion === version))
       .map(row => ({ kind: 'scenery', id: row.id, domain: row.domain, density: row.densityFactor, locked: row.editLocked,
         members: Object.values(row.members).filter(member => member.propId && own(view.props, member.propId)).length })),
   ].filter(row => `${row.kind} ${row.id} ${'purpose' in row ? row.purpose : ''} ${'name' in row ? row.name ?? '' : ''}`.toLowerCase().includes(query.toLowerCase()))

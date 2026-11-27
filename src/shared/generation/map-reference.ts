@@ -3,9 +3,12 @@ import type { ImagePixels } from '../image-import/pixels.js'
 import { simplifyRing, traceIndexedContours } from '../image-import/vector.js'
 import type { PointMm } from '../model/scene.js'
 import { signedVisualArea } from '../visual/geometry.js'
-import { MAP_LANDSCAPE_LIMITS, parseMapGenerate, parseMapReference, type MapLandscapeRecipe } from './map-authoring.js'
+import { MAP_LANDSCAPE_LIMITS, MAP_REFERENCE_DEFAULTS, parseMapGenerate, parseMapReference, type MapLandscapeRecipe } from './map-authoring.js'
 import { narrowReferenceJoins } from './map-reference-review.js'
 import { inferReferenceGround } from './map-reference-ground.js'
+import { landformStructureIssue } from './landform-structure.js'
+import { extendReferenceShallows, inferReferenceShallows, openReferenceWater, referenceShallowIssue, referenceWaterColors } from './map-reference-coast.js'
+import { fitReferenceLandforms } from './map-reference-landforms.js'
 
 const ANALYSIS_EDGE = 640
 const tolerances = { coarse: 2.9, balanced: 1.65, fine: .9 }
@@ -25,12 +28,14 @@ function pixelColor(image: ImagePixels, x: number, y: number) {
   return [g - r, b - g, (r + g + b) * .11, alpha]
 }
 
+const median = (values: number[]) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)]
+
 function sampleColor(image: ImagePixels, point: PointMm) {
   const samples: number[][] = []
   for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) {
     samples.push(pixelColor(image, Math.max(0, point.x + x), Math.max(0, point.y + y)))
   }
-  return [0, 1, 2, 3].map(channel => samples.map(row => row[channel]).sort((a, b) => a - b)[12])
+  return [0, 1, 2, 3].map(channel => median(samples.map(row => row[channel])))
 }
 
 function nearestColor(r: number, g: number, b: number, palette: readonly number[][]) {
@@ -47,9 +52,12 @@ function referencePalette(image: ImagePixels, guide: Guide, issues: MapReference
   // shaded boundary. Keep multiple color families when there is no consensus.
   const core = backgrounds.map(row => backgrounds.filter(other => distance(row.color, other.color) <= radius))
     .reduce<typeof backgrounds>((best, group) => group.length > best.length ? group : best, [])
+  const center = backgrounds.length >= 4 && core.length >= Math.ceil(backgrounds.length * .7)
+    ? [0, 1, 2].map(channel => median(core.map(row => row.color[channel]))) : undefined
   const backdrop = backgrounds.filter(row => {
-    if (backgrounds.length < 4 || core.length < Math.ceil(backgrounds.length * .7)
-      || core.some(other => distance(row.color, other.color) <= radius)) return true
+    // Compare with the consensus center. A darker in-family sample can sit
+    // next to a land color without pulling that color into the global palette.
+    if (!center || distance(row.color, center) <= radius) return true
     issues.push({ kind: 'sample', at: row.at, message: '该背景样点和主要背景色差异过大。需要去掉这块时，可在此处擦成背景。' })
     return false
   })
@@ -132,7 +140,7 @@ export function referenceLandAt(outline: ReferenceBoundaries, at: PointMm) {
     && !outline.lakes.some(lake => lake.areaId === row.id && pointInPolygon(at, lake.boundary)))?.id
 }
 
-function referenceDesign(guide: Guide, source: { width: number; height: number }, outline: ReferenceBoundaries) {
+function referenceDesign(guide: Guide, source: ImagePixels, outline: ReferenceBoundaries) {
   const design = guide.design
   if (!design) return {}
   const longEdge = Math.max(source.width, source.height), radius = (fraction: number) => {
@@ -141,18 +149,32 @@ function referenceDesign(guide: Guide, source: { width: number; height: number }
   }
   const issues: MapReferenceIssue[] = []
   const warn = (id: string, at: PointMm, message: string) => issues.push({ kind: 'design', at, id, message: `「${id}」${message}` })
-  const landforms = design.landforms.flatMap(row => {
+  const marks = design.landforms.flatMap(row => {
     const areaId = referenceLandAt(outline, row.at)
     if (!areaId || row.areaId !== undefined && row.areaId !== areaId) {
       warn(row.id, row.at, '地貌标记须在叠图上的指定陆地内。可移动标记或修正此处轮廓。')
       return []
     }
-    return [{ ...row, areaId, radius: row.radius ?? radius(.10) }]
+    const form = { ...row, areaId, radius: row.radius ?? radius(.10) }
+    if (form.structure) {
+      const issue = landformStructureIssue(form.structure, form.at, form.radius, outline.regions.find(region => region.id === areaId)!.boundary,
+        outline.lakes.filter(lake => lake.areaId === areaId).map(lake => lake.boundary))
+      if (issue) { warn(row.id, row.at, issue); return [] }
+    }
+    return [form]
   })
+  const coast = guide.environment === 'coast' && guide.shorelineFromReference ? {
+    mmPerPixel: (design.longEdgeMm ?? MAP_REFERENCE_DEFAULTS.longEdgeMm) / longEdge,
+    starts: design.ascents.map(row => ({ at: row.from, radius: row.radius ?? radius(.055) })),
+    reservedIds: [...design.ascents, ...(design.shallows ?? [])].map(row => row.id),
+  } : undefined
+  const { marked, outcrops, cliffs } = guide.structureFromReference ? fitReferenceLandforms(source, outline, marks, coast)
+    : { marked: marks, outcrops: [], cliffs: [] }
+  const landforms = [...marked, ...outcrops, ...cliffs]
   const routes = design.ascents.flatMap(row => {
-    const target = landforms.find(form => form.id === row.to)
+    const target = marked.find(form => form.id === row.to)
     const areaId = referenceLandAt(outline, row.from)
-    if (!areaId || areaId !== target?.areaId) {
+    if (!areaId || areaId !== target?.areaId || target.shape === 'lowland') {
       warn(row.id, row.from, '登高的出发区和终点须在同一块陆地上。请核对目标地标和叠图。')
       return []
     }
@@ -165,7 +187,7 @@ function referenceDesign(guide: Guide, source: { width: number; height: number }
   })
   const dimensions = design.longEdgeMm === undefined ? {}
     : source.width >= source.height ? { widthMm: design.longEdgeMm } : { heightMm: design.longEdgeMm }
-  return { dimensions, seed: design.seed, landforms, routes, designIssues: issues }
+  return { dimensions, seed: design.seed, landforms, routes, outcrops, cliffs, designIssues: issues }
 }
 
 /** Suggest native terrain from local pixels and a few editable sample
@@ -176,7 +198,7 @@ export function traceMapReference(image: ImagePixels, raw: unknown) {
   if (!Number.isSafeInteger(image.width) || !Number.isSafeInteger(image.height) || image.width < 3 || image.height < 3
     || image.width > 8192 || image.height > 8192 || image.width * image.height > 32_000_000
     || !(image.data instanceof Uint8ClampedArray) || image.data.length !== image.width * image.height * 4) throw new Error('参考图需要完整的静态 RGBA 像素。')
-  const points = [...guide.background, ...guide.foreground, ...guide.keep, ...guide.omit, ...guide.corrections.flatMap(stroke => stroke.points),
+  const points = [...guide.background, ...guide.foreground, ...guide.keep, ...guide.shallow, ...guide.omit, ...guide.corrections.flatMap(stroke => stroke.points),
     ...(guide.design?.landforms.map(row => row.at) ?? []), ...(guide.design?.ascents.map(row => row.from) ?? [])]
   if (points.some(p => p.x < 0 || p.y < 0 || p.x >= image.width || p.y >= image.height)) throw new Error('取样点须在原图像素范围内。')
 
@@ -187,17 +209,46 @@ export function traceMapReference(image: ImagePixels, raw: unknown) {
   const at = (i: number) => ({ x: Math.floor((i % width + .5) * sx), y: Math.floor((Math.floor(i / width) + .5) * sy) })
   const issues: MapReferenceIssue[] = []
   const palette = referencePalette(image, guide, issues)
-  const colors = palette.backdrop.map(row => row.color), solid = palette.land.map(row => row.color)
+  const colors = palette.backdrop.map(row => row.color)
   const mask = new Uint8Array(width * height), certainty = new Uint8Array(mask.length)
+  const coast = guide.environment === 'coast' && guide.shorelineFromReference
+  const waterColors = coast ? referenceWaterColors(colors) : undefined
+  const localLand = waterColors ? palette.land.filter(row => waterColors.sharedHue(row.color)) : []
+  const solid = palette.land.filter(row => !localLand.includes(row)).map(row => row.color)
+  const waterCandidates = waterColors && { open: new Uint8Array(mask.length), nearshore: new Uint8Array(mask.length) }
+  const localRadius = Math.max(sx, sy) * Math.max(3, Math.round(Math.max(width, height) * .016))
   const toleranceSquared = guide.tolerance ** 2
   for (let i = 0; i < mask.length; i++) {
-    const [a, b, l, alpha] = pixelColor(image, (i % width + .5) * sx, (Math.floor(i / width) + .5) * sy)
+    const x = (i % width + .5) * sx, y = (Math.floor(i / width) + .5) * sy
+    const pixel = pixelColor(image, x, y), [a, b, l, alpha] = pixel
     if (alpha < 128) continue
     const backdrop = nearestColor(a, b, l, colors)
     const foreground = nearestColor(a, b, l, solid)
+    if (localLand.some(row => Math.abs(x - row.at.x) <= localRadius && Math.abs(y - row.at.y) <= localRadius
+      && Math.hypot(x - row.at.x, y - row.at.y) <= localRadius
+      && (a - row.color[0]) ** 2 + (b - row.color[1]) ** 2 + (l - row.color[2]) ** 2 <= toleranceSquared * .36)) {
+      mask[i] = 1
+      continue
+    }
     mask[i] = backdrop < toleranceSquared && backdrop < foreground ? 0 : 1
     certainty[i] = backdrop < toleranceSquared * .32 && backdrop < foreground ? 2
       : backdrop < toleranceSquared * 1.7 && backdrop < foreground * 1.25 ? 1 : 0
+    if (waterCandidates && waterColors) {
+      const distinct = foreground > toleranceSquared * .50, shallow = distinct && waterColors.shallow(pixel)
+      waterCandidates.open[i] = Number(!mask[i] || shallow || distinct && waterColors.shadow(pixel))
+      waterCandidates.nearshore[i] = shallow ? 2 : Number(distinct && waterColors.paleShallow(pixel))
+    }
+  }
+  if (waterCandidates) {
+    for (const point of [...guide.foreground, ...guide.keep]) {
+      const i = cell(point)
+      waterCandidates.open[i] = 0
+      waterCandidates.nearshore[i] = 0
+    }
+    const connected = extendReferenceShallows(openReferenceWater(waterCandidates.open, width), waterCandidates.nearshore, width)
+    for (let i = 0; i < mask.length; i++) if (connected[i] && mask[i]) {
+      mask[i] = 0; certainty[i] = Math.max(1, certainty[i])
+    }
   }
   const clean = denoise(denoise(mask, width, height, guide.detail === 'fine' ? 1 : 2), width, height, 1)
   // Preserve a coherent narrow strip of confidently sampled water through the
@@ -212,7 +263,8 @@ export function traceMapReference(image: ImagePixels, raw: unknown) {
   const allBackground = new Set(guide.background.map(cell))
   const allForeground = [...guide.foreground, ...guide.keep].map(cell)
   const omit = new Set(guide.omit.map(cell))
-  if (allForeground.some(i => allBackground.has(i) || omit.has(i))) throw new Error('同一位置不能同时标为地面和背景或忽略。')
+  const shallowCells = new Set(guide.shallow.map(cell))
+  if (allForeground.some(i => allBackground.has(i) || shallowCells.has(i) || omit.has(i))) throw new Error('同一位置不能同时标为地面和背景、浅水或忽略。')
   for (const i of backgroundSamples.keys()) clean[i] = 0
   for (const i of foregroundSamples.keys()) clean[i] = 1
   applyReferenceCorrections(clean, width, height, sx, sy, guide.corrections)
@@ -242,6 +294,10 @@ export function traceMapReference(image: ImagePixels, raw: unknown) {
     else for (const p of explicit) inland.add(p)
   }
 
+  const openWater = coast || guide.shallow.length ? openReferenceWater(clean.map(value => Number(!value)), width) : undefined
+  if (openWater) for (const at of guide.shallow) if (!openWater[cell(at)]) {
+    issues.push({ kind: 'sample', at, message: '该浅水标记未接到外海。可修正岸线，或画出所需的浅水范围。' })
+  }
   const labels = new Int16Array(clean.length).fill(-1)
   issues.push(...narrowReferenceJoins(clean, certainty, width, minimumArea, at, Math.max(sx, sy)))
   const blobs: { index: number; size: number; kept: boolean; seeds: PointMm[] }[] = []
@@ -299,20 +355,44 @@ export function traceMapReference(image: ImagePixels, raw: unknown) {
     if (!boundary) { notes.push(`「${row.id}」内有一处水面轮廓需手工核对。`); return [] }
     return [{ id: `${row.id}-lake-${index + 1}`, areaId: row.id, boundary }]
   }))
-  const land = fitted.map(({ id, boundary, pixels }) => ({ id, boundary, outline: 'smooth' as const,
-    form: guide.environment === 'coast' && id !== 'main' && pixels < image.width * image.height * .007 ? 'reef' as const : 'natural' as const }))
+  const land = fitted.map(({ id, boundary, pixels }) => {
+    const reef = guide.environment === 'coast' && id !== 'main' && pixels < image.width * image.height * .007
+    return { id, boundary, outline: 'traced' as const, form: reef ? 'reef' as const : 'natural' as const,
+      ...(reef && coast ? { cover: 'rock' as const, elevationMm: Math.max(420, Math.min(3500, Math.round(Math.sqrt(pixels / (image.width * image.height)) * 37_000))) } : {}) }
+  })
   if (blobs.length > MAP_LANDSCAPE_LIMITS.land || lakes.length > MAP_LANDSCAPE_LIMITS.lakes) notes.push('部分小块超出单图候选容量。可标记要保留的地块或提高简化程度。')
   const includedLakes = lakes.slice(0, MAP_LANDSCAPE_LIMITS.lakes)
   const regions = fitted.map(({ holes: _holes, label: _label, ...row }) => row)
-  const ground = guide.surfaceFromReference ? inferReferenceGround(image, labels, width, fitted) : undefined
-  const { dimensions, seed, landforms, routes, designIssues = [] } = referenceDesign(guide, referenceSizePx, { regions, lakes: includedLakes })
+  const { dimensions, seed, landforms, routes, outcrops = [], cliffs = [], designIssues = [] } = referenceDesign(guide, image, { regions, lakes: includedLakes })
   issues.push(...designIssues)
+  const ground = guide.surfaceFromReference ? inferReferenceGround(image, labels, width, fitted, coast ? openWater : undefined) : undefined
+  const manualShallows = (guide.design?.shallows ?? []).filter(zone => {
+    const problem = guide.environment !== 'coast' ? '浅水范围使用水岸环境。' : referenceShallowIssue(zone.boundary, referenceSizePx, regions)
+    if (!problem) return true
+    const first = zone.boundary[0]
+    const at = { x: Math.max(0, Math.min(image.width - 1, first.x)), y: Math.max(0, Math.min(image.height - 1, first.y)) }
+    issues.push({ kind: 'design', id: zone.id, at, message: `「${zone.id}」${problem}` })
+    return false
+  })
+  const autoShallows = openWater && guide.environment === 'coast' ? inferReferenceShallows(referenceSizePx, openWater, width, coast ? colors : [],
+    guide.shallow, (x, y) => pixelColor(image, x, y), p => sampleColor(image, p))
+    .filter(zone => !regions.some(region => polygonInside(zone.boundary, region.boundary))
+      && !manualShallows.some(manual => polygonsOverlap(manual.boundary, zone.boundary))) : []
+  const ids = new Set([...(landforms ?? []), ...(routes ?? []), ...manualShallows].map(row => row.id))
+  for (const zone of [...(ground?.covers ?? []), ...(ground?.scenery ?? []), ...autoShallows]) {
+    while (ids.has(zone.id)) zone.id += '-auto'
+    ids.add(zone.id)
+  }
+  const shallows = [...manualShallows, ...autoShallows.slice(0, MAP_LANDSCAPE_LIMITS.shallows - manualShallows.length)]
   const request = parseMapGenerate({ title: guide.title, referenceSizePx, ...dimensions, ...(seed ? { seed } : {}),
-    recipe: { kind: 'landscape', environment: guide.environment, land, ...ground, ...(landforms ? { landforms, routes } : {}),
+    recipe: { kind: 'landscape', environment: guide.environment, land, ...(ground ? { covers: ground.covers, scenery: ground.scenery } : {}),
+      ...(landforms ? { landforms, routes } : {}), ...(shallows.length ? { shallows } : {}),
       ...(includedLakes.length ? { lakes: includedLakes } : {}), finish: 'natural' } })
   return { request, guide, referenceSizePx,
     regions, lakes: includedLakes, issues, notes, discardedSmall, discardedOmitted,
-    automaticSurface: { grassPatches: ground?.covers.length ?? 0, groves: ground?.scenery.length ?? 0 } }
+    automaticSurface: { grassPatches: ground?.grassCount ?? 0, groves: ground?.scenery.length ?? 0 },
+    coastFeatures: { shallows, dryStrands: ground?.strandCount ?? 0,
+      reefs: land.filter(row => row.form === 'reef').map(row => row.id), outcrops: outcrops.map(row => row.id), cliffs: cliffs.map(row => row.id) } }
 }
 
 export type MapReferenceResult = ReturnType<typeof traceMapReference>

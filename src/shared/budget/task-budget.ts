@@ -279,8 +279,8 @@ export function measureBudgetDependencies(value: unknown): number {
   return count
 }
 
-/** Geometry delta, retained references and resources shared by both budget policies. */
-export type TerrainPairAccounting = 'spatial-v1' | 'landscape-spatial-v2'
+/** Map authoring meters geometry locally and separates owned contour identities from dependency lookups. */
+export type TerrainPairAccounting = 'map-spatial-v2' | 'landscape-spatial-v3'
 export function captureGeometryPairBudget(profile: TaskBudgetProfile) {
   let pairs = 0
   return {
@@ -425,13 +425,18 @@ export function measureDocumentBudget(before: SceneDocument, after: SceneDocumen
   if (terrainPairAccounting) {
     // Paint masks are checked for simple geometry, but neither resolve
     // support nor intersect with each other in the physical validator.
-    const local = terrainPairAccounting === 'landscape-spatial-v2' ? landscapeFootprintWork(before, after) : { segments: 0, pairs: 0 }
+    const local = terrainPairAccounting === 'landscape-spatial-v3' ? landscapeFootprintWork(before, after) : { segments: 0, pairs: 0 }
     const changed = usage.geometrySegments - changedPaintEdges - local.segments
     const retained = retainedSegments - retainedPaintEdges - local.segments
     usage.intersectionPairs = Math.max(0, changed * (retained + changed) - spatialTerrainPairs(before, after, equal)) + paintSelfPairs + local.pairs
   }
   usage.dependencyRefs = measureBudgetDependencies(after) + measureBudgetDependencies(metadata?.historyIdentity)
     + measureBudgetDependencies(metadata?.appearance)
+  if (terrainPairAccounting) {
+    // A boundary vertex owns its outgoing segment ID. References to that
+    // segment from shore edges or other entities still count as dependencies.
+    usage.dependencyRefs -= Object.values(after.terrainAreas).reduce((owned, area) => owned + area.boundaryMm.length, 0)
+  }
   const assets=metadata?.assets
   if(assets){for(const record of Object.values(assets)){usage.assetBytes+=record.sizeBytes;usage.decodePixels+=record.pixelWidth*record.pixelHeight}}
   else{const unique=new Map(Object.values(after.assets).map(record=>[record.sha256,record]));for(const record of unique.values())usage.decodePixels+=record.pixelWidth*record.pixelHeight}
@@ -450,7 +455,16 @@ export function accountBudgetExecution(usage: BudgetUsage, execution: Partial<Bu
 export function measureTaskBudget(before: SceneDocument, after: SceneDocument, metadata?: TaskBudgetMetadata, execution: Partial<BudgetUsage> = {},
   terrainPairAccounting?: TerrainPairAccounting): BudgetUsage {
   const usage = measureDocumentBudget(before, after, metadata?.after, terrainPairAccounting)
-  usage.semanticTargets = taskSemanticTargets(before, after).length
+  const targets = taskSemanticTargets(before, after)
+  usage.semanticTargets = terrainPairAccounting === 'landscape-spatial-v3' ? targets.filter(key => {
+    const [kind, id] = splitTarget(key)
+    if (kind !== 'terrainEdge' || Object.hasOwn(before.terrainEdges, id)) return true
+    const edge = after.terrainEdges[id], water = edge?.neighborAreaId
+    // Automatic shoreline records connect contours created by this same
+    // landscape recipe. Count those edits on the new terrain areas once.
+    return !edge?.shoreline || !water || !after.terrainAreas[water]?.waterSurface
+      || Object.hasOwn(before.terrainAreas, edge.source.areaId) || Object.hasOwn(before.terrainAreas, water)
+  }).length : targets.length
   const tree = (value:unknown) => {
     if(!value||typeof value!=='object')return
     if(Array.isArray(value)){for(const row of value)tree(row);return}

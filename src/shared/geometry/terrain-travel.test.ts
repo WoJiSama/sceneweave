@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createRefinedBlankDocument } from '../../platform/browser/content/refined-blank.js'
 import type { PointMm, SceneDocument, TerrainArea } from '../model/scene.js'
 import { searchTerrainRoute, checkTerrainTravel, checkTerrainRoute } from './terrain-travel.js'
-import { validateGeometry } from './geometry.js'
+import { polygonsOverlap, validateGeometry } from './geometry.js'
 import { terrainEdgeFinishCommands } from '../commands/terrain-edge-finish.js'
 import { applyOutdoorCommand } from '../commands/outdoor.js'
 
@@ -80,6 +80,16 @@ describe('terrain edge finish', () => {
 })
 
 describe('bounded deterministic terrain route search', () => {
+  it('distinguishes a shoulder triangle touching the derived rail from one intruding into the clear width', () => {
+    const a = { x: 28033.15066931214, y: 9453.319099017948 }
+    const b = { x: 28775.631217931757, y: 8917.083147237114 }
+    const band = [a, b, { x: b.x - 500, y: b.y - 700 }, { x: a.x - 500, y: a.y - 700 }]
+    const contact = { x: 28509.922012277217, y: 9108.984240209837 }
+    const shoulder = [contact, { x: 28806.609036309314, y: 9104.967297889645 }, { x: 28609.807310982378, y: 9259.92769685033 }]
+    expect(polygonsOverlap(band, shoulder)).toBe(false)
+    expect(polygonsOverlap(band, [{ x: contact.x - 6, y: contact.y - 8 }, ...shoulder.slice(1)])).toBe(true)
+  })
+
   it('returns a straight full-width route when the complete checker accepts it', () => {
     const scene = blank(), request = { floorId: 'visual-floor', from: { x: 2000, y: 9000 }, to: { x: 22000, y: 9000 }, widthMm: 1000, gridMm: 2000 }
     const result = searchTerrainRoute(scene, request)

@@ -4,6 +4,8 @@ import { unzipSync } from 'fflate'
 import { referenceTerrainPixels } from '../src/shared/generation/map-reference.test-fixture'
 import { encodeCanonicalPng } from '../src/shared/project/png-rgba'
 import { checkGradedRoadOnValidScene } from '../src/shared/geometry/terrain-travel'
+import { projectEditorScene, projectScene } from '../src/shared/projection/projection'
+import { PROJECT_REGION_OUTLINE_READER_VERSION } from '../src/shared/project/format'
 import { createKeyboardProject, keyboardProjectBackup, keyboardResourceHashes, keyboardWorkspaceSaved } from './keyboard-ux-helpers'
 import { openGenerationTask, openSceneObjects } from './workspace-navigation-helpers'
 
@@ -41,6 +43,17 @@ test('页面从参考图取样，检查低处登顶后保存真实可编辑工�
   await dialog.getByLabel('纵向半径（原图长边 %）').fill('9')
   await dialog.getByLabel('旋转角度（度）').fill('22')
   await mark(92, 31)
+  await dialog.getByRole('button', { name: '圈地貌范围', exact: true }).click()
+  for (const [x, y] of [[81, 20], [101, 19], [108, 30], [103, 40], [89, 43], [80, 34]]) await mark(x, y)
+  await dialog.getByRole('button', { name: '保存形状', exact: true }).click()
+  await dialog.getByRole('button', { name: '画坡折线', exact: true }).click()
+  await mark(103, 40)
+  await mark(89, 43)
+  await dialog.getByRole('button', { name: '保存形状', exact: true }).click()
+  await dialog.getByRole('button', { name: '圈定浅水', exact: true }).click()
+  for (const [x, y] of [[124, 12], [146, 11], [150, 22], [126, 26]]) await mark(x, y)
+  await dialog.getByRole('button', { name: '保存形状', exact: true }).click()
+  await expect(dialog.getByText(/1 处浅水/)).toBeVisible()
   await dialog.getByRole('button', { name: '标低处出发区', exact: true }).click()
   await dialog.getByLabel('绕行方向').selectOption('north')
   await dialog.getByLabel('最小高差（米）').fill('50')
@@ -53,12 +66,13 @@ test('页面从参考图取样，检查低处登顶后保存真实可编辑工�
   await expect(diagnosis).toContainText('需要调整几何或通路', { timeout: 30_000 })
   await expect(view).toBeVisible({ timeout: 45_000 })
   await expect(adopt).toBeDisabled()
-  await dialog.getByRole('button', { name: '调整路线', exact: true }).click()
+  await diagnosis.getByRole('button', { name: '调整失败路线', exact: true }).click()
   await dialog.getByLabel('最小高差（米）').fill('1.2')
   await dialog.getByRole('button', { name: '应用到原位置', exact: true }).click()
   await dialog.getByRole('button', { name: '只检查几何', exact: true }).click()
   await expect(diagnosis).toContainText('所需几何与通路通过', { timeout: 30_000 })
   await expect(diagnosis).toContainText('到地标 6 米')
+  await expect(diagnosis).toContainText('生成地图预览会使用这次检查的地形和路线')
   await preview.click()
   await expect(view).toBeVisible({ timeout: 45_000 })
   const originalPreview = await view.getAttribute('src')
@@ -76,10 +90,18 @@ test('页面从参考图取样，检查低处登顶后保存真实可编辑工�
   expect(document.artStyle?.active).toBe('handDrawn')
   expect(document.exportBoundsMm.width).toBe(76000)
   const manifest = unzipSync(new Uint8Array(await readFile(archive)))['manifest.json']
-  expect(JSON.parse(new TextDecoder().decode(manifest)).minReaderVersion).toBe(3)
-  expect(document.terrainAreas.main.reliefFinish).toBe('weathered-v2')
+  expect(JSON.parse(new TextDecoder().decode(manifest)).minReaderVersion).toBe(PROJECT_REGION_OUTLINE_READER_VERSION)
+  expect(document.terrainAreas.main.reliefFinish).toBe('weathered-v3')
   expect(document.terrainAreas['main-lake-1'].blocksMovement).toBe(true)
+  expect(document.terrainAreas['landscape/water'].surfaceStyle!.overlays).toContainEqual(expect.objectContaining({
+    id: expect.stringContaining('landscape/shallow/'), boundaryMm: expect.arrayContaining([{ x: 58900, y: 5700 }]),
+  }))
+  const markId = Object.values(document.regions).find(row => row.kind === 'terrain' && row.boundaryMm.length === 6)!.id
+  expect(document.regions[markId].showOutlineInOutput).toBe(false)
+  expect(projectEditorScene(document).regions.map(region => region.id)).toContain(markId)
+  for (const audience of ['gm', 'player'] as const) expect(projectScene(document, audience).regions.map(region => region.id)).not.toContain(markId)
   const [road] = Object.values(document.paths)
+  expect(road.roadFinish).toBe('terrain-v1')
   const profile = checkGradedRoadOnValidScene(document, road)
   expect(profile.ok).toBe(true)
   expect(profile.treadCount).toBeGreaterThan(0)
@@ -92,8 +114,8 @@ test('页面从参考图取样，检查低处登顶后保存真实可编辑工�
   await navigation.locator('[data-entity-id="main"]').click()
   const inspector = page.getByTestId('workspace-inspector')
   const reliefFinish = inspector.getByRole('combobox', { name: '坡面岩纹', exact: true })
-  await expect(reliefFinish).toHaveValue('weathered-v2', { timeout: 15000 })
-  await reliefFinish.selectOption('')
+  await expect(reliefFinish).toHaveValue('weathered-v3', { timeout: 15000 })
+  await reliefFinish.selectOption('weathered-v2')
   await inspector.getByRole('button', { name: '预览坡面岩纹', exact: true }).click()
   const review = page.getByRole('region', { name: '候选审阅', exact: true })
   await review.getByLabel('确认完整影响范围', { exact: true }).check()
@@ -105,8 +127,7 @@ test('页面从参考图取样，检查低处登顶后保存真实可编辑工�
     .getByRole('button', { name: '打开', exact: true }).click()
   await keyboardWorkspaceSaved(page)
   const reopened = await keyboardProjectBackup(page, info.outputPath('reference-reopened.sceneweave'))
-  const { reliefFinish: _finish, ...area } = document.terrainAreas.main
-  expect(reopened.document.terrainAreas.main).toEqual(area)
+  expect(reopened.document.terrainAreas.main).toEqual({ ...document.terrainAreas.main, reliefFinish: 'weathered-v2' })
   expect(reopened.document.paths).toEqual(document.paths)
   expect(keyboardResourceHashes(reopened.hashes)).toEqual(keyboardResourceHashes(hashes))
 })

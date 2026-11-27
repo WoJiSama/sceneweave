@@ -3,14 +3,15 @@ import { mapAuthoringExample, mapDimensions, MAP_OPERATION_LIMIT, parseMapEdit, 
 import { commandSelectionLimit } from '../budget/command-budget.js'
 import { splitNewTerrainJunctions } from '../geometry/terrain-junctions.js'
 import { indexEdges, withGeometryPairCounter } from '../geometry/edge-index.js'
-import { polygonsOverlap, propFootprint, segmentCuts, terrainPoints } from '../geometry/geometry.js'
+import { polygonInside, polygonsOverlap, propFootprint, segmentCuts, terrainPoints } from '../geometry/geometry.js'
 import { checkGradedRoadOnValidScene, checkRouteOnValidScene } from '../geometry/terrain-travel.js'
-import { reliefBounds, sampleTerrainRelief } from '../geometry/terrain-relief.js'
-import { captureExecutionBudget, taskBudgetProfile } from '../budget/task-budget.js'
-import { LANDSCAPE_SCATTER_VERSION } from '../geometry/scatter-algorithm.js'
+import { reliefBounds, reliefMatchesAlong, sampleTerrainRelief } from '../geometry/terrain-relief.js'
+import { captureExecutionBudget, measureTaskBudget, taskBudgetProfile } from '../budget/task-budget.js'
+import { LANDSCAPE_FITTED_WOODLAND_SCATTER_VERSION, LANDSCAPE_SCATTER_VERSION, LANDSCAPE_WOODLAND_SCATTER_VERSION } from '../geometry/scatter-algorithm.js'
 import { buildScatterRegeneration } from '../geometry/scatter.js'
-import { shapeLandscape, type LandscapeRoadFailure } from '../terrain-generation/landscape-authoring.js'
+import { gradeLandscapeRouteRelief, shapeLandscape, type LandscapeRoadFailure, type LandscapeWidthAttempt } from '../terrain-generation/landscape-authoring.js'
 import { finishLandscape, landscapeRouteClearances } from '../terrain-generation/landscape-finish.js'
+import { rankLandscapeCourses } from '../terrain-generation/landscape-route-search.js'
 import { createShoreBlankDocument } from '../../platform/browser/content/shore-blank.js'
 import { appendWholePlantDefinitions } from '../../platform/browser/content/whole-plant-catalog.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
@@ -98,6 +99,47 @@ describe('public map authoring contract', () => {
     expect(fractional[0].points).toEqual(square(0, 0))
   })
 
+  it('meters newly generated shore edges with their land but retains direct edits and real references', () => {
+    const request = parseMapGenerate({ title: 'shore', recipe: { kind: 'landscape', environment: 'coast', finish: 'natural', density: 0,
+      land: [{ id: 'shoal', form: 'flat', elevationMm: 1000, at: point(500, 500), radius: point(390, 350) }] } })
+    if (request.recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    const { scene, floor, frame, meter } = landscapeFixture(request), before = structuredClone(scene)
+    const forms = shapeLandscape(scene, floor, request.recipe, frame, request.seed, meter)
+    finishLandscape(scene, floor, request.recipe, forms, frame, request.seed, meter)
+    const generic = measureTaskBudget(before, scene), editing = measureTaskBudget(before, scene, undefined, {}, 'map-spatial-v2')
+    const generation = measureTaskBudget(before, scene, undefined, {}, 'landscape-spatial-v3')
+    const edges = Object.values(scene.terrainEdges)
+    expect(edges.length).toBeGreaterThan(3)
+    expect(generation.semanticTargets).toBe(editing.semanticTargets - edges.length)
+    expect(generation.geometrySegments).toBe(editing.geometrySegments)
+    expect(generation.dependencyRefs).toBe(generic.dependencyRefs - Object.values(scene.terrainAreas).reduce((n, area) => n + area.boundaryMm.length, 0))
+    expect(generation.dependencyRefs).toBeGreaterThan(edges.length)
+    const edited = structuredClone(scene)
+    edited.terrainEdges[edges[0].id].editLocked = true
+    expect(measureTaskBudget(scene, edited, undefined, {}, 'landscape-spatial-v3').semanticTargets).toBe(1)
+  })
+
+  it('keeps the heights of a ridge beside a basin and of a close preserved outcrop', () => {
+    const request = parseMapGenerate({ title: 'adjacent heights', widthMm: 56000, heightMm: 42000,
+      recipe: { kind: 'landscape', environment: 'upland', finish: 'natural', density: 0,
+        land: [{ id: 'valley', at: point(500, 500), radius: point(490, 465) }], landforms: [
+          { id: 'upper-basin', areaId: 'valley', shape: 'lowland', at: point(318, 330), radius: point(170, 100), elevationMm: 650,
+            structure: { kind: 'area', boundary: [point(221, 262), point(472, 270), point(461, 392), point(243, 407)] } },
+          { id: 'ridge', areaId: 'valley', shape: 'ridge', at: point(441, 351), radius: point(120, 66), elevationMm: 6000,
+            structure: { kind: 'ridge', centerline: [point(392, 354), point(441, 351), point(514, 333)] } },
+          { id: 'lower-basin', areaId: 'valley', shape: 'lowland', at: point(580, 690), radius: point(155, 156), elevationMm: 450 },
+          { id: 'outcrop', areaId: 'valley', shape: 'hill', preserveRelief: true, at: point(604, 653), radius: point(80, 92), elevationMm: 3900 },
+        ] } })
+    if (request.recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    const { scene, floor, frame, meter } = landscapeFixture(request)
+    const forms = shapeLandscape(scene, floor, request.recipe, frame, request.seed, meter)
+    const area = scene.terrainAreas.valley, bounds = reliefBounds(terrainPoints(area))
+    for (const form of forms) {
+      const height = area.groundElevationMm + sampleTerrainRelief(area.relief!, bounds, form.at).offsetMm
+      expect(Math.abs(height - form.elevationMm), form.id).toBeLessThan(380)
+    }
+  })
+
   it('retains an authored hill in a lowland and paints it without changing terrain or corridor clearance', () => {
     const request = parseMapGenerate({ title: '河谷', widthMm: 36000, heightMm: 32000,
       recipe: { kind: 'landscape', environment: 'upland', land: [{ id: 'valley',
@@ -128,6 +170,58 @@ describe('public map authoring contract', () => {
     expect(validateSceneSnapshot(scene).ok).toBe(true)
   })
 
+  it('places both canopy and understory in an editable grove with an open walking corridor', () => {
+    const input = parseMapGenerate({ title: '沟谷林丛', widthMm: 24000, heightMm: 22000, recipe: {
+      kind: 'landscape', finish: 'natural', density: 0, land: [{ id: 'valley', form: 'flat',
+        boundary: [point(35, 35), point(965, 35), point(965, 965), point(35, 965)] }],
+      scenery: [{ id: 'woods', areaId: 'valley', palette: 'woodland', pattern: 'grove', density: 1,
+        region: { at: point(500, 500), radius: point(310, 280) } }],
+    }, checks: [{ id: 'walk', points: [point(160, 500), point(830, 500)], widthMm: 1400 }] })
+    if (input.recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    const { scene, floor, frame, meter } = landscapeFixture(input)
+    const forms = shapeLandscape(scene, floor, input.recipe, frame, input.seed, meter)
+    const [walk] = landscapeRouteClearances(input.checks, floor, frame.point)
+    finishLandscape(scene, floor, input.recipe, forms, frame, input.seed, meter, [walk])
+    const woods = scene.scatterGroups.woods
+    expect(woods.algorithmVersion).toBe(LANDSCAPE_FITTED_WOODLAND_SCATTER_VERSION)
+    const planted = Object.values(scene.props)
+    expect(planted.filter(prop => /prop-(oak|pine)/.test(prop.definitionRef!.id)).length).toBeGreaterThan(3)
+    expect(planted.some(prop => /hazel-bush|coastal-heath|grass-fan/.test(prop.definitionRef!.id))).toBe(true)
+    expect(planted.some(prop => polygonsOverlap(propFootprint(prop), walk.boundaryMm))).toBe(false)
+    expect(buildScatterRegeneration(scene, woods.id).group.members).toEqual(woods.members)
+    const repeated = buildScatterRegeneration(scene, woods.id, woods.densityFactor, { preserveManagedAppearance: true })
+    expect(repeated.group.members).toEqual(woods.members)
+    expect(repeated.props).toEqual(repeated.props.map(prop => scene.props[prop.id]))
+  })
+
+  it('fits trees into a narrow dry woodland at a low absolute elevation', () => {
+    const input = parseMapGenerate({ title: '谷底窄林', widthMm: 24000, heightMm: 22000, seed: 'dry-grove', recipe: {
+      kind: 'landscape', finish: 'natural', density: 0,
+      land: [{ id: 'valley', form: 'flat', boundary: [point(35, 35), point(965, 35), point(965, 965), point(35, 965)] }],
+      landforms: [{ id: 'floor', areaId: 'valley', shape: 'lowland', elevationMm: 200, at: point(500, 500), radius: point(365, 290),
+        structure: { kind: 'area', boundary: [point(220, 360), point(780, 360), point(780, 640), point(220, 640)] } }],
+      scenery: [{ id: 'woods', areaId: 'valley', palette: 'woodland', pattern: 'grove', density: 1,
+        region: { boundary: [point(230, 475), point(765, 483), point(753, 559), point(235, 545)] } }],
+    } })
+    if (input.recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    const { scene, floor, frame, meter } = landscapeFixture(input)
+    const forms = shapeLandscape(scene, floor, input.recipe, frame, input.seed, meter)
+    finishLandscape(scene, floor, input.recipe, forms, frame, input.seed, meter)
+    const woods = scene.scatterGroups.woods, area = scene.terrainAreas.valley, bounds = reliefBounds(terrainPoints(area))
+    if (woods.domain.kind !== 'area' || !woods.domain.boundaryMm) throw new Error('Expected bounded woodland')
+    const boundary = woods.domain.boundaryMm
+    const trees = Object.values(scene.props).filter(prop => /prop-(oak|pine)/.test(prop.definitionRef!.id))
+    expect(trees.length).toBeGreaterThan(2)
+    for (const tree of trees) {
+      expect(polygonInside(propFootprint(tree), boundary)).toBe(true)
+      expect(area.groundElevationMm + sampleTerrainRelief(area.relief!, bounds, tree.positionMm).offsetMm).toBe(200)
+    }
+    const old = structuredClone(scene)
+    old.scatterGroups.woods = { ...woods, algorithmVersion: LANDSCAPE_WOODLAND_SCATTER_VERSION, members: {} }
+    old.props = {}
+    expect(buildScatterRegeneration(old, woods.id).props).toHaveLength(0)
+  })
+
   it('rounds suitable shore spans while retaining shared edges and a cropped outline', () => {
     const request = parseMapGenerate({ title: '潮岸', widthMm: 36000, heightMm: 29000, recipe: { kind: 'landscape', land: [
       { id: 'bank', form: 'flat', outline: 'smooth', boundary: [point(0, 350), point(50, 0), point(250, 0), point(520, 140), point(520, 490), point(290, 700), point(0, 600)] },
@@ -142,6 +236,67 @@ describe('public map authoring contract', () => {
     expect(points.every(p => p.x >= 0 && p.y >= 0)).toBe(true)
     expect(points.slice(points.findIndex(p => p.x === fixed[0].x && p.y === fixed[0].y), points.findIndex(p => p.x === fixed[1].x && p.y === fixed[1].y) + 1)).toEqual(fixed)
     expect(validateSceneSnapshot(scene).ok).toBe(true)
+  })
+
+  it('finishes traced grass with a bounded edge and editable plants inside that cover', () => {
+    const input = parseMapGenerate({ title: '沿岸草地', widthMm: 39000, heightMm: 34000, recipe: {
+      kind: 'landscape', environment: 'coast', finish: 'natural', density: .95,
+      land: [{ id: 'bank', outline: 'traced', boundary: [point(25, 30), point(970, 30), point(940, 950), point(110, 930)] }],
+      covers: [{ id: 'grass', areaId: 'bank', cover: 'grass',
+        region: { boundary: [point(240, 230), point(620, 210), point(720, 350), point(660, 650), point(315, 770), point(195, 530)] } }],
+    } })
+    const { scene, floor, frame, meter } = landscapeFixture(input), { recipe } = input
+    if (recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    const forms = shapeLandscape(scene, floor, recipe, frame, input.seed, meter)
+    const area = scene.terrainAreas.bank, relief = structuredClone(area.relief)
+    finishLandscape(scene, floor, recipe, forms, frame, input.seed, meter)
+    expect(area.relief).toEqual(relief)
+    const [grass] = area.surfaceStyle!.overlays
+    expect(area.surfaceStyle!.overlays.map(row => row.id)).toEqual(['landscape/cover/grass'])
+    expect(grass.boundaryMm.length).toBeGreaterThan(6)
+    expect(grass.blendWidthMm).toBeLessThan(600)
+    const growth = scene.scatterGroups['landscape/cover/grass/ground-cover']
+    expect(growth.domain).toMatchObject({ areaId: area.id, boundaryMm: grass.boundaryMm })
+    expect(growth.palette.map(row => row.key)).toEqual(['heath', 'grass'])
+    expect(Object.keys(growth.members).length).toBeGreaterThan(0)
+    expect(validateSceneSnapshot(scene).ok).toBe(true)
+  })
+
+  it('holds the sampled low point next to a broad preserved rock on a large relief grid', () => {
+    const request = parseMapGenerate({ title: '湾底露岩', widthMm: 86000, heightMm: 82000, recipe: {
+      kind: 'landscape', environment: 'coast', finish: 'natural',
+      land: [{ id: 'shelf', boundary: [point(5, 5), point(995, 5), point(995, 995), point(5, 995)] }],
+      landforms: [
+        { id: 'low', areaId: 'shelf', shape: 'lowland', at: point(478, 735), radius: point(153, 115), elevationMm: 600 },
+        { id: 'rock', areaId: 'shelf', shape: 'hill', at: point(480, 690), radius: point(59, 54), elevationMm: 4200,
+          preserveRelief: true, structure: { kind: 'area', boundary: [point(442, 662), point(503, 650), point(530, 687), point(502, 731), point(447, 727)] } },
+      ],
+    } })
+    const { scene, floor, frame, meter } = landscapeFixture(request)
+    if (request.recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    shapeLandscape(scene, floor, request.recipe, frame, request.seed, meter)
+    const area = scene.terrainAreas.shelf, box = reliefBounds(terrainPoints(area))
+    const elevation = (p: { x: number; y: number }) => area.groundElevationMm + sampleTerrainRelief(area.relief!, box, frame.point(p)).offsetMm
+    expect(Math.abs(elevation(point(478, 735)) - 600)).toBeLessThan(50)
+    expect(elevation(point(480, 690))).toBeGreaterThan(4100)
+  })
+
+  it('keeps far relief nodes unchanged and only evaluates the local road profile', () => {
+    const input = parseMapGenerate(mapAuthoringExample('landscape-ascent'))
+    if (input.recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    input.recipe.routes = []
+    const { scene, floor, frame, meter } = landscapeFixture(input)
+    shapeLandscape(scene, floor, input.recipe, frame, input.seed, meter)
+    const area = scene.terrainAreas.slope, original = area.relief!
+    const [start, end] = [point(330, 620), point(465, 620)].map(frame.point)
+    const before = meter.snapshot().fieldEvaluations
+    const revised = gradeLandscapeRouteRelief(area, {
+      id: 'local', areaId: area.id, widthMm: 1300, style: 'trail',
+      via: [{ at: start, elevationMm: 1300 }, { at: end, elevationMm: 1500 }],
+    }, meter)
+    expect(revised.offsetsMm.slice(0, original.columns * 5)).toEqual(original.offsetsMm.slice(0, original.columns * 5))
+    expect(revised.offsetsMm).not.toEqual(original.offsetsMm)
+    expect(meter.snapshot().fieldEvaluations - before).toBeLessThan(original.offsetsMm.length * 2.5)
   })
 
   it('connects to a peak near a boundary with real platforms and preserves a diagnostic draft for insufficient room', () => {
@@ -212,6 +367,15 @@ describe('public map authoring contract', () => {
     expect(checkLandscapeAscents(scene, floor, input, true)).toMatchObject([{ ok: true, lowElevationMm: 500, highElevationMm: 7200, riseMm: 6700 }])
     const requirement = input.recipe.routes[0]
     if (!('ascent' in requirement)) throw new Error('Expected an ascent requirement')
+    requirement.widthMm = 2000
+    expect(checkLandscapeAscents(scene, floor, input, false)[0]).toMatchObject({ ok: false,
+      issues: [expect.objectContaining({ code: 'ASCENT_WIDTH' })] })
+    requirement.ascent.minWidthMm = 1500
+    expect(checkLandscapeAscents(scene, floor, input, true)[0]).toMatchObject({ ok: true, preferredWidthMm: 2000, minimumWidthMm: 1500, actualWidthMm: 1500 })
+    requirement.around!.side = 'south'
+    expect(checkLandscapeAscents(scene, floor, input, false)[0]).toMatchObject({ ok: false,
+      issues: [expect.objectContaining({ code: 'ASCENT_SIDE' })] })
+    requirement.around!.side = 'north'
     requirement.ascent.from.at = input.recipe.landforms[0].at
     expect(checkLandscapeAscents(scene, floor, input, false)[0].issues).toContainEqual(expect.objectContaining({ code: 'ASCENT_START' }))
     expect(() => checkLandscapeAscents(scene, floor, input, true)).toThrow('标记低处')
@@ -220,6 +384,20 @@ describe('public map authoring contract', () => {
     shapeLandscape(fallback.scene, fallback.floor, input.recipe, fallback.frame, input.seed, fallback.meter, failed)
     expect(failed[0].issues[0].code).toBe('LANDSCAPE_ASCENT_START')
     expect(fallback.scene.paths.ascent).toBeUndefined()
+  })
+
+  it('reports the exact fixed waypoint in water and leaves the rest of a diagnostic draft intact', () => {
+    const input = parseMapGenerate({ title: '湾侧道路', widthMm: 24000, heightMm: 24000, recipe: { kind: 'landscape',
+      environment: 'coast', land: [{ id: 'bank', at: point(500, 500), radius: point(450, 450) }],
+      lakes: [{ id: 'pool', areaId: 'bank', boundary: [point(430, 410), point(580, 410), point(580, 560), point(430, 560)] }],
+      routes: [{ id: 'crossing', areaId: 'bank', via: [{ at: point(260, 510) }, { at: point(505, 500) }, { at: point(710, 440) }] }] } })
+    if (input.recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    const { scene, floor, frame, meter } = landscapeFixture(input), issues: LandscapeRoadFailure[] = []
+    shapeLandscape(scene, floor, input.recipe, frame, input.seed, meter, issues)
+    expect(scene.paths.crossing).toBeUndefined()
+    expect(Object.keys(scene.terrainAreas)).toEqual(['landscape/water', 'bank', 'pool'])
+    expect(issues).toMatchObject([{ id: 'crossing', issues: [{ code: 'LANDSCAPE_ROAD_WATER', atMm: frame.point(point(505, 500)) }] }])
+    expect(validateSceneSnapshot(scene).ok).toBe(true)
   })
 
   it('fits grouped stair flights and checks their actual end approaches', () => {
@@ -232,5 +410,109 @@ describe('public map authoring contract', () => {
     expect(travel.ok).toBe(true)
     expect(travel.treadCount).toBeGreaterThan(12)
     expect(travel.elevationsMm).toEqual([500, 7200])
+  })
+
+  it('shortlists a compact ascent over a brief steep crossing', () => {
+    const start = point(4000, 8000), end = point(16000, 8000)
+    const compact = [start, end], traverse = [start, point(5800, 15000), point(14200, 15000), end]
+    const boundary = [point(0, 0), point(24000, 0), point(24000, 23000), point(0, 23000)]
+    const height = ({ x, y }: ReturnType<typeof point>) => {
+      const blend = Math.min(1, (y - start.y) / 3500)
+      return 3200 * ((x < 10000 ? 0 : 1) * (1 - blend) + blend * (x - start.x) / (end.x - start.x))
+    }
+    const meter = captureExecutionBudget(taskBudgetProfile('standard'))
+    expect(rankLandscapeCourses([traverse, compact], 1400, boundary, [], height, meter, () => 0)[0]).toEqual(compact)
+  })
+
+  it('keeps an overlapping terrace open when an ascent crosses or approaches its shelf', () => {
+    const input = parseMapGenerate({ title: '山地外台', widthMm: 40000, heightMm: 34000, seed: 'inland-shelf', recipe: {
+      kind: 'landscape', finish: 'natural', land: [{ id: 'slope', outline: 'smooth', boundary: [
+        point(47, 233), point(172, 80), point(401, 47), point(717, 60), point(918, 156), point(969, 394),
+        point(924, 723), point(832, 904), point(656, 931), point(405, 950), point(99, 913), point(36, 655),
+      ] }],
+      landforms: [
+        { id: 'top', areaId: 'slope', shape: 'plateau', at: point(535, 450), radius: point(220, 205), elevationMm: 7600, cover: 'grass',
+          structure: { kind: 'area', boundary: [point(395, 300), point(621, 280), point(705, 377), point(690, 540), point(602, 620), point(417, 570)] } },
+        { id: 'shelf', areaId: 'slope', shape: 'plateau', at: point(650, 420), radius: point(195, 170), elevationMm: 4200, cover: 'rock',
+          structure: { kind: 'area', boundary: [point(566, 335), point(720, 318), point(825, 376), point(870, 470), point(800, 532), point(690, 540), point(581, 497)] } },
+        { id: 'foot', areaId: 'slope', shape: 'lowland', at: point(264, 636), radius: point(150, 170), elevationMm: 350, cover: 'grass' },
+      ],
+    } })
+    const { recipe } = input
+    if (recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    for (const side of [undefined, 'north', 'east'] as const) {
+      const { scene, floor, frame, meter } = landscapeFixture(input)
+      const routes: typeof recipe.routes = side ? [{ id: 'steps', areaId: 'slope', style: 'stairs', widthMm: 1500,
+        around: { landmarkId: 'top', side }, ascent: { from: { at: point(264, 636), radius: point(86, 75) },
+          minRiseMm: 6500, toLandmarkId: 'top', staircase: 'flight' } }] : []
+      shapeLandscape(scene, floor, { ...recipe, routes }, frame, input.seed, meter)
+      const area = scene.terrainAreas.slope, bounds = reliefBounds(terrainPoints(area))
+      const height = (at: ReturnType<typeof point>) => area.groundElevationMm + sampleTerrainRelief(area.relief!, bounds, at).offsetMm
+      const top = frame.point(point(535, 450)), shelf = frame.point(point(650, 420))
+      const angle = Math.atan2(shelf.y - top.y, shelf.x - top.x)
+      const outlet = (distance: number) => point(shelf.x + distance * Math.cos(angle), shelf.y + distance * Math.sin(angle))
+      expect(height(top)).toBe(7600)
+      expect(height(shelf)).toBe(4200)
+      for (let distance = 500; distance <= 5500; distance += 500) expect(Math.abs(height(outlet(distance)) - 4200)).toBeLessThan(side ? 300 : 50)
+      if (side) expect(checkGradedRoadOnValidScene(scene, scene.paths.steps, 650)).toMatchObject({ ok: true, widthMm: 1500, elevationsMm: [350, 7600] })
+      if (side === 'east') {
+        const road = scene.paths.steps.centerlineMm
+        expect(road.slice(1).some((p, i) => segmentCuts(road[i], p, [[shelf, outlet(5500)]]).length > 2)).toBe(true)
+      }
+    }
+  })
+
+  it('routes around a lower terrace on the approach and preserves the entire land and water rims', () => {
+    const input = parseMapGenerate(mapAuthoringExample('landscape-ascent'))
+    if (input.recipe.kind !== 'landscape') throw new Error('Expected landscape')
+    const { recipe } = input
+    recipe.environment = 'coast'
+    recipe.landforms.push({ id: 'terrace', areaId: 'slope', shape: 'plateau', at: point(665, 417),
+      radius: point(210, 200), elevationMm: 4200, rotationDeg: 0, cover: 'rock' })
+    recipe.lakes = [{ id: 'basin', areaId: 'slope', boundary: [point(457, 299), point(486, 290), point(491, 337), point(450, 338)] }]
+    const before = landscapeFixture(input), after = landscapeFixture(input)
+    shapeLandscape(before.scene, before.floor, { ...recipe, routes: [] }, before.frame, input.seed, before.meter)
+    shapeLandscape(after.scene, after.floor, recipe, after.frame, input.seed, after.meter)
+    const original = before.scene.terrainAreas.slope, graded = after.scene.terrainAreas.slope
+    const boundary = terrainPoints(graded), bounds = reliefBounds(boundary)
+    const a = { grid: original.relief, bounds }, b = { grid: graded.relief, bounds }
+    expect(graded.relief!.offsetsMm).not.toEqual(original.relief!.offsetsMm)
+    expect(reliefMatchesAlong(a, b, boundary)).toBe(true)
+    expect(reliefMatchesAlong(a, b, terrainPoints(after.scene.terrainAreas.basin))).toBe(true)
+    const terrace = after.frame.point(recipe.landforms.at(-1)!.at)
+    expect(sampleTerrainRelief(graded.relief!, bounds, terrace)).toEqual(sampleTerrainRelief(original.relief!, bounds, terrace))
+    expect(checkLandscapeAscents(after.scene, after.floor, input, true)).toMatchObject([{ ok: true, actualWidthMm: 1500 }])
+  })
+
+  it('tries a narrower ascent only when the author supplies a smaller minimum', () => {
+    const input = parseMapGenerate(mapAuthoringExample('landscape-ascent'))
+    if (input.recipe.kind !== 'landscape' || !('ascent' in input.recipe.routes[0])) throw new Error('Expected landscape ascent')
+    const route = input.recipe.routes[0]
+    route.widthMm = 4000
+    route.around!.radiusMm = 7500
+    const strict = landscapeFixture(input), failed: LandscapeRoadFailure[] = []
+    shapeLandscape(strict.scene, strict.floor, input.recipe, strict.frame, input.seed, strict.meter, failed)
+    expect(strict.scene.paths.ascent).toBeUndefined()
+    expect(failed[0].issues).toContainEqual(expect.objectContaining({ code: 'LANDSCAPE_ROAD_RADIUS' }))
+    route.ascent.minWidthMm = 1500
+    const flexible = landscapeFixture(input), attempts = new Map<string, LandscapeWidthAttempt[]>()
+    shapeLandscape(flexible.scene, flexible.floor, input.recipe, flexible.frame, input.seed, flexible.meter, undefined, attempts)
+    const [result] = checkLandscapeAscents(flexible.scene, flexible.floor, input, true, attempts)
+    expect(result.actualWidthMm).toBeGreaterThan(1500)
+    expect(result.actualWidthMm).toBeLessThan(4000)
+    expect(result).toMatchObject({
+      ok: true, minimumWidthMm: 1500, preferredWidthMm: 4000, reduction: {
+        rejected: [{ widthMm: 4000, issues: expect.arrayContaining([expect.objectContaining({ code: 'LANDSCAPE_ROAD_RADIUS' })]) }],
+      },
+    })
+    const fixedWidth = landscapeFixture(input)
+    route.widthMm = result.actualWidthMm!
+    delete route.ascent.minWidthMm
+    shapeLandscape(fixedWidth.scene, fixedWidth.floor, input.recipe, fixedWidth.frame, input.seed, fixedWidth.meter)
+    route.ascent.minWidthMm = 1500
+    const lowerAllowed = landscapeFixture(input), reported = new Map<string, LandscapeWidthAttempt[]>()
+    shapeLandscape(lowerAllowed.scene, lowerAllowed.floor, input.recipe, lowerAllowed.frame, input.seed, lowerAllowed.meter, undefined, reported)
+    expect(lowerAllowed.scene.paths.ascent).toEqual(fixedWidth.scene.paths.ascent)
+    expect(reported.size).toBe(0)
   })
 })

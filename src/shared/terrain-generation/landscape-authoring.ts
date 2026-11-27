@@ -17,19 +17,22 @@ import { defaultMaterialPaint } from '../appearance/surface-paint.js'
 import { SHORE_MATERIAL_IDS } from '../visual/shore-art.js'
 import { signedVisualArea } from '../visual/geometry.js'
 import { OperationRejected } from '../validation/operation-rejection.js'
+import { landformStructureIssue, mapLandformStructure } from '../generation/landform-structure.js'
 import { terrainRandomUnit, terrainValueNoise } from './field.js'
-import { terrainLandscapeCourses } from './landscape-route-search.js'
+import { joinLandscapeTerraces, landscapeStructureWeight, preserveLandformLevels, type TerracePreservation } from './landscape-profile.js'
+import { rankLandscapeCourses, terrainLandscapeCourses } from './landscape-route-search.js'
 import type { MapAscentRoute, MapLandscapeRecipe, MapLandscapeRoute } from '../generation/map-authoring.js'
 
-export const LANDSCAPE_VERSION = 5
+export const LANDSCAPE_VERSION = 11
 export const LANDSCAPE_WATER_ID = 'landscape/water'
 export const ASCENT_APPROACH_MM = 650
 type Landform = MapLandscapeRecipe['landforms'][number]
-type Route = Extract<MapLandscapeRoute, { via: unknown }> & { minRiseMm?: number; flight?: boolean; protectedForms?: Landform[] }
+type Route = Extract<MapLandscapeRoute, { via: unknown }> & { minRiseMm?: number; flight?: boolean; flightPlacement?: number; protectedForms?: Landform[] }
 type Frame = { point: (p: PointMm) => PointMm; size: (p: PointMm) => PointMm }
 type HeightAt = (p: PointMm) => number
 type PreparedRoute = ReturnType<typeof prepareRoute>
 export type LandscapeRoadFailure = { id: string; fromMm: PointMm; toMm: PointMm; landmarkId?: string; widthMm: number; issues: TerrainTravelIssue[]; graded?: number }
+export type LandscapeWidthAttempt = { widthMm: number; graded: number; issues: TerrainTravelIssue[] }
 class NoLandscapeRoad extends OperationRejected {
   constructor(readonly details: LandscapeRoadFailure) {
     super('invalid_geometry', details.issues.map(issue => issue.message).join('；'))
@@ -45,6 +48,10 @@ const heightError = (id: string, message: string) => new OperationRejected('inva
 const round = ({ x, y }: PointMm) => ({ x: Math.round(x), y: Math.round(y) })
 const fits = (p: PointMm, b: BoundsMm) => p.x >= b.x && p.y >= b.y && p.x <= b.x + b.width && p.y <= b.y + b.height
 const asEdges = (points: PointMm[]) => points.map((a, i) => [a, points[(i + 1) % points.length]] as const)
+const bearing = { north: { x: 0, y: -1 }, east: { x: 1, y: 0 }, south: { x: 0, y: 1 }, west: { x: -1, y: 0 } } as const
+const MAX_GRADING_BLEND_MM = 6200
+const DEFAULT_FLIGHT_PLACEMENT = .46
+const FLIGHT_TRAIL_RISE_SHARE = .15
 
 export function landscapePaint(scene: SceneDocument, key: keyof typeof SHORE_MATERIAL_IDS, tint: string | null = null) {
   const material = scene.materials[SHORE_MATERIAL_IDS[key]]
@@ -82,7 +89,32 @@ function landformWeight(form: Landform, p: PointMm, seed: string) {
   return 1 - falloff
 }
 
-function prepareRoute(route: Route, field: HeightAt) {
+/** Shift a generated stair flight so its shoulder can meet an open shelf
+ * at the crossing. Fixed control points and the overall rise are retained. */
+function placeTerraceFlight(centerline: PointMm[], frame: ReturnType<typeof connectionArcFrame>, first: number, last: number,
+  scale: number, terraces: TerracePreservation) {
+  let placement = DEFAULT_FLIGHT_PLACEMENT, mostDisruptive = 0
+  for (const { edge, elevationMm } of terraces.outlets) {
+    const level = (elevationMm - first) / (last - first)
+    if (level <= 0 || level >= 1) continue
+    const edges = [edge]
+    for (let i = 1; i < centerline.length; i++) {
+      const cut = segmentCuts(centerline[i - 1], centerline[i], edges)[1]
+      if (cut === 1) continue
+      const fraction = mix(frame.distances[i - 1], frame.distances[i], cut) / frame.length
+      const trail = FLIGHT_TRAIL_RISE_SHARE * fraction, stairShare = 1 - FLIGHT_TRAIL_RISE_SHARE
+      const target = clamp((level - trail) / stairShare)
+      const actual = trail + stairShare * clamp((fraction - (1 - scale) * DEFAULT_FLIGHT_PLACEMENT) / scale)
+      const mismatch = Math.abs(actual - level)
+      if (mismatch <= mostDisruptive) continue
+      mostDisruptive = mismatch
+      placement = clamp((fraction - scale * target) / (1 - scale))
+    }
+  }
+  return placement
+}
+
+function prepareRoute(route: Route, field: HeightAt, terraces?: TerracePreservation) {
   const anchors = route.via.map(row => row.at)
   const centerlineMm = sampleAnchoredRoad(anchors)
   const frame = connectionArcFrame(centerlineMm)
@@ -100,17 +132,19 @@ function prepareRoute(route: Route, field: HeightAt) {
     return { ...row, z: Math.round(mix(before.z!, after.z!, (row.station - before.station) / (after.station - before.station))) }
   })
   if (control[0].landingMm || control.at(-1)!.landingMm) throw heightError(route.id, '首尾是接地端，歇脚平台请设在中间途经点。')
-  const flight = route.flight && route.style === 'stairs' ? Math.max(0, Math.abs(control.at(-1)!.z - control[0].z) * 2) : 0
+  const firstHeight = control[0].z, lastHeight = control.at(-1)!.z
+  const flight = route.flight && route.style === 'stairs' ? Math.abs(lastHeight - firstHeight) * 2 : 0
   const scale = flight ? Math.min(.80, flight / frame.length) : 0
+  const placement = route.flightPlacement ?? (scale && terraces
+    ? placeTerraceFlight(centerlineMm, frame, firstHeight, lastHeight, scale, terraces) : DEFAULT_FLIGHT_PLACEMENT)
   const shapeHeight = (station: number) => {
     const fraction = station / frame.length
     if (!scale) return fraction
-    const start = (1 - scale) * .46
-    return .15 * fraction + .85 * clamp((fraction - start) / scale)
+    const start = (1 - scale) * placement
+    return FLIGHT_TRAIL_RISE_SHARE * fraction + (1 - FLIGHT_TRAIL_RISE_SHARE) * clamp((fraction - start) / scale)
   }
   if (flight) {
-    const first = control[0].z, last = control.at(-1)!.z
-    for (const row of control.slice(1, -1)) row.z = Math.round(mix(first, last, shapeHeight(row.station)))
+    for (const row of control.slice(1, -1)) row.z = Math.round(mix(firstHeight, lastHeight, shapeHeight(row.station)))
   }
   const profile = (station: number) => {
     const next = control.findIndex((row, i) => i > 0 && row.station >= station)
@@ -176,52 +210,96 @@ function smoothOutline(points: PointMm[], bounds: BoundsMm, touchesNeighbor: (a:
   return points
 }
 
-function routeShape(base: HeightAt, routes: ReturnType<typeof prepareRoute>[], cell: number): HeightAt {
+/** Traced vertices represent a raster silhouette. Round its corners within
+ * the adjacent spans while preserving shared boundaries and cropped edges. */
+function roundTracedOutline(points: PointMm[], bounds: BoundsMm, touchesNeighbor: (a: PointMm, b: PointMm) => boolean,
+  retainsMarks: (points: PointMm[]) => boolean) {
+  const locked = points.map((point, i) => touchesNeighbor(point, points[(i + 1) % points.length]))
+  for (const strength of [1, .50]) {
+    let remaining = 2048 - points.length
+    const rounded = points.flatMap((corner, i) => {
+      const previous = (i + points.length - 1) % points.length
+      if (locked[previous] || locked[i] || remaining < 2) return [corner]
+      const a = points[previous], b = points[(i + 1) % points.length]
+      const incoming = Math.hypot(a.x - corner.x, a.y - corner.y), outgoing = Math.hypot(b.x - corner.x, b.y - corner.y)
+      const turn = ((corner.x - a.x) * (b.x - corner.x) + (corner.y - a.y) * (b.y - corner.y)) / (incoming * outgoing)
+      const reach = strength * Math.min(2400, incoming * .34, outgoing * .34)
+      if (reach < 165 || turn > .94) return [corner]
+      const towards = (point: PointMm, distance: number) =>
+        ({ x: mix(corner.x, point.x, reach / distance), y: mix(corner.y, point.y, reach / distance) })
+      const start = towards(a, incoming), end = towards(b, outgoing)
+      const count = reach > 880 && remaining >= 3 ? 3 : 2
+      const curve = Array.from({ length: count + 1 }, (_, step) => {
+        const t = step / count, u = 1 - t
+        return round({ x: u * u * start.x + 2 * t * u * corner.x + t * t * end.x,
+          y: u * u * start.y + 2 * t * u * corner.y + t * t * end.y })
+      })
+      if (curve.some((point, j) => !fits(point, bounds) || j > 0 && touchesNeighbor(curve[j - 1], point))) return [corner]
+      remaining -= count
+      return curve
+    })
+    if (polygonValid(rounded, true) && retainsMarks(rounded)) return rounded
+  }
+  return points
+}
+
+function routeShape(routes: PreparedRoute[], cell: number, preserveTerraces?: TerracePreservation) {
   const indexed = routes.map(plan => ({
     ...plan, find: indexEdges(plan.segments.map(({ a, b }) => [a, b])),
-    influence: plan.route.widthMm / 2 + cell * 1.9 + 6200,
+    influence: plan.route.widthMm / 2 + cell * 1.9 + MAX_GRADING_BLEND_MM,
+    approaches: preserveTerraces && plan.route.minRiseMm
+      ? [{ point: plan.segments[0].a, segment: plan.segments[0], sign: -1 },
+        { point: plan.segments.at(-1)!.b, segment: plan.segments.at(-1)!, sign: 1 }] : [],
     pins: plan.route.protectedForms?.flatMap(form => {
       const distance = Math.min(...plan.segments.map(({ a, b }) => distanceToSegment(form.at, a, b)))
       const reserve = distance - plan.route.widthMm / 2 - cell * 2.1
       return reserve > cell * 1.2 ? [{ at: form.at, radius: Math.min(reserve, Math.max(cell * 1.6, Math.min(form.radius.x, form.radius.y) * .38)) }] : []
     }) ?? [],
   }))
-  return p => {
-    const original = base(p)
-    let nearest = Infinity, width = 0, z = original, pins: typeof indexed[number]['pins'] = []
-    for (const { segments, route, profile, find, influence, pins: routePins } of indexed) {
+  return (p: PointMm, original: number) => {
+    let nearest = Infinity, station = 0, closest: typeof indexed[number] | undefined
+    for (const item of indexed) {
+      const { segments, find, influence } = item
       const possible = find(p, p, influence)
       observeGeometryPairs(possible.length)
       for (const i of possible) {
         const { a, dx, dy, length, start } = segments[i]
         const fraction = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / (length * length))
         const distance = Math.hypot(p.x - a.x - fraction * dx, p.y - a.y - fraction * dy)
-        if (distance < nearest) { nearest = distance; width = route.widthMm; z = profile(start + fraction * length); pins = routePins }
+        if (distance < nearest) { nearest = distance; station = start + fraction * length; closest = item }
       }
     }
-    const inner = width / 2 + cell * 1.55
-    const transition = Math.min(6200, 2500 + Math.abs(z - original) * .24)
-    const natural = pins.reduce((weight, pin) => Math.max(weight, 1 - smooth(Math.hypot(p.x - pin.at.x, p.y - pin.at.y) / pin.radius)),
-      smooth((nearest - inner) / transition))
+    if (!closest) return
+    const inner = closest.route.widthMm / 2 + cell * 1.55
+    if (nearest >= inner + MAX_GRADING_BLEND_MM) return
+    const z = closest.profile(station)
+    const transition = Math.min(MAX_GRADING_BLEND_MM, 2000 + Math.abs(z - original) * .20)
+    const halfWidth = closest.route.widthMm / 2
+    const room = closest.approaches.reduce((factor, { point, segment, sign }) => {
+      const x = p.x - point.x, y = p.y - point.y
+      const along = (x * segment.dx + y * segment.dy) / segment.length * sign
+      const across = Math.abs(x * segment.dy - y * segment.dx) / segment.length
+      const distance = Math.hypot(Math.max(0, -halfWidth - along, along - ASCENT_APPROACH_MM - halfWidth), Math.max(0, across - halfWidth))
+      return Math.min(factor, smooth((distance - cell * Math.SQRT2) / (cell * .86)))
+    }, 1)
+    // Retain the open shelf as soon as the road and a grid cell of support fit.
+    const terrace = preserveTerraces ? preserveTerraces.weightAt(p) * room * smooth((nearest - halfWidth - cell) / cell) : 0
+    const natural = closest.pins.reduce((weight, pin) => Math.max(weight, 1 - smooth(Math.hypot(p.x - pin.at.x, p.y - pin.at.y) / pin.radius)),
+      Math.max(terrace, smooth((nearest - inner) / transition)))
     return mix(z, original, natural)
   }
 }
 
-function protectedReliefNodes(grid: NonNullable<TerrainArea['relief']>, bounds: BoundsMm, cell: number, plan: PreparedRoute, meter: ExecutionBudget) {
+function protectedReliefNodes(grid: NonNullable<TerrainArea['relief']>, bounds: BoundsMm, plans: PreparedRoute[]) {
   const protectedNodes = new Set<number>()
-  for (const form of plan.route.protectedForms ?? []) {
+  const marks = new Set(plans.flatMap(plan => plan.route.protectedForms ?? []))
+  for (const form of marks) {
     const u = (form.at.x - bounds.x) * (grid.columns - 1) / bounds.width
     const v = (form.at.y - bounds.y) * (grid.rows - 1) / bounds.height
     const col = Math.min(grid.columns - 2, Math.max(0, Math.floor(u))), row = Math.min(grid.rows - 2, Math.max(0, Math.floor(v)))
     const corners = [[col, row], [col + 1, row], [col, row + 1], [col + 1, row + 1]]
-    meter.charge({ fieldEvaluations: corners.length * plan.segments.length })
-    const clear = corners.every(([x, y]) => {
-      const p = reliefGridPoint(grid, bounds, x, y)
-      return plan.segments.every(({ a, b }) => distanceToSegment(p, a, b) > plan.route.widthMm / 2 + cell * 1.45)
-    })
-    // Keep the exact interpolation cell outside the road's support.
-    // The trial still validates the resulting full-width band.
-    if (clear) for (const [x, y] of corners) protectedNodes.add(y * grid.columns + x)
+    // Retain all samples of the interpolation cell under each marked height.
+    for (const [x, y] of corners) protectedNodes.add(y * grid.columns + x)
   }
   return protectedNodes
 }
@@ -245,41 +323,69 @@ export function gradeLandscapeRouteRelief(area: TerrainArea, route: Route, meter
   const points = terrainPoints(area), bounds = reliefBounds(points), grid = area.relief
   if (!grid || area.rockBody) throw new Error('现有承托地形需要使用普通编辑器重塑。')
   const base = (p: PointMm) => area.groundElevationMm + sampleTerrainRelief(grid, bounds, p).offsetMm
-  return gradeRouteRelief(area, prepareRoute(route, base), meter, true)
+  return gradeRouteRelief(area, [prepareRoute(route, base)], meter)
 }
 
-function gradeRouteRelief(area: TerrainArea, plan: ReturnType<typeof prepareRoute>, meter: ExecutionBudget, keepEdges: boolean) {
+function gradeRouteRelief(area: TerrainArea, plans: PreparedRoute[], meter: ExecutionBudget, water: PointMm[][] = [], preserveTerraces?: TerracePreservation) {
   const points = terrainPoints(area), bounds = reliefBounds(points), grid = area.relief!
-  const base = (p: PointMm) => area.groundElevationMm + sampleTerrainRelief(grid, bounds, p).offsetMm
-  const cell = Math.max(bounds.width / (grid.columns - 1), bounds.height / (grid.rows - 1))
-  const height = routeShape(base, [plan], cell)
-  const protectedNodes = protectedReliefNodes(grid, bounds, cell, plan, meter)
-  const edgeIndex = keepEdges ? indexEdges(asEdges(points)) : undefined
-  meter.charge({ fieldEvaluations: grid.offsetsMm.length * (keepEdges ? 3 : 2) })
-  const offsetsMm = grid.offsetsMm.map((previous, index) => {
-    if (protectedNodes.has(index)) return previous
-    const p = reliefGridPoint(grid, bounds, index % grid.columns, Math.floor(index / grid.columns))
-    const neighbors = edgeIndex?.(p, p, cell * 1.5) ?? []
+  const stepX = bounds.width / (grid.columns - 1), stepY = bounds.height / (grid.rows - 1), cell = Math.max(stepX, stepY)
+  const keep = Math.hypot(stepX, stepY), blend = Math.max(1400, cell * 2.2)
+  const edges = [points, ...water].flatMap(asEdges), findEdges = indexEdges(edges)
+  const grade = routeShape(plans, cell, preserveTerraces), protectedNodes = protectedReliefNodes(grid, bounds, plans)
+  const routeBounds = reliefBounds(plans.flatMap(plan => plan.centerlineMm))
+  const reach = Math.max(...plans.map(plan => plan.route.widthMm / 2)) + cell * 1.9 + MAX_GRADING_BLEND_MM
+  const firstColumn = Math.max(0, Math.floor((routeBounds.x - reach - bounds.x) / stepX))
+  const lastColumn = Math.min(grid.columns - 1, Math.ceil((routeBounds.x + routeBounds.width + reach - bounds.x) / stepX))
+  const firstRow = Math.max(0, Math.floor((routeBounds.y - reach - bounds.y) / stepY))
+  const lastRow = Math.min(grid.rows - 1, Math.ceil((routeBounds.y + routeBounds.height + reach - bounds.y) / stepY))
+  meter.charge({ fieldEvaluations: Math.max(0, lastColumn - firstColumn + 1) * Math.max(0, lastRow - firstRow + 1) + protectedNodes.size })
+  const offsetsMm = grid.offsetsMm.slice()
+  let evaluated = 0
+  for (let row = firstRow; row <= lastRow; row++) for (let col = firstColumn; col <= lastColumn; col++) {
+    const index = row * grid.columns + col
+    if (protectedNodes.has(index)) continue
+    const p = reliefGridPoint(grid, bounds, col, row)
+    const neighbors = findEdges(p, p, keep + blend)
     observeGeometryPairs(neighbors.length)
-    if (neighbors.length) return previous
-    return Math.round(height(p) - area.groundElevationMm)
-  })
+    const distance = neighbors.reduce((nearest, i) => Math.min(nearest, distanceToSegment(p, ...edges[i])), keep + blend)
+    if (distance <= keep) continue
+    const original = area.groundElevationMm + offsetsMm[index]
+    const height = grade(p, original)
+    if (height === undefined) continue
+    evaluated++
+    offsetsMm[index] = Math.round(mix(original, height, smooth((distance - keep) / blend)) - area.groundElevationMm)
+  }
+  meter.charge({ fieldEvaluations: evaluated * (1 + (preserveTerraces?.outlets.length ?? 0)) })
   return { ...grid, offsetsMm }
 }
 
-function baseHeight(area: TerrainArea, points: PointMm[], forms: Landform[], coastal: boolean, seed: string, natural: boolean, beachRiseMm: number): HeightAt {
+function baseHeight(area: TerrainArea, points: PointMm[], forms: Landform[], coastal: boolean, seed: string, natural: boolean,
+  beachRiseMm: number, cell: number, meter: ExecutionBudget) {
   const outline = asEdges(points), find = coastal ? indexEdges(outline) : undefined
+  const structured = new Map(forms.flatMap(form => {
+    const weight = landscapeStructureWeight(form, seed)
+    return weight ? [[form, weight] as const] : []
+  }))
+  const weightAt = (form: Landform, at: PointMm) => structured.get(form)?.(at) ?? landformWeight(form, at, seed)
   const lows = forms.filter(form => form.shape === 'lowland')
   const retained = forms.filter(form => form.preserveRelief || natural && form.shape !== 'lowland' && lows.some(low =>
     form.elevationMm > low.elevationMm + 250 && form.radius.x * form.radius.y < low.radius.x * low.radius.y * .55
-    && landformWeight(low, form.at, seed) > .27))
+    && weightAt(low, form.at) > .27))
   const raised = forms.filter(form => form.shape !== 'lowland' && !retained.includes(form))
+  const terraces = joinLandscapeTerraces(raised, cell, meter)
   const kept = retained.map(form => ({ form, lowPins: natural ? lows.flatMap(low => {
     const distance = Math.hypot(form.at.x - low.at.x, form.at.y - low.at.y), core = Math.min(form.radius.x, form.radius.y)
-    return distance >= core * .64 && landformWeight(form, low.at, seed) > 0
-      ? [{ at: low.at, radius: Math.min(distance * .42, core * .50) }] : []
+    const sampleReach = cell * Math.SQRT2
+    if (distance < Math.max(core * .64, sampleReach * 1.45)) return []
+    const nearby = [...[-1, 1].flatMap(x => [-1, 1].map(y => ({ x: low.at.x + x * cell, y: low.at.y + y * cell }))), low.at]
+    if (!nearby.some(at => weightAt(form, at) > 0)) return []
+    const inner = Math.min(sampleReach, distance * .54)
+    const outer = Math.min(distance * .86, inner + Math.max(cell, core * .35))
+    // The low point is interpolated from nearby samples. Keep the rock
+    // shoulder clear of that cell, then blend back into the outcrop.
+    return [{ at: low.at, inner, outer }]
   }) : [] }))
-  return p => {
+  const composedHeight = (p: PointMm) => {
     let distance = 4700
     const candidates = find?.(p, p, distance) ?? []
     observeGeometryPairs(candidates.length)
@@ -290,19 +396,29 @@ function baseHeight(area: TerrainArea, points: PointMm[], forms: Landform[], coa
     const datum = area.groundElevationMm + inside * (beachRiseMm + (coastal ? 590 : 250) * (1 + .68 * fold + .21 * seam))
     let high = datum, still = 0
     for (const form of raised) {
-      const weight = landformWeight(form, p, seed)
-      high = Math.max(high, mix(datum, form.elevationMm, weight))
+      const weight = weightAt(form, p)
+      const height = mix(datum, form.elevationMm, weight)
+      const caps = terraces.joined.get(form)
+      high = Math.max(high, caps?.reduce((level, cap) => Math.min(level,
+        mix(height, Math.min(height, cap.elevationMm), cap.weight(p))), height) ?? height)
       still = Math.max(still, smooth((weight - .82) / .18))
     }
     high += (1 - still) * inside * (natural ? fold * 960 + seam * 420 : fold * 670 + seam * 260) * clamp((high - datum) / 5800)
-    for (const form of lows) high = mix(high, form.elevationMm, landformWeight(form, p, seed))
+    for (const form of lows) high = mix(high, form.elevationMm, weightAt(form, p))
     const basin = high
     for (const { form, lowPins } of kept) {
-      const weight = lowPins.reduce((gain, pin) => gain * smooth(Math.hypot(p.x - pin.at.x, p.y - pin.at.y) / pin.radius), landformWeight(form, p, seed))
-      high = Math.max(high, mix(basin, form.elevationMm, weight))
+      const weight = weightAt(form, p)
+      if (weight <= 0) continue
+      const retainedWeight = lowPins.reduce((gain, pin) => {
+        const distance = Math.hypot(p.x - pin.at.x, p.y - pin.at.y)
+        return gain * smooth((distance - pin.inner) / (pin.outer - pin.inner))
+      }, weight)
+      high = Math.max(high, mix(basin, form.elevationMm, retainedWeight))
     }
     return coastal ? Math.max(80, high) : high
   }
+  const fitted = preserveLandformLevels(forms, cell, composedHeight, coastal, meter)
+  return { heightAt: fitted.heightAt, correctionFields: fitted.correctionFields + terraces.correctionFields, preserveTerraces: terraces.preserve }
 }
 
 function landscapeRoad(scene: SceneDocument, areaId: string, floor: Floor, plan: PreparedRoute): Path {
@@ -329,9 +445,10 @@ function landscapeRoad(scene: SceneDocument, areaId: string, floor: Floor, plan:
         throw new Error('台阶道路实际升降方向与起终点高程不符。请确认起点和终点锚点。')
       }
     }
+    const natural = scene.terrainAreas[areaId].reliefFinish === 'weathered-v3'
     return { ...path, id: route.id, floorId: floor.id, editLocked: false, visibility: 'public', renderOrder: 0,
-      movementCostMultiplier: 1, boundaryBlendMm: 225, supportRefs: refs, roadSurface,
-      surfaceStyle: { base: landscapePaint(scene, 'sandDry', scene.terrainAreas[areaId].reliefFinish === 'weathered-v2' ? '#C8B89E' : '#D5CAB4'), overlays: [] },
+      movementCostMultiplier: 1, boundaryBlendMm: 225, supportRefs: refs, roadSurface, roadFinish: 'terrain-v1',
+      surfaceStyle: { base: landscapePaint(scene, 'sandDry', natural ? '#C8B89E' : '#D5CAB4'), overlays: [] },
       ...(roadSurface.stations.some(station => station.outZMm) ? { staircase: { ...defaultStaircase(), preset: 'rough-stone' as const, material: 'limestone' as const } } : {}),
       automaticRoute: { algorithm: AUTOMATIC_ROAD_VERSION, alignment: 'anchors-v1', fixedPointsMm: anchors,
         landings: route.around ? [] : landings, automaticStairs: true } }
@@ -374,9 +491,19 @@ function gradingDisturbance(course: PointMm[], widthMm: number, forms: Landform[
   }, 0)
 }
 
+function landscapeTurnRadius(form: Landform, side: keyof typeof bearing, widthMm: number) {
+  const facing = bearing[side], angle = form.rotationDeg * Math.PI / 180
+  const alongX = facing.x * Math.cos(angle) + facing.y * Math.sin(angle)
+  const alongY = facing.y * Math.cos(angle) - facing.x * Math.sin(angle)
+  const reach = 1 / Math.hypot(alongX / form.radius.x, alongY / form.radius.y)
+  const structure = form.structure?.kind === 'area' ? form.structure.boundary : form.structure?.centerline ?? []
+  const rim = structure.reduce((outer, p) => Math.max(outer, (p.x - form.at.x) * facing.x + (p.y - form.at.y) * facing.y), 0)
+  return Math.max(widthMm * 2.2, reach * .92 + widthMm / 2, rim + Math.min(form.radius.x, form.radius.y) * .40 + widthMm / 2)
+}
+
 function fitLandscapeRoad(scene: SceneDocument, floor: Floor, area: TerrainArea, route: Route, landmark: Landform | undefined,
   field: HeightAt, nearby: PreparedRoute[], meter: ExecutionBudget, water: PointMm[][], protectedForms: Landform[] = [],
-  search?: { terrain: boolean; maxGrades: number }) {
+  search?: { terrain: boolean; maxGrades: number; flightPlacement?: number; preserveTerraces?: TerracePreservation }) {
   const [first, last] = route.via, points = terrainPoints(area)
   const issues = new Map<string, TerrainTravelIssue>()
   const record = (issue: TerrainTravelIssue) => {
@@ -385,7 +512,7 @@ function fitLandscapeRoad(scene: SceneDocument, floor: Floor, area: TerrainArea,
   const badTurn = (at: PointMm) => record(roadIssue(route.id, 'LANDSCAPE_ROAD_TURN', '净宽带在这里折返或相交。', at))
   const fits = (band: PointMm[]) => landscapeBandFits(route.id, band, points, water, record)
   const { side, radiusMm } = route.around ?? {}
-  const radius = radiusMm ?? Math.max(route.widthMm * 2.2, landmark ? Math.min(landmark.radius.x, landmark.radius.y) * .70 : 0)
+  const radius = radiusMm ?? (landmark && side ? landscapeTurnRadius(landmark, side, route.widthMm) : 0)
   const checkCourse = (course: PointMm[]) => {
     try {
       const centerline = sampleAnchoredRoad(course), band = polylineBand(centerline, route.widthMm, true)
@@ -400,27 +527,38 @@ function fitLandscapeRoad(scene: SceneDocument, floor: Floor, area: TerrainArea,
     record(roadIssue(route.id, 'LANDSCAPE_ROAD_RADIUS', `${radiusMm} mm 绕行半径不足以布置 ${route.widthMm} mm 净宽及转角。`, landmark.at))
     courses = []
   } else if (search?.terrain) {
+    courses = terrainLandscapeCourses(first.at, last.at, route.widthMm, landmark && side ? { at: landmark.at, side, radius, fixed: radiusMm !== undefined } : undefined)
+      .filter(checkCourse)
+  } else if (landmark && side) {
+    const extended = protectedForms.some(form => Math.hypot(form.at.x - last.at.x, form.at.y - last.at.y) < route.widthMm * 2.8)
+    const candidates = (r: number, vary: boolean) => landmarkRoutes(first.at, last.at, landmark.at, side, r, route.widthMm, fits, vary, badTurn, extended)
+    courses = candidates(radius, radiusMm === undefined)
+    if (radiusMm === undefined) {
+      const inner = Math.max(route.widthMm * 2.2, Math.min(landmark.radius.x, landmark.radius.y) * .70)
+      if (inner < radius * .88) courses.push(...candidates(inner, true))
+      // Narrow terraces may have a usable turn scaled to the road even when
+      // the fitted landform's radius extends across a cliff or water.
+      for (const compact of [2.85, 3.15].map(scale => Math.round(route.widthMm * scale))) {
+        if (compact < radius * .90) courses.push(...candidates(compact, false))
+      }
+    }
+  } else {
+    courses = directLandscapeCourses(first.at, last.at, route.widthMm).filter(checkCourse)
+  }
+  if (landmark || search?.terrain || protectedForms.length) {
     const box = reliefBounds(points), grid = area.relief!
     const height = (p: PointMm) => area.groundElevationMm + sampleTerrainRelief(grid, box, p).offsetMm
-    courses = terrainLandscapeCourses(first.at, last.at, route.widthMm, points, water, height, meter,
-      course => gradingDisturbance(course, route.widthMm, protectedForms), landmark && side ? { at: landmark.at, side, radius, fixed: radiusMm !== undefined } : undefined)
-      .filter(checkCourse)
-  } else {
-    courses = landmark && side ? landmarkRoutes(first.at, last.at, landmark.at, side, radius, route.widthMm, fits, radiusMm === undefined, badTurn)
-      : directLandscapeCourses(first.at, last.at, route.widthMm).filter(checkCourse)
-  }
-  if (protectedForms.length && !search?.terrain) {
-    const cost = new Map(courses.map(course => [course, gradingDisturbance(course, route.widthMm, protectedForms)]))
-    courses.sort((a, b) => cost.get(a)! - cost.get(b)!)
+    courses = rankLandscapeCourses(courses, route.widthMm, points, water, height, meter,
+      course => gradingDisturbance(course, route.widthMm, protectedForms))
   }
   let graded = 0
-  for (const course of courses.slice(0, search?.maxGrades ?? 4)) {
+  for (const course of courses.slice(0, search?.maxGrades ?? 12)) {
     graded++
     try {
       const via = landscapeRouteAnchors(course, route.style, route.widthMm)
-      const plan = prepareRoute({ ...route, via: [first, ...via.slice(1, -1), last], protectedForms }, field)
+      const plan = prepareRoute({ ...route, via: [first, ...via.slice(1, -1), last], flightPlacement: search?.flightPlacement, protectedForms }, field, search?.preserveTerraces)
       if (side && landmark && !reachesLandmarkSide(plan.centerlineMm, landmark.at, side)) continue
-      const relief = gradeRouteRelief(area, plan, meter, false)
+      const relief = gradeRouteRelief(area, [plan], meter, water, search?.preserveTerraces)
       const terrain = { ...area, relief }
       const trial = { ...scene, terrainAreas: { ...scene.terrainAreas, [area.id]: terrain }, paths: { ...scene.paths } }
       const road = landscapeRoad(trial, area.id, floor, plan)
@@ -435,8 +573,8 @@ function fitLandscapeRoad(scene: SceneDocument, floor: Floor, area: TerrainArea,
         record(roadIssue(route.id, 'LANDSCAPE_ASCENT_RISE', `道路保存后的高差未达到 ${route.minRiseMm} mm。`, first.at))
         continue
       }
-      const disrupted = nearby.filter(other => other.route.around)
-        .map(other => checkGradedRoadOnValidScene(trial, trial.paths[other.route.id])).find(result => !result.ok)
+      const disrupted = nearby.map(other => checkGradedRoadOnValidScene(trial, trial.paths[other.route.id], other.route.minRiseMm ? ASCENT_APPROACH_MM : 0))
+        .find(result => !result.ok)
       if (disrupted) { disrupted.issues.forEach(record); continue }
       return { plan, relief }
     } catch (error) {
@@ -469,53 +607,91 @@ function directLandscapeCourses(from: PointMm, to: PointMm, widthMm: number) {
 }
 
 function fitLandscapeAscent(scene: SceneDocument, floor: Floor, area: TerrainArea, route: MapAscentRoute, summit: Landform,
-  around: Landform | undefined, field: HeightAt, nearby: PreparedRoute[], meter: ExecutionBudget, water: PointMm[][], protectedForms: Landform[]) {
+  around: Landform | undefined, field: HeightAt, nearby: PreparedRoute[], meter: ExecutionBudget, water: PointMm[][],
+  protectedForms: Landform[], preserveTerraces?: TerracePreservation) {
   const { from, minRiseMm } = route.ascent, outline = terrainPoints(area), box = reliefBounds(outline)
   const height = (p: PointMm) => Math.round(area.groundElevationMm + (area.relief ? sampleTerrainRelief(area.relief, box, p).offsetMm : 0))
   const allowed = (p: PointMm) => pointInPolygon(p, outline, false) && water.every(ring => !pointInPolygon(p, ring))
   const destination = { at: summit.at, elevationMm: height(summit.at) }
-  const facing = route.around && {
-    north: { x: 0, y: -1 }, east: { x: 1, y: 0 }, south: { x: 0, y: 1 }, west: { x: -1, y: 0 },
-  }[route.around.side]
-  const reach = around && (route.around?.radiusMm ?? Math.max(route.widthMm * 2.2, Math.min(around.radius.x, around.radius.y) * .7))
+  const facing = route.around && bearing[route.around.side]
+  const reach = around && route.around && (route.around.radiusMm ?? landscapeTurnRadius(around, route.around.side, route.widthMm))
   const entering = facing && around && reach
     ? { x: around.at.x + facing.x * reach, y: around.at.y + facing.y * reach } : summit.at
-  const samples = [from.at, ...[.50, .87].flatMap(scale => landscapeEllipse(from.at, { x: from.radius.x * scale, y: from.radius.y * scale }, 12))]
-    .filter(allowed).map(at => ({ at, elevationMm: height(at) }))
-  meter.charge({ fieldEvaluations: samples.length + 1 })
-  const eligible = samples.filter(p => destination.elevationMm - p.elevationMm >= minRiseMm)
+  const sampleStart = (scales: number[]) => {
+    const points = [from.at, ...scales.flatMap(scale => landscapeEllipse(from.at, { x: from.radius.x * scale, y: from.radius.y * scale }, 12))]
+    const result = [...new Map(points.filter(allowed).map(at => [`${at.x}/${at.y}`, at])).values()]
+      .map(at => ({ at, elevationMm: height(at) }))
+    meter.charge({ fieldEvaluations: result.length })
+    return result
+  }
+  meter.charge({ fieldEvaluations: 1 })
+  const samples = sampleStart([.50, .87])
   const minimum = route.ascent.minWidthMm ?? route.widthMm
-  const widths = minimum === route.widthMm ? [route.widthMm] : [route.widthMm, minimum]
+  const range = route.widthMm - minimum
+  const middle = range >= 300 ? [Math.round(route.widthMm - range / 3), Math.round(route.widthMm - range * 2 / 3)] : []
+  const widths = [...new Set([route.widthMm, ...middle, minimum])]
   const failures = new Map<string, TerrainTravelIssue>()
+  const rejectedWidths: LandscapeWidthAttempt[] = []
+  let inner: typeof samples | undefined
   let totalGraded = 0
   for (const widthMm of widths) {
-    const ranked = eligible.filter(p => Math.hypot(p.at.x - summit.at.x, p.at.y - summit.at.y) > widthMm * 2)
+    const rank = (rows: typeof samples) => rows.filter(p => destination.elevationMm - p.elevationMm >= minRiseMm
+        && Math.hypot(p.at.x - summit.at.x, p.at.y - summit.at.y) > widthMm * 2)
       .map(p => ({ ...p, score: p.elevationMm * .75 + Math.hypot(p.at.x - from.at.x, p.at.y - from.at.y) * .10
-        + gradingDisturbance([p.at, entering], widthMm, protectedForms) * 3100 })).sort((a, b) => a.score - b.score)
-    const starts: typeof ranked = []
-    for (const row of ranked) {
-      if (starts.every(p => Math.hypot(p.at.x - row.at.x, p.at.y - row.at.y) >= widthMm * .78)) starts.push(row)
-      if (starts.length === 4) break
+        + gradingDisturbance([p.at, entering], widthMm, protectedForms) * 3100 }))
+      .sort((a, b) => Number(b.at === from.at) - Number(a.at === from.at) || a.score - b.score)
+    const diverse = (rows: typeof samples, spacing: number, limit: number) => {
+      const result: typeof samples = []
+      for (const row of rows) {
+        if (result.every(p => Math.hypot(p.at.x - row.at.x, p.at.y - row.at.y) >= widthMm * spacing)) result.push(row)
+        if (result.length === limit) break
+      }
+      return result
     }
-    let remaining = widths.length === 1 ? 12 : 7
-    for (const terrain of [false, true]) {
-      for (const [index, start] of starts.entries()) {
-        const maxGrades = Math.min(remaining, terrain ? 2 : index === 0 ? 4 : 1)
+    const starts = diverse(rank(samples), .78, 4)
+    // A permitted fallback must not shorten the search for the preferred
+    // width. Intermediate trials are selective; retain room for the minimum.
+    let remaining = widthMm === route.widthMm ? 20 : widthMm === minimum ? 12 : 3
+    let gradedAtWidth = 0
+    const rejected = new Map<string, TerrainTravelIssue>()
+    const flight = route.ascent.staircase === 'flight'
+    for (const phase of ['initial', 'inner', 'terrain'] as const) {
+      if (!remaining) break
+      const innerStarts = phase === 'initial' ? [] : diverse(rank(inner ??= sampleStart([.37, .66]))
+        .filter(row => !starts.some(p => p.at.x === row.at.x && p.at.y === row.at.y))
+        .sort((a, b) => Math.hypot(a.at.x - from.at.x, a.at.y - from.at.y) - Math.hypot(b.at.x - from.at.x, b.at.y - from.at.y)), .43, 6)
+      const candidates = phase === 'initial' ? starts : phase === 'inner' ? innerStarts : [...starts, ...innerStarts]
+      // Preserve an early successful course. Subsequent trials change the
+      // marked landing and stair placement within the same requested design.
+      for (const [index, start] of candidates.entries()) {
+        const maxGrades = Math.min(remaining, phase === 'initial' && index === 0 ? 8 : phase === 'terrain' ? 2 : 1)
         if (!maxGrades) break
         try {
-          return fitLandscapeRoad(scene, floor, area, { ...route, widthMm, via: [start, destination], minRiseMm,
-            flight: route.ascent.staircase === 'flight' }, around, field, nearby, meter, water, protectedForms, { terrain, maxGrades })
+          const selected = fitLandscapeRoad(scene, floor, area, { ...route, widthMm, via: [start, destination], minRiseMm, flight },
+            around, field, nearby, meter, water, protectedForms.filter(form => form.at.x !== start.at.x || form.at.y !== start.at.y), { terrain: phase === 'terrain', maxGrades, preserveTerraces,
+              ...(phase === 'terrain' && flight ? { flightPlacement: index % 2 === 0 ? .40 : .57 } : {}) })
+          return { ...selected, rejectedWidths }
         } catch (error) {
           if (!(error instanceof NoLandscapeRoad)) throw error
           const graded = error.details.graded ?? 0
           remaining -= graded
           totalGraded += graded
-          for (const issue of error.details.issues) if (!failures.has(issue.code)) failures.set(issue.code, issue)
+          gradedAtWidth += graded
+          for (const issue of error.details.issues) {
+            if (!failures.has(issue.code)) failures.set(issue.code, issue)
+            if (!rejected.has(issue.code)) rejected.set(issue.code, issue)
+          }
         }
       }
     }
+    const reasons = [...rejected.values()]
+    const specific = reasons.filter(issue => issue.code !== 'LANDSCAPE_ROAD_NOT_FOUND')
+    rejectedWidths.push({ widthMm, graded: gradedAtWidth,
+      issues: specific.length ? specific : reasons.length ? reasons : [roadIssue(route.id, 'LANDSCAPE_ASCENT_START',
+        '标记起步区没有找到满足这档道路净宽和高差的落脚点。', from.at)] })
   }
-  const bestRise = samples.length ? destination.elevationMm - Math.min(...samples.map(row => row.elevationMm)) : null
+  const tested = [...samples, ...(inner ?? [])]
+  const bestRise = tested.length ? destination.elevationMm - Math.min(...tested.map(row => row.elevationMm)) : null
   throw new NoLandscapeRoad({ id: route.id, fromMm: from.at, toMm: summit.at, landmarkId: summit.id, widthMm: route.widthMm,
     graded: totalGraded, issues: failures.size ? [...failures.values()] : [roadIssue(route.id, 'LANDSCAPE_ASCENT_START',
       bestRise === null ? '标记起步区没有落在这一块陆地上。' : bestRise < minRiseMm
@@ -524,7 +700,7 @@ function fitLandscapeAscent(scene: SceneDocument, floor: Floor, area: TerrainAre
 }
 
 export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLandscapeRecipe, frame: Frame, seed: string, meter: ExecutionBudget,
-  draftRoadFailures?: LandscapeRoadFailure[]) {
+  draftRoadFailures?: LandscapeRoadFailure[], widthAttempts?: Map<string, LandscapeWidthAttempt[]>) {
   const coast = input.environment === 'coast', natural = input.finish === 'natural', floorId = floor.id, bounds = floor.boundsMm
   const layers = Object.values(scene.userLayers).filter(row => row.floorId === floorId).sort((a, b) => a.order - b.order)
   const groundLayer = layers[0].id, trailsLayer = layers[1]?.id ?? groundLayer
@@ -541,11 +717,12 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
   const sea = { id: LANDSCAPE_WATER_ID, points: [
     { x: bounds.x, y: bounds.y }, { x: right, y: bounds.y }, { x: right, y: bottom }, { x: bounds.x, y: bottom },
   ] }
-  const forms = input.landforms.map(row => ({ ...row, at: frame.point(row.at), radius: frame.size(row.radius) }))
+  const forms = input.landforms.map(row => ({ ...row, at: frame.point(row.at), radius: frame.size(row.radius),
+    ...(row.structure ? { structure: mapLandformStructure(row.structure, frame.point) } : {}) }))
   const routes = input.routes.map(row => 'via' in row ? { ...row, via: row.via.map(anchor => ({ ...anchor, at: frame.point(anchor.at) })) }
     : { ...row, ascent: { ...row.ascent, from: { at: frame.point(row.ascent.from.at), radius: frame.size(row.ascent.from.radius) } } })
   const plans: { areaId: string; plan: ReturnType<typeof prepareRoute> }[] = []
-  const automatic: { area: TerrainArea; route: Route | MapAscentRoute; landmark?: Landform; summit?: Landform; profile: HeightAt }[] = []
+  const automatic: { area: TerrainArea; route: Route | MapAscentRoute; landmark?: Landform; summit?: Landform; profile: HeightAt; preserveTerraces?: TerracePreservation }[] = []
   const fixedAreas: { area: TerrainArea; planned: PreparedRoute[]; rebuild: () => void }[] = []
   const fixedFailure = (route: Route, issue: TerrainTravelIssue) => {
     const details = { id: route.id, widthMm: route.widthMm, fromMm: route.via[0].at, toMm: route.via.at(-1)!.at, issues: [issue] }
@@ -565,7 +742,21 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
   })
   const finalizedOutlines = splitNewTerrainJunctions(coast ? [...landOutlines, sea] : landOutlines)
   const outlines = finalizedOutlines.slice(0, landOutlines.length)
-  if (coast) addWater(sea.id, finalizedOutlines.at(-1)!.points, false)
+  if (coast) {
+    addWater(sea.id, finalizedOutlines.at(-1)!.points, false)
+    const waterStyle = scene.terrainAreas[sea.id].surfaceStyle!
+    for (const shallow of input.shallows ?? []) {
+      const boundaryMm = shallow.boundary.map(frame.point)
+      if (!boundaryMm.every(p => fits(p, bounds)) || !polygonValid(boundaryMm, false)
+        || outlines.some(row => polygonInside(boundaryMm, row.points))) {
+        throw heightError(shallow.id, '浅水范围须是画布内的有效区域，并与外海相交。')
+      }
+      const box = reliefBounds(boundaryMm)
+      waterStyle.overlays.push({ id: `landscape/shallow/${shallow.id}`, boundaryMm,
+        paint: { ...landscapePaint(scene, 'waterShallow'), opacity: .88 },
+        renderOrder: 0, blendWidthMm: Math.round(Math.max(120, Math.min(1850, Math.min(box.width, box.height) * .16))) })
+    }
+  }
   const lakeRings = (input.lakes ?? []).map(({ id, areaId, boundary }) => {
     const points = boundary.map(frame.point)
     if (signedVisualArea(points) < 0) points.reverse()
@@ -576,8 +767,8 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
   const findOutline = indexEdges(outlineEdges.map(row => row.edge))
   const smoothRings = outlines.map(({ id, points }, i) => {
     const row = input.land[i]
-    if (!row.boundary || row.outline !== 'smooth' || row.shore === 'hard') return points
-    return smoothOutline(points, bounds, (a, b) => {
+    if (!row.boundary || row.outline === 'exact' || row.shore === 'hard') return points
+    const touchesNeighbor = (a: PointMm, b: PointMm) => {
       if (a.x === b.x && (a.x === bounds.x || a.x === right) || a.y === b.y && (a.y === bounds.y || a.y === bottom)) return true
       const hits = findOutline(a, b)
       observeGeometryPairs(hits.length)
@@ -588,7 +779,15 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
         return segmentCuts(a, b, [[c, d]]).length > 2 || segmentCuts(c, d, [[a, b]]).length > 2
           || [a, b].every(p => distanceToSegment(p, c, d) < .001)
       })
-    }, natural)
+    }
+    const marked = forms.filter(form => form.areaId === id)
+    const fixed = [...marked.map(form => form.at),
+      ...routes.flatMap(route => route.areaId === id && 'via' in route ? route.via.map(anchor => anchor.at) : [])]
+    const ownLakes = lakeRings.filter(lake => lake.areaId === id)
+    return row.outline === 'traced' ? roundTracedOutline(points, bounds, touchesNeighbor,
+      ring => fixed.every(mark => pointInPolygon(mark, ring, false)) && ownLakes.every(lake => polygonInside(lake.points, ring))
+        && marked.every(form => !form.structure || !landformStructureIssue(form.structure, form.at, form.radius, ring, [])))
+      : smoothOutline(points, bounds, touchesNeighbor, natural)
   })
   for (const [index, row] of input.land.entries()) {
     const points = smoothRings[index], isReef = row.form === 'reef', flat = row.form === 'flat'
@@ -598,6 +797,10 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
     const invalid = relevant.find(form => !pointInPolygon(form.at, points, false) || Math.min(form.radius.x, form.radius.y) < 250)
     if (invalid) throw heightError(invalid.id, '地貌中心须在指定陆地内，半径换算后每轴至少 250 mm。')
     const water = lakeRings.filter(lake => lake.areaId === row.id).map(lake => lake.points)
+    for (const form of relevant) if (form.structure) {
+      const problem = landformStructureIssue(form.structure, form.at, form.radius, points, water)
+      if (problem) throw heightError(form.id, problem)
+    }
     const key = row.cover === 'natural' ? coast ? isReef ? 'rockDry' : 'sandDry' : flat ? 'grass' : 'sandDry'
       : row.cover === 'sand' ? 'sandDry' : row.cover === 'rock' ? 'rockDry' : 'grass'
     const coastShelfMm = 640
@@ -605,9 +808,13 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
     const elevation = row.elevationMm ?? (coast ? isReef ? 1000 : beach ? 0 : coastShelfMm : flat ? 0 : 200)
     const shapedReef = isReef && !relevant.length && !ownRoutes.length && coast
     const priority = lakeRings.some(lake => lake.areaId !== row.id && polygonInside(points, lake.points)) ? 3 : 1
-    const area = newArea(row.id, floorId, points, shapedReef ? Math.min(170, elevation) : elevation,
-      priority, { base: landscapePaint(scene, key), overlays: [] })
-    const profile = flat && !relevant.length ? () => area.groundElevationMm : baseHeight(area, points, relevant, coast, seed, natural, beach ? coastShelfMm : 0)
+    const rockReef = shapedReef && natural && row.cover === 'rock'
+    const area = newArea(row.id, floorId, points, shapedReef ? Math.min(rockReef ? 350 : 170, elevation) : elevation,
+      priority, { base: landscapePaint(scene, key === 'rockDry' && rockReef ? 'rockWet' : key, rockReef ? '#B6ADA4' : null), overlays: [] })
+    const box = reliefBounds(points), cell = Math.max(480, Math.max(box.width, box.height) / 96)
+    const { heightAt: profile, correctionFields, preserveTerraces } = flat && !relevant.length
+      ? { heightAt: () => area.groundElevationMm, correctionFields: 0, preserveTerraces: undefined }
+      : baseHeight(area, points, relevant, coast, seed, natural, beach ? coastShelfMm : 0, cell, meter)
     const planned: PreparedRoute[] = []
     for (const route of ownRoutes) {
       if ('via' in route) {
@@ -618,7 +825,8 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
         }
         if (!route.around) {
           try {
-            const plan = prepareRoute(route, profile), band = polylineBand(plan.centerlineMm, route.widthMm, true)
+            const protectedForms = relevant.filter(form => !route.via.some(anchor => anchor.at.x === form.at.x && anchor.at.y === form.at.y))
+            const plan = prepareRoute({ ...route, protectedForms }, profile), band = polylineBand(plan.centerlineMm, route.widthMm, true)
             let issue: TerrainTravelIssue | undefined
             if (!polygonValid(band, true, at => { issue = roadIssue(route.id, 'LANDSCAPE_ROAD_TURN', '转角处的道路净宽带折返或相交。', at) })) {
               fixedFailure(route, issue ?? roadIssue(route.id, 'LANDSCAPE_ROAD_TURN', '无法生成有效的道路净宽带。', route.via[0].at))
@@ -635,19 +843,22 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
       const landmark = route.around && relevant.find(form => form.id === route.around!.landmarkId)
       if (route.around && !landmark) throw heightError(route.id, '绕行地标须位于同一块陆地。')
       const summit = 'ascent' in route ? relevant.find(form => form.id === route.ascent.toLandmarkId) : undefined
-      automatic.push({ area, route, landmark, summit, profile })
+      automatic.push({ area, route, landmark, summit, profile, preserveTerraces })
     }
-    const box = reliefBounds(points), cell = Math.max(480, Math.max(box.width, box.height) / 96)
+    let baseRelief: TerrainArea['relief']
     const rebuild = () => {
       if (flat && !relevant.length && !ownRoutes.some(route => !('via' in route) || route.around)
         && !planned.some(route => route.control.some(row => row.z !== area.groundElevationMm))) {
         delete area.relief
         return
       }
-      const heightAt = routeShape(profile, planned, cell)
-      const estimate = Math.min(97, Math.ceil(box.width / cell) + 1) * Math.min(97, Math.ceil(box.height / cell) + 1)
-      meter.charge({ gridNodes: estimate, fieldEvaluations: estimate * (2 + relevant.length + planned.length) })
-      area.relief = createTerrainRelief(box, p => heightAt(p) - area.groundElevationMm, cell)
+      if (!baseRelief) {
+        const estimate = Math.min(97, Math.ceil(box.width / cell) + 1) * Math.min(97, Math.ceil(box.height / cell) + 1)
+        meter.charge({ gridNodes: estimate, fieldEvaluations: estimate * (2 + relevant.length + correctionFields) })
+        baseRelief = createTerrainRelief(box, p => profile(p) - area.groundElevationMm, cell)
+      }
+      area.relief = baseRelief
+      if (planned.length) area.relief = gradeRouteRelief(area, planned, meter, water, preserveTerraces)
     }
     if (shapedReef) {
       const phase = terrainRandomUnit(seed, row.id) * 6
@@ -655,13 +866,13 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
       const grid = createTerrainRelief(box, p => {
         const r = Math.hypot((p.x - top.x) * 1.7 / box.width, (p.y - top.y) * 1.7 / box.height)
         const crag = terrainValueNoise(seed, row.id, p.x / 850, p.y / 710)
-        return (elevation - area.groundElevationMm) * (1 - smooth((r + .19 * crag - .11) / .71))
+        return (elevation - area.groundElevationMm) * (1 - smooth((r + .19 * crag - (rockReef ? .30 : .11)) / (rockReef ? .48 : .71)))
       }, Math.max(195, Math.max(box.width, box.height) / 32))
       meter.charge({ gridNodes: grid.offsetsMm.length, fieldEvaluations: grid.offsetsMm.length })
       area.relief = grid
     } else rebuild()
-    if (area.relief && (row.cover === 'natural' || row.cover === 'rock') && (relevant.length || row.form !== 'reef' || !natural)) {
-      area.reliefFinish = natural ? 'weathered-v2' : 'weathered-v1'
+    if (area.relief && (row.cover === 'natural' || row.cover === 'rock') && (relevant.length || row.form !== 'reef' || !natural || rockReef)) {
+      area.reliefFinish = natural ? 'weathered-v3' : 'weathered-v1'
     }
     scene.terrainAreas[area.id] = area
     scene.entityLayers[area.id] = groundLayer
@@ -669,8 +880,9 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
     for (const form of relevant) {
       const size = { x: Math.min(form.radius.x * .20, form.at.x - bounds.x, bounds.x + bounds.width - form.at.x),
         y: Math.min(form.radius.y * .20, form.at.y - bounds.y, bounds.y + bounds.height - form.at.y) }
-      scene.regions[form.id] = { id: form.id, name: (form.name ?? form.id).slice(0, 80), floorId, kind: natural ? 'terrain' : 'partition', visibility: 'public',
-        editLocked: false, boundaryMm: landscapeEllipse(form.at, size, 12, form.rotationDeg * Math.PI / 180), blocksMovement: false, movementCostMultiplier: 1 }
+      scene.regions[form.id] = { id: form.id, name: (form.name ?? form.id).slice(0, 80), floorId, kind: natural || form.structure ? 'terrain' : 'partition', visibility: 'public',
+        editLocked: false, boundaryMm: form.structure?.kind === 'area' ? form.structure.boundary : landscapeEllipse(form.at, size, 12, form.rotationDeg * Math.PI / 180),
+        blocksMovement: false, movementCostMultiplier: 1, ...(natural || form.structure ? { showOutlineInOutput: false } : {}) }
       scene.entityLayers[form.id] = groundLayer
     }
   }
@@ -703,15 +915,19 @@ export function shapeLandscape(scene: SceneDocument, floor: Floor, input: MapLan
     }
     for (const plan of planned) plans.push({ areaId: area.id, plan })
   }
-  for (const { area, route, landmark, summit, profile } of automatic) {
+  for (const { area, route, landmark, summit, profile, preserveTerraces } of automatic) {
     try {
       const nearby = plans.filter(row => row.areaId === area.id).map(row => row.plan)
       const water = lakeRings.filter(lake => lake.areaId === area.id).map(lake => lake.points)
-      const protectedForms = natural ? forms.filter(form => form.areaId === area.id && form !== summit && form.shape !== 'lowland'
-        && form.elevationMm > 1700) : []
-      const chosen = 'ascent' in route
-        ? fitLandscapeAscent(scene, floor, area, route, summit!, landmark, profile, nearby, meter, water, protectedForms)
-        : fitLandscapeRoad(scene, floor, area, route, landmark, profile, nearby, meter, water)
+      const protectedForms = forms.filter(form => form.areaId === area.id && form !== summit
+        && !('via' in route && route.via.some(anchor => anchor.at.x === form.at.x && anchor.at.y === form.at.y)))
+      let chosen
+      if ('ascent' in route) {
+        const ascent = fitLandscapeAscent(scene, floor, area, route, summit!, landmark, profile, nearby, meter, water, protectedForms, preserveTerraces)
+        if (ascent.rejectedWidths.length) widthAttempts?.set(route.id, ascent.rejectedWidths)
+        chosen = ascent
+      } else chosen = fitLandscapeRoad(scene, floor, area, route, landmark, profile, nearby, meter, water, protectedForms,
+        preserveTerraces ? { terrain: false, maxGrades: 12, preserveTerraces } : undefined)
       area.relief = chosen.relief
       plans.unshift({ areaId: area.id, plan: chosen.plan })
     } catch (error) {
