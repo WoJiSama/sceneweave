@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { assert, MAX_MAP_REQUEST_BYTES } from './io.mjs'
-import { executeMap, mapBudget, mapPreviews, mapStage, readMapFlags, useMapDefinitions } from './map.mjs'
+import { executeMap, mapBudget, mapDelivery, mapPreviews, mapStage, readMapFlags, useMapDefinitions } from './map.mjs'
 import { openSavedMap } from './map-verification.mjs'
 
 const protocolVersions = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']
@@ -10,7 +10,9 @@ const objectSchema = (properties, required = []) => ({ type: 'object', propertie
 const name = { type: 'string', description: 'A name under the local folder selected when starting the map server.' }
 const projectPath = { type: 'string', description: 'Workspace-relative .sceneweave file. Use the result’s relativeProject for a generated candidate.' }
 const stage = { type: 'string', enum: ['draft', 'complete'], default: 'complete',
-  description: 'Draft returns a real saved preview for review. Complete also performs independent delivery verification.' }
+  description: 'Draft returns a cached preview for review. Complete also performs an independent cold verification.' }
+const delivery = { type: 'string', enum: ['receipt', 'copy'], default: 'receipt',
+  description: 'Use the shared preview cache or explicitly save independent PNG files. Draft copies retain draft status. Trace-only reference can save its overlay.' }
 const spelling = /^[\p{L}\p{N}_-][\p{L}\p{N}_. -]{0,119}$/u
 const device = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i
 export const MAX_MAP_RPC_BYTES = MAX_MAP_REQUEST_BYTES + 16 * 1024
@@ -79,19 +81,20 @@ function defineTools(definitions, discovery) {
       inputSchema: objectSchema({ kind: { type: 'string', enum: examples } }) },
     { name: 'sceneweave_map_reference', description: 'Trace editable land from a local PNG, JPEG or WebP. Set stage to generate from the outline and design marks in one call.',
       inputSchema: objectSchema({ image: { type: 'string', description: 'Workspace-relative reference image path.' }, request: reference, output: name,
-        stage: { type: 'string', enum: ['draft', 'complete'], description: 'Omit the stage to trace only.' },
+        stage: { type: 'string', enum: ['draft', 'complete'], description: 'Omit the stage to trace only.' }, delivery,
         includePreview: { type: 'boolean', description: 'Return a PNG in the response. Defaults to true when a stage is specified.' } }, ['image', 'request', 'output']) },
-    { name: 'sceneweave_map_diagnose', description: 'Run the same geometry and route checks as draft generation before any rendering, export or adoption.',
-      inputSchema: objectSchema({ request: generate, geometry: { type: 'boolean', default: false } }, ['request']) },
+    { name: 'sceneweave_map_diagnose', description: 'Check map geometry without drawing. Provide output to save the exact checked project for verification.',
+      inputSchema: objectSchema({ request: generate, geometry: { type: 'boolean', default: false }, output: name }, ['request']) },
     { name: 'sceneweave_map_generate', description: 'Create a map candidate in a new authorized folder. Returns the editable project, preview paths and actual diagnostics.',
-      inputSchema: objectSchema({ output: name, request: generate, stage, includePreview: { type: 'boolean', default: false } }, ['output', 'request']) },
+      inputSchema: objectSchema({ output: name, request: generate, stage, delivery, includePreview: { type: 'boolean', default: false } }, ['output', 'request']) },
     { name: 'sceneweave_map_inspect', description: 'Read public geometry, stable object IDs and the baseline hash from a local map.',
       inputSchema: objectSchema({ project: projectPath, request: inspect }, ['project']) },
     { name: 'sceneweave_map_edit', description: 'Apply one validated local edit to the exact input project and deliver a separate editable candidate.',
-      inputSchema: objectSchema({ project: projectPath, output: name, request: edit, stage, includePreview: { type: 'boolean', default: false } }, ['project', 'output', 'request']) },
-    { name: 'sceneweave_map_verify', description: 'Independently reopen a saved candidate and verify the exact project and all of its saved preview pixels in a separate delivery directory.',
+      inputSchema: objectSchema({ project: projectPath, output: name, request: edit, stage, delivery, includePreview: { type: 'boolean', default: false } }, ['project', 'output', 'request']) },
+    { name: 'sceneweave_map_verify', description: 'Independently reopen and check the exact candidate project and preview pixels. The default output is a verification receipt.',
       inputSchema: objectSchema({ candidate: name, output: name,
         previews: { enum: ['keep', 'redraw'], type: 'string', default: 'keep', description: 'Redraw missing or broken previews from the existing project, then verify the redraw.' },
+        delivery,
         editor: { type: 'boolean', default: false, description: 'Also open the exact file through the regular editor in a disposable browser.' },
         includePreview: { type: 'boolean', default: false, description: 'Return the exact verified top PNG as image content.' } }, ['candidate', 'output']) },
     { name: 'sceneweave_map_preview', description: 'View a verified map preview, or explicitly opt into viewing an unverified draft.',
@@ -131,7 +134,7 @@ export async function openMapToolHost(options) {
         assert(['top', 'oblique', 'diagnostic', 'overlay'].includes(view), 'Choose top, oblique, diagnostic or overlay.')
         assert(typeof draft === 'boolean', 'Draft preview permission must be a boolean.')
         const directory = confined(workspace, await fs.realpath(path.join(workspace, safeName(args.output))))
-        const { record, file } = await openSavedMap(directory)
+        const { record, file } = await openSavedMap(directory, workspace)
         const key = view === 'top' ? 'preview' : view
         assert(record.files?.[key] && (view === 'overlay' || record.status === 'complete'
           || draft && ((view === 'top' && record.topReadyAt && ['running', 'failed'].includes(record.status))
@@ -150,12 +153,13 @@ export async function openMapToolHost(options) {
         const result = await executeMap({ action, request: action === 'inspect' ? args.request ?? {} : args.request,
           output, image, project, candidate, stage: action === 'reference' ? undefined : mapStage(args.stage),
           referenceStage: action === 'reference' && args.stage !== undefined ? mapStage(args.stage) : undefined,
-          previews: mapPreviews(args.previews), editor: args.editor, geometry: args.geometry === true, budget: options.budget, signal, progress })
+          previews: mapPreviews(args.previews), deliveryMode: mapDelivery(args.delivery),
+          editor: args.editor, geometry: args.geometry === true, budget: options.budget, workspace, signal, progress })
         const response = content(outputName === undefined ? result : { ...result,
-          relativeRequest: outputName + '/request.json',
-          ...(result.files?.project ? { relativeProject: outputName + '/map.sceneweave' } : {}) })
+          relativeRequest: path.relative(workspace, result.paths.request).split(path.sep).join('/'),
+          ...(result.paths.project ? { relativeProject: path.relative(workspace, result.paths.project).split(path.sep).join('/') } : {}) })
         if (args.includePreview ?? (action === 'reference' && args.stage !== undefined)) {
-          const { file } = await openSavedMap(output)
+          const { file } = await openSavedMap(output, workspace)
           response.content.push(await savedMapImage(file, result.files.preview ? 'preview' : 'overlay'))
         }
         return response

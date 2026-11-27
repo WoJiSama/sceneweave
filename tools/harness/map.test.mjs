@@ -10,21 +10,38 @@ import { fileURLToPath } from 'node:url'
 import { executeMap, parseMapCli } from './map.mjs'
 import { MAX_MAP_RPC_BYTES, parseMapServerArgs, readMapRpcFrames } from './map-server.mjs'
 import { digest, MAX_MAP_REQUEST_BYTES, readRequest } from './io.mjs'
-import { captureMapCandidate, compareMapPng } from './map-verification.mjs'
+import { captureMapCandidate, compareMapPng, openSavedMap, retainAscentWidthAttempts } from './map-verification.mjs'
+import { cacheMapPreviews, readCachedMapPreview } from './map-preview-cache.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+
+test('preserves search reasons when cold verification confirms the same reduced width', () => {
+  const width = { id: 'ascent', ok: true, preferredWidthMm: 3000, minimumWidthMm: 1500, actualWidthMm: 2500 }
+  const attempt = { widthMm: 3000, graded: 12, issues: [{ code: 'LANDSCAPE_ROAD_RADIUS' }] }
+  const old = { ...width, reduction: { message: 'olddraft', rejected: [attempt] } }
+  const check = { ...width, reduction: { message: 'checked' } }
+  assert.deepEqual(retainAscentWidthAttempts([check], [old]), [{ ...check, reduction: { ...check.reduction, rejected: [attempt] } }])
+  assert.deepEqual(retainAscentWidthAttempts([check], [{ ...old, actualWidthMm: 2000 }]), [check])
+  const failed = { ...check, ok: false }
+  assert.deepEqual(retainAscentWidthAttempts([failed], [old]), [failed])
+})
 
 test('CLI and MCP require explicit local scope and accept a bounded default budget', () => {
   const input = path.resolve('request.json'), output = path.resolve('new-map')
   const args = ['generate', '--input', input, '--output', output, '--allow', 'map-authoring']
   assert.equal(parseMapCli(args).budget, 'standard')
   assert.equal(parseMapCli([...args, '--stage', 'draft']).stage, 'draft')
+  assert.equal(parseMapCli(args).deliveryMode, 'receipt')
+  assert.equal(parseMapCli([...args, '--delivery', 'copy']).deliveryMode, 'copy')
   const referenceInput = ['reference', '--image', path.resolve('guide.png'), '--input', path.resolve('guide.json'),
     '--output', path.resolve('new-outline'), '--allow', 'map-authoring']
   assert.equal(parseMapCli(referenceInput).action, 'reference')
   assert.equal(parseMapCli(referenceInput).referenceStage, undefined)
   assert.equal(parseMapCli([...referenceInput, '--stage', 'draft']).referenceStage, 'draft')
+  assert.equal(parseMapCli([...referenceInput, '--delivery', 'copy']).deliveryMode, 'copy')
   assert.equal(parseMapCli(['diagnose', '--input', path.resolve('map.json'), '--allow', 'map-authoring']).action, 'diagnose')
+  const diagnosisDir = path.resolve('checked')
+  assert.equal(parseMapCli(['diagnose', '--input', path.resolve('map.json'), '--allow', 'map-authoring', '--output', diagnosisDir]).output, diagnosisDir)
   assert.throws(() => parseMapCli(['reference', '--image', 'relative.png', '--input', path.resolve('guide.json'),
     '--output', path.resolve('new-outline'), '--allow', 'map-authoring']), /absolute/i)
   assert.throws(() => parseMapCli(args.slice(0, -2)), /explicit/)
@@ -35,6 +52,9 @@ test('CLI and MCP require explicit local scope and accept a bounded default budg
   assert.equal(parseMapCli(verify).action, 'verify')
   assert.equal(parseMapCli([...verify, '--previews', 'redraw']).previews, 'redraw')
   assert.equal(parseMapCli([...verify, '--editor', 'reopen']).editor, true)
+  assert.equal(parseMapCli(verify).deliveryMode, 'receipt')
+  assert.equal(parseMapCli([...verify, '--delivery', 'copy']).deliveryMode, 'copy')
+  assert.throws(() => parseMapCli([...verify, '--delivery', 'yes']), /receipt or copy/)
   assert.throws(() => parseMapCli([...verify, '--editor', 'yes']), /reopen/)
   assert.throws(() => parseMapCli([...verify, '--stage', 'draft']), /Unknown/)
 })
@@ -65,6 +85,42 @@ test('exact PNG comparison preserves alpha and counts changed pixels once', () =
   assert.deepEqual(compareMapPng(bytes(1), bytes(2), 2, decode), { width: 2, height: 2, changedPixels: 1,
     firstDifference: { x: 1, y: 0, savedRgba: [7, 11, 1, 0], redrawnRgba: [7, 11, 2, 0] } })
   assert.throws(() => compareMapPng(bytes(3), bytes(3), 1, decode), /尺寸/)
+})
+
+test('managed previews reuse bytes and evict old images without touching the candidate or its export', async t => {
+  const workspace = await fs.mkdtemp(path.join(tmpdir(), 'sceneweave-map-test-'))
+  t.after(async () => {
+    const checked = await fs.realpath(workspace)
+    assert.equal(checked, await fs.realpath(path.dirname(workspace)) + path.sep + path.basename(workspace))
+    assert.match(path.basename(checked), /^sceneweave-map-test-/)
+    await fs.rm(checked, { recursive: true, force: true })
+  })
+  const first = path.join(workspace, 'first'), second = path.join(workspace, 'second')
+  await fs.mkdir(first); await fs.mkdir(second)
+  await fs.writeFile(path.join(first, 'map.sceneweave'), 'editable')
+  await fs.writeFile(path.join(first, 'preview.png'), 'export')
+  const [a, simultaneous] = await Promise.all([
+    cacheMapPreviews(first, { preview: Buffer.alloc(8, 1) }, 12),
+    cacheMapPreviews(second, { oblique: Buffer.alloc(8, 1) }, 12),
+  ])
+  assert.equal(a.addedBytes + simultaneous.addedBytes, 8)
+  assert.equal(a.images.preview.path, simultaneous.images.oblique.path)
+  const reused = await cacheMapPreviews(second, { preview: Buffer.alloc(8, 1) }, 12)
+  assert.equal(reused.addedBytes, 0)
+  assert.equal(reused.images.preview.path, a.images.preview.path)
+  const b = await cacheMapPreviews(second, { preview: Buffer.alloc(8, 2) }, 12)
+  assert.equal(b.reclaimedBytes, 8)
+  await assert.rejects(readCachedMapPreview(first, a.images.preview.record), { code: 'map_preview_evicted' })
+  assert.equal((await readCachedMapPreview(second, b.images.preview.record)).bytes.length, 8)
+  assert.equal(await fs.readFile(path.join(first, 'map.sceneweave'), 'utf8'), 'editable')
+  assert.equal(await fs.readFile(path.join(first, 'preview.png'), 'utf8'), 'export')
+  const data = Buffer.from('editable')
+  await fs.writeFile(path.join(second, 'result.json'), JSON.stringify({
+    format: 'sceneweave-map-authoring-result', version: 1,
+    files: { project: { file: 'map.sceneweave', byteLength: data.length, sha256: digest(data), sourceDirectory: '../..' } },
+  }))
+  const opened = await openSavedMap(second, await fs.realpath(workspace))
+  await assert.rejects(opened.file('project'), /已授权制图目录/)
 })
 
 function connect(workspace) {
@@ -132,6 +188,9 @@ test('CLI and MCP deliver real candidates, preserve a dense contour, and revise 
     output: path.join(workspace, 'starter') })
   assert.equal(starter.scene.counts.terrainAreas, 66)
   assert.equal(starter.diskVerification.changedPixels, 0)
+  assert.deepEqual((await fs.readdir(starter.output)).sort(), ['map.sceneweave', 'request.json', 'result.json'])
+  assert.equal(starter.files.preview.storage, 'cache')
+  assert.equal(digest(await fs.readFile(starter.paths.preview)), starter.files.preview.sha256)
 
   const interior = await host.tool('sceneweave_map_example', { kind: 'interior' })
   const clinicDraft = await executeMap({ action: 'generate', stage: 'draft', request: interior, output: path.join(workspace, 'clinic-draft') })
@@ -141,22 +200,48 @@ test('CLI and MCP deliver real candidates, preserve a dense contour, and revise 
   assert.equal(draftPreview.content[0].type, 'image')
   const clinic = await host.tool('sceneweave_map_verify', { candidate: 'clinic-draft', output: 'clinic', editor: true })
   assert.equal(clinic.status, 'complete')
-  assert.deepEqual(clinic.files, clinicDraft.files)
+  assert.equal(clinic.paths.project, clinicDraft.paths.project)
+  assert.equal(clinic.paths.preview, clinicDraft.paths.preview)
+  assert.equal(clinic.files.project.sha256, clinicDraft.files.project.sha256)
+  assert.equal(clinic.files.preview.sha256, clinicDraft.files.preview.sha256)
+  assert.deepEqual(await fs.readdir(clinic.output), ['result.json'])
+  assert.equal(clinic.storage.writtenBytes, 0)
+  assert.equal(clinic.storage.cacheWrittenBytes, 0)
+  const verifiedPreview = await host.raw('sceneweave_map_preview', { output: 'clinic' })
+  assert.equal(digest(Buffer.from(verifiedPreview.content[0].data, 'base64')), clinicDraft.files.preview.sha256)
   assert.equal(clinic.diskVerification.changedPixels, 0)
   assert.equal(clinic.editorVerification.topReady, true)
   assert.equal(clinic.editorVerification.locallySaved, true)
   assert.equal(clinic.scene.counts.rooms, 2)
   assert(clinic.scene.objects.some(row => row.purpose === '接待室'))
   assert(clinicDraft.recipeReport.connectivity.entranceOpeningId)
-  assert.deepEqual(await readRequest(path.join(clinic.output, 'request.json'), MAX_MAP_REQUEST_BYTES), interior)
+  assert.deepEqual(await readRequest(clinic.paths.request, MAX_MAP_REQUEST_BYTES), interior)
+  const delivery = await host.tool('sceneweave_map_verify', { candidate: 'clinic-draft', output: 'clinic-delivery', delivery: 'copy' })
+  assert.equal(path.dirname(delivery.paths.project), delivery.output)
+  assert.equal(path.dirname(delivery.paths.preview), delivery.output)
+  assert.equal(delivery.files.preview.storage, undefined)
+  assert.deepEqual(await fs.readFile(delivery.paths.project), await fs.readFile(clinic.paths.project))
+  assert.deepEqual(await fs.readFile(delivery.paths.preview), await fs.readFile(clinic.paths.preview))
   await fs.appendFile(clinicDraft.paths.preview, Buffer.from([0]))
   await assert.rejects(captureMapCandidate(clinicDraft.output), /候选文件与回执不符/)
   assert.equal((await captureMapCandidate(clinicDraft.output, 'redraw')).projectHash, clinicDraft.projectHash)
+  await fs.unlink(clinicDraft.paths.preview)
+  assert.equal((await captureMapCandidate(clinicDraft.output)).cacheMiss, true)
+  assert.equal(digest(await fs.readFile(delivery.paths.preview)), clinicDraft.files.preview.sha256)
 
   const reference = await host.tool('sceneweave_map_example', { kind: 'landscape-reference' })
   reference.recipe.density = .08
   reference.recipe.scenery = []
-  const headland = await host.tool('sceneweave_map_generate', { output: 'headland', request: reference, stage: 'draft' })
+  const headland = await host.tool('sceneweave_map_diagnose', { output: 'headland', request: reference, geometry: true })
+  assert.equal(headland.status, 'draft')
+  assert.equal(headland.previewState, 'deferred')
+  assert.equal(headland.paths.preview, undefined)
+  assert.equal(headland.ok, true)
+  assert(headland.geometry.roads.some(road => road.id === 'ascent'))
+  const checkedHeadland = await host.tool('sceneweave_map_verify', { candidate: 'headland', output: 'headland-checked' })
+  assert.equal(checkedHeadland.files.project.sha256, headland.files.project.sha256)
+  assert.equal(checkedHeadland.diskVerification.changedPixels, 0)
+  assert.equal(checkedHeadland.diskVerification.oblique.changedPixels, 0)
   const oldHeadland = await fs.readFile(headland.paths.project)
   const newHeadland = await host.tool('sceneweave_map_edit', { project: headland.relativeProject, output: 'south-route',
     request: { projectHash: headland.projectHash, floorId: headland.floorId, referenceSizePx: reference.referenceSizePx, referenceMapping: 'fit',
@@ -202,6 +287,8 @@ test('CLI and MCP deliver real candidates, preserve a dense contour, and revise 
   assert.equal(coast.usage.curveSegments, 0)
   assert.equal(coast.diskVerification.changedPixels, 0)
   assert.equal(coast.diskVerification.oblique.changedPixels, 0)
+  assert.equal(coast.files.oblique.storage, 'cache')
+  assert.deepEqual((await fs.readdir(coast.output)).sort(), ['map.sceneweave', 'request.json', 'result.json'])
   const preview = await host.raw('sceneweave_map_preview', { output: 'lookout', view: 'oblique' })
   assert.equal(preview.content[0].type, 'image')
   assert.equal(digest(Buffer.from(preview.content[0].data, 'base64')), coast.files.oblique.sha256)
@@ -216,11 +303,14 @@ test('CLI and MCP deliver real candidates, preserve a dense contour, and revise 
     request: { ...edit, projectHash: '0'.repeat(64) } })
   assert.equal(stale.isError, true)
   assert.equal(stale.structuredContent.code, 'stale_candidate')
-  const updated = await host.tool('sceneweave_map_edit', { project: coast.relativeProject, output: 'revision', request: edit })
+  const updated = await host.tool('sceneweave_map_edit', { project: coast.relativeProject, output: 'revision', request: edit, delivery: 'copy' })
   assert.equal(updated.parentProjectHash, coast.projectHash)
   assert.equal(updated.revision, coast.revision + 1)
   assert.deepEqual(updated.changes, [{ id: 'track', kind: 'paths', status: 'updated' }])
   assert.equal(updated.scene.objects.find(row => row.id === 'track').widthMm, 1400)
+  assert.equal(updated.paths.preview, path.join(updated.output, 'preview.png'))
+  assert.equal(updated.files.preview.storage, undefined)
+  assert.equal(digest(await fs.readFile(updated.paths.preview)), updated.files.preview.sha256)
   assert.deepEqual(await fs.readFile(coast.paths.project), original)
   assert.equal((await host.raw('sceneweave_map_inspect', { project: '../other.sceneweave' })).isError, true)
 

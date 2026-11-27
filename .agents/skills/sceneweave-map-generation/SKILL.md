@@ -9,4 +9,4 @@ description: 在 Sceneweave 中按用户需求生成新地图，例如林中建�
 
 按流程所列的实际入口和当前授权调用[地图 CLI 或有限 MCP](../../../CONTRIBUTING.md#local-map-harness)，或在需要页面操作时指出准确入口。用宿主返回的真实候选、诊断和预览完成共享流程的交付检查。
 
-从文字或参考图新建场景时，读 `sceneweave-map-authoring` 的 `start`。户外参考图用 `map reference --stage draft` 一次得到首图和叠图，`map capabilities` 提供 `referenceGuide` 示例。取少量背景色并标记用户点名的低处、主要地貌和通路。文字题从适合的地形、室内或林地示例开始。先查看真实预览和必要的通行检查，再按编号处理局部问题。画面可用后，用 `map verify --editor reopen` 复核同一候选，通过后把真实预览及可编辑工程一同交给用户。
+从文字或参考图新建场景时，读 `sceneweave-map-authoring` 的 `start`。户外参考图用 `map reference --stage draft` 一次得到首图和叠图，`map capabilities` 提供 `referenceGuide` 示例。取少量背景色并标记用户点名的低处、主要地貌和通路。先查看实际预览中自动拟合的地貌、湾口和通行检查，再按叠图处理仍有偏差的位置。文字题从适合的地形、室内或林地示例开始。画面可用后，用 `map verify --editor reopen` 复核同一候选，展示缓存预览并交付可编辑工程。用户需要独立 PNG 或可搬移目录时，加 `--delivery copy`。

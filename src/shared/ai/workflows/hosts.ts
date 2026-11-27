@@ -42,8 +42,8 @@ export function harnessWorkflowHost(): WorkflowHost {
     'map-verify': available('sceneweave.mjs map verify'),
     'forest-parameters': available('sceneweave.mjs example / capabilities'),
     'forest-generation': available('sceneweave.mjs generate --input ABS_JSON --output NEW_ABS_DIR --allow forest-building --budget small|standard|expanded'),
-    'project-preview': available('生成输出 preview.png；视觉读取由外部助手实际能力决定'),
-    'project-delivery': available('result.json complete / map.sceneweave；页面导入续编'),
+    'project-preview': available('根据 paths.preview 打开实际预览；视觉读取取决于助手能力'),
+    'project-delivery': available('map verify --delivery copy；页面导入 map.sceneweave 续编'),
     'page-adopt': page('普通页面导入并审阅', 'CLI只交付独立工程，不写用户浏览器数据库。'),
     'ocean-generation': page('生成 → 自然地形 → 海洋选项', '当前CLI没有海洋生成执行命令，请使用页面。'),
     'floor-navigation': page('场景 → 楼层入口与定位', '楼层入口在页面编辑，当前CLI没有对应执行命令。'),
@@ -56,7 +56,7 @@ export function mapMcpWorkflowHost(tools: WorkflowHost['tools']): WorkflowHost {
   const entries = {
     'map-discovery': 'sceneweave_map_example', 'map-reference': 'sceneweave_map_reference', 'map-diagnose': 'sceneweave_map_diagnose', 'map-generate': 'sceneweave_map_generate',
     'map-inspect': 'sceneweave_map_inspect', 'map-edit': 'sceneweave_map_edit', 'map-verify': 'sceneweave_map_verify',
-    'project-preview': 'sceneweave_map_preview', 'project-delivery': 'sceneweave_map_generate',
+    'project-preview': 'sceneweave_map_preview', 'project-delivery': 'sceneweave_map_verify',
   } as const
   const capabilities: WorkflowHost['capabilities'] = { 'page-adopt': page('普通页面导入并审阅', 'MCP 交付独立工程。') }
   for (const [requirement, tool] of Object.entries(entries) as Array<[keyof typeof entries, string]>) {
