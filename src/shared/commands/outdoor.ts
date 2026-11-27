@@ -57,7 +57,7 @@ export const outdoorCommandSchemas = [
     changes: z.object({ centerlineMm: pathFields.shape.centerlineMm, widthMm: pathFields.shape.widthMm,
       supportRefs: pathFields.shape.supportRefs, roadSurface: pathFields.shape.roadSurface.unwrap(),
       automaticRoute: pathFields.shape.automaticRoute.unwrap() }).strict() }).strict(),
-  z.object({ type: z.literal('createRegion'), ...base, boundaryMm: z.array(point).min(3).max(512), kind: regionKind, name: regionFields.shape.name, visibility: visibility.optional(), blocksMovement: z.boolean().optional(), movementCostMultiplier: z.number().finite().min(1).max(100).optional() }).strict(),
+  z.object({ type: z.literal('createRegion'), ...base, boundaryMm: z.array(point).min(3).max(512), kind: regionKind, name: regionFields.shape.name, visibility: visibility.optional(), blocksMovement: z.boolean().optional(), movementCostMultiplier: z.number().finite().min(1).max(100).optional(), showOutlineInOutput: regionFields.shape.showOutlineInOutput }).strict(),
   z.object({ type: z.literal('updateRegion'), id, changes: regionFields.partial().strict() }).strict(),
   z.object({ type: z.literal('createScatter'), ...base, ...scatterFields.omit({ visibility: true, gridOriginMm: true, densityFactor: true, minDistanceMm: true, rotationRangeDeg: true }).shape,
     ...scatterFields.pick({ visibility: true, gridOriginMm: true, densityFactor: true, minDistanceMm: true, rotationRangeDeg: true }).partial().shape, algorithmVersion: z.enum(SCATTER_ALGORITHM_VERSIONS).optional() }).strict(),
@@ -484,7 +484,8 @@ function mutate(scene: SceneDocument, command: OutdoorCommand, context: Preparat
     case 'createRegion': {
       fresh(scene, command.id); const layer = targetLayer(scene, command.floorId, command.layerId)
       scene.regions[command.id] = { id: command.id, floorId: command.floorId, editLocked: false, boundaryMm: boundary(command.boundaryMm), kind: command.kind,
-        ...(command.name ? { name: command.name } : {}), visibility: command.visibility ?? 'public', blocksMovement: command.blocksMovement ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1 }
+        ...(command.name ? { name: command.name } : {}), visibility: command.visibility ?? 'public', blocksMovement: command.blocksMovement ?? false, movementCostMultiplier: command.movementCostMultiplier ?? 1,
+        ...(command.showOutlineInOutput !== undefined ? { showOutlineInOutput: command.showOutlineInOutput } : {}) }
       scene.entityLayers[command.id] = layer; break
     }
     case 'updateRegion': {

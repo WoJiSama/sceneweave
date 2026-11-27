@@ -194,6 +194,8 @@ export interface GenerationExecutionOptions {
   readonly nowMilliseconds: () => number
   /** Transient observation of a completed, immutable operator result. */
   readonly onDrawingStage?: (scene: SceneDocument) => void
+  /** Cumulative owners can count work from an attempt even if it fails. */
+  readonly onWork?: (delta: Readonly<Partial<BudgetUsage>>) => void
 }
 export function runGeneration(raw: GenerationRequest, registry: GenerationRegistry, options: GenerationExecutionOptions): GenerationCandidate {
   const checkCancelled = () => { if (options.signal?.aborted) throw new GenerationError('cancelled', '生成已取消，未发布部分候选。') }
@@ -215,6 +217,7 @@ export function runGeneration(raw: GenerationRequest, registry: GenerationRegist
       usage[key] += amount
     }
     try { assertTaskBudget(request.budgetProfile, usage) } catch (error) { throw new GenerationError('budget-exceeded', String(error)) }
+    options.onWork?.(delta)
   }
   const tick = () => { const now = options.nowMilliseconds(); if (!Number.isSafeInteger(now) || now < lastTime) throw new GenerationError('invalid-request', '执行时钟必须单调。'); charge({ activeExecutionMs: now - lastTime }); lastTime = now }
   // One published candidate, plus any actual alternatives metered by a domain.

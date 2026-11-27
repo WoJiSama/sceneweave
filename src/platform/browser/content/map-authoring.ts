@@ -6,6 +6,8 @@ import { checkMapHeights, checkMapRoutes, mapSceneSummary, prepareMapOperations 
 import { fromVerifiedBundle, toBundle, type EditableProject } from '../../../application/workspace/project.js'
 import { defaultForestCampCoverages } from '../../../application/workspace/woodland-distribution.js'
 import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, measureTaskBudget, type BudgetUsage, type TaskBudgetProfile } from '../../../shared/budget/task-budget.js'
+import { VOLCANO_DEFAULTS } from '../../../shared/generation/domains/volcano/contracts.js'
+import { reviewSavedVolcano } from '../../../shared/generation/domains/volcano/index.js'
 import type { ProjectBundle } from '../../../shared/model/project.js'
 import { ERODED_COAST_VERSION } from '../../../shared/terrain-generation/generate.js'
 import type { LandscapeRoadFailure, LandscapeWidthAttempt } from '../../../shared/terrain-generation/landscape-authoring.js'
@@ -57,11 +59,12 @@ function generationIntent(input: MapGenerateRequest): GenerationIntent {
         treeCoveragePpm: density(cover.tree), shrubCoveragePpm: density(cover.shrub), grassCoveragePpm: density(cover.grass) } }
     }
     case 'volcano':
-      return { domain: 'volcano', request: { ...base, mountainElevationMm: recipe.mountainElevationMm, craterElevationMm: recipe.craterElevationMm,
-        craterWidthPercent: 32, craterHeightPercent: 34, craterCenterYPercent: 52, routeWidthMm: recipe.routeWidthMm, connectionKind: recipe.connection,
-        craterHazard: false, craterBlocksMovement: false, craterMovementCostMultiplier: 1, flowEnabled: recipe.lava !== 'none',
-        flowWidthMm: 1200, lavaAppearance: recipe.lava === 'hot' ? 'hot' : 'cold', flowHazard: recipe.lava === 'hot',
-        flowBlocksMovement: recipe.lava === 'hot', flowMovementCostMultiplier: recipe.lava === 'hot' ? 3 : 1 } }
+      return { domain: 'volcano', request: { ...VOLCANO_DEFAULTS, ...base,
+        mountainElevationMm: recipe.mountainElevationMm, craterElevationMm: recipe.craterElevationMm,
+        craterWidthPercent: recipe.craterWidthPercent, craterHeightPercent: recipe.craterHeightPercent, craterCenterYPercent: recipe.craterCenterYPercent,
+        routeWidthMm: recipe.routeWidthMm, connectionKind: recipe.connection, shape: recipe.shape, entranceSide: recipe.entranceSide,
+        breachSide: recipe.breachSide ?? (recipe.shape === 'natural' ? VOLCANO_DEFAULTS.breachSide : 'none'),
+        flowEnabled: recipe.lava !== 'none', flowWidthMm: recipe.flowWidthMm, lavaAppearance: recipe.lava === 'hot' ? 'hot' : 'cold' } }
     case 'mixed':
       return { domain: 'mixed', request: { ...base, environment: recipe.environment, purpose: recipe.purpose,
         roomCount: recipe.roomCount, furniture: recipe.furniture, vegetationMultiplier: recipe.vegetationMultiplier } }
@@ -104,8 +107,8 @@ async function initialMap(input: MapGenerateRequest, profile: TaskBudgetProfile,
       algorithmVersion: ERODED_COAST_VERSION, budgetProfileId: profile.profileId, quality: 'standard' }, { runtime, validation, budget: profile })
     return { project: candidate.project, usage: candidate.usage!, report: { skeleton: candidate.result.skeleton, activity: candidate.result.activity } }
   }
-  const prepared = await prepareGenerationIntent(generationIntent(input), { runtime, content: browserGenerationContent, selectBudget: () => profile })
-  const candidate = await prepareDomainProject(prepared.domain, prepared.base, prepared.input, { runtime, validation, profile })
+  const prepared = await prepareGenerationIntent(generationIntent(input), { runtime, content: browserGenerationContent, selectBudget: () => profile, signal })
+  const candidate = await prepareDomainProject(prepared.domain, prepared.base, prepared.input, { runtime, validation, profile, signal })
   return { project: candidate.project, usage: candidate.usage, report: candidate.report }
 }
 
@@ -134,7 +137,16 @@ function reviewedGeneration(document: SceneDocument, floorId: string, request: M
   widthAttempts?: ReadonlyMap<string, LandscapeWidthAttempt[]>) {
   const roads = request.recipe.kind === 'landscape' ? request.recipe.routes.map(route => route.id) : []
   const floor = pickFloor(document, floorId)
-  return { ...reviewed(document, request, floorId, request.recipe.kind === 'landscape', roads, enforce, roadFailures),
+  const review = reviewed(document, request, floorId, request.recipe.kind === 'landscape', roads, enforce, roadFailures)
+  const volcano = request.recipe.kind === 'volcano' || (request.recipe.kind === 'mixed' && request.recipe.environment === 'volcano')
+    ? reviewSavedVolcano(publicTerrainView(document), floorId) : undefined
+  if (volcano && enforce) {
+    const failed = volcano.routeChecks.find(check => !check.ok)
+    if (failed) throw new OperationRejected('invalid_geometry', `${failed.label}复核失败：${failed.issues.map(issue => issue.message).join('；')}`)
+    if (volcano.breach && !volcano.breach.ok) throw new OperationRejected('invalid_geometry', '保存工程的指定方向塌口未通过，须有贯通低口和两侧岩缘。')
+  }
+  return { ...review, ...(volcano ? { volcanoShape: volcano.shape, routeChecks: [...review.routeChecks, ...volcano.routeChecks],
+    heightChecks: [...review.heightChecks, ...(volcano.breach ? [volcano.breach] : [])] } : {}),
     ascentChecks: checkLandscapeAscents(document, floor, request, enforce, widthAttempts), landmarks: landscapeLandmarks(document, floor, request) }
 }
 
@@ -144,7 +156,7 @@ export function mapDiagnosticMarkers(result: Pick<GenerationReview, 'routeChecks
   return [
     ...[...result.routeChecks, ...(result.ascentChecks ?? [])].flatMap(check => check.ok ? [] : check.issues.flatMap(issue => issue.atMm
       ? [{ id: check.id, atMm: issue.atMm, message: issue.message }] : [])),
-    ...result.heightChecks.flatMap(check => check.ok ? [] : [{ id: check.id, atMm: check.highMm,
+    ...result.heightChecks.flatMap(check => check.ok || 'side' in check && check.riseMm === null ? [] : [{ id: check.id, atMm: check.highMm,
       message: `实际高差 ${check.riseMm ?? '未知'} mm，目标至少 ${check.minRiseMm} mm。` }]),
     ...(result.landmarks ?? []).flatMap(landmark => landmark.issue ? [{ id: landmark.id, atMm: landmark.atMm, message: landmark.issue }] : []),
   ].filter(marker => {
@@ -222,8 +234,9 @@ export async function diagnoseMapCandidate(raw: unknown, profile: TaskBudgetProf
 
 export function mapDiagnosis(document: SceneDocument, review: GenerationReview, usage: BudgetUsage) {
   const floor = pickFloor(document, review.floorId), view = publicTerrainView(document)
-  const { scene, floorId, routeChecks, heightChecks, ascentChecks, landmarks, artStyle, oblique } = review
+  const { scene, floorId, routeChecks, heightChecks, ascentChecks, landmarks, artStyle, oblique, volcanoShape } = review
   return { status: 'diagnosed' as const, ok: mapGeometryAcceptable(review), scene, floorId, routeChecks, heightChecks, ascentChecks, landmarks, artStyle, oblique, usage,
+    ...(volcanoShape ? { volcanoShape } : {}),
     diagnosticMarkers: mapDiagnosticMarkers(review), geometry: { boundsMm: floor.boundsMm,
       land: Object.values(view.terrainAreas).filter(row => row.floorId === floor.id && !row.waterSurface)
         .map(row => ({ id: row.id, boundaryMm: terrainPoints(row) })),

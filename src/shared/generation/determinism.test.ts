@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { domainExecutionFixture } from '../../../tools/testing/domain-execution-fixtures.js'
+import { domainExecutionFixture, mixedCalderaFixtureInput } from '../../../tools/testing/domain-execution-fixtures.js'
 import type { PropDefinition, SceneDocument } from '../model/scene.js'
 import { cloneJson, canonicalJson } from '../validation/json.js'
 import { roomPoints, openingEndpoints } from '../geometry/geometry.js'
 import { validateSceneDocument } from '../validation/scene.js'
 import { generationDomains } from './domains/registry.js'
 import { runInteriorGeneration, type InteriorGenerationInput } from './domains/interior/index.js'
-import { defaultMixedInput, runMixedGeneration, type MixedGenerationInput } from './domains/mixed/index.js'
+import { defaultMixedInput, MIXED_VOLCANO_LAYOUT_VERSION, runMixedGeneration, type MixedGenerationInput } from './domains/mixed/index.js'
 import { getLegacyGeneration } from '../terrain-generation/composition-contracts.js'
 import { generationRecipeSchema } from '../terrain-generation/contracts.js'
 
@@ -37,15 +37,20 @@ function geometry(d: SceneDocument) {
       start: [d.vertices[startVertexId].xMm, d.vertices[startVertexId].yMm], end: [d.vertices[endVertexId].xMm, d.vertices[endVertexId].yMm] }))),
     openings: ordered(Object.values(d.openings).map(({ id: _id, wallId: _wall, floorId: _floor, offsetReferenceVertexId: _vertex, offsetMm: _offset, ...row }) => ({ ...row, endpoints: openingEndpoints(d, d.openings[_id]) }))),
     props: ordered(Object.values(d.props).map(({ id: _id, floorId: _floor, roomId, supportRef, ...row }) => ({ ...row, room: roomId ? room(roomId) : null, support: support(supportRef) }))),
-    terrain: ordered(Object.values(d.terrainAreas).map(({ id: _id, floorId: _floor, boundaryMm, ...row }) => ({ ...row, boundaryMm: boundaryMm.map(point => point.positionMm) }))),
+    terrain: ordered(Object.values(d.terrainAreas).map(({ id: _id, floorId: _floor, boundaryMm, surfaceStyle, ...row }) => ({
+      ...row, boundaryMm: boundaryMm.map(point => point.positionMm),
+      surfaceStyle: surfaceStyle && { ...surfaceStyle, overlays: surfaceStyle.overlays.map(({ id: _overlay, ...paint }) => paint) },
+    }))),
     paths: ordered(Object.values(d.paths).map(({ id: _id, floorId: _floor, supportRefs, ...row }) => ({ ...row, supports: ordered(supportRefs.map(support)) }))),
     decorations: ordered(Object.values(d.decorations).map(({ id: _id, floorId: _floor, supportRef, ...row }) => ({ ...row, support: support(supportRef) }))),
   }
 }
-function mixed(kind: 'forest' | 'volcano', sceneId: string, version: MixedGenerationInput['algorithmVersion'] = generationDomains.mixed.algorithm.version) {
+function mixed(kind: 'forest' | 'volcano', sceneId: string,
+  version: MixedGenerationInput['algorithmVersion'] = kind === 'volcano' ? MIXED_VOLCANO_LAYOUT_VERSION : 19) {
   const base = furnishedBase(kind, sceneId)
   Object.values(base.floors)[0].boundsMm = { x: 0, y: 0, width: 40000, height: 32000 }; base.exportBoundsMm = { x: 0, y: 0, width: 40000, height: 32000 }
-  const input = defaultMixedInput(base, kind, 'forest-outpost-1'); input.algorithmVersion = version
+  const input = version === MIXED_VOLCANO_LAYOUT_VERSION ? mixedCalderaFixtureInput(base) : defaultMixedInput(base, kind, 'forest-outpost-1')
+  input.algorithmVersion = version
   const p = input.parameters.building
   p.rooms = ['first', 'second'].map(id => ({ id, purpose: '哨站休息室', minAreaMm2: 4_000_000, maxAreaMm2: 200_000_000, minClearSideMm: 1200 }))
   p.arrangement.palette = palette()
@@ -78,7 +83,7 @@ describe('new-project semantic determinism across independent identities', () =>
     const recipes = Object.values(getLegacyGeneration(first.candidate.document as SceneDocument)!.recipes).filter(row => 'domain' in row && ['interior', 'mixed'].includes(row.domain))
     expect(recipes).toHaveLength(2)
     for (const recipe of recipes) {
-      const version = 19
+      const version = 'domain' in recipe && recipe.domain === 'mixed' && kind === 'volcano' ? MIXED_VOLCANO_LAYOUT_VERSION : 19
       expect(recipe).toMatchObject({ recipeVersion: version, algorithmVersion: version })
       expect(generationRecipeSchema.safeParse({ ...recipe, algorithmVersion: 1 }).success).toBe(false)
     }

@@ -5,13 +5,16 @@ import { applyCommands } from '../../../commands/commands.js'
 import { taskBudgetProfile } from '../../../budget/task-budget.js'
 import { canonicalJson, cloneJson } from '../../../validation/json.js'
 import { sceneSchema, validateSceneDocument } from '../../../validation/scene.js'
-import { supportedPolygon } from '../../../geometry/geometry.js'
+import { supportedPolygon, terrainPoints } from '../../../geometry/geometry.js'
+import { reliefBounds } from '../../../geometry/terrain-relief.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
 import { getLegacyGeneration } from '../../../terrain-generation/composition-contracts.js'
 import { createSpaceContext } from '../../space.js'
 import type { SceneDocument } from '../../../model/scene.js'
-import { defaultVolcanoInput, runVolcanoGeneration, volcanoEntityId, VolcanoGenerationError } from './index.js'
+import { defaultVolcanoInput, reviewSavedVolcano, runVolcanoGeneration, volcanoEntityId, VolcanoGenerationError, VOLCANO_DEFAULTS, type VolcanoDesign } from './index.js'
 import { calderaLayout } from './caldera.js'
+import { createDomainExecutionRequest, executeDomainExecutionRequest } from '../../execution.js'
+import { volcanoGenerationRecipeSchema } from '../../../terrain-generation/contracts.js'
 
 const options = { profile: taskBudgetProfile('standard'), nowMilliseconds: () => 0 }
 const stamp = '2026-11-05T00:00:00.000Z'
@@ -122,4 +125,84 @@ describe('volcano first-generation relief', () => {
       }
       expect(runVolcanoGeneration(base, input, options).resultHash).toBe(result.resultHash)
     }, 30000)
+})
+
+const adaptiveInput = (base: SceneDocument, overrides: Partial<VolcanoDesign> = {}) => {
+  const { shape, entranceSide, breachSide, craterWidthPercent, craterHeightPercent, craterCenterYPercent } = VOLCANO_DEFAULTS
+  const original = defaultVolcanoInput(base, VOLCANO_DEFAULTS.seed), p = original.parameters
+  p.mountain.elevationMm = VOLCANO_DEFAULTS.mountainElevationMm
+  p.crater.elevationMm = VOLCANO_DEFAULTS.craterElevationMm
+  p.ascent.kind = p.descent.kind = VOLCANO_DEFAULTS.connectionKind
+  p.flow!.widthMm = VOLCANO_DEFAULTS.flowWidthMm
+  return { ...original, algorithmVersion: 2 as const, design: { shape, entranceSide, breachSide, craterWidthPercent, craterHeightPercent, craterCenterYPercent, ...overrides } }
+}
+
+describe('adaptive natural crater generation', () => {
+  it('replays the default map through the worker contract and checks its saved passage and eastern notch', () => {
+    const base = source(), input = adaptiveInput(base)
+    const request = createDomainExecutionRequest({ requestId: 'caldera', context: { workspaceId: 'test', checkpoint: 0, epoch: 1 },
+      domain: 'volcano', base, input, profile: options.profile })
+    const result = executeDomainExecutionRequest(request, options).result, document = result.candidate.document as SceneDocument
+    const p = input.parameters, report = result.report, review = reviewSavedVolcano(document, p.floorId)!
+    expect(report).toMatchObject({ shape: 'natural', breachSide: 'east' })
+    expect(terrainPoints(document.terrainAreas[report.mountainAreaId]).length).toBeGreaterThan(4)
+    expect(reliefBounds(terrainPoints(document.terrainAreas[report.craterAreaId])).width).toBe(12800)
+    expect(review.routeChecks.map(row => [row.ok, row.traversal?.stepCount])).toEqual([[true, 11], [true, 12]])
+    expect(review.breach).toMatchObject({ side: 'east', ok: true })
+    expect(review.breach!.lowElevationMm).toBeLessThan(1000)
+    const saved = volcanoGenerationRecipeSchema.parse(getLegacyGeneration(document)!.recipes[volcanoEntityId(base.sceneId, input.seed, 'recipe')])
+    expect(saved).toMatchObject({ recipeVersion: 2, algorithmVersion: 2 })
+    expect(volcanoGenerationRecipeSchema.safeParse({ ...saved, recipeVersion: 1 }).success).toBe(false)
+    const replay = runVolcanoGeneration(base, { version: 1, algorithmVersion: 2, seed: input.seed, parameters: saved.parameters }, options)
+    expect(replay.candidate.documentHash).toEqual(result.candidate.documentHash)
+    const edited = cloneJson(document)
+    delete edited.paths[report.pathIds[0]]
+    expect(reviewSavedVolcano(edited, p.floorId)?.routeChecks[0].ok).toBe(false)
+  }, 30000)
+
+  it('fits a 40 percent crater by trying another real layout at the requested size', () => {
+    const base = source(), input = adaptiveInput(base, { craterWidthPercent: 40, craterHeightPercent: 34, craterCenterYPercent: 52 })
+    const result = runVolcanoGeneration(base, input, options), crater = result.candidate.document.terrainAreas[result.report.craterAreaId]
+    expect(result.report.shape).toBe('natural')
+    expect(reliefBounds(crater.boundaryMm.map(point => point.positionMm)).width).toBe(16000)
+    expect(result.candidate.usage.candidateAttempts).toBeGreaterThan(1)
+    expect(result.candidate.usage.candidateAttempts).toBeLessThanOrEqual(options.profile.limits.candidateAttempts)
+    expect(result.candidate.usage.intersectionPairs).toBeGreaterThan(0)
+  }, 30000)
+
+  it('keeps wide passages and lava, and places an independent southern breach', () => {
+    const base = source(), input = adaptiveInput(base, { entranceSide: 'east', breachSide: 'south' })
+    input.parameters.route.widthMm = 3000
+    input.parameters.flow!.widthMm = 3800
+    const { candidate, report } = runVolcanoGeneration(base, input, options), scene = candidate.document as SceneDocument
+    const review = reviewSavedVolcano(scene, input.parameters.floorId)!
+    expect(review.routeChecks.every(row => row.ok && row.widthMm === 3000)).toBe(true)
+    expect(scene.paths[report.pathIds[0]].centerlineMm[0].x).toBeGreaterThan(32000)
+    expect(review.breach).toMatchObject({ side: 'south', ok: true })
+    const saved = getLegacyGeneration(scene)!.recipes[volcanoEntityId(base.sceneId, input.seed, 'recipe')]
+    expect(saved).toMatchObject({ parameters: { route: { widthMm: 3000 }, flow: { widthMm: 3800 } } })
+  }, 30000)
+
+  it('accepts a larger lava width when its complete band fits the basin', () => {
+    const base = source(), bounds = { x: 0, y: 0, width: 120000, height: 96000 }
+    Object.values(base.floors)[0].boundsMm = bounds
+    base.exportBoundsMm = bounds
+    const input = adaptiveInput(base)
+    input.parameters.flow!.widthMm = 11000
+    expect(runVolcanoGeneration(base, input, options).report).toMatchObject({ shape: 'natural', flowAreaId: expect.any(String) })
+  }, 30000)
+
+  it('checks real ramp grade and reports genuine shape conflicts without downgrading', () => {
+    const base = source(), input = adaptiveInput(base)
+    input.parameters.ascent.kind = input.parameters.descent.kind = 'ramp'
+    const result = runVolcanoGeneration(base, input, options)
+    expect(result.report.traversal?.every(row => row.kind === 'ramp' && row.riseMm * 2 <= row.runMm)).toBe(true)
+    const tooHigh = cloneJson(input)
+    tooHigh.parameters.mountain.elevationMm = 6200
+    expect(() => runVolcanoGeneration(base, tooHigh, options)).toThrow(/纵坡过陡.*至少需要 12400 mm/)
+    expect(() => runVolcanoGeneration(base, adaptiveInput(base, { craterWidthPercent: 80 }), options)).toThrow(/自然火口.*未找到满足请求的候选/)
+    const terrace = runVolcanoGeneration(base, adaptiveInput(base, { shape: 'terrace', breachSide: 'none' }), options)
+    expect(terrace.report.shape).toBe('terrace')
+    expect(terrace.candidate.document.terrainAreas[terrace.report.mountainAreaId].boundaryMm).toHaveLength(4)
+  }, 30000)
 })

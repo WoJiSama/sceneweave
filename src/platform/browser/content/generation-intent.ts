@@ -2,8 +2,8 @@ import type { GenerationBaseIntent, GenerationContentPort } from '../../../appli
 import type { EditableProject } from '../../../application/workspace/project.js'
 import { defaultWoodlandCoverages } from '../../../application/workspace/woodland-distribution.js'
 import { checkCancelled, type ResourceOptions } from '../../../shared/ports/resources.js'
-import { defaultVolcanoInput } from '../../../shared/generation/domains/volcano/index.js'
-import { defaultMixedInputV19 } from '../../../shared/generation/domains/mixed/index.js'
+import { defaultVolcanoInput, VOLCANO_DEFAULTS } from '../../../shared/generation/domains/volcano/index.js'
+import { defaultMixedInputV19, MIXED_VOLCANO_LAYOUT_VERSION, type MixedGenerationInput } from '../../../shared/generation/domains/mixed/index.js'
 import { planVolcanoPlatformBuilding } from '../../../shared/generation/domains/mixed/volcano-platform.js'
 import { createRefinedBlankProject } from './refined-blank.js'
 import { createForestCampBlankProject, FOREST_CAMP_FINISH } from './shore-blank.js'
@@ -39,7 +39,7 @@ function woodlandPalette(scene: SceneDocument, camp = false) {
 
 /** Prepare real source refs and connected waypoints for the first candidate.
  * These choices are stored in its ordinary replayable generation parameters. */
-function mixedSceneDefaults(scene: SceneDocument, environment: 'forest' | 'volcano', seed: string, finished: boolean) {
+function mixedSceneDefaults(scene: SceneDocument, environment: 'forest' | 'volcano', seed: string, finished: boolean, adaptiveVolcano: boolean): MixedGenerationInput {
   const input = defaultMixedInputV19(scene, environment, seed)
   const { building, outdoor, approach } = input.parameters
   building.materials = interiorSurfaces('mixed-interior-v1-', finished)
@@ -50,10 +50,21 @@ function mixedSceneDefaults(scene: SceneDocument, environment: 'forest' | 'volca
   building.arrangement.palette = building.arrangement.palette.map(row => ({ ...row, ref: preferredObliqueProp(scene, row.ref.id) }))
   if (outdoor.kind === 'volcano') {
     if (finished) {
-      planVolcanoPlatformBuilding(input.parameters, seed)
+      planVolcanoPlatformBuilding(input.parameters, seed, adaptiveVolcano)
       outdoor.parameters.materials = volcanoSurfaces()
       outdoor.parameters.route.boundaryBlendMm = 215
       approach.materialRef = outdoor.parameters.materials.route
+    }
+    if (adaptiveVolcano) {
+      const { shape, entranceSide, breachSide, craterWidthPercent, craterHeightPercent, craterCenterYPercent,
+        mountainElevationMm, craterElevationMm, connectionKind, flowWidthMm } = VOLCANO_DEFAULTS
+      const p = outdoor.parameters
+      p.mountain.elevationMm = mountainElevationMm
+      p.crater.elevationMm = craterElevationMm
+      p.ascent.kind = p.descent.kind = connectionKind
+      if (p.flow) p.flow.widthMm = flowWidthMm
+      return { ...input, algorithmVersion: MIXED_VOLCANO_LAYOUT_VERSION, parameters: { ...input.parameters, outdoor },
+        volcanoDesign: { shape, entranceSide, breachSide, craterWidthPercent, craterHeightPercent, craterCenterYPercent, fixedPlatform: true } }
     }
     return input
   }
@@ -84,11 +95,11 @@ function mixedSceneDefaults(scene: SceneDocument, environment: 'forest' | 'volca
 }
 
 export function mixedGenerationContentForBase(base: EditableProject, environment: 'forest' | 'volcano', seed: string,
-  appearance: 'finished' | 'refined' | 'initial', layerId?: string): Awaited<ReturnType<GenerationContentPort['mixed']>> {
+  appearance: 'finished' | 'refined' | 'initial', layerId?: string, adaptiveVolcano = false): Awaited<ReturnType<GenerationContentPort['mixed']>> {
   // Archive JSON sorts keys. The original selected layer remains authoritative.
   const scene = layerId ? { ...base.document, userLayers: { [layerId]: base.document.userLayers[layerId], ...base.document.userLayers } } : base.document
   if (appearance === 'initial') return { base, defaults: defaultMixedInputV19(scene, environment, seed), loungeFocus: false }
-  return { base, defaults: mixedSceneDefaults(scene, environment, seed, appearance === 'finished'), secondTree: woodlandPalette(scene).secondTree }
+  return { base, defaults: mixedSceneDefaults(scene, environment, seed, appearance === 'finished', adaptiveVolcano), secondTree: woodlandPalette(scene).secondTree }
 }
 
 /** Adapt the portable cancellation contract at this browser-only boundary. */
@@ -125,11 +136,13 @@ export const browserGenerationContent: GenerationContentPort = {
     const base = await createNaturalVolcanoBlankProject(blankOptions(input), signal)
     const defaults = defaultVolcanoInput(base.document, input.seed)
     defaults.parameters.materials = volcanoSurfaces()
-    return { base, defaults, naturalShape: true, flowMaterials: { cold: volcanoSurface('cooled-lava-crust'), hot: volcanoSurface('molten-lava') } }
+    return { base, defaults, flowMaterials: { cold: volcanoSurface('cooled-lava-crust'), hot: volcanoSurface('molten-lava') } }
   }),
   mixed: (input, options) => withNativeSignal(options, async signal => {
-    const finished = (input.algorithmVersion ?? 19) === 19
+    const version = input.algorithmVersion ?? (input.environment === 'volcano' ? MIXED_VOLCANO_LAYOUT_VERSION : 19)
+    const adaptiveVolcano = version === MIXED_VOLCANO_LAYOUT_VERSION
+    const finished = version === 19 || adaptiveVolcano
     const base = await createMixedBlankProject(input.environment, blankOptions(input), signal, finished)
-    return mixedGenerationContentForBase(base, input.environment, input.seed, finished ? 'finished' : 'refined')
+    return mixedGenerationContentForBase(base, input.environment, input.seed, finished ? 'finished' : 'refined', undefined, adaptiveVolcano)
   }),
 }

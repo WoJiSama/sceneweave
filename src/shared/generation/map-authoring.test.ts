@@ -16,6 +16,7 @@ import { createShoreBlankDocument } from '../../platform/browser/content/shore-b
 import { appendWholePlantDefinitions } from '../../platform/browser/content/whole-plant-catalog.js'
 import { validateSceneSnapshot } from '../validation/snapshots.js'
 import { checkLandscapeAscents } from '../../application/workspace/landscape-map.js'
+import { VOLCANO_DEFAULTS } from './domains/volcano/contracts.js'
 
 const point = (x: number, y: number) => ({ x, y })
 const square = (x: number, y: number) => [point(x, y), point(x + 10, y), point(x + 10, y + 10), point(x, y + 10)]
@@ -30,6 +31,17 @@ function landscapeFixture(request: ReturnType<typeof parseMapGenerate>) {
 }
 
 describe('public map authoring contract', () => {
+  it('shares volcanic defaults and admits requested sizes and independent entrance and breach before fitting', () => {
+    const input = parseMapGenerate({ title: '火口', recipe: { kind: 'volcano' } })
+    expect(input.recipe).toMatchObject({ kind: 'volcano', shape: VOLCANO_DEFAULTS.shape, entranceSide: VOLCANO_DEFAULTS.entranceSide,
+      mountainElevationMm: VOLCANO_DEFAULTS.mountainElevationMm, craterElevationMm: VOLCANO_DEFAULTS.craterElevationMm,
+      craterWidthPercent: VOLCANO_DEFAULTS.craterWidthPercent, flowWidthMm: VOLCANO_DEFAULTS.flowWidthMm, lava: VOLCANO_DEFAULTS.lavaAppearance })
+    expect(mapDimensions(input)).toEqual({ widthMm: VOLCANO_DEFAULTS.widthMm, heightMm: VOLCANO_DEFAULTS.heightMm })
+    expect(input.seed).toBe(VOLCANO_DEFAULTS.seed)
+    const recipe = { kind: 'volcano', entranceSide: 'south', breachSide: 'west', craterWidthPercent: 41.5, routeWidthMm: 12000 }
+    expect(parseMapGenerate({ title: input.title, recipe }).recipe).toMatchObject(recipe)
+  })
+
   it('accepts the native explicit-command range for both generate and edit', () => {
     expect(MAP_OPERATION_LIMIT).toBe(commandSelectionLimit())
     const operations = Array.from({ length: MAP_OPERATION_LIMIT + 1 }, (_, i) =>

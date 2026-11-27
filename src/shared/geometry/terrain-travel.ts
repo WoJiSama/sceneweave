@@ -146,7 +146,7 @@ function checkTerrainBand(scene: SceneDocument, floorId: string, band: PointMm[]
       // permission to jump a side wall. Only legacy explicit connections bridge
       // the two original constant surfaces.
       const allowed = heightChange && !insideSample.sourceConnectionId && !outsideSample.sourceConnectionId && usable.some(item => !item.connection.carvedStrip && !item.connection.terrainInlay && pointInPolygon(point, item.polygon) && [inside, outside].every(ref => sameRef(ref, groundRef(scene, item.connection.from.surfaceRef)) || sameRef(ref, groundRef(scene, item.connection.to.surfaceRef))))
-      if (!allowed) issue(heightChange ? 'TERRAIN_HEIGHT_CONNECTION' : 'TERRAIN_EDGE_BLOCKED', heightChange ? '跨实际高差或切壁的完整净宽必须经过有效连接，不能从同岩体根基离路跨越。' : '当前显式地形边缘阻挡移动。', declared?.id ?? area?.id)
+      if (!allowed) issue(heightChange ? 'TERRAIN_HEIGHT_CONNECTION' : 'TERRAIN_EDGE_BLOCKED', heightChange ? '跨实际高差或切壁的完整净宽必须经过有效连接，不能从同岩体根基离路跨越。' : '当前显式地形边缘阻挡移动。', declared?.id ?? area?.id, point)
     }
   }
   return { ok: !issues.length, issues }

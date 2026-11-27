@@ -87,10 +87,11 @@ describe('application generation intent preparation', () => {
 
   it('maps volcano geometry, traversal and appearance independently without changing the supplied default recipe', async () => {
     const env = await environment(), defaults = cloneJson(env.volcanoDefaults), input = volcano()
-    const result = await prepareGenerationIntent({ domain: 'volcano', request: input }, env), p = result.input.parameters, b = p.boundsMm
+    const { input: prepared } = await prepareGenerationIntent({ domain: 'volcano', request: input }, env), p = prepared.parameters
+    expect(prepared).toMatchObject({ algorithmVersion: 2, design: { shape: 'natural', entranceSide: 'west', breachSide: 'east',
+      craterWidthPercent: 25, craterHeightPercent: 40, craterCenterYPercent: 60 } })
     expect(p.mountain.elevationMm).toBe(3000)
     expect(p.crater).toMatchObject({ elevationMm: 250, hazard: false, blocksMovement: true, movementCostMultiplier: 4 })
-    expect(p.crater.boundaryMm[0]).toEqual({ x: b.x + Math.round(b.width * .55), y: b.y + Math.round(b.height * .4) })
     expect(p.ascent.kind).toBe('ramp'); expect(p.descent.kind).toBe('ramp')
     expect(p.flow).toMatchObject({ widthMm: 1000, hazard: false, blocksMovement: false, movementCostMultiplier: 2 })
     expect(p.materials.flow).toEqual({ id: 'adapter-cold', version: 8 })
@@ -159,9 +160,10 @@ describe('application generation intent preparation', () => {
 
   it('rejects an unsupported mixed version before loading content or selecting a budget', async () => {
     const env = await environment(), prepare = vi.spyOn(env.content, 'mixed')
-    for (const algorithmVersion of [0, 20, '3']) {
+    for (const algorithmVersion of [0, 21, '3']) {
       await expect(prepareGenerationIntent({ domain: 'mixed', request: { ...mixed(), algorithmVersion } as MixedGenerationUiRequest }, env)).rejects.toThrow(/算法版本/)
     }
+    await expect(prepareGenerationIntent({ domain: 'mixed', request: { ...mixed(), environment: 'forest', algorithmVersion: 20 } }, env)).rejects.toThrow(/算法版本/)
     expect(prepare).not.toHaveBeenCalled(); expect(env.selectBudget).not.toHaveBeenCalled()
   })
 

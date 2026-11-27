@@ -13,6 +13,7 @@ import type { PropDefinition, SceneDocument } from '../../../model/scene.js'
 import { polygonDistance, polygonInside, polygonsOverlap, propFootprint, roomPoints } from '../../../geometry/geometry.js'
 import { furnitureUseSpacePolygon } from '../interior/furnishing-use-space.js'
 import { generationRecipeSchema } from '../../../terrain-generation/contracts.js'
+import { VOLCANO_DEFAULTS } from '../volcano/contracts.js'
 
 const options = { profile: taskBudgetProfile('standard'), nowMilliseconds: () => 0 }
 const source = (kind: 'forest' | 'volcano') => {
@@ -22,6 +23,35 @@ const source = (kind: 'forest' | 'volcano') => {
   return base
 }
 describe('real mixed module composition', () => {
+  it('fits a natural fire crater around a fixed building shelf and saves the exact composed layout', () => {
+    const base = source('volcano'), legacy = defaultMixedInput(base, 'volcano', 'sceneweave'), { outdoor, building } = legacy.parameters
+    if (outdoor.kind !== 'volcano') throw new Error('Expected a volcano')
+    planVolcanoPlatformBuilding(legacy.parameters, legacy.seed, true)
+    outdoor.parameters.mountain.elevationMm = VOLCANO_DEFAULTS.mountainElevationMm
+    outdoor.parameters.crater.elevationMm = VOLCANO_DEFAULTS.craterElevationMm
+    outdoor.parameters.descent.kind = VOLCANO_DEFAULTS.connectionKind
+    building.arrangement.furniture = false
+    const { shape, entranceSide, breachSide, craterWidthPercent, craterHeightPercent, craterCenterYPercent } = VOLCANO_DEFAULTS
+    const input = { ...legacy, algorithmVersion: 20 as const, parameters: { ...legacy.parameters, outdoor },
+      volcanoDesign: { shape, entranceSide, breachSide, craterWidthPercent, craterHeightPercent, craterCenterYPercent, fixedPlatform: true as const } }
+    const request = createDomainExecutionRequest({ requestId: 'mixed-caldera', context: { workspaceId: 'test', checkpoint: 0, epoch: 1 }, domain: 'mixed', base, input, profile: options.profile })
+    const { result } = executeDomainExecutionRequest(request, options), scene = result.candidate.document as SceneDocument
+    expect(result.report.volcanoShape).toBe('natural')
+    const recipes = Object.values(getLegacyGeneration(scene)!.recipes)
+    const mixed = recipes.find(recipe => 'domain' in recipe && recipe.domain === 'mixed')
+    const terrain = recipes.find(recipe => recipe.id === result.report.outdoorRecipeId)
+    expect(mixed).toMatchObject({ recipeVersion: 20, algorithmVersion: 20 })
+    expect(terrain).toMatchObject({ recipeVersion: 2, algorithmVersion: 2, parameters: { relief: 'caldera-v1', breachSide: 'east' } })
+    if (!mixed || !('domain' in mixed) || mixed.domain !== 'mixed') throw new Error('Missing composed recipe')
+    expect(mixed.parameters.outdoor.parameters).toEqual(terrain?.parameters)
+    expect(generationRecipeSchema.safeParse({ ...mixed, recipeVersion: 19 }).success).toBe(false)
+    const replay = runMixedGeneration(base, { version: 1, seed: mixed.seed, algorithmVersion: mixed.algorithmVersion, parameters: mixed.parameters }, options)
+    expect(replay.candidate.documentHash).toBe(result.candidate.documentHash)
+    const path = scene.paths[result.report.approachPathId], port = resolveBuildingEntrancePort(scene, result.report.entranceOpeningId, path.widthMm)
+    expect(checkTerrainRoute(scene, { floorId: port.floorId, pointsMm: [...path.centerlineMm, port.insideMm], widthMm: path.widthMm }).ok).toBe(true)
+    expect(() => runMixedGeneration(base, { ...input, volcanoDesign: { ...input.volcanoDesign, craterWidthPercent: 80 } }, options)).toThrow(/自然火口.*未找到满足请求的候选/)
+  }, 30000)
+
   it('uses a real caldera shelf for the building and a continuous route to its entrance', () => {
     const base = source('volcano'), input = defaultMixedInput(base, 'volcano', 'volcanic-building-shelf')
     input.algorithmVersion = 19

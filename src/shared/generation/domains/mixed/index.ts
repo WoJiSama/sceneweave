@@ -8,7 +8,7 @@ import { validateSceneDocument } from '../../../validation/scene.js'
 import { checkTerrainRoute } from '../../../geometry/terrain-travel.js'
 import { getLegacyGeneration } from '../../../terrain-generation/composition-contracts.js'
 import { generationInputHash, managedOutputHash } from '../../../terrain-generation/integrity.js'
-import type { GenerationRecipe, GenerationReference, GenerationRule } from '../../../terrain-generation/contracts.js'
+import { mixedGenerationRecipeSchema, type GenerationReference, type GenerationRule } from '../../../terrain-generation/contracts.js'
 import { createSpaceContext } from '../../space.js'
 import { generationCreationWrites } from '../../materialization.js'
 import { GenerationCompositionExecution } from '../../composition-execution.js'
@@ -18,8 +18,8 @@ import { resolveBuildingEntrancePort } from '../../building-port.js'
 import { normalizeInteriorInput, runSupportedInteriorGeneration } from '../interior/index.js'
 import { normalizeForestInput, runForestGeneration, forestEntityId, forestRectangle, type ForestGenerationInput } from '../forest/index.js'
 import { woodlandGroundStyle, woodlandTrailFinish } from '../forest/ground-finish.js'
-import { normalizeVolcanoInput, runVolcanoGeneration, checkVolcanoResult, volcanoEntityId } from '../volcano/index.js'
-import { mixedGenerationInputSchema, mixedFixedBindings, type MixedGenerationInput, type MixedReport } from './contracts.js'
+import { normalizeVolcanoInput, runVolcanoGeneration, checkVolcanoResult, VOLCANO_CALDERA_VERSION, volcanoEntityId, type VolcanoGenerationInput } from '../volcano/index.js'
+import { mixedGenerationInputSchema, mixedFixedBindings, MIXED_VOLCANO_LAYOUT_VERSION, type MixedGenerationInput, type MixedReport } from './contracts.js'
 import { planBuildingEntranceApproaches } from './entrance-approach.js'
 import { entranceRouteLength } from '../interior/entrance-selection.js'
 
@@ -29,12 +29,22 @@ export const mixedEntityId = (sceneId: string, seed: string, key: string) => `mi
 const moduleSeed = (seed: string, module: string) => hashGenerationValue(['mixed-layout', 1, seed, module])
 const equal = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b)
 
+function volcanoModuleInput(input: MixedGenerationInput, seed: string): VolcanoGenerationInput {
+  const outdoor = input.parameters.outdoor
+  if (outdoor.kind !== 'volcano') throw new GenerationError('invalid-request', '火山模块需要火山地表参数。')
+  if (input.algorithmVersion === MIXED_VOLCANO_LAYOUT_VERSION) {
+    return { version: 1, algorithmVersion: VOLCANO_CALDERA_VERSION, seed, parameters: input.parameters.outdoor.parameters,
+      ...(input.volcanoDesign ? { design: input.volcanoDesign } : {}) }
+  }
+  return { version: 1, algorithmVersion: 1, seed, parameters: outdoor.parameters }
+}
+
 export function normalizeMixedInput(raw: unknown): MixedGenerationInput {
   const input = mixedGenerationInputSchema.parse(captureJson(raw)), p = input.parameters, outdoor = p.outdoor
   p.building = cloneJson(normalizeInteriorInput({ version: 1, algorithmVersion: 2, seed: moduleSeed(input.seed, 'building'), parameters: p.building }).parameters)
   outdoor.parameters = cloneJson(outdoor.kind === 'forest'
     ? normalizeForestInput({ version: 1, algorithmVersion: 1, seed: moduleSeed(input.seed, 'outdoor'), parameters: outdoor.parameters }).parameters
-    : normalizeVolcanoInput({ version: 1, algorithmVersion: 1, seed: moduleSeed(input.seed, 'outdoor'), parameters: outdoor.parameters }).parameters)
+    : normalizeVolcanoInput(volcanoModuleInput(input, moduleSeed(input.seed, 'outdoor'))).parameters)
   if (p.building.floorId !== outdoor.parameters.floorId) throw new GenerationError('invalid-request', '混合建筑与室外模块须明确选择同一Floor。')
   if (!p.building.arrangement.entrance || p.building.arrangement.doorWidthMm < p.approach.widthMm) throw new GenerationError('invalid-request', '初次混合生成须建议真实外门，且门净宽须容纳接入路线。')
   if (outdoor.kind === 'forest') {
@@ -48,8 +58,9 @@ export function normalizeMixedInput(raw: unknown): MixedGenerationInput {
  * modules retain their own strict recipes and finite output ownership. */
 function persist(document: SceneDocument, input: MixedGenerationInput, supportAreaId: string, entranceOpeningId?: string): void {
   const p = input.parameters, gen = getLegacyGeneration(document)!, id = (key: string) => mixedEntityId(document.sceneId, input.seed, key), recipeId = id('recipe')
-  const recipe: GenerationRecipe = { id: recipeId, domain: 'mixed', ...(input.algorithmVersion === 1 ? { recipeVersion: 1 as const, algorithmVersion: 1 as const } : input.algorithmVersion === 2 ? { recipeVersion: 2 as const, algorithmVersion: 2 as const } : input.algorithmVersion === 3 ? { recipeVersion: 3 as const, algorithmVersion: 3 as const } : input.algorithmVersion === 4 ? { recipeVersion: 4 as const, algorithmVersion: 4 as const } : input.algorithmVersion === 5 ? { recipeVersion: 5 as const, algorithmVersion: 5 as const } : input.algorithmVersion === 6 ? { recipeVersion: 6 as const, algorithmVersion: 6 as const } : input.algorithmVersion === 7 ? { recipeVersion: 7 as const, algorithmVersion: 7 as const } : input.algorithmVersion === 8 ? { recipeVersion: 8 as const, algorithmVersion: 8 as const } : input.algorithmVersion === 9 ? { recipeVersion: 9 as const, algorithmVersion: 9 as const } : input.algorithmVersion === 10 ? { recipeVersion: 10 as const, algorithmVersion: 10 as const } : input.algorithmVersion === 11 ? { recipeVersion: 11 as const, algorithmVersion: 11 as const } : input.algorithmVersion === 12 ? { recipeVersion: 12 as const, algorithmVersion: 12 as const } : input.algorithmVersion === 13 ? { recipeVersion: 13 as const, algorithmVersion: 13 as const } : input.algorithmVersion === 14 ? { recipeVersion: 14 as const, algorithmVersion: 14 as const } : input.algorithmVersion === 15 ? { recipeVersion: 15 as const, algorithmVersion: 15 as const } : input.algorithmVersion === 16 ? { recipeVersion: 16 as const, algorithmVersion: 16 as const } : input.algorithmVersion === 17 ? { recipeVersion: 17 as const, algorithmVersion: 17 as const } : input.algorithmVersion === 18 ? { recipeVersion: 18 as const, algorithmVersion: 18 as const } : { recipeVersion: 19 as const, algorithmVersion: 19 as const }), algorithmId: 'mixed-layout', mapMode: 'scene', seed: input.seed,
-    parameters: cloneJson(p), ...mixedFixedBindings(p), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } }
+  const recipe = mixedGenerationRecipeSchema.parse({ id: recipeId, domain: 'mixed',
+    recipeVersion: input.algorithmVersion, algorithmVersion: input.algorithmVersion, algorithmId: 'mixed-layout', mapMode: 'scene', seed: input.seed,
+    parameters: cloneJson(p), ...mixedFixedBindings(p), precision: { sampleSpacingMm: 1, toleranceMm: 1, noiseCellMm: 1 } })
   gen.recipes[recipeId] = recipe
   const addRule = (key: string, kind: 'terrainArea' | 'path', entityId: string, inputs: GenerationReference[]) => {
     const ruleId = id(`rule:${key}`), fields = ['geometry', 'properties', 'surface', 'source'] as const
@@ -148,17 +159,25 @@ export function runMixedGeneration(base: SceneDocument, raw: unknown, options: O
   const execution = new GenerationCompositionExecution(source, { ...options, profile })
   const outdoorSeed = moduleSeed(input.seed, 'outdoor'), buildingSeed = moduleSeed(input.seed, 'building')
   let outdoorRecipeId: string, volcano: ReturnType<typeof runVolcanoGeneration> | undefined
+  let resolved = input
   const supportAreaId = p.outdoor.kind === 'forest' ? mixedEntityId(source.sceneId, input.seed, 'ground') : volcanoEntityId(source.sceneId, outdoorSeed, 'platform')
   if (p.outdoor.kind === 'forest') execution.run('foundation', (current, opts) => ({ candidate: runAdapter(current, input, supportAreaId, opts) }))
   else {
-    const parameters = p.outdoor.parameters
-    volcano = execution.run('outdoor', (current, opts) => runVolcanoGeneration(current, { version: 1, algorithmVersion: 1, seed: outdoorSeed, parameters }, opts))
+    volcano = execution.run('outdoor', (current, opts) => runVolcanoGeneration(current, volcanoModuleInput(input, outdoorSeed), opts))
+    if (input.algorithmVersion === MIXED_VOLCANO_LAYOUT_VERSION) {
+      const recipe = getLegacyGeneration(execution.document)!.recipes[volcanoEntityId(source.sceneId, outdoorSeed, 'recipe')]
+      if (!recipe || !('domain' in recipe) || recipe.domain !== 'volcano' || recipe.algorithmVersion !== VOLCANO_CALDERA_VERSION) {
+        throw new GenerationError('candidate-invalid', '缺少已校验的火山布置。')
+      }
+      const { volcanoDesign: _design, ...fixed } = input
+      resolved = { ...fixed, parameters: { ...fixed.parameters, outdoor: { kind: 'volcano', parameters: recipe.parameters } } }
+    }
   }
-  const buildingVersion = input.algorithmVersion >= 4 ? input.algorithmVersion : input.algorithmVersion === 3 ? 2 : input.algorithmVersion
+  const buildingVersion = input.algorithmVersion === MIXED_VOLCANO_LAYOUT_VERSION ? 19 : input.algorithmVersion === 3 ? 2 : input.algorithmVersion
   const building = execution.run('building', (current, opts) => runSupportedInteriorGeneration(current, { version: 1, algorithmVersion: buildingVersion, seed: buildingSeed, parameters: { ...cloneJson(p.building), supportRef: { kind: 'terrainArea', id: supportAreaId }, ...(input.algorithmVersion >= 10 ? { entranceApproach: { fromMm: p.approach.fromMm, viaMm: p.approach.viaMm, widthMm: p.approach.widthMm } } : {}) } }, opts))
   const entranceOpeningId = building.report.connectivity.entranceOpeningId
   if (!entranceOpeningId) throw new GenerationError('candidate-invalid', '初次混合候选未找到可接入的真实外门；请调整建筑尺寸或门建议参数。')
-  execution.run('approach', (current, opts) => ({ candidate: runAdapter(current, input, supportAreaId, opts, entranceOpeningId) }))
+  execution.run('approach', (current, opts) => ({ candidate: runAdapter(current, resolved, supportAreaId, opts, entranceOpeningId) }))
   const notes = [...building.report.notes]
   if (p.outdoor.kind === 'forest') {
     const parameters = cloneJson(p.outdoor.parameters)
@@ -169,7 +188,7 @@ export function runMixedGeneration(base: SceneDocument, raw: unknown, options: O
     notes.push(...forest.report.notes)
     outdoorRecipeId = forestEntityId(source.sceneId, outdoorSeed, 'recipe')
   } else {
-    checkVolcanoResult(execution.document, volcano!.input, volcano!.report); notes.push(...volcano!.report.notes)
+    checkVolcanoResult(execution.document, volcanoModuleInput(resolved, outdoorSeed), volcano!.report); notes.push(...volcano!.report.notes)
     outdoorRecipeId = volcanoEntityId(source.sceneId, outdoorSeed, 'recipe')
   }
   const current = execution.document, finalRoute = current.paths[mixedEntityId(source.sceneId, input.seed, 'approach')]
@@ -180,7 +199,8 @@ export function runMixedGeneration(base: SceneDocument, raw: unknown, options: O
   }
   const buildingRecipe = Object.values(getLegacyGeneration(current)!.recipes).find(row => 'domain' in row && row.domain === 'interior' && row.algorithmId === 'supported-interior')!
   const report: MixedReport = { environment: p.outdoor.kind, supportAreaId, buildingRecipeId: buildingRecipe.id, outdoorRecipeId,
-    roomIds: Object.keys(current.rooms).sort(), openingIds: Object.keys(current.openings).sort(), propIds: Object.keys(current.props).sort(), entranceOpeningId, approachPathId: finalRoute.id, notes }
+    roomIds: Object.keys(current.rooms).sort(), openingIds: Object.keys(current.openings).sort(), propIds: Object.keys(current.props).sort(), entranceOpeningId, approachPathId: finalRoute.id, notes,
+    ...(volcano?.report.shape ? { volcanoShape: volcano.report.shape } : {}) }
   const candidate = execution.publish(hashGenerationValue({ algorithm: 'mixed-layout', version: input.algorithmVersion, input, profile }))
   const resultHash = hashGenerationValue({ input, report, documentHash: candidate.documentHash, outputHash: candidate.outputHash, stages: candidate.stages })
   return freezeJson({ input, candidate, report, resultHash })

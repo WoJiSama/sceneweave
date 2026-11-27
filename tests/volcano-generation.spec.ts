@@ -21,6 +21,7 @@ test('volcano preview keeps separate physics, invalidates changed parameters and
   await panel.getByLabel('火山工程名称', { exact: true }).fill('D5火山活动区')
   await panel.getByRole('button', { name: '预览火山', exact: true }).click()
   await expect(candidate).toBeVisible({ timeout: 30000 })
+  await expect(candidate.getByLabel('火山地形形状', { exact: true })).toHaveText('自然火口，东侧塌口')
   await expect(candidate.getByLabel('火山实际生成结果', { exact: true })).toContainText('2 处高差连接、2 条路线')
   await expect(candidate.getByLabel('火山危险与外观设置', { exact: true })).toContainText('火口标记危险，允许移动，代价 ×2')
   await expect(page.locator('.asset-view-actions')).toContainText('40.000 m × 32.000 m')
@@ -29,7 +30,7 @@ test('volcano preview keeps separate physics, invalidates changed parameters and
   await page.screenshot({ path: info.outputPath('volcano-preview.png') })
   // A changed physical parameter and material invalidate the old witnessed preview.
   await openGenerationTask(page, '火山')
-  await panel.getByLabel('火口高百分比', { exact: true }).fill('36')
+  await panel.getByLabel('火口宽百分比', { exact: true }).fill('40')
   await panel.getByLabel('流道宽米', { exact: true }).fill('1.2')
   await panel.getByLabel('熔岩外观', { exact: true }).selectOption('cold')
   await expect(candidate).toHaveCount(0)

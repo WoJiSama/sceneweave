@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { unzipSync } from 'fflate'
-import { openGenerationSettings, openTerrainTask, openWorkspaceModule } from './workspace-navigation-helpers'
+import { openGenerationSettings, openGenerationTask, openTerrainTask, openWorkspaceModule } from './workspace-navigation-helpers'
 
 type GenerationWorkerGate = { hold: boolean; pending: Array<() => void> }
 type WindowWithGenerationWorkerGate = Window & { __sceneweaveGenerationWorkerGate: GenerationWorkerGate }
@@ -90,19 +90,23 @@ test('mixed volcano preview renders a real supported building through the Worker
   await page.getByTestId('workspace-home').getByRole('button', { name: '新建场景', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建空白场景', exact: true })
   await dialog.getByLabel('场景名称', { exact: true }).fill('E火山原工程')
+  await dialog.getByLabel('画布宽度', { exact: true }).fill('40')
+  await dialog.getByLabel('画布高度', { exact: true }).fill('32')
   await dialog.getByRole('button', { name: '创建空白场景', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('.asset-save')).toHaveText('本地已保存', { timeout: 30000 })
-  const resources = await openWorkspaceModule(page, '生成')
-  await resources.getByRole('group', { name: '生成场景类型', exact: true }).getByRole('button', { name: /^混合场景/ }).click()
-  const mixed = resources.getByRole('region', { name: '混合场景生成', exact: true, includeHidden: true })
+  await openGenerationTask(page, '混合场景')
+  const mixed = page.getByRole('dialog', { name: '混合场景', exact: true }).getByRole('region', { name: '混合场景生成', exact: true })
   const candidate = page.getByTestId('workspace-inspector').getByLabel('混合候选摘要', { exact: true })
-  await mixed.getByLabel('混合工程名称', { exact: true }).fill('E火山建筑')
   await mixed.getByLabel('混合场景环境', { exact: true }).selectOption('volcano')
   await mixed.getByRole('button', { name: '预览混合场景', exact: true }).click()
   await expect(candidate).toBeVisible({ timeout: 90000 })
   await expect(candidate.getByLabel('混合实际生成结果', { exact: true })).toContainText('1 个房间')
+  await expect(candidate.getByLabel('混合火山形状', { exact: true })).toHaveText('自然火口')
+  const skipDrawing = page.getByRole('button', { name: '跳到完整预览', exact: true })
+  if (await skipDrawing.isVisible()) await skipDrawing.click()
   await expect(page.getByLabel('材质场景主持人预览', { exact: true })).toBeVisible({ timeout: 30000 })
+  await expect(page.locator('.asset-busy')).toHaveCount(0, { timeout: 30000 })
   await page.screenshot({ path: info.outputPath('volcano-building-preview.png') })
   await candidate.getByRole('button', { name: '取消混合场景', exact: true }).click()
   await expect(candidate).toHaveCount(0)

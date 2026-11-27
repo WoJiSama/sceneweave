@@ -13,9 +13,11 @@ import { parseBoundedJson } from './json.js'
 import { failPackage, hasExactKeys, isSha256, PACKAGE_LIMITS } from './limits.js'
 import { inspectBoundedZip, projectDocumentPath, projectEnvelopePathBudget, zipPathBudget, type BoundedZip } from './zip.js'
 import { checkProjectReader, PROJECT_EXTENSIONS_READER_VERSION, PROJECT_FORMAT, PROJECT_LANDSCAPE_READER_VERSION, PROJECT_REGION_OUTLINE_READER_VERSION, PROJECT_SCHEMA_VERSION,
-  PROJECT_TERRAIN_FINISH_READER_VERSION, PROJECT_WRITER_BUILD } from './format.js'
+  PROJECT_TERRAIN_FINISH_READER_VERSION, PROJECT_VOLCANO_LAYOUT_READER_VERSION, PROJECT_WRITER_BUILD } from './format.js'
 import { decodeSceneCoordinates, encodeSceneCoordinates } from '../aggregates/scene-coordinates.js'
 import { LANDSCAPE_GROUND_SCATTER_VERSION } from '../geometry/scatter-algorithm.js'
+import { VOLCANO_CALDERA_VERSION } from '../generation/domains/volcano/contracts.js'
+import { MIXED_VOLCANO_LAYOUT_VERSION } from '../generation/domains/mixed/contracts.js'
 
 export type PackageRole = 'scene' | 'identity' | 'appearance' | 'sources' | 'extensions' | 'history'
   | 'snapshot-scene' | 'snapshot-identity' | 'snapshot-appearance' | 'snapshot-sources' | 'snapshot-extensions' | 'asset' | 'license' | 'source'
@@ -36,6 +38,12 @@ const rootPaths = { scenePath: 'scene.json', identityPath: 'identity.json', appe
 const extensionsPath = (scenePath: string) => scenePath.replace(/scene\.json$/, 'extensions.json')
 const containsExtensions = (entries: ManifestEntry[]) => entries.some(entry => entry.role === 'extensions' || entry.role === 'snapshot-extensions')
 function documentReaderVersion(document: ProjectData['document'] | undefined) {
+  const recipes = Object.values(document?.generation?.legacy.recipes ?? {})
+  if (recipes.some(recipe => 'domain' in recipe
+    && (recipe.domain === 'volcano' && recipe.algorithmVersion === VOLCANO_CALDERA_VERSION
+      || recipe.domain === 'mixed' && recipe.algorithmVersion === MIXED_VOLCANO_LAYOUT_VERSION))) {
+    return PROJECT_VOLCANO_LAYOUT_READER_VERSION
+  }
   if (Object.values(document?.regions ?? {}).some(region => region?.showOutlineInOutput !== undefined)) return PROJECT_REGION_OUTLINE_READER_VERSION
   const terrain = Object.values(document?.terrainAreas ?? {})
   if (terrain.some(area => area?.reliefFinish === 'weathered-v3') || Object.values(document?.paths ?? {}).some(path => path?.roadFinish === 'terrain-v1')) {

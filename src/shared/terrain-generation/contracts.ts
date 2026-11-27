@@ -1,8 +1,8 @@
 import { z } from 'zod'
-import { volcanoParametersSchema } from '../generation/domains/volcano/contracts.js'
+import { volcanoParametersSchema, volcanoParametersV2Schema } from '../generation/domains/volcano/contracts.js'
 import { interiorLayoutParametersSchema, interiorFurnitureRoleSchema, interiorMaterialRoleSchema, supportedInteriorParametersSchema, approachedInteriorParametersSchema, directedInteriorLayoutParametersSchema, directedApproachedInteriorParametersSchema } from '../generation/domains/interior/contracts.js'
 import { forestParametersSchema, forestFixedPropRoleSchema } from '../generation/domains/forest/contracts.js'
-import { mixedParametersSchema, mixedMaterialRoleSchema, mixedPropRoleSchema } from '../generation/domains/mixed/contracts.js'
+import { mixedParametersSchema, mixedVolcanoParametersSchema, mixedMaterialRoleSchema, mixedPropRoleSchema, MIXED_VOLCANO_LAYOUT_VERSION } from '../generation/domains/mixed/contracts.js'
 
 /** Strict persisted terrain contracts. Algorithms, platform IO and scene validation are separate. */
 const id = z.string().min(1).max(256).refine(value => value !== '__proto__', '保留 ID')
@@ -105,12 +105,15 @@ const forestGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
 }).strict()
 const forestGenerationRecipeV2Schema = forestGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(2), algorithmVersion: z.literal(2) }).strict()
 export const forestGenerationRecipeSchema = z.union([forestGenerationRecipeV1Schema, forestGenerationRecipeV2Schema])
-export const volcanoGenerationRecipeSchema = naturalGenerationRecipeSchema.extend({
+const volcanoGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('volcano'), recipeVersion: z.literal(1), algorithmId: z.literal('volcano-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: volcanoParametersSchema,
   materials: z.array(z.object({ role: z.enum(['ground', 'mountain', 'crater', 'platform', 'flow', 'route']), ref: versionRef }).strict()).length(6).refine(rows => new Set(rows.map(row => row.role)).size === rows.length),
   props: z.array(z.never()).max(0),
 }).strict()
+export const volcanoGenerationRecipeSchema = z.union([volcanoGenerationRecipeV1Schema, volcanoGenerationRecipeV1Schema.extend({
+  recipeVersion: z.literal(2), algorithmVersion: z.literal(2), parameters: volcanoParametersV2Schema,
+})])
 const mixedGenerationRecipeV1Schema = naturalGenerationRecipeSchema.extend({
   domain: z.literal('mixed'), recipeVersion: z.literal(1), algorithmId: z.literal('mixed-layout'), algorithmVersion: z.literal(1), mapMode: z.literal('scene'),
   parameters: mixedParametersSchema,
@@ -135,7 +138,10 @@ const mixedGenerationRecipeV16Schema = mixedGenerationRecipeV1Schema.extend({ re
 const mixedGenerationRecipeV17Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(17), algorithmVersion: z.literal(17) }).strict()
 const mixedGenerationRecipeV18Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(18), algorithmVersion: z.literal(18) }).strict()
 const mixedGenerationRecipeV19Schema = mixedGenerationRecipeV1Schema.extend({ recipeVersion: z.literal(19), algorithmVersion: z.literal(19) }).strict()
-export const mixedGenerationRecipeSchema = z.union([mixedGenerationRecipeV1Schema, mixedGenerationRecipeV2Schema, mixedGenerationRecipeV3Schema, mixedGenerationRecipeV4Schema, mixedGenerationRecipeV5Schema, mixedGenerationRecipeV6Schema, mixedGenerationRecipeV7Schema, mixedGenerationRecipeV8Schema, mixedGenerationRecipeV9Schema, mixedGenerationRecipeV10Schema, mixedGenerationRecipeV11Schema, mixedGenerationRecipeV12Schema, mixedGenerationRecipeV13Schema, mixedGenerationRecipeV14Schema, mixedGenerationRecipeV15Schema, mixedGenerationRecipeV16Schema, mixedGenerationRecipeV17Schema, mixedGenerationRecipeV18Schema, mixedGenerationRecipeV19Schema])
+const mixedGenerationRecipeV20Schema = mixedGenerationRecipeV1Schema.extend({
+  recipeVersion: z.literal(MIXED_VOLCANO_LAYOUT_VERSION), algorithmVersion: z.literal(MIXED_VOLCANO_LAYOUT_VERSION), parameters: mixedVolcanoParametersSchema,
+}).strict()
+export const mixedGenerationRecipeSchema = z.union([mixedGenerationRecipeV1Schema, mixedGenerationRecipeV2Schema, mixedGenerationRecipeV3Schema, mixedGenerationRecipeV4Schema, mixedGenerationRecipeV5Schema, mixedGenerationRecipeV6Schema, mixedGenerationRecipeV7Schema, mixedGenerationRecipeV8Schema, mixedGenerationRecipeV9Schema, mixedGenerationRecipeV10Schema, mixedGenerationRecipeV11Schema, mixedGenerationRecipeV12Schema, mixedGenerationRecipeV13Schema, mixedGenerationRecipeV14Schema, mixedGenerationRecipeV15Schema, mixedGenerationRecipeV16Schema, mixedGenerationRecipeV17Schema, mixedGenerationRecipeV18Schema, mixedGenerationRecipeV19Schema, mixedGenerationRecipeV20Schema])
 export const generationRecipeSchema = z.union([naturalGenerationRecipeSchema, interiorGenerationRecipeSchema, supportedInteriorGenerationRecipeSchema, forestGenerationRecipeSchema, volcanoGenerationRecipeSchema, mixedGenerationRecipeSchema])
 export type NaturalGenerationRecipe = z.infer<typeof naturalGenerationRecipeSchema>
 export const generationIntentSchema = z.object({ id, floorId: id, visibility, boundsMm: bounds,

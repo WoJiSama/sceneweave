@@ -3,7 +3,8 @@ import { domainGenerationCandidateSchema } from '../contracts.js'
 import { normalizeInteriorInput, runInteriorGeneration } from './interior/index.js'
 import { normalizeForestInput, runForestGeneration } from './forest/index.js'
 import { normalizeVolcanoInput, runVolcanoGeneration } from './volcano/index.js'
-import { normalizeMixedInput, runMixedGeneration, mixedReportSchema } from './mixed/index.js'
+import { VOLCANO_CALDERA_VERSION, volcanoSideSchema } from './volcano/contracts.js'
+import { normalizeMixedInput, runMixedGeneration, mixedReportSchema, MIXED_VOLCANO_LAYOUT_VERSION } from './mixed/index.js'
 import { interiorFurnitureRoleSchema } from './interior/contracts.js'
 import type { DomainGenerationKind } from './kinds.js'
 export { domainGenerationKinds, type DomainGenerationKind } from './kinds.js'
@@ -25,7 +26,10 @@ const interiorReportSchema = z.object({ connectivity: z.object({ openingIds: ids
       placed: z.array(z.object({ propId: id, role: interiorFurnitureRoleSchema, definitionRef: ref }).strict()).max(8192), notes }).strict()).max(24) }).strict(), notes }).strict()
 const forestReportSchema = z.object({ groundAreaId: id.nullable(), pathIds: ids, surfaceRuleIds: ids, propIds: ids, decorationIds: ids,
   vegetation: z.array(z.object({ zoneId: id, role: z.enum(['tree', 'shrub', 'grass']), requested: count, placed: count, ruleId: id, clusterId: id }).strict()).max(8192), notes }).strict()
-const volcanoReportSchema = z.object({ groundAreaId: id, mountainAreaId: id, craterAreaId: id, platformAreaId: id, flowAreaId: id.nullable(), connectionIds: ids, pathIds: ids, regionIds: ids, notes }).strict()
+const volcanoReportSchema = z.object({ groundAreaId: id, mountainAreaId: id, craterAreaId: id, platformAreaId: id, flowAreaId: id.nullable(), connectionIds: ids, pathIds: ids, regionIds: ids, notes,
+  shape: z.enum(['natural', 'terrace']).optional(), breachSide: volcanoSideSchema.optional(),
+  traversal: z.array(z.object({ id, kind: z.enum(['stairs', 'ramp']), widthMm: integer.positive(), riseMm: integer.positive(), runMm: integer.positive(), stepCount: integer.positive().optional() }).strict()).length(2).optional(),
+}).strict()
 const resultBase = { input: z.unknown(), candidate: domainGenerationCandidateSchema, resultHash: hash }
 
 /** The one static domain composition root owns normalization, result contracts,
@@ -38,10 +42,10 @@ export const generationDomains = Object.freeze({
   forest: Object.freeze({ algorithm: Object.freeze({ id: 'forest-layout', version: 2 }), normalize: normalizeForestInput, run: runForestGeneration,
     resultSchema: z.object({ ...resultBase, report: forestReportSchema }).strict(),
     presentation: 'terrain-variants', localOperations: Object.freeze(['forest-density']) }),
-  volcano: Object.freeze({ algorithm: Object.freeze({ id: 'volcano-layout', version: 1 }), normalize: normalizeVolcanoInput, run: runVolcanoGeneration,
+  volcano: Object.freeze({ algorithm: Object.freeze({ id: 'volcano-layout', version: VOLCANO_CALDERA_VERSION }), normalize: normalizeVolcanoInput, run: runVolcanoGeneration,
     resultSchema: z.object({ ...resultBase, report: volcanoReportSchema }).strict(),
     presentation: 'terrain-variants', localOperations: Object.freeze(['volcano-material', 'volcano-boundary']) }),
-  mixed: Object.freeze({ algorithm: Object.freeze({ id: 'mixed-layout', version: 19 }), normalize: normalizeMixedInput, run: runMixedGeneration,
+  mixed: Object.freeze({ algorithm: Object.freeze({ id: 'mixed-layout', version: MIXED_VOLCANO_LAYOUT_VERSION }), normalize: normalizeMixedInput, run: runMixedGeneration,
     resultSchema: z.object({ ...resultBase, report: mixedReportSchema }).strict(),
     presentation: 'terrain-variants', localOperations: Object.freeze([]) }),
 } as const satisfies Record<DomainGenerationKind, unknown>)

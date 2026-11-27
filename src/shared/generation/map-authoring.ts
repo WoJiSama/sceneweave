@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { VOLCANO_DEFAULTS, volcanoBreachSchema, volcanoPercentSchema, volcanoShapeSchema, volcanoSideSchema, volcanoWidthSchema } from './domains/volcano/contracts.js'
 import { directedInteriorLayoutParametersSchema } from './domains/interior/contracts.js'
 import { AUTOMATIC_ROAD_MAX_FIXED_POINTS, ROAD_LANDING_MIN_MM, ROAD_LANDING_MAX_MM } from '../geometry/road-surface.js'
 import { commandSelectionLimit } from '../budget/command-budget.js'
@@ -130,9 +131,15 @@ const recipeSchema = z.discriminatedUnion('kind', [
     density: z.number().min(0).max(2).default(1), routeWidthMm: width.max(5000).default(1400),
     clearings: z.array(z.object({ id, boundsMm: z.object({ x: integer.nonnegative(), y: integer.nonnegative(),
       width: integer.positive(), height: integer.positive() }).strict() }).strict()).max(6).optional() }).strict(),
-  z.object({ kind: z.literal('volcano'), mountainElevationMm: integer.positive().default(6200),
-    craterElevationMm: integer.default(700), routeWidthMm: width.max(5000).default(1500),
-    connection: z.enum(['stairs', 'ramp']).default('stairs'), lava: z.enum(['none', 'cold', 'hot']).default('cold') }).strict(),
+  z.object({ kind: z.literal('volcano'), mountainElevationMm: integer.positive().max(100_000).default(VOLCANO_DEFAULTS.mountainElevationMm),
+    craterElevationMm: integer.min(-100_000).max(100_000).default(VOLCANO_DEFAULTS.craterElevationMm),
+    routeWidthMm: volcanoWidthSchema.default(VOLCANO_DEFAULTS.routeWidthMm),
+    connection: z.enum(['stairs', 'ramp']).default(VOLCANO_DEFAULTS.connectionKind),
+    shape: volcanoShapeSchema.default(VOLCANO_DEFAULTS.shape), entranceSide: volcanoSideSchema.default(VOLCANO_DEFAULTS.entranceSide),
+    breachSide: volcanoBreachSchema.optional(), lava: z.enum(['none', 'cold', 'hot']).default(VOLCANO_DEFAULTS.lavaAppearance),
+    craterWidthPercent: volcanoPercentSchema.default(VOLCANO_DEFAULTS.craterWidthPercent), craterHeightPercent: volcanoPercentSchema.default(VOLCANO_DEFAULTS.craterHeightPercent),
+    craterCenterYPercent: volcanoPercentSchema.default(VOLCANO_DEFAULTS.craterCenterYPercent), flowWidthMm: volcanoWidthSchema.default(VOLCANO_DEFAULTS.flowWidthMm),
+  }).strict(),
   z.object({ kind: z.literal('mixed'), environment: z.enum(['forest', 'volcano']).default('forest'),
     purpose: label.default('休息室'), roomCount: z.number().int().min(1).max(4).default(2), furniture: z.boolean().default(true),
     vegetationMultiplier: z.number().min(0).max(2).default(1) }).strict(),
@@ -247,6 +254,7 @@ export const parseMapReference = (input: unknown) => mapReferenceSchema.parse(ca
 
 export function mapDimensions(request: Pick<MapGenerateRequest, 'recipe' | 'widthMm' | 'heightMm' | 'referenceScale' | 'referenceSizePx'>) {
   const { widthMm, heightMm, recipe, referenceSizePx, referenceScale } = request
+  if (recipe.kind === 'volcano') return { widthMm: widthMm ?? VOLCANO_DEFAULTS.widthMm, heightMm: heightMm ?? VOLCANO_DEFAULTS.heightMm }
   if (recipe.kind !== 'landscape') return { widthMm: widthMm ?? 40000, heightMm: heightMm ?? 32000 }
   if (!referenceSizePx) return { widthMm: widthMm ?? 64000, heightMm: heightMm ?? 48000 }
   const { width, height } = referenceSizePx
@@ -303,7 +311,7 @@ const examples = {
       rooms: [{ id: 'reception', purpose: '接待室' }, { id: 'ward', purpose: '病房', minAreaM2: 16 }],
       relations: [{ a: 'reception', b: 'ward', kind: 'adjacent', minimumSharedWallMm: 2200 }] } },
   forest: { title: '林中营地', recipe: { kind: 'forest', entranceSide: 'south' } },
-  volcano: { title: '火口调查站', recipe: { kind: 'volcano' }, oblique: true },
+  volcano: { title: '火口调查站', recipe: { kind: 'volcano', entranceSide: 'west', breachSide: 'east', lava: 'hot' }, oblique: true },
   mixed: { title: '林中哨站', recipe: { kind: 'mixed' } },
   island: { title: '潮环岩岛', recipe: { kind: 'island' } },
   coast: { title: '海崖小径', recipe: { kind: 'coast' } },

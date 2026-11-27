@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { interiorLayoutParametersSchema, interiorMaterialBindings, interiorMaterialRoleSchema } from '../interior/contracts.js'
 import { forestMaterialBindings, forestParametersSchema } from '../forest/contracts.js'
-import { volcanoParametersSchema } from '../volcano/contracts.js'
+import { volcanoDesignSchema, volcanoParametersSchema, volcanoParametersV2Schema, volcanoShapeSchema } from '../volcano/contracts.js'
 import { canonicalJson, cloneJson } from '../../../validation/json.js'
 
 const mm = z.number().int().safe(), id = z.string().min(1).max(256).refine(value => value !== '__proto__')
@@ -17,7 +17,17 @@ export const mixedParametersSchema = z.object({
   building: interiorLayoutParametersSchema,
   approach: z.object({ fromMm: point, viaMm: z.array(point).max(16), widthMm: mm.positive().max(5000), materialRef: ref.nullable() }).strict(),
 }).strict()
-export const mixedGenerationInputSchema = z.object({ version: z.literal(1), algorithmVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7), z.literal(8), z.literal(9), z.literal(10), z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(15), z.literal(16), z.literal(17), z.literal(18), z.literal(19)]), seed: z.string().min(1).max(128), parameters: mixedParametersSchema }).strict()
+export const MIXED_VOLCANO_LAYOUT_VERSION = 20
+export const mixedVolcanoParametersSchema = mixedParametersSchema.extend({
+  outdoor: z.object({ kind: z.literal('volcano'), parameters: volcanoParametersV2Schema }).strict(),
+}).strict()
+const mixedRequestSchema = z.object({ version: z.literal(1), seed: z.string().min(1).max(128) }).strict()
+export const mixedGenerationInputSchema = z.union([
+  mixedRequestSchema.extend({ algorithmVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5), z.literal(6), z.literal(7),
+    z.literal(8), z.literal(9), z.literal(10), z.literal(11), z.literal(12), z.literal(13), z.literal(14), z.literal(15), z.literal(16), z.literal(17), z.literal(18), z.literal(19)]), parameters: mixedParametersSchema }),
+  mixedRequestSchema.extend({ algorithmVersion: z.literal(MIXED_VOLCANO_LAYOUT_VERSION), parameters: mixedVolcanoParametersSchema,
+    volcanoDesign: volcanoDesignSchema.extend({ fixedPlatform: z.literal(true) }).optional() }),
+])
 export type MixedGenerationInput = z.infer<typeof mixedGenerationInputSchema>
 export type MixedParameters = z.infer<typeof mixedParametersSchema>
 export const mixedMaterialRoleSchema = z.enum(['ground', 'path', 'mountain', 'crater', 'platform', 'flow', 'route', ...interiorMaterialRoleSchema.options, 'approach'])
@@ -36,5 +46,6 @@ export function mixedFixedBindings(p: MixedParameters) {
 }
 const ids = z.array(id).max(8192)
 export const mixedReportSchema = z.object({ environment: z.enum(['forest', 'volcano']), supportAreaId: id, buildingRecipeId: id, outdoorRecipeId: id,
-  roomIds: ids, openingIds: ids, propIds: ids, entranceOpeningId: id, approachPathId: id, notes: z.array(z.string().max(5000)).max(8192) }).strict()
+  roomIds: ids, openingIds: ids, propIds: ids, entranceOpeningId: id, approachPathId: id, notes: z.array(z.string().max(5000)).max(8192),
+  volcanoShape: volcanoShapeSchema.optional() }).strict()
 export type MixedReport = z.infer<typeof mixedReportSchema>

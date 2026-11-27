@@ -3,14 +3,41 @@ import { createShoreBlankDocument } from '../../src/platform/browser/content/sho
 import { taskBudgetProfile } from '../../src/shared/budget/task-budget.js'
 import type { InteriorGenerationInput } from '../../src/shared/generation/domains/interior/contracts.js'
 import type { ForestGenerationInput } from '../../src/shared/generation/domains/forest/contracts.js'
-import { defaultVolcanoInput, type VolcanoGenerationInput } from '../../src/shared/generation/domains/volcano/index.js'
-import { defaultMixedInput, type MixedGenerationInput } from '../../src/shared/generation/domains/mixed/index.js'
+import { defaultVolcanoInput, VOLCANO_CALDERA_VERSION, VOLCANO_DEFAULTS, type VolcanoGenerationInput, type VolcanoParameters } from '../../src/shared/generation/domains/volcano/index.js'
+import { defaultMixedInput, MIXED_VOLCANO_LAYOUT_VERSION, type MixedGenerationInput } from '../../src/shared/generation/domains/mixed/index.js'
+import { planVolcanoPlatformBuilding } from '../../src/shared/generation/domains/mixed/volcano-platform.js'
 import type { SceneDocument } from '../../src/shared/model/scene.js'
 import { sceneSchema } from '../../src/shared/validation/scene.js'
 
 type Inputs = { interior: InteriorGenerationInput; forest: ForestGenerationInput; volcano: VolcanoGenerationInput; mixed: MixedGenerationInput }
 const stamp = '2026-11-05T00:00:00.000Z'
 const rectangle = (x: number, y: number, width: number, height: number) => [{ x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height }]
+
+function prepareCalderaFixture(parameters: VolcanoParameters) {
+  const { shape, entranceSide, breachSide, craterWidthPercent, craterHeightPercent, craterCenterYPercent,
+    mountainElevationMm, craterElevationMm, connectionKind, flowWidthMm } = VOLCANO_DEFAULTS
+  parameters.mountain.elevationMm = mountainElevationMm
+  parameters.crater.elevationMm = craterElevationMm
+  parameters.ascent.kind = parameters.descent.kind = connectionKind
+  if (parameters.flow) parameters.flow.widthMm = flowWidthMm
+  return { shape, entranceSide, breachSide, craterWidthPercent, craterHeightPercent, craterCenterYPercent }
+}
+
+export function calderaFixtureInput(base: SceneDocument, seed: string = VOLCANO_DEFAULTS.seed): VolcanoGenerationInput {
+  const input = defaultVolcanoInput(base, seed)
+  const design = prepareCalderaFixture(input.parameters)
+  return { ...input, algorithmVersion: VOLCANO_CALDERA_VERSION, design }
+}
+
+export function mixedCalderaFixtureInput(base: SceneDocument, seed: string = VOLCANO_DEFAULTS.seed): MixedGenerationInput {
+  const input = defaultMixedInput(base, 'volcano', seed)
+  const { outdoor } = input.parameters
+  if (outdoor.kind !== 'volcano') throw new Error('Expected a volcano fixture')
+  planVolcanoPlatformBuilding(input.parameters, seed, true)
+  const design = prepareCalderaFixture(outdoor.parameters)
+  return { ...input, algorithmVersion: MIXED_VOLCANO_LAYOUT_VERSION, parameters: { ...input.parameters, outdoor },
+    volcanoDesign: { ...design, fixedPlatform: true } }
+}
 
 /** Test-only fixed inputs shared by direct, Worker and HTTP checks. No browser
  * storage, image decoder, live resources or provider is involved. */

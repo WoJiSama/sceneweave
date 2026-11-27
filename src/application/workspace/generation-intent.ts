@@ -2,9 +2,8 @@ import type { InteriorLayoutParameters, InteriorGenerationInput } from '../../sh
 import { defaultBuildingWallHeight } from '../../shared/model/building-height.js'
 import { forestRectangle } from '../../shared/generation/domains/forest/index.js'
 import type { ForestGenerationInput, ForestVegetation } from '../../shared/generation/domains/forest/contracts.js'
-import type { VolcanoGenerationInput } from '../../shared/generation/domains/volcano/contracts.js'
-import { calderaLayout } from '../../shared/generation/domains/volcano/caldera.js'
-import type { MixedGenerationInput } from '../../shared/generation/domains/mixed/contracts.js'
+import { VOLCANO_CALDERA_VERSION, VOLCANO_DEFAULTS, type VolcanoDesign, type VolcanoGenerationInput } from '../../shared/generation/domains/volcano/contracts.js'
+import { MIXED_VOLCANO_LAYOUT_VERSION, type MixedGenerationInput } from '../../shared/generation/domains/mixed/contracts.js'
 import type { TaskBudgetProfile } from '../../shared/budget/task-budget.js'
 import { checkCancelled, type ResourceOptions } from '../../shared/ports/resources.js'
 import type { PreparationContext } from '../../shared/ports/runtime.js'
@@ -45,6 +44,7 @@ export interface VolcanoGenerationUiRequest {
   craterHazard: boolean; craterBlocksMovement: boolean; craterMovementCostMultiplier: number
   flowEnabled: boolean; flowWidthMm: number; lavaAppearance: 'cold' | 'hot'
   flowHazard: boolean; flowBlocksMovement: boolean; flowMovementCostMultiplier: number
+  shape?: VolcanoDesign['shape']; entranceSide?: VolcanoDesign['entranceSide']; breachSide?: VolcanoDesign['breachSide']
 }
 export interface MixedGenerationUiRequest {
   title: string; environment: 'forest' | 'volcano'; widthMm: number; heightMm: number; seed: string
@@ -89,7 +89,7 @@ export interface GenerationContentPort {
     secondTree?: ForestVegetation['palette']
   }>
   volcano(input: GenerationBaseIntent, options: ResourceOptions): Promise<{
-    base: EditableProject; defaults: VolcanoGenerationInput; flowMaterials: Record<'cold' | 'hot', MaterialRef>; naturalShape?: true
+    base: EditableProject; defaults: VolcanoGenerationInput; flowMaterials: Record<'cold' | 'hot', MaterialRef>
   }>
   mixed(input: GenerationBaseIntent & { environment: 'forest' | 'volcano'; algorithmVersion?: MixedGenerationInput['algorithmVersion'] }, options: ResourceOptions): Promise<{
     base: EditableProject; defaults: MixedGenerationInput
@@ -188,29 +188,27 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
     case 'volcano': {
       const owned = intent.request, content = await options.content.volcano(baseIntent, resourceOptions)
       checkCancelled(options.signal)
-      const input = captureJson(content.defaults), p = input.parameters, bounds = p.boundsMm
+      const input = captureJson(content.defaults), p = input.parameters
       p.mountain.elevationMm = owned.mountainElevationMm
       Object.assign(p.crater, { elevationMm: owned.craterElevationMm, hazard: owned.craterHazard, blocksMovement: owned.craterBlocksMovement, movementCostMultiplier: owned.craterMovementCostMultiplier })
-      const crater = { x: bounds.x + Math.round(bounds.width * .55), y: bounds.y + Math.round(bounds.height * (owned.craterCenterYPercent - owned.craterHeightPercent / 2) / 100), width: Math.round(bounds.width * owned.craterWidthPercent / 100), height: Math.round(bounds.height * owned.craterHeightPercent / 100) }
-      p.crater.boundaryMm = forestRectangle(crater)
-      const y = Math.round(crater.y + crater.height / 2)
       p.ascent.kind = owned.connectionKind; p.descent.kind = owned.connectionKind
-      p.descent.fromMm = { x: crater.x - Math.round(bounds.width * .04), y }
-      p.descent.toMm = { x: crater.x + Math.min(Math.round(bounds.width * .04), Math.round(crater.width / 4)), y }
       p.route.widthMm = owned.routeWidthMm
-      p.route.toCraterViaMm = y === p.platform.anchorMm.y ? [] : [{ x: p.platform.anchorMm.x, y }]
-      p.flow = owned.flowEnabled ? { centerlineMm: [{ x: Math.round(crater.x + crater.width * .72), y: Math.round(crater.y + crater.height * .25) }, { x: Math.round(crater.x + crater.width * .72), y: Math.round(crater.y + crater.height * .75) }], widthMm: owned.flowWidthMm, hazard: owned.flowHazard, blocksMovement: owned.flowBlocksMovement, movementCostMultiplier: owned.flowMovementCostMultiplier } : null
+      const flow = { widthMm: owned.flowWidthMm, hazard: owned.flowHazard, blocksMovement: owned.flowBlocksMovement, movementCostMultiplier: owned.flowMovementCostMultiplier }
       p.materials.flow = captureJson(content.flowMaterials[owned.lavaAppearance])
-      if (content.naturalShape) {
-        Object.assign(p, calderaLayout(p, input.seed))
-        p.route.boundaryBlendMm = 215
-      }
-      return { kind: 'new-project', domain: 'volcano', base: content.base, input, profile: profile() }
+      const shape = owned.shape ?? VOLCANO_DEFAULTS.shape
+      const design: VolcanoDesign = { shape, entranceSide: owned.entranceSide ?? VOLCANO_DEFAULTS.entranceSide,
+        breachSide: owned.breachSide ?? (shape === 'natural' ? VOLCANO_DEFAULTS.breachSide : 'none'),
+        craterWidthPercent: owned.craterWidthPercent, craterHeightPercent: owned.craterHeightPercent, craterCenterYPercent: owned.craterCenterYPercent }
+      p.flow = owned.flowEnabled ? { centerlineMm: p.flow?.centerlineMm ?? [p.descent.fromMm, p.descent.toMm], ...flow } : null
+      return { kind: 'new-project', domain: 'volcano', base: content.base, input: { ...input, algorithmVersion: VOLCANO_CALDERA_VERSION, design }, profile: profile() }
     }
     case 'mixed': {
       const owned = intent.request
       if (!Number.isSafeInteger(owned.roomCount) || owned.roomCount < 1 || owned.roomCount > 4) throw new Error('房间数量须为1–4的整数。')
-      if (owned.algorithmVersion !== undefined && ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(owned.algorithmVersion)) throw new Error('混合生成算法版本须为1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17、18或19。')
+      const version = owned.algorithmVersion
+      if (version !== undefined && (!Number.isInteger(version) || version < 1 || version > (owned.environment === 'volcano' ? MIXED_VOLCANO_LAYOUT_VERSION : 19))) {
+        throw new Error('请选择当前室外环境支持的混合生成算法版本。')
+      }
       if (owned.woodlandDistribution !== undefined && !['auto', 'uniform', 'copses'].includes(owned.woodlandDistribution)) throw new Error('请选择可用的植被分布。')
       const content = await options.content.mixed({ ...baseIntent, environment: owned.environment, algorithmVersion: owned.algorithmVersion }, resourceOptions)
       checkCancelled(options.signal)
@@ -222,7 +220,7 @@ export async function prepareGenerationIntent(raw: GenerationIntent, options: Ge
       p.building.wallHeightMm = defaultBuildingWallHeight([owned.purpose])
       p.building.relations = []
       p.building.arrangement.furniture = owned.furniture
-      if (owned.furniture && input.algorithmVersion === 19 && content.loungeFocus !== false) furnishLounges(p.building.rooms)
+      if (owned.furniture && input.algorithmVersion >= 19 && content.loungeFocus !== false) furnishLounges(p.building.rooms)
       if (p.outdoor.kind === 'forest') for (const zone of p.outdoor.parameters.zones) for (const row of zone.vegetation) row.coveragePpm = Math.min(1000000, Math.round(row.coveragePpm * owned.vegetationMultiplier))
       if (p.outdoor.kind === 'forest') p.outdoor.parameters.zones = forestZonesForDistribution(content.base.document, p.outdoor.parameters, owned.seed, owned.woodlandDistribution, content.secondTree, p)
       return { kind: 'new-project', domain: 'mixed', base: content.base, input, profile: profile() }
