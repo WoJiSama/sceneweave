@@ -54,6 +54,10 @@ Windows PowerShell 可用 `| Set-Content -Encoding utf8NoBOM -LiteralPath <路�
 
 已有生成请求时，可用 `map diagnose --input ABS_JSON --allow map-authoring` 查看通行和高程。加 `--output NEW_ABS_DIR` 可保存已检查的工程，随后的 `map verify --candidate` 会直接打开这份工程出图。MCP 的 `sceneweave_map_diagnose` 提供同一个可选 `output`。
 
+用 `map example volcano` 开始自然火口场景。`entranceSide` 指进山方向，`breachSide` 指火口塌口方向。`connection: "ramp"` 要求新坡道纵坡不超过 50%。输入的火口尺寸、路线净宽和熔岩宽度会按真实边界与承托试排。生成与存档复验都给出两条通路及指定塌口的测量。网页「生成 → 火山」提供同一组构图参数。
+
+室内从 `map example interior-program` 开始。`program` 指定房间和走廊怎样连、外门朝向、桌椅组和服务台。自由布局可同批创建房间，再用 `opening-at` 按墙面上的中心点附着门窗。`map catalog --kind props --query TEXT` 查内置室内素材，已有工程用 `map inspect --catalog props`。网页与 MCP 提供对应入口。[制图步骤](workflows/map-authoring.md)
+
 参考图取样用原图整数像素。用 `map capabilities` 的 `referenceGuide` 查看如何标地貌和登高路线。程序自动拟合湾口、浅水、礁石和次要岸崖，按主要标记拟合台地、山脊和低地。打开 `paths.overlay` 核对形状和编号。局部可用 `keep` 保留礁石、`shallow` 取浅水色、`design.shallows` 圈浅水，或在地貌里用 `structure` 给范围和坡折线。可省略 `--stage` 单独提取轮廓。详细字段和关闭选项见[参考图步骤](workflows/map-authoring.md#reference)。
 
 用 `landscape` 指定主要轮廓和地貌。`outline: "smooth"` 按段平滑岸线并保留共享边。山脚到高处用 `ascent: { from: { at, radius }, toLandmarkId, minRiseMm }`，可加 `around: { landmarkId, side }` 指定绕行。程序按实际地形选落脚点和路线，核对净宽与起终点高差。允许收窄时可填 `ascent.minWidthMm`，实际降宽时回执给出被拒宽度和原因。运行 `map example landscape-ascent` 查看可执行的请求。已知途经点用 `via`。文字配方默认用每轴 0–1000 的相对坐标。参考图用 `referenceSizePx` 及像素锚点，地图等比对齐。有图中已知距离时用 `referenceScale` 标定。净宽、高程和绕行距离用毫米。室内布局用 `interior`，林地用 `forest`，精确坐标与对象组合用 `layout`。
