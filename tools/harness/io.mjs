@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 export const MAX_REQUEST_BYTES = 64 * 1024
 export const MAX_MAP_REQUEST_BYTES = 256 * 1024
@@ -95,13 +95,48 @@ export async function readRequest(file, maximumBytes = MAX_REQUEST_BYTES) {
   catch { throw new Error('Input must be valid UTF-8 JSON') }
 }
 
-export async function writeVerified(directory, name, bytes, maximumBytes = MAX_ARCHIVE_BYTES) {
+export async function writeVerified(directory, name, bytes, maximumBytes = MAX_ARCHIVE_BYTES, onCreated) {
   assert(bytes.length > 0 && bytes.length <= maximumBytes, `Invalid output length: ${name}`)
   const file = path.join(directory, name), sha256 = digest(bytes)
-  await fs.writeFile(file, bytes, { flag: 'wx', mode: 0o600 })
+  const handle = await fs.open(file, 'wx', 0o600)
+  try {
+    onCreated?.()
+    await handle.writeFile(bytes)
+  } finally { await handle.close() }
   const reread = await readBounded(file, maximumBytes)
   assert(digest(reread) === sha256, `Written output reread mismatch: ${name}`)
   return { bytes: reread, record: { file: name, sha256, byteLength: reread.length } }
+}
+
+/** Installs a complete, hash-named file. The caller rereads and checks its bytes. */
+export async function installArtifact(file, bytes, replace = false) {
+  const pending = path.join(path.dirname(file), '.artifact-' + randomUUID())
+  const writer = await fs.open(pending, 'wx', 0o600)
+  try {
+    try { await writer.writeFile(bytes) } finally { await writer.close() }
+    if (!replace) {
+      try { await fs.link(pending, file); return true }
+      catch (error) {
+        if (error.code === 'EEXIST') return false
+        if (!['ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM'].includes(error.code)) throw error
+      }
+    }
+    await renameArtifact(fs, pending, file)
+    return true
+  } finally { await fs.rm(pending, { force: true }) }
+}
+
+async function renameArtifact(operations, pending, target, checkCurrent = () => {}) {
+  // Windows scanners and readers can briefly hold the previous receipt open.
+  // Retry the same atomic rename while keeping the cancellation boundary.
+  for (let attempt = 0; ; attempt++) {
+    checkCurrent()
+    try { await operations.rename(pending, target); return }
+    catch (error) {
+      if (attempt >= 5 || !['EBUSY', 'EPERM', 'EACCES'].includes(error.code)) throw error
+      await new Promise(resolve => setTimeout(resolve, 25 * 2 ** attempt))
+    }
+  }
 }
 
 /** Replaces only this invocation's initially exclusive result record. Completion
@@ -114,8 +149,7 @@ export async function replaceResult(directory, record, options = {}) {
   try {
     await operations.writeFile(pending, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx', mode: 0o600 })
     pendingOwned = true
-    checkCurrent()
-    await operations.rename(pending, path.join(directory, 'result.json'))
+    await renameArtifact(operations, pending, path.join(directory, 'result.json'), checkCurrent)
     pendingOwned = false
     checkCurrent()
     // No await between the final cancellation check and this commit callback.

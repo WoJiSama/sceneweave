@@ -100,3 +100,29 @@ test('publication commits synchronously after its final check and later signals 
     assert.equal(JSON.parse(await fs.readFile(path.join(directory, 'result.json'), 'utf8')).status, 'complete')
   } finally { await fs.rm(directory, { recursive: true, force: true }) }
 })
+
+test('a temporarily locked result is atomically replaced after the filesystem releases it', async () => {
+  const directory = await fs.mkdtemp(path.join(tmpdir(), 'sceneweave-harness-publish-test-'))
+  try {
+    const target = path.join(directory, 'result.json')
+    await fs.writeFile(target, '{"status":"running"}\n', { flag: 'wx' })
+    let attempts = 0, publications = 0
+    await replaceResult(directory, { status: 'complete' }, {
+      operations: { writeFile: fs.writeFile, async rename(from, to) {
+        if (++attempts === 1) throw Object.assign(new Error('File temporarily locked'), { code: 'EPERM' })
+        assert.equal(JSON.parse(await fs.readFile(to, 'utf8')).status, 'running')
+        return fs.rename(from, to)
+      } },
+      onPublished: () => { publications++ },
+    })
+    assert.equal(attempts, 2)
+    assert.equal(publications, 1)
+    assert.equal(JSON.parse(await fs.readFile(target, 'utf8')).status, 'complete')
+    assert.deepEqual(await fs.readdir(directory), ['result.json'])
+  } finally {
+    const checked = await fs.realpath(directory)
+    assert.equal(path.dirname(checked), await fs.realpath(tmpdir()))
+    assert.match(path.basename(checked), /^sceneweave-harness-publish-test-/)
+    await fs.rm(checked, { recursive: true, force: true })
+  }
+})
