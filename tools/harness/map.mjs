@@ -23,12 +23,13 @@ const compactMapReference = ({ regions, lakes, coastFeatures, ...report }) => {
 
 export const mapUsage = `Sceneweave map authoring
   node tools/harness/sceneweave.mjs map capabilities
-  node tools/harness/sceneweave.mjs map schema reference|generate|inspect|edit
+  node tools/harness/sceneweave.mjs map schema reference|generate|inspect|edit|catalog
   node tools/harness/sceneweave.mjs map reference --image ABS_IMAGE --input ABS_GUIDE_JSON --output NEW_ABS_DIR --allow map-authoring [--stage draft|complete] [--delivery receipt|copy] [--budget standard]
   node tools/harness/sceneweave.mjs map diagnose --input ABS_JSON --allow map-authoring [--budget standard] [--geometry full] [--output NEW_ABS_DIR]
-  node tools/harness/sceneweave.mjs map example [landscape-reference|landscape-ascent|landscape|interior|forest|volcano|mixed|island|coast|layout]
+  node tools/harness/sceneweave.mjs map example [landscape-reference|landscape-ascent|landscape|interior|interior-program|forest|volcano|mixed|island|coast|layout]
+  node tools/harness/sceneweave.mjs map catalog [--palette interior] [--kind props|materials] [--query TEXT] [--limit N] [--offset N]
   node tools/harness/sceneweave.mjs map generate --input ABS_JSON --output NEW_ABS_DIR --allow map-authoring [--stage draft|complete] [--delivery receipt|copy] [--budget standard]
-  node tools/harness/sceneweave.mjs map inspect --project ABS_SCENEWEAVE --allow map-authoring [--floor ID] [--query TEXT] [--limit N] [--offset N]
+  node tools/harness/sceneweave.mjs map inspect --project ABS_SCENEWEAVE --allow map-authoring [--floor ID] [--catalog props|materials] [--query TEXT] [--limit N] [--offset N]
   node tools/harness/sceneweave.mjs map edit --project ABS_SCENEWEAVE --input ABS_JSON --output NEW_ABS_DIR --allow map-authoring [--stage draft|complete] [--delivery receipt|copy] [--budget standard]
   node tools/harness/sceneweave.mjs map verify --candidate ABS_DIR --output NEW_ABS_DIR --allow map-authoring [--previews keep|redraw] [--editor reopen] [--delivery receipt|copy] [--budget standard]
 
@@ -83,8 +84,12 @@ export function parseMapCli([action, ...args]) {
     return { action }
   }
   if (action === 'example' || action === 'schema') {
-    assert(args.length <= 1 && (action === 'example' || ['reference', 'generate', 'edit', 'inspect'].includes(args[0])), mapUsage)
+    assert(args.length <= 1 && (action === 'example' || ['reference', 'generate', 'edit', 'inspect', 'catalog'].includes(args[0])), mapUsage)
     return { action, value: args[0] }
+  }
+  if (action === 'catalog') {
+    const flags = readMapFlags(args, ['--palette', '--kind', '--query', '--offset', '--limit'])
+    return { action, request: parseSearchFlags(flags, '--kind', ['palette', '--palette']) }
   }
   assert(['reference', 'diagnose', 'generate', 'edit', 'inspect', 'verify'].includes(action), mapUsage)
   if (action === 'reference' || action === 'diagnose') {
@@ -106,21 +111,31 @@ export function parseMapCli([action, ...args]) {
       deliveryMode: mapDelivery(flags.get('--delivery')), ...(flags.has('--editor') ? { editor: true } : {}) }
   }
   const flags = readMapFlags(args, ['--allow', ...(action !== 'generate' ? ['--project'] : []),
-    ...(action === 'inspect' ? ['--floor', '--query', '--offset', '--limit'] : ['--input', '--output', '--budget', '--stage', '--delivery'])])
+    ...(action === 'inspect' ? ['--floor', '--catalog', '--query', '--offset', '--limit'] : ['--input', '--output', '--budget', '--stage', '--delivery'])])
   assert(flags.get('--allow') === allowance, 'Expected explicit --allow map-authoring')
   const project = action !== 'generate' ? absolute(flags, '--project') : undefined
-  if (action === 'inspect') return { action, project, request: Object.fromEntries([
-    ['floorId', flags.get('--floor')], ['query', flags.get('--query')],
-    ['offset', flags.has('--offset') ? Number(flags.get('--offset')) : undefined],
-    ['limit', flags.has('--limit') ? Number(flags.get('--limit')) : undefined],
-  ].filter(([, value]) => value !== undefined)) }
+  if (action === 'inspect') return { action, project, request: parseSearchFlags(flags, '--catalog', ['floorId', '--floor']) }
   return { action, project, input: absolute(flags, '--input'), output: absolute(flags, '--output'),
     stage: mapStage(flags.get('--stage')), budget: mapBudget(flags.get('--budget')), deliveryMode: mapDelivery(flags.get('--delivery')) }
 }
 
+function parseSearchFlags(flags, catalogFlag, [field, flag]) {
+  return Object.fromEntries([[field, flags.get(flag)], ['catalog', flags.get(catalogFlag)], ['query', flags.get('--query')],
+    ['offset', flags.has('--offset') ? Number(flags.get('--offset')) : undefined],
+    ['limit', flags.has('--limit') ? Number(flags.get('--limit')) : undefined]].filter(([, value]) => value !== undefined))
+}
+
 export async function useMapDefinitions(action) {
   const tooling = await startHarnessTooling(root)
-  try { return await action(await tooling.mapAuthoring(), await tooling.workflows()) } finally { await tooling.close() }
+  try { return await action(await tooling.mapAuthoring(), await tooling.workflows(), tooling) } finally { await tooling.close() }
+}
+
+export function readBuiltinMapCatalog(request) {
+  return useMapDefinitions(async (definitions, _workflows, tooling) => {
+    const input = definitions.mapCatalogSchema.parse(request)
+    const read = await tooling.interiorCatalog()
+    return { palette: input.palette, ...read(input) }
+  })
 }
 
 async function launchBrowser(channelPreference) {
@@ -522,12 +537,13 @@ export async function executeMap({ action, request: raw, image, project, candida
 export async function runMapCli(args) {
   if (!args.length || args.length === 1 && ['--help', '-h'].includes(args[0])) { process.stdout.write(`${mapUsage}\n`); return }
   const options = parseMapCli(args), { action, value } = options
+  if (action === 'catalog') { process.stdout.write(json(await readBuiltinMapCatalog(options.request))); return }
   if (['example', 'schema', 'capabilities'].includes(action)) {
     const output = await useMapDefinitions(definitions => {
       if (action === 'example') return definitions.mapAuthoringExample(value)
       if (action === 'schema') return definitions.mapAuthoringCapabilities().schemas[value]
       const { schemas: _schemas, ...description } = definitions.mapAuthoringCapabilities()
-      return { ...description, schemaCommand: 'node tools/harness/sceneweave.mjs map schema reference|generate|inspect|edit' }
+      return { ...description, schemaCommand: 'node tools/harness/sceneweave.mjs map schema reference|generate|inspect|edit|catalog' }
     })
     process.stdout.write(json(output))
     return

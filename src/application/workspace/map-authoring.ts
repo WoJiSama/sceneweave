@@ -1,4 +1,4 @@
-import type { MapGenerateRequest, MapOperation } from '../../shared/generation/map-authoring.js'
+import type { MapGenerateRequest, MapInspectRequest, MapOperation } from '../../shared/generation/map-authoring.js'
 import type { CompositionCommand } from '../../shared/model/appearance.js'
 import type { BoundsMm, Floor, PointMm, SceneDocument, SurfaceRef } from '../../shared/model/scene.js'
 import { DECORATION_COLLECTIONS, LAYER_ENTITY_COLLECTIONS, SURFACE_RULE_COLLECTIONS } from '../../shared/model/scene.js'
@@ -16,6 +16,9 @@ import { withGeometryPairCounter } from '../../shared/geometry/edge-index.js'
 import { splitNewTerrainJunctions } from '../../shared/geometry/terrain-junctions.js'
 import { checkGradedRoadOnValidScene, checkRouteOnValidScene } from '../../shared/geometry/terrain-travel.js'
 import { findExposedTerrainEdge, reconcileTerrainBoundary } from '../../shared/commands/outdoor.js'
+import { roomOwnsWall } from '../../shared/commands/building.js'
+import { wideDoorPresentation } from '../../shared/model/door-presentation.js'
+import { projectScene, PlayerCoverageError } from '../../shared/projection/projection.js'
 import { SHORE_MATERIAL_IDS } from '../../shared/visual/shore-art.js'
 import { newMapArtStyle, upgradeSceneArtStyle } from '../../shared/visual/art-style.js'
 import { visualBase } from '../../shared/visual/base.js'
@@ -30,6 +33,18 @@ import type { EditableProject } from './project.js'
 
 const own = <T>(record: Record<string, T>, id: string) => Object.hasOwn(record, id) ? record[id] : undefined
 const same = (a: unknown, b: unknown) => a === b || canonicalJson(a ?? null) === canonicalJson(b ?? null)
+function publicMapLabels(scene: SceneDocument, floorId: string, visibility: ReturnType<typeof createPublicVisibility>) {
+  const labels = Object.values(scene.notes).filter(note => note.floorId === floorId && note.kind === 'label' && note.visibility === 'public'
+    && (note.anchor.type === 'point' || note.anchor.entityKind === 'room' && visibility.room(note.anchor.entityId)))
+  if (!labels.length || !Object.values(scene.regions).some(row => row.floorId === floorId && row.kind === 'manualMask')) return new Set(labels.map(row => row.id))
+  try {
+    const visible = new Set(projectScene(scene, 'player', undefined, { floorId }).notes.map(note => note.id))
+    return new Set(labels.filter(note => visible.has(note.id)).map(note => note.id))
+  } catch (error) {
+    if (error instanceof PlayerCoverageError) return new Set<string>()
+    throw error
+  }
+}
 
 export function mapCoordinate(bounds: BoundsMm, reference?: MapGenerateRequest['referenceSizePx'], preserveAspect = false) {
   const scale = reference && Math.min(bounds.width / reference.width, bounds.height / reference.height)
@@ -85,7 +100,10 @@ function compileMapOperations(scene: SceneDocument, floor: Floor, input: Pick<Ma
     return ref
   }
   const connectionEnd = ({ at, support: ref }: Extract<MapOperation, { kind: 'connection' }>['from']) => ({ surfaceRef: support(ref), positionMm: point(at) })
-  const wallAt = (id: string) => requireTarget(own(scene.walls, id), visibility.wall(id), id)
+  const wallAt = (id: string) => {
+    const wall = own(scene.walls, id)
+    return requireTarget(wall, !!wall && visibility.wall(id) && Object.values(scene.rooms).every(room => !roomOwnsWall(room, wall) || visibility.room(room.id)), id)
+  }
   const preparedRings = new Map(splitNewTerrainJunctions(input.operations.flatMap((row, index) => {
     if (row.kind !== 'terrain') return []
     try { return [{ id: row.id, points: row.boundary.map(point) }] }
@@ -120,8 +138,29 @@ function compileMapOperations(scene: SceneDocument, floor: Floor, input: Pick<Ma
         case 'opening': {
           const wall = wallAt(row.wallId)
           return { type: 'addOpening', id: row.id, wallId: wall.id, offsetReferenceVertexId: row.fromVertexId,
-            offsetMm: row.offsetMm, widthMm: row.widthMm, kind: row.style, ...(row.style === 'door' ? { state: 'open' as const } : {}) }
+            offsetMm: row.offsetMm, widthMm: row.widthMm, kind: row.style, ...(row.style === 'door' ? { state: 'open' as const } : {}),
+            ...(row.presentation ? { presentation: row.presentation } : {}) }
         }
+        case 'opening-at': {
+          for (const id of [row.roomId, row.adjoiningRoomId]) if (id && !roomIds.has(id)) requireTarget(own(scene.rooms, id), visibility.room(id), id)
+          const presentation = row.presentation ?? wideDoorPresentation(row.style, row.widthMm)
+          return { type: 'addRoomOpening', id: row.id, roomId: row.roomId, ...(row.adjoiningRoomId ? { adjoiningRoomId: row.adjoiningRoomId } : {}),
+            ...(row.exterior ? { exterior: true } : {}), atMm: point(row.at), widthMm: row.widthMm, kind: row.style, publicOnly: true, ...layer,
+            ...(row.style === 'door' ? { state: 'open' as const } : {}), ...(presentation ? { presentation } : {}) }
+        }
+        case 'opening-presentation': {
+          const opening = requireTarget(own(scene.openings, row.id), visibility.opening(row.id), row.id)
+          wallAt(opening.wallId)
+          return { type: 'updateOpening', id: row.id, changes: { presentation: row.presentation } }
+        }
+        case 'label': {
+          if (row.roomId && !roomIds.has(row.roomId)) requireTarget(own(scene.rooms, row.roomId), visibility.room(row.roomId), row.roomId)
+          return { type: 'createNote', ...placed, kind: 'label', text: row.text, visibility: 'public',
+            anchor: row.roomId ? { type: 'entity', entityKind: 'room', entityId: row.roomId } : { type: 'point', positionMm: point(row.at!) } }
+        }
+        case 'label-text':
+          requireTarget(own(scene.notes, row.id), publicMapLabels(scene, floor.id, visibility).has(row.id), row.id)
+          return { type: 'updateNote', id: row.id, changes: { text: row.text } }
         case 'terrain-update': {
           const area = requireTarget(own(scene.terrainAreas, row.id), visibility.terrainArea(row.id), row.id)
           const boundaryMm = row.boundary && reconcileTerrainBoundary(area.boundaryMm, row.boundary.map(point), runtime)
@@ -286,10 +325,11 @@ export function planMapPathAround(scene: SceneDocument, floor: Floor, path: Scen
 function mapChanges(before: SceneDocument, after: SceneDocument, floorId: string) {
   const oldPublic = createPublicVisibility(before), nextPublic = createPublicVisibility(after)
   const oldView = publicTerrainView(before, oldPublic), nextView = publicTerrainView(after, nextPublic)
+  const labelSets = new Map([[oldView, publicMapLabels(before, floorId, oldPublic)], [nextView, publicMapLabels(after, floorId, nextPublic)]])
   const collections = [...LAYER_ENTITY_COLLECTIONS, ...DECORATION_COLLECTIONS, ...SURFACE_RULE_COLLECTIONS] as const
   type Row = { id: string; floorId: string; visibility?: string }
   const visible = (collection: typeof collections[number], row: Row, view: SceneDocument, rules: typeof oldPublic) => {
-    if (collection === 'notes') return false
+    if (collection === 'notes') return labelSets.get(view)!.has(row.id)
     if (collection === 'scatterGroups') return rules.scatterGroup(row.id)
     return Object.hasOwn(view[collection] ?? {}, row.id) && row.visibility !== 'gm'
   }
@@ -440,6 +480,7 @@ export function mapSceneSummary(scene: SceneDocument, floor: Floor, query = '', 
   const rooms = onFloor(view.rooms), areas = onFloor(view.terrainAreas), paths = onFloor(view.paths)
   const connections = onFloor(view.terrainConnections), props = onFloor(view.props), openings = onFloor(view.openings), walls = onFloor(view.walls)
   const regions = onFloor(view.regions)
+  const labels = publicMapLabels(scene, floor.id, visibility)
   const ground = regions.length ? createSupportQuery(view, floor.id, undefined, false) : undefined
   const entities = [
     ...rooms.map(row => ({ kind: 'room', id: row.id, purpose: row.purpose, boundary: roomPoints(view, row), support: row.supportRef, locked: row.editLocked })),
@@ -451,10 +492,12 @@ export function mapSceneSummary(scene: SceneDocument, floor: Floor, query = '', 
       ...(row.roadSurface ? { treadCount: row.roadSurface.stations.filter(station => !!station.outZMm).length,
         lengthMm: Math.round(connectionArcFrame(row.centerlineMm).length) } : {}) })),
     ...connections.map(row => ({ kind: row.kind, id: row.id, from: row.from, to: row.to, widthMm: row.widthMm, locked: row.editLocked })),
-    ...openings.map(row => ({ kind: row.kind, id: row.id, wallId: row.wallId, widthMm: row.widthMm, locked: row.editLocked })),
+    ...openings.map(row => ({ kind: row.kind, id: row.id, wallId: row.wallId, widthMm: row.widthMm, state: row.state, locked: row.editLocked,
+      ...(row.presentation ? { presentation: row.presentation } : {}) })),
     ...walls.map(row => ({ kind: 'wall', id: row.id, a: row.startVertexId, b: row.endVertexId,
       points: [view.vertices[row.startVertexId], view.vertices[row.endVertexId]].map(vertex => ({ x: vertex.xMm, y: vertex.yMm })), locked: row.editLocked })),
     ...props.map(row => ({ kind: 'prop', id: row.id, definitionId: row.definitionRef?.id ?? null, at: row.positionMm, locked: row.editLocked })),
+    ...onFloor(view.notes).filter(row => labels.has(row.id)).map(row => ({ kind: 'label', id: row.id, name: row.text, anchor: row.anchor, locked: row.editLocked })),
     ...regions.map(row => {
       const points = row.boundaryMm, at = { x: Math.round(points.reduce((sum, p) => sum + p.x, 0) / points.length),
         y: Math.round(points.reduce((sum, p) => sum + p.y, 0) / points.length) }
@@ -476,4 +519,17 @@ export function mapSceneSummary(scene: SceneDocument, floor: Floor, query = '', 
     nextOffset: offset + limit < entities.length ? offset + limit : null,
     hasTerrainHeightDifferences: areas.some(row => row.groundElevationMm !== 0 || row.relief?.offsetsMm.some(value => value !== 0)) || connections.length > 0,
   }
+}
+
+export function mapAssetCatalog(scene: Pick<SceneDocument, 'propDefinitions' | 'materials'>,
+  request: Pick<MapInspectRequest, 'query' | 'limit' | 'offset' | 'catalog'>) {
+  const { query, limit, offset, catalog = 'props' } = request, match = query?.toLowerCase() ?? ''
+  const entries = catalog === 'props' ? Object.values(scene.propDefinitions).map(definition => ({ id: definition.id, version: definition.version,
+    name: definition.name, tags: definition.tags, footprintMm: definition.defaultFootprintMm, visualBoundsMm: definition.defaultVisualBoundsMm,
+    blocksMovement: definition.defaultBlocksMovement, renderLayer: definition.defaultRenderLayer }))
+    : Object.values(scene.materials).map(material => ({ id: material.id, version: material.version, name: material.name,
+      surfaces: material.applicableSurfaces, tileSizeMm: material.defaultTileSizeMm }))
+  const results = entries.filter(row => [row.id, row.name, ...('tags' in row ? row.tags : row.surfaces)].some(value => value.toLowerCase().includes(match)))
+    .sort((a, b) => a.id.localeCompare(b.id))
+  return { catalog, entries: results.slice(offset, offset + limit), total: results.length, nextOffset: offset + limit < results.length ? offset + limit : null }
 }

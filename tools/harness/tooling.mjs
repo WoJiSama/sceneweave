@@ -41,6 +41,10 @@ export async function startHarnessTooling(root, listen = false, editor = false) 
       origin, url: origin && `${origin}${pathname}`,
       sdk: () => server.ssrLoadModule('/src/application/workspace/semantic-generation.ts'),
       mapAuthoring: () => server.ssrLoadModule('/src/shared/generation/map-authoring.ts'),
+      async interiorCatalog() {
+        const [catalog, mapper] = await Promise.all([server.ssrLoadModule('/src/platform/browser/content/refined-interior.ts'), server.ssrLoadModule('/src/application/workspace/map-authoring.ts')])
+        return request => mapper.mapAssetCatalog(catalog.createRefinedInteriorDocument(), request)
+      },
       workflows: () => server.ssrLoadModule('/src/shared/ai/workflows/entry.ts'),
       forestLoop: () => server.ssrLoadModule('/src/shared/ai/forest-loop.ts'),
       budget: () => server.ssrLoadModule('/src/shared/budget/task-budget.ts'),

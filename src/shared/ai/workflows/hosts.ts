@@ -37,7 +37,7 @@ export function harnessWorkflowHost(): WorkflowHost {
     'map-reference': available('sceneweave.mjs map reference [--stage draft]'),
     'map-diagnose': available('sceneweave.mjs map diagnose'),
     'map-generate': available('sceneweave.mjs map generate'),
-    'map-inspect': available('sceneweave.mjs map inspect'),
+    'map-inspect': available('sceneweave.mjs map inspect / map catalog'),
     'map-edit': available('sceneweave.mjs map edit'),
     'map-verify': available('sceneweave.mjs map verify'),
     'forest-parameters': available('sceneweave.mjs example / capabilities'),
@@ -61,6 +61,9 @@ export function mapMcpWorkflowHost(tools: WorkflowHost['tools']): WorkflowHost {
   const capabilities: WorkflowHost['capabilities'] = { 'page-adopt': page('普通页面导入并审阅', 'MCP 交付独立工程。') }
   for (const [requirement, tool] of Object.entries(entries) as Array<[keyof typeof entries, string]>) {
     if (names.has(tool)) capabilities[requirement] = available(tool, [tool])
+  }
+  if (names.has('sceneweave_map_inspect') && names.has('sceneweave_map_catalog')) {
+    capabilities['map-inspect'] = available('sceneweave_map_inspect / sceneweave_map_catalog', ['sceneweave_map_inspect', 'sceneweave_map_catalog'])
   }
   return { name: 'map-mcp', tools, capabilities }
 }

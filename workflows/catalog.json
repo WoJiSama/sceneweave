@@ -3,12 +3,12 @@
   "workflows": [
     {
       "id": "sceneweave-map-authoring",
-      "version": 10,
+      "version": 12,
       "title": "通用助手制图",
       "summary": "从文字或参考图指定区域、地貌、路线或房间关系，生成真实地图，并在可编辑工程副本上局部调整。",
       "tags": ["地图", "通用助手", "生成", "编辑", "map", "authoring", "generate"],
       "bodyFile": "map-authoring.md",
-      "inputSchemaRef": "mapReferenceSchema / mapGenerateSchema / mapEditSchema / mapInspectSchema",
+      "inputSchemaRef": "mapReferenceSchema / mapGenerateSchema / mapEditSchema / mapInspectSchema / mapCatalogSchema",
       "steps": [
         { "id": "start", "title": "从可执行示例开始", "requires": ["map-discovery"], "produces": "本次构图及必须满足的要求" },
         { "id": "reference", "title": "从参考图生成可编辑草稿", "requires": ["map-reference", "project-preview"], "produces": "叠图、可编辑预览及可复用的生成请求" },

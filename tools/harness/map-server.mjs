@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { assert, MAX_MAP_REQUEST_BYTES } from './io.mjs'
-import { executeMap, mapBudget, mapDelivery, mapPreviews, mapStage, readMapFlags, useMapDefinitions } from './map.mjs'
+import { executeMap, mapBudget, mapDelivery, mapPreviews, mapStage, readBuiltinMapCatalog, readMapFlags, useMapDefinitions } from './map.mjs'
 import { openSavedMap } from './map-verification.mjs'
 
 const protocolVersions = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']
@@ -74,11 +74,12 @@ function defineTools(definitions, discovery) {
   const { examples, schemas } = definitions.mapAuthoringCapabilities()
   // Use the actual JSON carried by MCP, excluding non-enumerable metadata
   // attached by Zod's converter before the shared catalogue hashes the tools.
-  const { reference, generate, inspect, edit } = JSON.parse(JSON.stringify(schemas))
+  const { reference, generate, inspect, edit, catalog } = JSON.parse(JSON.stringify(schemas))
   return [
     { name: discovery.name, description: discovery.description, inputSchema: discovery.parameters },
     { name: 'sceneweave_map_example', description: 'Return a small runnable generation request for a map recipe or free layout.',
       inputSchema: objectSchema({ kind: { type: 'string', enum: examples } }) },
+    { name: 'sceneweave_map_catalog', description: 'Find fixed interior props and materials before creating a map. Returns editable definition IDs and dimensions.', inputSchema: catalog },
     { name: 'sceneweave_map_reference', description: 'Trace editable land from a local PNG, JPEG or WebP. Set stage to generate from the outline and design marks in one call.',
       inputSchema: objectSchema({ image: { type: 'string', description: 'Workspace-relative reference image path.' }, request: reference, output: name,
         stage: { type: 'string', enum: ['draft', 'complete'], description: 'Omit the stage to trace only.' }, delivery,
@@ -129,6 +130,8 @@ export async function openMapToolHost(options) {
       case 'sceneweave_map_example':
         assert(args.kind === undefined || typeof args.kind === 'string', 'Invalid example kind.')
         return content(definitions.mapAuthoringExample(args.kind))
+      case 'sceneweave_map_catalog':
+        return content(await readBuiltinMapCatalog(args))
       case 'sceneweave_map_preview': {
         const view = args.view ?? 'top', draft = args.draft ?? false
         assert(['top', 'oblique', 'diagnostic', 'overlay'].includes(view), 'Choose top, oblique, diagnostic or overlay.')

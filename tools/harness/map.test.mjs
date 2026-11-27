@@ -157,6 +157,51 @@ function connect(workspace) {
   }
 }
 
+test('MCP discovers fixed indoor assets and resolves precise openings against rooms in the same batch', { timeout: 150000 }, async t => {
+  const workspace = await fs.mkdtemp(path.join(tmpdir(), 'sceneweave-map-test-'))
+  const host = connect(workspace)
+  t.after(async () => {
+    try { await host.close() } finally {
+      const checked = path.resolve(workspace)
+      assert.equal(path.dirname(checked), path.resolve(tmpdir()))
+      assert.match(path.basename(checked), /^sceneweave-map-test-/)
+      await fs.rm(checked, { recursive: true, force: true })
+    }
+  })
+  await host.call('initialize', { protocolVersion: '2025-06-18' })
+  const { tools } = await host.call('tools/list')
+  assert(tools.some(tool => tool.name === 'sceneweave_map_catalog'))
+  const catalog = await host.tool('sceneweave_map_catalog', { query: '长桌' })
+  const table = catalog.entries.find(row => row.id === 'refined-prop-interior-table-long')
+  assert(table?.footprintMm.width > 1000)
+  const rect = (left, right) => [{ x: left, y: 2200 }, { x: right, y: 2200 }, { x: right, y: 7800 }, { x: left, y: 7800 }]
+  const draft = await host.tool('sceneweave_map_generate', { output: 'draft', stage: 'draft', request: {
+    title: '双室工作台', widthMm: 14000, heightMm: 10000, recipe: { kind: 'layout', palette: 'interior' },
+    operations: [
+      { kind: 'room', id: 'main', purpose: '工作间', boundary: rect(1000, 7000) },
+      { kind: 'room', id: 'store', purpose: '库房', boundary: rect(7000, 13000) },
+      { kind: 'opening-at', id: 'wide', roomId: 'main', adjoiningRoomId: 'store', at: { x: 7000, y: 5000 }, widthMm: 2400 },
+      { kind: 'opening-at', id: 'window', roomId: 'store', exterior: true, at: { x: 10000, y: 2200 }, style: 'window' },
+      { kind: 'label', id: 'work-label', roomId: 'main', text: '工作间' },
+      { kind: 'prop', id: 'table', definitionId: table.id, at: { x: 3300, y: 3400 }, support: { kind: 'room', id: 'main' } },
+    ], checks: [{ id: 'crossing', points: [{ x: 4500, y: 5000 }, { x: 8500, y: 5000 }], widthMm: 1100 }],
+  } })
+  assert.equal(draft.routeChecks[0].ok, true)
+  const opening = draft.scene.objects.find(row => row.id === 'wide')
+  assert.deepEqual({ kind: opening.kind, width: opening.widthMm, pose: opening.presentation.kind }, { kind: 'door', width: 2400, pose: 'double' })
+  assert(draft.scene.objects.some(row => row.kind === 'window' && row.id === 'window'))
+  const inspected = await host.tool('sceneweave_map_inspect', { project: draft.relativeProject, request: { catalog: 'props' } })
+  assert.deepEqual(inspected.entries.map(row => row.id), [table.id])
+  const edited = await host.tool('sceneweave_map_edit', { project: draft.relativeProject, output: 'edited', stage: 'draft', request: {
+    projectHash: draft.projectHash, floorId: draft.floorId, operations: [
+      { kind: 'opening-presentation', id: 'wide', presentation: { kind: 'frame' } }, { kind: 'label-text', id: 'work-label', text: '工坊' },
+    ],
+  } })
+  assert.equal(edited.scene.objects.find(row => row.id === 'wide').widthMm, 2400)
+  assert.deepEqual(edited.scene.objects.find(row => row.id === 'wide').presentation, { kind: 'frame' })
+  assert.equal((await host.tool('sceneweave_map_inspect', { project: edited.relativeProject, request: { query: 'work-label' } })).objects[0].name, '工坊')
+})
+
 test('CLI and MCP deliver real candidates, preserve a dense contour, and revise only the exact input', { timeout: 540000 }, async t => {
   const workspace = await fs.mkdtemp(path.join(tmpdir(), 'sceneweave-map-test-'))
   t.after(async () => {

@@ -2,7 +2,7 @@ import { prepareGenerationIntent, type GenerationIntent } from '../../../applica
 import { prepareDomainProject } from '../../../application/workspace/generation.js'
 import { prepareTerrainProject } from '../../../application/workspace/terrain.js'
 import { checkLandscapeAscents, landscapeLandmarks, LANDSCAPE_PAIR_ACCOUNTING, materializeLandscapeCandidate, shapeLandscapeCandidate } from '../../../application/workspace/landscape-map.js'
-import { checkMapHeights, checkMapRoutes, mapSceneSummary, prepareMapOperations } from '../../../application/workspace/map-authoring.js'
+import { checkMapHeights, checkMapRoutes, mapAssetCatalog, mapSceneSummary, prepareMapOperations } from '../../../application/workspace/map-authoring.js'
 import { fromVerifiedBundle, toBundle, type EditableProject } from '../../../application/workspace/project.js'
 import { defaultForestCampCoverages } from '../../../application/workspace/woodland-distribution.js'
 import { assertTaskBudget, BUDGET_DIMENSIONS, emptyBudgetUsage, measureTaskBudget, type BudgetUsage, type TaskBudgetProfile } from '../../../shared/budget/task-budget.js'
@@ -16,6 +16,7 @@ import { mapDimensions, parseMapEdit, parseMapGenerate, parseMapInspect, type Ma
 import { polygonsOverlap, propFootprint, terrainPoints } from '../../../shared/geometry/geometry.js'
 import { roadEffectsPolygon } from '../../../shared/geometry/road-domain.js'
 import { publicTerrainView } from '../../../shared/geometry/visibility.js'
+import { PlayerCoverageError, projectScene } from '../../../shared/projection/projection.js'
 import { importProject } from '../../../shared/project/file.js'
 import { projectContentHash } from '../../../shared/project/validate.js'
 import { reviseSceneSnapshot } from '../../../shared/validation/snapshots.js'
@@ -318,7 +319,19 @@ export async function inspectMapCandidate(bytes: Uint8Array, raw: unknown) {
   const request = parseMapInspect(raw)
   const bundle = await importProject(bytes, validation), scene = bundle.project.document
   const floor = pickFloor(scene, request.floorId)
-  return { title: scene.title, artStyle: scene.artStyle?.active ?? 'original', projectHash: projectContentHash(bundle.project), revision: scene.revision,
-    floors: Object.values(scene.floors).map(({ id, name, boundsMm }) => ({ id, name, boundsMm })),
-    ...mapSceneSummary(scene, floor, request.query, request.limit, request.offset) }
+  const summary = { title: scene.title, artStyle: scene.artStyle?.active ?? 'original', projectHash: projectContentHash(bundle.project), revision: scene.revision,
+    floors: Object.values(scene.floors).map(({ id, name, boundsMm }) => ({ id, name, boundsMm })) }
+  if (request.catalog) {
+    try {
+      const visible = projectScene(scene, 'player', bundle.project.appearance, { floorId: floor.id })
+      const props = new Set(visible.props.map(row => row.definitionRef?.id).filter((id): id is string => !!id))
+      const catalog = { propDefinitions: Object.fromEntries([...props].map(id => [id, scene.propDefinitions[id]])),
+        materials: Object.fromEntries(Object.keys(visible.materials).map(id => [id, scene.materials[id]]).filter(([, material]) => !!material)) }
+      return { ...summary, ...mapAssetCatalog(catalog, request) }
+    } catch (error) {
+      if (error instanceof PlayerCoverageError) throw new OperationRejected('outside_scope', '当前楼层的玩家覆盖尚未通过，请在普通编辑器核对。')
+      throw error
+    }
+  }
+  return { ...summary, ...mapSceneSummary(scene, floor, request.query, request.limit, request.offset) }
 }

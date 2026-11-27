@@ -3,7 +3,11 @@
 ## start
 户外参考图用 `map reference --stage draft`，或给 `sceneweave_map_reference` 传 `stage: "draft"`。只标背景取样、用户点名的地貌与通路。程序返回可编辑草稿、叠图和可复用的生成请求。文字题可用对应的可运行示例。
 
-纯文字山地可用 `landscape`。用 `interior` 表达房间用途、面积和相邻关系，用 `forest` 指定入口和空地，也可选火山、混合、岩岛或海岸示例。需要精确对象坐标时可用 `layout` 或追加 `operations`。
+纯文字山地可用 `landscape`，林地可用 `forest`，也可选火山、混合、岩岛或海岸示例。室内先运行 `map example interior-program`，MCP 传 `kind: "interior-program"`。用 `interior` 给房间用途、最小和最大净面积，用 `program` 指定主入口、辅助入口、内门及家具组。需要精确坐标时可用 `layout` 或追加 `operations`。
+
+走廊用 `corridor.axis` 和 `corridor.clearWidthMm`，可在 `program.corridorId` 命名，然后在 `connections` 中引用。明确给 `connections` 时，只在列出的空间之间开内门。`entrances` 可按房间指定北、东、南、西侧和各自净宽。`furnishings` 可在一个房间指定完整四席桌椅组和 `counterNextTo` 邻房服务台。程序安排共墙、分开桌椅组、复核净宽，默认安排外墙窗。网页从「室内布局 → 详细设置 → 指定外门、内门与家具组」填写同一组需求。
+
+自然火口用 `map example volcano`。默认西侧入口经岩阶到观测台，东侧有贯通低口，火口内有热熔岩。`entranceSide` 与 `breachSide` 可分别指定方位，`breachSide: "none"` 可省去塌口。用 `craterWidthPercent`、`craterHeightPercent` 和 `craterCenterYPercent` 给火口尺寸和横向位置。宽沿入口至山体的方向量，高沿其垂向量。程序试排真实边界、完整路线和熔岩带，空间冲突时报告需要调整的参数。需要规则地形时明确选 `shape: "terrace"`。
 
 在 `landscape` 中，原图锚点用 `referenceSizePx` 声明宽高，程序等比映射。已知图中两点距离时可用 `referenceScale`。纯文字制图的配方位置与半径用每轴 0–1000 的相对坐标。净宽、高程和绕行距离用毫米。山路可给起终点和 `around: { landmarkId, side }`，其中 `side` 为 `north`、`east`、`south` 或 `west`。程序用真实净宽带筛选走向并计算坡面、平台和踏步。已知确切途经点时可以提供 `via`。
 
@@ -21,13 +25,17 @@
 ## diagnose
 有结构问题时，用 `map diagnose --input ABS_JSON --allow map-authoring` 或 `sceneweave_map_diagnose` 检查轮廓、路线和地标。结果标出入水、转角冲突或挖填位置。需要完整地形和道路坐标时，用 `--geometry full` 或 MCP 的 `geometry: true`。想出图时复用这次检查的工程，可在诊断时给 `--output NEW_ABS_DIR` 或 MCP 的 `output`，再用 `map verify` 打开同一目录并出图。网页「只检查几何」支持直接调整失败路线，输入相同时「生成地图预览」会复用已检查的草稿。
 
+火山的 `routeChecks` 记录入口到观测台及观测台到火口两段的净宽和接入证据。每段 `traversal` 给实际高差、水平距离及阶数。坡道要求高差最多为水平距离的一半。指定塌口时，`heightChecks` 会比较贯通低口和两侧岩缘。正式复核从保存工程重新测量。
+
 ## generate
 文字题或已有完整请求时用 `map generate --stage draft`，或给 `sceneweave_map_generate` 传 `stage: "draft"`。`topReadyAt` 表示可打开草稿工程和实际正俯视。用进度输出或 `paths.preview` 找图。有地形高差时也会出斜俯视，可用 `oblique` 显式选择。MCP 的 `includePreview: true` 可把实际 PNG 随回执返回。
 
-先看用户点名的构图和通路。回执记录实际画风、比例、通行结果、地标中心与邻域高程。有可定位的问题时，打开 `paths.diagnostic`，图片编号对应回执中的 `diagnosticMarkers`。MCP 可用 `sceneweave_map_preview` 的 `view: "diagnostic"` 和 `draft: true` 查看。预览、叠图和诊断按图像字节共享每个输出父目录下 64 MiB 的可回收缓存。用户要求留存草稿或诊断时可在草稿命令加 `--delivery copy`。自动绕行失败时可查看已生成的地形预览和原因。必需检查通过后可正式复核并保存。
+先看用户点名的构图和通路。回执记录实际画风、比例、通行结果、地标中心与邻域高程。结构化室内的 `recipeReport` 给实际门、通过的净宽路线、桌椅组及服务台。正式复核从保存工程重新检查这些要求。有可定位的问题时，打开 `paths.diagnostic`，图片编号对应回执中的 `diagnosticMarkers`。MCP 可用 `sceneweave_map_preview` 的 `view: "diagnostic"` 和 `draft: true` 查看。预览、叠图和诊断按图像字节共享每个输出父目录下 64 MiB 的可回收缓存。用户要求留存草稿或诊断时可在草稿命令加 `--delivery copy`。自动绕行失败时可查看已生成的地形预览和原因。必需检查通过后可正式复核并保存。
 
 ## revise
 在 `map inspect` 或 `sceneweave_map_inspect` 查找公开对象和工程摘要。把 `projectHash`、楼层和修改交给 `map edit` 或 `sceneweave_map_edit`。用 `path-update` 加 `around` 改现有自动道路的一侧。用 `terrain-shape` 调起伏，`cover-zone` 铺地表，`scenery-zone` 布置林木、灌草或碎石，`scenery-density` 调已有组。换画风用同一工程提交 `art-style`，页面可在草稿上直接切换。编辑默认使用毫米。
+
+精确布局先写 `room`，再用 `opening-at` 给出 `roomId`、墙面上开口中心 `at` 及 `widthMm`。共墙可给 `adjoiningRoomId`，外墙可给 `exterior: true`。程序按同批完成的实际墙段绑定门窗。旧工程用 `opening-presentation` 改双扇或门框样式，门洞原尺寸保留。用 `label` 给房间或坐标加公开标注。内置室内素材用 `map catalog --kind props --query TEXT` 或 `sceneweave_map_catalog` 查找。现有工程用 `map inspect --catalog props` 或 `--catalog materials`，MCP 对应 `request.catalog`。
 
 编辑时带上额外需要满足的 `checks` 和 `heightChecks`。原生成请求声明的登高关系在生成候选复核时按实际路线检查。草稿中某条自动道路尚未生成时，可调整原请求的出发区、绕行侧或净宽再出候选。相邻场景与旧候选留在各自目录。
 

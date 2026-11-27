@@ -3,6 +3,7 @@ import { programmedInteriorLayoutParametersSchema } from './domains/interior/con
 import { VOLCANO_DEFAULTS, volcanoBreachSchema, volcanoPercentSchema, volcanoShapeSchema, volcanoSideSchema, volcanoWidthSchema } from './domains/volcano/contracts.js'
 import { AUTOMATIC_ROAD_MAX_FIXED_POINTS, ROAD_LANDING_MIN_MM, ROAD_LANDING_MAX_MM } from '../geometry/road-surface.js'
 import { commandSelectionLimit } from '../budget/command-budget.js'
+import { doorPresentationSchema } from '../model/door-presentation.js'
 import { ART_STYLE_PRESETS } from '../visual/art-style.js'
 import { captureJson } from '../validation/json.js'
 
@@ -157,8 +158,14 @@ const operationSchema = z.discriminatedUnion('kind', [
     widthMm: width.default(1200), layerId: id.optional() }).strict(),
   z.object({ kind: z.literal('prop'), id, definitionId: id, at: point, support: support.optional(),
     rotationDeg: z.number().min(0).lt(360).default(0), layerId: id.optional() }).strict(),
-  z.object({ kind: z.literal('opening'), id, wallId: id, fromVertexId: id, offsetMm: integer.nonnegative(),
-    widthMm: width.max(5000).default(1100), style: z.enum(['door', 'window']).default('door') }).strict(),
+  z.object({ kind: z.literal('opening'), id, wallId: targetId, fromVertexId: targetId, offsetMm: integer.nonnegative(),
+    widthMm: width.max(5000).default(1100), style: z.enum(['door', 'window']).default('door'), presentation: doorPresentationSchema.optional() }).strict(),
+  z.object({ kind: z.literal('opening-at'), id, roomId: targetId, adjoiningRoomId: targetId.optional(), exterior: z.boolean().optional(), at: point,
+    widthMm: width.max(5000).default(1100), style: z.enum(['door', 'window']).default('door'), layerId: id.optional(), presentation: doorPresentationSchema.optional() }).strict(),
+  z.object({ kind: z.literal('opening-presentation'), id: targetId, presentation: doorPresentationSchema.nullable() }).strict(),
+  z.object({ kind: z.literal('label'), id, text: label, roomId: targetId.optional(), at: point.optional(), layerId: id.optional() }).strict()
+    .refine(row => (row.roomId === undefined) !== (row.at === undefined), '请给出房间 ID 或标注坐标。'),
+  z.object({ kind: z.literal('label-text'), id: targetId, text: label }).strict(),
   z.object({ kind: z.literal('terrain-update'), id, boundary: ring.optional(), elevationMm: integer.optional() }).strict()
     .refine(value => value.boundary !== undefined || value.elevationMm !== undefined, '提供轮廓或高程'),
   z.object({ kind: z.literal('terrain-shape'), id, at: point, radiusMm: integer.min(350).max(15000),
@@ -216,6 +223,9 @@ export const mapGenerateSchema = z.object({
   if (recipe.kind === 'layout' && !request.operations.length) {
     context.addIssue({ code: 'custom', path: ['operations'], message: '自由构图至少需要一项操作。' })
   }
+  if (recipe.kind === 'interior' && recipe.rooms.some(room => room.maxAreaM2 !== undefined && room.maxAreaM2 < room.minAreaM2)) {
+    issue('recipe', '房间最大净面积须大于或等于最小净面积。')
+  }
   if (recipe.kind === 'landscape') {
     const areaIds = new Set(recipe.land.map(row => row.id))
     const features = [...recipe.landforms, ...recipe.routes, ...recipe.scenery, ...recipe.covers, ...(recipe.lakes ?? [])]
@@ -239,8 +249,9 @@ export const mapEditSchema = z.object({
 }).strict()
 export const mapInspectSchema = z.object({
   floorId: id.optional(), query: z.string().trim().max(120).optional(), limit: z.number().int().min(1).max(100).default(24),
-  offset: z.number().int().min(0).max(100000).default(0),
+  offset: z.number().int().min(0).max(100000).default(0), catalog: z.enum(['props', 'materials']).optional(),
 }).strict()
+export const mapCatalogSchema = mapInspectSchema.omit({ floorId: true }).extend({ palette: z.literal('interior').default('interior') }).strict()
 
 export type MapGenerateRequest = z.infer<typeof mapGenerateSchema>
 export type MapEditRequest = z.infer<typeof mapEditSchema>
@@ -345,6 +356,8 @@ export function mapAuthoringCapabilities() {
     workflowId: MAP_AUTHORING_WORKFLOW, examples: Object.keys(examples),
     commands: {
       example: 'node tools/harness/sceneweave.mjs map example landscape',
+      interiorExample: 'node tools/harness/sceneweave.mjs map example interior-program',
+      catalog: 'node tools/harness/sceneweave.mjs map catalog --palette interior --kind props',
       referenceExample: 'node tools/harness/sceneweave.mjs map example landscape-reference',
       reference: 'node tools/harness/sceneweave.mjs map reference --image ABS_IMAGE --input ABS_GUIDE_JSON --output NEW_ABS_DIR --allow map-authoring',
       referenceDraft: 'node tools/harness/sceneweave.mjs map reference --image ABS_IMAGE --input ABS_GUIDE_JSON --output NEW_ABS_DIR --allow map-authoring --stage draft',
@@ -357,7 +370,7 @@ export function mapAuthoringCapabilities() {
       verify: 'node tools/harness/sceneweave.mjs map verify --candidate ABS_DIR --output NEW_ABS_DIR --allow map-authoring',
       verifyEditor: 'node tools/harness/sceneweave.mjs map verify --candidate ABS_DIR --output NEW_ABS_DIR --allow map-authoring --editor reopen',
     },
-    schemas: { reference: z.toJSONSchema(mapReferenceSchema, { io: 'input' }), generate: z.toJSONSchema(mapGenerateSchema, { io: 'input' }), edit: z.toJSONSchema(mapEditSchema, { io: 'input' }),
+    schemas: { reference: z.toJSONSchema(mapReferenceSchema, { io: 'input' }), generate: z.toJSONSchema(mapGenerateSchema, { io: 'input' }), edit: z.toJSONSchema(mapEditSchema, { io: 'input' }), catalog: z.toJSONSchema(mapCatalogSchema, { io: 'input' }),
       inspect: z.toJSONSchema(mapInspectSchema, { io: 'input' }) },
     referenceGuide: { background: [{ x: 42, y: 40 }], design: {
       landforms: [{ id: 'summit', shape: 'plateau', at: { x: 552, y: 260 }, elevationMm: 6800 }],
@@ -368,6 +381,6 @@ export function mapAuthoringCapabilities() {
     delivery: { project: 'map.sceneweave', top: 'paths.preview', oblique: 'paths.oblique (on request or visible terrain height differences)', result: 'result.json',
       diagnostic: 'paths.diagnostic (locatable findings)', verify: '默认复用已有产物，仅保存回执；--delivery copy 生成独立交付。storage 报告各类字节。',
       draft: '已保存工程和真实预览，可局部编辑；满意后用 verify 核对同一份文件。', complete: '独立浏览器重新导入，实际通行与所有交付视图通过。' },
-    scope: '从原图和背景取样点提取可编辑轮廓，在叠图上复核。用少量地貌和通行意图出首图。ascent 从低处区域接至高处地标，around 指定绕行方向。室内可直接给房间用途和关系。编辑作用于精确工程副本的指定楼层。',
+    scope: '从原图和背景取样点提取可编辑轮廓，在叠图上复核。用少量地貌和通行意图出首图。ascent 从低处区域接至高处地标，around 指定绕行方向。室内用 program 表达外门与内门、走廊连接、服务台和桌椅组。精确布局可用 opening-at 按实际墙面中心附着门窗。编辑作用于精确工程副本的指定楼层。',
   }
 }

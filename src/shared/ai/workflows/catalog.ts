@@ -111,7 +111,7 @@ export function queryWorkflow(raw: unknown, host: WorkflowHost) {
     const names = new Set(definition.steps.flatMap(step => step.requires.flatMap(requirement => capability(host, requirement).toolNames ?? [])))
     return { ...selected, inputSchemaRef: definition.inputSchemaRef,
       ...(definition.inputSchemaRef === 'semanticGenerationRequestSchema' ? { inputSchema: semanticGenerationCapabilities().inputSchema, example: semanticGenerationExample() } : {}),
-      ...(definition.id === MAP_AUTHORING_WORKFLOW ? { example: mapAuthoringExample(), cliSchema: 'node tools/harness/sceneweave.mjs map schema reference|generate|inspect|edit' } : {}),
+      ...(definition.id === MAP_AUTHORING_WORKFLOW ? { example: mapAuthoringExample('interior-program'), cliSchema: 'node tools/harness/sceneweave.mjs map schema reference|generate|inspect|edit|catalog' } : {}),
       ...(definition.inputSchemaRef === 'oceanDressingSettingsSchema' ? { inputSchema: z.toJSONSchema(oceanDressingSettingsSchema), example: { recipeVersion: 2, seed: 'terrain-v1-0', preset: 'calm', boat: true, creatures: true }, note: '此schema定义底图后的有限布景步骤；页面自然地形勾选海洋选项使用固定默认设置。宿主是否提供执行入口仍由capabilities决定。' } : {}),
       tools: host.tools.filter(tool => names.has(tool.name) && (!query.toolName || tool.name === query.toolName))
         .map(tool => query.toolName ? tool : { name: tool.name }),
