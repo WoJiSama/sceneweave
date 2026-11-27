@@ -9,7 +9,7 @@
 
 1. 运行`npm run build`。
 2. 运行`npm run test:e2e:production -- tests/complete-journey-ux.spec.ts --workers=1 --retries=0`。Playwright自行在`http://127.0.0.1:4173/sceneweave/`启停生产预览。
-3. 查看实际下载的完整工程、重开结果和PNG。若失败，修复相关原因并重跑受影响用例，保留失败输出用于定位。
+3. 测试会读取实际下载的完整工程、重开结果和 PNG。需要在测试结束后打开图片或下载包时，运行前设置 `SCENEWEAVE_KEEP_TEST_OUTPUT=1`。
 
 通过条件包括编辑实际生效、撤销重做正确、重开后内容与资源完整、备份导入后可以继续编辑，以及 PNG 尺寸正确且能够解码。PR 与 Pages 工作流运行前端和 AI 全量单测、生产构建及 Chromium 编辑、恢复、保密与 VTT 回归，并在 Firefox 与 WebKit 复验生产版导入和下载。标准开发浏览器套件每周运行，也可在 Actions 勾选 `extended` 手动运行。合成夹具的失败诊断可在 Actions 下载。
 
@@ -19,6 +19,8 @@
 基线取自提交 `80162f9176628569f8de38f7188d89c1dd8f7ad6`。调查场景沿用该构建的首页下载原件。其余三个输入由该提交的写入器和自有 1 像素素材生成，分别为含命名快照的工程、含固定素材与个人标签的库备份、以及含两条子分支的 IndexedDB 原始表结构和记录。文件保存在[固定样本目录](../tests/fixtures/project-compatibility)，读取前按[发布样本摘要](../tests/helpers/release-fixtures.ts)核对原字节。
 
 - `npx vitest run src/platform/browser/storage/release-compatibility.test.ts` 检查旧包、素材身份、原始内容块、分支和快照，继续保存后冷读复核。
+- `npx vitest run src/platform/browser/content/image-workflow-store.test.ts` 检查旧图片草稿整理、共享图片、跨窗口版本比较和原工作包逐字节恢复。
+- `node --test tools/harness/map.test.mjs tools/image-import/workflow-host.test.mjs` 检查默认地图复验回执、独立交付、缓存回收和本机拆件断点的重新打开。
 - `npm run test:e2e:production -- tests/release-compatibility.spec.ts --project=chromium` 使用生产构建从首页导入发布样板，在工作台改名、落盘、冷开并下载备份，逐项核对场景、身份、外观、资源和许可。另对同一张图分别带入和省略主持人扩展，核对玩家 PNG 的实际文件摘要，以及主持人备份中的原文。
 
 Pages 上传前运行这两组检查和素材包合同测试。修改已发布结构或新增持久语义时，将相应旧写入器的原始样本追加到回归中。已有样本及其摘要固定保留。
@@ -73,4 +75,4 @@ Playwright升级后用`npx playwright install`安装匹配引擎；不要用旧�
 - 视觉检查实际全景和关键近景。用户美术签收由用户完成，自动化和代理看图分别说明。
 - 能力可以按明确范围独立交付。提交、推送、部署与公开发布按当前授权执行；历史授权不延续。
 
-测试截图、下载包、trace及诊断输出放被忽略的`work/`或测试输出目录。可复现夹具和回归测试留在仓库；完成后的临时流水无需再写进文档。
+常规 Playwright 配置仅留失败运行的截图、下载包和 trace。需要保留通过用例的输出和生成 HTML 报告时设置 `SCENEWEAVE_KEEP_TEST_OUTPUT=1`。单独的视觉验收配置按自身设置保留复核产物。可复现夹具和回归测试留在仓库。
