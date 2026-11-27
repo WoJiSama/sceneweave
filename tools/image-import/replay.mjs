@@ -4,11 +4,13 @@ import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import readline from 'node:readline'
 
-const usage = 'node tools/image-import/replay.mjs --image ABS_IMAGE --recipe ABS_RECIPE --license-file ABS_LICENSE --attribution TEXT --output EXISTING_OUTPUT_DIRECTORY'
+const usage = 'node tools/image-import/replay.mjs --image ABS_IMAGE --recipe ABS_RECIPE --license-file ABS_LICENSE --attribution TEXT --output EXISTING_OUTPUT_DIRECTORY [--save-images]'
 const args = process.argv.slice(2)
 if (args.length === 1 && args[0] === '--help') { process.stdout.write(usage + '\n'); process.exit(0) }
 
 async function main() {
+  const saveImages = args.length % 2 === 1 && args.at(-1) === '--save-images'
+  if (saveImages) args.pop()
   const index = args.indexOf('--recipe'), recipePath = args[index + 1]
   if (index < 0 || !recipePath || !path.isAbsolute(recipePath) || args.lastIndexOf('--recipe') !== index) throw new Error(usage)
   const handle = await fs.open(recipePath, 'r')
@@ -46,7 +48,7 @@ async function main() {
     await call('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'sceneweave-image-replay', version: '1.0.0' } })
     const applied = await call('tools/call', { name: 'image_import_apply_recipe', arguments: { generation: 0, recipe } })
     const snapshot = JSON.parse(applied.content.find(item => item.type === 'text').text)
-    const output = await call('tools/call', { name: 'image_import_build_project', arguments: { generation: snapshot.generation } })
+    const output = await call('tools/call', { name: 'image_import_build_project', arguments: { generation: snapshot.generation, saveImages } })
     for (const item of output.content) if (item.type === 'text') process.stdout.write(item.text + '\n')
   } finally {
     child.stdin.end()

@@ -46,7 +46,7 @@ subject-matte-v1仅估计现有非零支撑内1/2原像素带，分开查看原�
 
 切后优化先定位缺陷：image_import_enhancement_candidates的direction:contour是既有裁片增强，仅减轻部分二值硬边阶梯，不外扩支撑，不能与主体method:subject-contour-v1混用。edge只精修已有半透明覆盖，decontaminate只针对有真实邻近清空像素依据的色边；它们不能纠正错选主体。按target、direction、count生成2或3份只读候选和黑白棋盘预览，逐一与原色裁片比较。零变化不算改善，clarity放大不恢复未知细节。
 
-增强工具不修改原蒙版、复核或保真重建，不自动写场景。候选目录及candidates.json须另行保全，三条目制作包不嵌入派生PNG；实际采用走统一素材编辑页，以确切父源和同配方生成，再经现有保护、预览、一次采用、撤销和冷读链。
+增强工具返回候选参数、摘要和实际换底图。源裁片、候选和诊断图在本机共享可回收缓存，从回执的 `paths` 打开。用户要求保留这一轮图片时传 `saveImages: true`，将 PNG 和结果回执一起携带。实际采用走统一素材编辑页，以确切父源和同配方生成，再经现有保护、预览、一次采用、撤销和冷读链。
 
 image_import_matte_candidates是独立只读工具，参数{target,count:2|3,bandPx?:1|2}。仅在已有partial alpha边带和稳定外侧背景依据下反解前景RGB，alpha与实心核心保持，binary裁片无变化；保护和未审核推断不作外侧证据，无依据不改色，局部或零变化不称真图全面改善。该配方依赖完整原图上下文，当前统一素材页只有crop，不能同配方复现，因此仅审阅、不自动采用；既有enhancement directions仍走原采用链。
 
@@ -107,7 +107,7 @@ guided隐藏底色、细纹、自动线和显式路径全部为推断，线参�
 实际提供image_import_surface_candidate时，可显式cloth-surface-v1处理独立地面item。materialSurfaceId选该item的同材质表面，不能借用移毯后的木板取证；donor须干净原图。整面明暗/细纹属推断，alpha和外沿3px保持。strokes明确visible-cloth-seam或visible-cloth-stitch：只在家具实际轮廓外观察原布缝，可含原阴影以分离窄墨，但这些原笔迹不能转为干净底色/细纹取证。沿axis单调、crossPx11/13，最多8条且总长8192px；bridgeMaxPx最多48，只连接两端可见且中间确实不可读的短段，原可见断口不补，针脚不外推。先看原尺寸/换底/未决位置，以inputHash和代次set_surface_refinement采用，null恢复；不改背景移除/保护/占地。工作包保存同源配方，普通工程保存实际派生。该能力需要显式原布缝角色，不等于自动分区或新手稳定。
 
 ## deliver
-每个断点保存独立.sceneweave-image-work工作包，包含原图、未完成选区、笔迹和复核。普通.sceneweave仅保存采用资源，不依赖工作包打开。恢复先全验再切换，失败保留现有结果。
+每个本机断点保存原图引用、未完成选区、笔迹与复核，同一输出目录中的相同图像字节可复用。需要单独携带时，显式导出含完整图像的 .sceneweave-image-work 工作包。普通 .sceneweave 保存采用的实际资源，可直接打开。给 `image_import_build_project` 传 `saveImages: true` 可同时保存独立预览。恢复先全验再切换，失败保留现有结果。
 
 交付检查包含黑白棋盘底边缘、移开后的露底、个人库条目在另一工程的放置及空存储重开工程。记录实际读图和人工修正用时，工具计算与保存等待另计。制作记录、采用工程和个人库可各自备份。
 
@@ -115,6 +115,6 @@ guided隐藏底色、细纹、自动线和显式路径全部为推断，线参�
 
 严格遵守当前宿主权限；本工作流不授予外发原图、访问任意路径、重新计费或写入当前场景的权限。build_project只生成待审候选。
 
-用 `image_import_set_checkpoint` 记录当前物件、可用候选、未决缺陷及下一步。遇到 `checkpointError` 时先显式导出并核对工作包。跨宿主接续时一起携带工作包、`.workflow.json` 伴随文件和所需外部证据。
+用 `image_import_set_checkpoint` 记录当前物件、可用候选、未决缺陷及下一步。MCP 的 `checkpoint.path` 可传给本机 `--resume`。遇到 `checkpointError` 或需要跨宿主接续时，用 `image_import_export_work` 导出并核对完整工作包，带上 `.workflow.json` 与所需外部证据。
 
 技术校验后从空存储或新任务冷读制品，核对仍可继续编辑及所需资源。图片制作状态和主持人原图留在受控工作包，玩家输出走正式的玩家过滤与导出。继续前核对新任务的范围及图片外发授权。

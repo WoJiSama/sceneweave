@@ -10,8 +10,10 @@ import { readBounded, replaceResult, writeVerified } from '../harness/io.mjs'
 import { executeLocalSegmentation, LOCAL_SEGMENTATION_TOOL } from './local-tool.mjs'
 import { readWorkflowCompanion, writeWorkflowCompanion } from '../harness/workflow-checkpoint.mjs'
 import { imageToolEffect, runImageRequestQueue } from './request-queue.mjs'
+import { imageCheckpointSuffix, readImageCheckpoint, saveImageCheckpoint } from './checkpoint.mjs'
+import { saveReviewImages } from './review-artifacts.mjs'
 
-const usage = 'node tools/image-import/server.mjs (--image ABS_IMAGE --license-file ABS_LICENSE --attribution TEXT | --resume ABS_WORK_PACKAGE) --output EXISTING_OUTPUT_DIRECTORY [--local-model-dir ABS_DIR --python ABS_PYTHON [--python-path ABS_DEPENDENCY_DIR]]'
+const usage = 'node tools/image-import/server.mjs (--image ABS_IMAGE --license-file ABS_LICENSE --attribution TEXT | --resume ABS_WORK_PACKAGE_OR_LOCAL_CHECKPOINT) --output EXISTING_OUTPUT_DIRECTORY [--local-model-dir ABS_DIR --python ABS_PYTHON [--python-path ABS_DEPENDENCY_DIR]]'
 
 function parseOptions(args) {
   if (args.length === 1 && args[0] === '--help') return null
@@ -44,6 +46,20 @@ function parseOptions(args) {
 
 const send = value => process.stdout.write(JSON.stringify(value) + '\n')
 const sendError = (id, code, message) => send({ jsonrpc: '2.0', id, error: { code, message } })
+const imageWorkflowId = 'sceneweave-image-items'
+const previousImageWorkflows = new Map([
+  [2, 'a07bc0d66ef8470902074e9883059fd48e8be5d1e14e44ac14d65b55bff272e7'],
+  [3, '80e1d16a2fd946693efb6371f6ae7ecf8672a6c4fcef267380a710563a1a541c'],
+])
+const reviewTools = new Set(['image_import_analyze_repair', 'image_import_enhancement_candidates', 'image_import_matte_candidates',
+  'image_import_subject_candidates', 'image_import_surface_candidate', 'image_import_local_segment', 'image_import_build_project'])
+
+function resumeImageWorkflow(raw, sdk) {
+  // Earlier retention and delivery instructions use the same work state.
+  if (raw?.id === imageWorkflowId && previousImageWorkflows.has(raw.version) && raw.definitionHash === previousImageWorkflows.get(raw.version)
+    && Object.keys(raw).sort().join(',') === 'definitionHash,id,version') return sdk.workflowBinding(imageWorkflowId)
+  return sdk.assertWorkflowBinding(raw)
+}
 
 /** The browser session owns one captured image and applies tools serially. */
 async function executeInBrowser({ name, input }) {
@@ -106,7 +122,7 @@ async function executeInBrowser({ name, input }) {
   }
 }
 
-async function saveCandidate(response, output, context, tooling, workflow) {
+async function saveCandidate(response, output, context, tooling, workflow, saveImages) {
   const directory = path.join(output, 'candidate-' + response.generation + '-' + randomUUID())
   await fs.mkdir(directory, { mode: 0o700 })
   const record = { status: 'running', workflow, taskId: response.taskId, generation: response.generation,
@@ -116,7 +132,6 @@ async function saveCandidate(response, output, context, tooling, workflow) {
   try {
     await fs.writeFile(path.join(directory, 'result.json'), JSON.stringify(record) + '\n', { flag: 'wx', mode: 0o600 })
     const archive = await writeVerified(directory, 'map.sceneweave', Buffer.from(response.archiveBase64, 'base64'))
-    const preview = await writeVerified(directory, 'preview.png', Buffer.from(response.previewBase64, 'base64'))
     const recipe = await writeVerified(directory, 'recipe.json', Buffer.from(JSON.stringify(response.recipe, null, 2) + '\n'))
     const coldPage = await context.newPage()
     let verification
@@ -124,16 +139,17 @@ async function saveCandidate(response, output, context, tooling, workflow) {
       await coldPage.goto(tooling.url)
       verification = await coldPage.evaluate(verifyDiskDelivery, {
         archiveBase64: archive.bytes.toString('base64'),
-        previewBase64: preview.bytes.toString('base64'),
+        previewBase64: response.previewBase64,
         expectedProjectHash: response.projectHash,
       })
     } finally {
       await coldPage.close()
     }
+    const previews = await saveReviewImages(directory, { preview: { bytes: Buffer.from(response.previewBase64, 'base64') } }, saveImages)
     const completed = { ...record, status: 'complete', verification,
-      files: { project: archive.record, preview: preview.record, recipe: recipe.record } }
+      files: { project: archive.record, preview: previews.files.preview, recipe: recipe.record } }
     await replaceResult(directory, completed)
-    return [{ type: 'text', text: JSON.stringify({ ...completed, directory }) }]
+    return [{ type: 'text', text: JSON.stringify({ ...completed, directory, paths: previews.paths }) }]
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Candidate verification failed'
     await replaceResult(directory, { ...record, status: 'failed', error: message }).catch(() => {})
@@ -142,11 +158,10 @@ async function saveCandidate(response, output, context, tooling, workflow) {
 }
 
 async function serve(options) {
-  const work = options.resume ? await readBounded(options.resume, 100 * 1024 * 1024) : null
-  const image = work ? null : await readBounded(options.image, 20 * 1024 * 1024)
-  const licenseBytes = work ? null : await readBounded(options.licenseFile, 256 * 1024)
+  const image = options.resume ? null : await readBounded(options.image, 20 * 1024 * 1024)
+  const licenseBytes = options.resume ? null : await readBounded(options.licenseFile, 256 * 1024)
   const licenseText = licenseBytes ? new TextDecoder('utf-8', { fatal: true }).decode(licenseBytes) : ''
-  if (!(await fs.stat(options.output)).isDirectory() || !work && (!licenseText.trim() || !options.attribution.trim())) {
+  if (!(await fs.stat(options.output)).isDirectory() || !options.resume && (!licenseText.trim() || !options.attribution.trim())) {
     throw new Error(usage)
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -160,10 +175,18 @@ async function serve(options) {
   let browser
   let lines
   try {
-    const workflowSdk = await tooling.workflows()
-    const restoredWorkflow = options.resume ? await readWorkflowCompanion(options.resume, work, workflowSdk.assertWorkflowBinding) : { status: 'new', binding: null }
-    const workflow = restoredWorkflow.binding ?? workflowSdk.workflowBinding('sceneweave-image-items')
-    if (workflow.id !== 'sceneweave-image-items') throw new Error('工作包绑定的主工作流与图片制作入口不符。')
+    const [workflowSdk, storageSdk] = await Promise.all([tooling.workflows(), tooling.imageWorkStorage()])
+    let work, restoredWorkflow = { status: 'new', binding: null }
+    if (options.resume?.endsWith(imageCheckpointSuffix)) {
+      const saved = await readImageCheckpoint(options.resume, storageSdk, binding => resumeImageWorkflow(binding, workflowSdk))
+      work = Buffer.from(saved.bytes)
+      restoredWorkflow = saved
+    } else if (options.resume) {
+      work = await readBounded(options.resume, 100 * 1024 * 1024)
+      restoredWorkflow = await readWorkflowCompanion(options.resume, work, binding => resumeImageWorkflow(binding, workflowSdk))
+    }
+    const workflow = restoredWorkflow.binding ?? workflowSdk.workflowBinding(imageWorkflowId)
+    if (workflow.id !== imageWorkflowId) throw new Error('工作包绑定的主工作流与图片制作入口不符。')
     try { browser = await chromium.launch({ headless: true, ...(process.env.SCENEWEAVE_BROWSER_CHANNEL ? { channel: process.env.SCENEWEAVE_BROWSER_CHANNEL } : {}) }) }
     catch (error) {
       if (process.env.SCENEWEAVE_BROWSER_CHANNEL || !String(error).includes("Executable doesn't exist")) throw error
@@ -201,6 +224,12 @@ async function serve(options) {
     }, { base64: image?.toString('base64'), workBase64: work?.toString('base64'), rights: { licenseText, attribution: options.attribution }, originalName: options.image ? path.basename(options.image) : '',
       savedGeneration: restoredWorkflow.status === 'bound' ? restoredWorkflow.generation : undefined })
     if (options.localModelDir) definitions.push(LOCAL_SEGMENTATION_TOOL)
+    for (const tool of definitions) {
+      if (!reviewTools.has(tool.name)) continue
+      tool.inputSchema = { ...tool.inputSchema, properties: { ...tool.inputSchema.properties, saveImages: {
+        type: 'boolean', default: false, description: 'Save standalone PNG files in the result directory. By default review images use a shared, reclaimable cache.',
+      } } }
+    }
     const workflowTools = definitions.map(tool => ({ name: tool.name, parameters: tool.inputSchema }))
     definitions.push({ name: workflowSdk.WORKFLOW_DISCOVERY_TOOL.name, description: workflowSdk.WORKFLOW_DISCOVERY_TOOL.description,
       inputSchema: workflowSdk.WORKFLOW_DISCOVERY_TOOL.parameters })
@@ -208,11 +237,8 @@ async function serve(options) {
     const saveWork = async () => {
       const response = await page.evaluate(executeInBrowser, { name: 'image_import_export_work', input: {} })
       if (response.toolError) throw new Error(response.toolError.message)
-      const filename = `work-${response.generation}-${randomUUID()}.sceneweave-image-work`
-      const written = await writeVerified(options.output, filename, Buffer.from(response.workBase64, 'base64'))
-      const companion = await writeWorkflowCompanion(path.join(options.output, filename), written.bytes, workflow, response.generation)
-      return { path: path.join(options.output, filename), sha256: written.record.sha256, generation: response.generation,
-        workflow, workflowCompanion: path.join(options.output, companion.record.file) }
+      return saveImageCheckpoint(options.output, Buffer.from(response.workBase64, 'base64'), workflow, response.generation,
+        storageSdk, workflowSdk.assertWorkflowBinding)
     }
 
     const handleRequest = async ({ request, error }) => {
@@ -256,15 +282,22 @@ async function serve(options) {
           const value = workflowSdk.queryWorkflow(params.arguments ?? {}, host)
           send({ jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ ...value, binding: workflow,
             resumeBindingStatus: restoredWorkflow.status,
-            continuation: '详细断点与未决问题读取image_import_workflow。跨电脑同时携带工作包与.workflow.json；缺少伴随记录时只证明工程输入，不证明旧流程定义。' }) }] } })
+            continuation: '本机断点可传给 --resume。跨电脑使用 image_import_export_work，带上完整工作包和 .workflow.json。详细进度见 image_import_workflow。' }) }] } })
           return
         }
+        let input = params.arguments ?? {}, saveImages = false
+        if (reviewTools.has(params.name) && Object.hasOwn(input, 'saveImages')) {
+          const { saveImages: requested, ...toolInput } = input
+          if (typeof requested !== 'boolean') throw new Error('saveImages 须为布尔值。')
+          saveImages = requested
+          input = toolInput
+        }
         if (params.name === LOCAL_SEGMENTATION_TOOL.name) {
-          const content = await executeLocalSegmentation(page, options, params.arguments ?? {})
+          const content = await executeLocalSegmentation(page, options, input, saveImages)
           send({ jsonrpc: '2.0', id: request.id, result: { content } })
           return
         }
-        const response = await page.evaluate(executeInBrowser, { name: params.name, input: params.arguments ?? {} })
+        const response = await page.evaluate(executeInBrowser, { name: params.name, input })
         if (response.toolError) {
           send({ jsonrpc: '2.0', id: request.id, result: { isError: true, content: [{ type: 'text', text: JSON.stringify(response.toolError) }] } })
           return
@@ -274,40 +307,42 @@ async function serve(options) {
           const { reviewBase64, ...metadata } = response.neighborhood
           const directory = path.join(options.output, `neighborhood-${metadata.generation}-${randomUUID()}`)
           await fs.mkdir(directory, { mode: 0o700 })
-          const review = await writeVerified(directory, 'review.png', Buffer.from(reviewBase64, 'base64'))
-          if (review.record.sha256 !== metadata.reviewSha256) throw new Error('邻域审阅图落盘摘要不一致。')
-          const record = { ...metadata, review: review.record }
+          const { files, paths } = await saveReviewImages(directory, { review: { bytes: Buffer.from(reviewBase64, 'base64'), sha256: metadata.reviewSha256 } }, saveImages)
+          const record = { ...metadata, review: files.review }
           const written = await writeVerified(directory, 'analysis.json', Buffer.from(JSON.stringify(record, null, 2) + '\n'))
-          content = [{ type: 'text', text: JSON.stringify({ path: path.join(directory, 'analysis.json'), sha256: written.record.sha256, ...record }) },
+          content = [{ type: 'text', text: JSON.stringify({ path: path.join(directory, 'analysis.json'), sha256: written.record.sha256, ...record, paths }) },
             { type: 'image', mimeType: 'image/png', data: reviewBase64 }]
         } else if (response.enhancements) {
           const { sourceBase64, candidates, ...metadata } = response.enhancements
           const directory = path.join(options.output, `enhancement-${metadata.generation}-${randomUUID()}`)
           await fs.mkdir(directory, { mode: 0o700 })
-          const source = await writeVerified(directory, 'source.png', Buffer.from(sourceBase64, 'base64'))
+          const previews = { source: { bytes: Buffer.from(sourceBase64, 'base64'), sha256: metadata.sourceItemSha256 } }
           const records = [], images = []
           for (const [index, candidate] of candidates.entries()) {
             const { pngBase64, reviewBase64, coverageBase64, ...info } = candidate
-            const png = await writeVerified(directory, `candidate-${index}.png`, Buffer.from(pngBase64, 'base64'))
-            const review = await writeVerified(directory, `candidate-${index}-review.png`, Buffer.from(reviewBase64, 'base64'))
-            if (png.record.sha256 !== info.pngSha256) throw new Error('增强候选落盘摘要不一致。')
-            const coverage = coverageBase64 ? await writeVerified(directory, `candidate-${index}-coverage.png`, Buffer.from(coverageBase64, 'base64')) : undefined
-            if (coverage && coverage.record.sha256 !== info.coverageSha256) throw new Error('主体覆盖阶段落盘摘要不一致。')
-            records.push({ ...info, png: png.record, review: review.record, ...(coverage ? { coverage: coverage.record } : {}) })
+            const key = `candidate-${index}`
+            previews[key] = { bytes: Buffer.from(pngBase64, 'base64'), sha256: info.pngSha256 }
+            previews[key + '-review'] = { bytes: Buffer.from(reviewBase64, 'base64') }
+            if (coverageBase64) previews[key + '-coverage'] = { bytes: Buffer.from(coverageBase64, 'base64'), sha256: info.coverageSha256 }
+            records.push({ ...info, key })
             images.push({ type: 'image', mimeType: 'image/png', data: reviewBase64 })
           }
-          if (source.record.sha256 !== metadata.sourceItemSha256) throw new Error('增强原件落盘摘要不一致。')
-          const record = { ...metadata, source: source.record, candidates: records }
+          const { files, paths } = await saveReviewImages(directory, previews, saveImages)
+          const record = { ...metadata, source: files.source, candidates: records.map(({ key, ...info }) => ({
+            ...info, png: files[key], review: files[key + '-review'],
+            ...(files[key + '-coverage'] ? { coverage: files[key + '-coverage'] } : {}),
+          })) }
           const written = await writeVerified(directory, 'candidates.json', Buffer.from(JSON.stringify(record, null, 2)+'\n'))
-          content = [{ type: 'text', text: JSON.stringify({ path: path.join(directory, 'candidates.json'), sha256: written.record.sha256, ...record }) }, ...images]
+          content = [{ type: 'text', text: JSON.stringify({ path: path.join(directory, 'candidates.json'), sha256: written.record.sha256, ...record, paths }) }, ...images]
         } else if (response.workBase64) {
           const filename = `work-${response.generation}-${randomUUID()}.sceneweave-image-work`
           const written = await writeVerified(options.output, filename, Buffer.from(response.workBase64, 'base64'))
           const companion = await writeWorkflowCompanion(path.join(options.output, filename), written.bytes, workflow, response.generation)
           content = [{ type: 'text', text: JSON.stringify({ path: path.join(options.output, filename), sha256: written.record.sha256, generation: response.generation,
-            workflow, workflowCompanion: path.join(options.output, companion.record.file) }) }]
+            workflow, workflowCompanion: path.join(options.output, companion.record.file),
+            storage: { writtenBytes: written.record.byteLength + companion.record.byteLength, reusedBytes: 0 } }) }]
         } else if (response.archiveBase64) {
-          content = await saveCandidate(response, options.output, context, tooling, workflow)
+          content = await saveCandidate(response, options.output, context, tooling, workflow, saveImages)
         } else if (response.previewBase64) {
           content = [
             { type: 'image', mimeType: 'image/png', data: response.previewBase64 },

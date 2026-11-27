@@ -179,7 +179,7 @@
     },
     {
       "id": "sceneweave-image-items",
-      "version": 2,
+      "version": 4,
       "title": "从图片制作可编辑item",
       "summary": "核对原图与比例，辅助选区、切割和补底，查看换底/移转预览，保存制作工作包。",
       "tags": [

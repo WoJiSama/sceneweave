@@ -461,7 +461,7 @@ export class ImageImportToolSession {
       assertCurrent()
       return { taskId: this.workId, target: options.target, inputHash, sourceItemSha256, sourceBytes, sourceBoundsPx: original.boundsPx,
         generation: startedGeneration, candidates, adopted: false, sourceChanged: false,
-        nextAction: '实际比较所有候选与保真裁片；采用需在统一素材编辑页以同配方生成并经保护链确认。候选目录需另行携带，制作包不嵌入这些派生PNG。' }
+        nextAction: '逐份对比候选和保真裁片。选定后在统一素材编辑页按同配方生成，经保护检查后采用。' }
     }
     if (name === 'image_import_guided_selection' && !(args as { target?: string }).target) {
       const inputGuide = (args as unknown as { guide: GuidedSelectionInput }).guide

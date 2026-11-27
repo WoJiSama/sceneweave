@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { writeVerified } from '../harness/io.mjs'
 import { runLocalSegmentation } from './local-segmentation.mjs'
+import { saveReviewImages } from './review-artifacts.mjs'
 
 const bounds = z.strictObject({ x: z.number().int().nonnegative(), y: z.number().int().nonnegative(),
   width: z.number().int().positive().max(8192), height: z.number().int().positive().max(8192) })
@@ -17,7 +18,7 @@ export const LOCAL_SEGMENTATION_TOOL = { name: 'image_import_local_segment',
   inputSchema: z.toJSONSchema(argumentsSchema) }
 
 /** Local inference remains outside the browser; the shared session owns all adoption and history. */
-export async function executeLocalSegmentation(page, options, raw) {
+export async function executeLocalSegmentation(page, options, raw, saveImages) {
   const args = argumentsSchema.parse(raw)
   const input = await page.evaluate(async args => {
     const session = window.imageImportTools, source = window.imageImportSource, state = session.inspect()
@@ -37,10 +38,12 @@ export async function executeLocalSegmentation(page, options, raw) {
   }, args)
   const directory = path.join(options.output, 'local-selection-' + randomUUID())
   await fs.mkdir(directory, { mode: 0o700 })
+  const inputFile = path.join(directory, 'input.png')
+  let inputCreated = false
   try {
-    const written = await writeVerified(directory, 'input.png', Buffer.from(input.imageBase64, 'base64'))
+    const written = await writeVerified(directory, 'input.png', Buffer.from(input.imageBase64, 'base64'), undefined, () => { inputCreated = true })
     const result = await runLocalSegmentation({ python: options.python, modelDir: options.localModelDir, pythonPath: options.pythonPath }, {
-      protocol: 'sceneweave-local-segmentation/1', imagePath: path.join(directory, 'input.png'),
+      protocol: 'sceneweave-local-segmentation/1', imagePath: inputFile,
       contextBounds: args.contextBounds, targetBounds: args.targetBounds, points: args.points,
       postprocess: { fillHolesMaxPixels: args.cleanup?.fillHoles ?? 0, removeIslandsMaxPixels: args.cleanup?.removeIslands ?? 0 },
     })
@@ -87,20 +90,23 @@ export async function executeLocalSegmentation(page, options, raw) {
       }
       return { sourcePreview, outputs }
     }, { candidates, imageBase64: input.imageBase64, generation: args.generation })
-    await writeVerified(directory, 'source-400.png', Buffer.from(previews.sourcePreview, 'base64'))
+    const reviewImages = { 'source-400': { bytes: Buffer.from(previews.sourcePreview, 'base64') } }
     const content = [{ type: 'text', text: '原图相同目标范围 · 400%，用于核对造型与描边。' }, { type: 'image', mimeType: 'image/png', data: previews.sourcePreview }]
     for (const preview of previews.outputs) {
       if (preview.empty) continue
-      await writeVerified(directory, `candidate-${preview.index}.png`, Buffer.from(preview.item, 'base64'))
-      await writeVerified(directory, `candidate-${preview.index}-400.png`, Buffer.from(preview.review, 'base64'))
+      reviewImages[`candidate-${preview.index}`] = { bytes: Buffer.from(preview.item, 'base64') }
+      reviewImages[`candidate-${preview.index}-400`] = { bytes: Buffer.from(preview.review, 'base64') }
       content.push({ type: 'text', text: `候选 ${preview.index} · 400% 黑／白／棋盘。模型分数不等于边缘质量。` }, { type: 'image', mimeType: 'image/png', data: preview.review })
     }
-    const record = { generation: args.generation, directory, ...result, candidates, adoption: 'not-adopted' }
+    const { files, paths } = await saveReviewImages(directory, reviewImages, saveImages)
+    const record = { generation: args.generation, directory, ...result, candidates, adoption: 'not-adopted', files }
     await writeVerified(directory, 'candidates.json', Buffer.from(JSON.stringify(record, null, 2)))
-    content.push({ type: 'text', text: JSON.stringify(record) })
+    content.push({ type: 'text', text: JSON.stringify({ ...record, paths }) })
     return content
   } catch (error) {
     await writeVerified(directory, 'failure.json', Buffer.from(JSON.stringify({ generation: args.generation, error: String(error), adoption: 'not-adopted' }))).catch(() => {})
     throw error
+  } finally {
+    if (inputCreated) await fs.unlink(inputFile)
   }
 }

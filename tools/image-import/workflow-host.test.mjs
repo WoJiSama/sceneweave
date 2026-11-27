@@ -57,9 +57,14 @@ test('real image MCP extracts, resumes and delivers an editable project under on
       pending.set(next, { resolve, reject, timer })
       child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: next, method, params }) + '\n')
     })
-    return { call, tool: async (name, args = {}) => {
+    return { call, tool: async (name, args = {}, checkpoint) => {
       const response = await call('tools/call', { name, arguments: args })
       assert.notEqual(response.isError, true, JSON.stringify(response.content))
+      if (checkpoint) {
+        const receipt = response.content.filter(block => block.type === 'text').map(block => JSON.parse(block.text)).find(value => value.checkpoint || value.checkpointError)
+        assert.ok(receipt?.checkpoint, JSON.stringify(receipt))
+        checkpoint(receipt.checkpoint)
+      }
       return JSON.parse(response.content.find(block => block.type === 'text').text)
     }, close: async () => { child.stdin.end(); return closed } }
   }
@@ -89,16 +94,36 @@ test('real image MCP extracts, resumes and delivers an editable project under on
     name: 'Synthetic crate', polygon: rectangle(16, 16, 48, 48), donor: { x: 1, y: 1, width: 12, height: 12 }, renderLayer: 'object', blocksMovement: true })
   const item = await first.tool('image_import_item_preview', { target })
   assert.equal(item.generation, extracted.generation)
+  const enhancement = { target, direction: 'clarity', count: 2 }
+  const draftImages = await first.tool('image_import_enhancement_candidates', enhancement)
+  const repeatedImages = await first.tool('image_import_enhancement_candidates', enhancement)
+  assert.deepEqual(await fs.readdir(path.dirname(draftImages.path)), ['candidates.json'])
+  assert.equal(draftImages.source.storage, 'cache')
+  assert.deepEqual(draftImages.paths, repeatedImages.paths)
+  assert.equal(digest(await fs.readFile(draftImages.paths.source)), draftImages.source.sha256)
+  const keptImages = await first.tool('image_import_enhancement_candidates', { ...enhancement, saveImages: true })
+  assert.equal(path.dirname(keptImages.paths.source), path.dirname(keptImages.path))
+  assert.deepEqual(await fs.readFile(keptImages.paths.source), await fs.readFile(draftImages.paths.source))
   const review = await first.tool('image_import_review_item', { generation: item.generation, target, inputHash: item.inputHash, verdict: 'needs-work', note: 'Synthetic edge awaiting visual review' })
-  await first.tool('image_import_set_checkpoint', { generation: review.generation, notes: 'Unresolved edge', nextAction: 'Review synthetic square', scaleStatus: 'measured' })
+  let localCheckpoint
+  await first.tool('image_import_set_checkpoint', { generation: review.generation, notes: 'Unresolved edge', nextAction: 'Review synthetic square', scaleStatus: 'measured' },
+    value => { localCheckpoint = value })
+  assert.match(localCheckpoint.path, /\.sceneweave-image-checkpoint$/)
+  assert(localCheckpoint.storage.reusedBytes > 0)
+  assert.equal((await fs.readdir(output)).filter(file => file.endsWith('.sceneweave-image-work')).length, 0)
   const exported = await first.tool('image_import_export_work')
   assert.ok(exported.workflowCompanion)
+  assert.equal(localCheckpoint.sha256, exported.sha256)
   const companion = JSON.parse(await fs.readFile(exported.workflowCompanion, 'utf8'))
   assert.equal(companion.generation, exported.generation)
   assert.deepEqual(companion.binding, found.workflow)
   assert.equal((await first.close()).code, 0)
 
-  const resumed = host(['--resume', exported.path])
+  const oldCheckpoint = JSON.parse(await fs.readFile(localCheckpoint.path, 'utf8'))
+  const oldCheckpointPath = path.join(output, 'version-3.sceneweave-image-checkpoint')
+  await fs.writeFile(oldCheckpointPath, JSON.stringify({ ...oldCheckpoint, workflow: { id: oldCheckpoint.workflow.id, version: 3,
+    definitionHash: '80e1d16a2fd946693efb6371f6ae7ecf8672a6c4fcef267380a710563a1a541c' } }))
+  const resumed = host(['--resume', oldCheckpointPath])
   const progress = await resumed.tool('sceneweave_workflow', { action: 'progress' })
   assert.equal(progress.resumeBindingStatus, 'bound')
   assert.equal(progress.progress.generation, exported.generation + 1)
@@ -131,12 +156,14 @@ test('real image MCP extracts, resumes and delivers an editable project under on
   assert.deepEqual(delivery.source, source.image)
   assert.equal(delivery.verification.projectHash, delivery.projectHash)
   assert.equal(delivery.verification.changedPixels, 0)
-  for (const { file, byteLength, sha256 } of Object.values(delivery.files)) {
-    const bytes = await fs.readFile(path.join(delivery.directory, file))
+  assert.deepEqual((await fs.readdir(delivery.directory)).sort(), ['map.sceneweave', 'recipe.json', 'result.json'])
+  assert.equal(delivery.files.preview.storage, 'cache')
+  for (const [key, { file, byteLength, sha256 }] of Object.entries(delivery.files)) {
+    const bytes = await fs.readFile(delivery.paths[key] ?? path.join(delivery.directory, file))
     assert.equal(bytes.length, byteLength)
     assert.equal(digest(bytes), sha256)
   }
-  const { directory: candidateDirectory, ...deliveryRecord } = delivery
+  const { directory: candidateDirectory, paths: _paths, ...deliveryRecord } = delivery
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(candidateDirectory, 'result.json'), 'utf8')), deliveryRecord)
   const archive = unzipSync(await fs.readFile(path.join(candidateDirectory, delivery.files.project.file)))
   const decoder = new TextDecoder()
@@ -148,6 +175,12 @@ test('real image MCP extracts, resumes and delivers an editable project under on
   const resource = manifest.entries.find(entry => entry.sha256 === asset.sha256)
   assert.equal(digest(archive[resource.path]), asset.sha256)
   assert.equal((await resumed.close()).code, 0)
+
+  await fs.writeFile(exported.workflowCompanion, JSON.stringify({ ...companion, binding: { id: companion.binding.id, version: 2,
+    definitionHash: 'a07bc0d66ef8470902074e9883059fd48e8be5d1e14e44ac14d65b55bff272e7' } }))
+  const prior = host(['--resume', exported.path])
+  assert.equal((await prior.tool('image_import_workflow')).notes, 'Unresolved edge')
+  assert.equal((await prior.close()).code, 0)
 
   await fs.writeFile(exported.workflowCompanion, JSON.stringify({ ...companion, binding: { ...companion.binding, definitionHash: '0'.repeat(64) } }))
   const stale = host(['--resume', exported.path])

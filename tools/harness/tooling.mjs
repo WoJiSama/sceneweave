@@ -45,6 +45,7 @@ export async function startHarnessTooling(root, listen = false, editor = false) 
       forestLoop: () => server.ssrLoadModule('/src/shared/ai/forest-loop.ts'),
       budget: () => server.ssrLoadModule('/src/shared/budget/task-budget.ts'),
       png: () => server.ssrLoadModule('/src/shared/project/png-rgba.ts'),
+      imageWorkStorage: () => server.ssrLoadModule('/src/shared/image-import/work-archive-storage.ts'),
       close: async () => { try { await server.close() } finally { await rm(cacheDirectory, { recursive: true, force: true }) } },
     }
   } catch (error) {

@@ -45,7 +45,7 @@ node tools/image-import/server.mjs --resume ABS_WORK_PACKAGE --output EXISTING_O
 | `image_import_set_surfaces` | 用最新 `generation` 和完整 `surfaces` 清单原子定义共用底材、取样及取证排除，再重放使用它们的物件；显式 `kind:'guided'` 可携带方向与有限结构路径，每条绑定可信可见参考及判断理由。图层以 `repair:'surfaces'`、`repairSurfaceIds` 引用，不能混用旧 `fills`。改变清单会改变输入摘要，须重新审核 |
 | `image_import_analyze_repair` | 用 `target` 只读检查该物件实际补底，返回同组候选、适合原因、与周围冲突及原图坐标中的局部辅助建议，并输出来源／目标对照图。绑定当前输入摘要，不修改像素、审核或工程；修改取样、材质、排除及前后层后重新分析。状态只为待审或需辅助，分数不是成功概率 |
 | `image_import_item_preview` | 用 `target` 读取真实400%黑／白／棋盘预览及当前 `inputHash`、裁片 PNG 与补底摘要和推断信息，先实际看图再复核 |
-| `image_import_enhancement_candidates` | 用 `target`、`direction`、`count:2\|3` 和可选 `scale:1\|2` 从确切原分辨率裁片产生独立切后候选；返回父源、配方、像素变化及每份黑白棋盘PNG。只读，不修改选区、原图复核、工作包或场景；候选目录另行携带，采用经统一素材编辑页 |
+| `image_import_enhancement_candidates` | 用 `target`、`direction`、`count:2\|3` 和可选 `scale:1\|2` 从确切原分辨率裁片产生切后候选，返回父源、配方、像素变化及每份黑白棋盘预览。需要独立留存 PNG 时传 `saveImages: true`，采用经统一素材编辑页 |
 | `image_import_matte_candidates` | 用 `{target,count:2\|3,bandPx?:1\|2}` 从完整原图上下文、当前选区及稳定外侧背景依据生成只读边带分色候选。仅反解已有半透明边带RGB，alpha与核心保持，二值裁片无变化；依赖完整上下文，当前仅供审阅，不走普通裁片增强的采用入口 |
 | `image_import_subject_candidates` | 用 `{target,count:2\|3,method?,bandPx:1\|2}` 生成原裁片、覆盖与最终派生的只读候选。显式 `subject-contour-v1` 只接收二值选区与不透明原前景，边带固定1；`subject-matte-v1` 在内侧1／2像素作颜色混合估计。省略方法沿用已采用，否则旧matte；保护／排除省略沿用、`null` 清除。共同原图网格审阅与限制见[分阶段流程](#subject-refinement) |
 | `image_import_set_subject_refinement` | 用当前 `generation`、`target`、候选 `inputHash` 与完整显式 `refinement` 原子采用已审阅派生；`refinement:null` 恢复原裁片。严格工作包v1保存配方，普通工程保存实际派生及来源；物理占地与补底不随视觉边缘改变，基线保真不授予派生视觉通过 |
@@ -54,12 +54,12 @@ node tools/image-import/server.mjs --resume ABS_WORK_PACKAGE --output EXISTING_O
 | `image_import_review_item` | 用当前 `generation`、`target`、预览取得的 `inputHash`、`verdict: needs-work\|reviewed` 与具体 `note` 记录助手复核；程序重新生成并绑定实际 PNG／补底摘要，旧输入拒绝。`reviewed` 不代表用户P3 |
 | `image_import_export_work` | 导出独立工作包，宿主返回实际文件路径、SHA-256 和代次；可用于结束会话和跨电脑接续 |
 
-MCP 宿主在每次成功修改后写入新的 `work-代次-随机身份.sceneweave-image-work` 检查点，保留旧文件。只读预览和未指定目标的辅助选区不会被记成修改。检查点写入失败时，回执包含 `checkpointError`，当前结果可能仍只在进程内；应先显式导出并核对成功再结束。普通工程构建另行产生候选目录与冷读记录。
+MCP 宿主在每次成功修改后写入 `.sceneweave-image-checkpoint`，同一输出目录的断点共享原图和规范化图。每个断点的编辑状态与工作包摘要独立保留，`storage` 列出新增和复用字节。用 `--resume` 打开本机断点时保留相邻的共享资源目录。要跨电脑接续，先用 `image_import_export_work` 导出完整工作包和伴随文件。遇到 `checkpointError`，先导出并检查工作包再结束。普通工程构建另行产生候选目录与冷读记录，预览由相邻缓存提供。需要独立携带工程和预览时传 `saveImages: true`。
 
 已有完整配方可离线重放：
 
 ```text
-node tools/image-import/replay.mjs --image ABS_IMAGE --recipe ABS_RECIPE --license-file ABS_LICENSE --attribution TEXT --output EXISTING_OUTPUT_DIRECTORY
+node tools/image-import/replay.mjs --image ABS_IMAGE --recipe ABS_RECIPE --license-file ABS_LICENSE --attribution TEXT --output EXISTING_OUTPUT_DIRECTORY [--save-images]
 ```
 
 这些命令都要求已有绝对输出目录；新建和配方重放另需实际原图与许可文件，`--resume` 则从工作包读取已保全的资料。重放产生工程和冷读记录；它不能代替人眼查看裁片、背景与移动结果。配方只描述操作，不能单独恢复遗失的原图、未提交笔迹或外部截图。
@@ -70,7 +70,7 @@ node tools/image-import/replay.mjs --image ABS_IMAGE --recipe ABS_RECIPE --licen
 
 本机工具固定 `Xenova/slimsam-77-uniform` 的确定文件身份，使用原图PNG、CPU和显式正负点；模型接口没有box输入，`targetBounds`只是输出裁图范围，不应称为box提示。`contextBounds`则决定真正进入编码器的上下文；过小裁图放大可能把“家具连地毯”识别成整体，保留房间上下文应作为首轮选择。分数是模型内部预测，不能当作实测IoU或视觉分；每次比较全部3份候选，再决定选择、补点或局部画笔。模型提示点也不保证每个像素一定保留。
 
-每次推理在输出目录保留独立输入PNG、三份候选、400%图和 `candidates.json`；空候选保留但不可采用。采用后的 `selectionOrigin` 记录原图及实际输入SHA、先前图层摘要、模型版本／两个权重文件摘要、上下文、目标区、正负点、所选候选和显式小孔／孤岛参数；这些资料随独立工作包保全，不进入普通场景格式。后续画笔编辑保留初始来源，并在journal记录修正，不能把初始模型参数当作最终蒙版的唯一重放依据。重新打开已选工作包不需要模型在线或再次推理；完整候选目录是包外诊断证据，跨电脑需要继续比较旧候选时另行携带。
+每次推理保留 `candidates.json`，审阅图按摘要复用缓存。推理用的临时输入 PNG 在完成后回收。需携带候选和 400% 图时传 `saveImages: true`。采用后的 `selectionOrigin` 记录原图及实际输入 SHA、先前图层摘要、模型版本与权重摘要、上下文、目标区、正负点、所选候选和显式小孔／孤岛参数。独立工作包保留这些资料和最终蒙版，重开可继续画笔编辑或使用所选候选。
 
 ### 视觉大模型边界辅助
 
@@ -133,7 +133,7 @@ MCP的只读主体候选也接受可选`foregroundProtectionMask`／`excludedEvi
 
 先修正选错、漏边和带入背景，再按缺陷选择方向。下列 `image_import_enhancement_candidates` 的 `direction:'contour'` 是既有独立裁片增强，不能与上述 `method:'subject-contour-v1'` 混用：它仅调整有实心内侧支撑的部分二值斜角alpha，RGB、非零覆盖范围、孔洞和无支撑细杆保持，不能重新识别正确轮廓。`edge`只处理已有半透明覆盖，纯二值裁片可能完全不变。`decontaminate`须有可靠邻近透明区与内侧颜色依据，也可能无变化；它不能解决所有混色边。`clarity`插值放大只平滑呈现，不恢复未知细节；去噪须防止丢掉原笔触。
 
-查看全部2/3份候选，与原裁片按同物理尺寸、100%及400%黑白棋盘背景比较，零变化和无实际改善均不可称提升。MCP将确切源、候选、换底图及 `candidates.json` 写入独立目录并复读；该目录不在三条目工作包内。工具不把增强结果写回原蒙版、保真重建或旧复核。实际采用须在统一素材编辑页以同一父源、同配方生成，再经现有保护、场景预览、一次采用、撤销和冷读；当前MCP不直接自动采用增强结果。
+查看全部 2 到 3 份候选，与原裁片按同物理尺寸、100% 及 400% 黑白棋盘背景比较。MCP 保存 `candidates.json`，从 `paths` 可读取缓存里的确切源、候选和换底图。缓存回收后可用同一输入重新生成。用户要求保存这一轮 PNG 时传 `saveImages: true`。实际采用须在统一素材编辑页以同一父源、同配方生成，再经保护、场景预览、一次采用、撤销和冷读。
 
 另有独立的 `image_import_matte_candidates({target,count:2|3,bandPx?:1|2})`，用于审阅已有半透明边带的背景混色。它同时读取完整原图上下文和当前选区，只在外侧存在稳定可见底材时估计前景RGB，排除保护区域和未审核的前序推断；alpha、实心核心及选区保持，二值裁片不处理，缺少依据时不变。查看全部候选并对照原色，不能把零变化或局部估计称为真图全面改善。
 
@@ -190,7 +190,7 @@ MCP的只读主体候选也接受可选`foregroundProtectionMask`／`excludedEvi
 
 图片导入工作台已接入自动保存、打开／导出工作包和“继续上次拆分”。修改停稳并完成当前笔画后保存制作进度；查看真实保存状态，失败时用导出保全。未完成标尺、当前物件、辅助标记和选区属于制作进度，尚未采用时也可以保存。刷新后打开工具，通过“继续上次拆分”恢复本机最近任务；跨电脑使用“打开制作工作包”。页面和 MCP `--resume` 都沿用工作包稳定任务身份，原文件保持；页面导入后若本机已有同ID任务，保存会报告冲突并保留双方，可先导出当前成果再选择恢复，不覆盖既有记录。
 
-「本机制作草稿」可选择之前保存的任务，打开、下载原工作包或确认移除。此站点下累计保存最多 64 份、256 MiB。达到上限时，新任务和会继续增大超额用量的保存会失败，已有草稿仍可打开、下载和整理。
+「本机制作草稿」可选择之前保存的任务，打开、下载完整的原工作包或确认移除。此站点下累计保存最多 64 份、256 MiB，完全相同的图像字节由多份草稿共享。已有存档可用「整理旧图片草稿」逐份验证并合并重复图像，保留草稿状态和可逐字节下载的工作包。达到上限时，新任务和会继续增大超额用量的保存会失败，已有草稿仍可打开、下载和整理。
 
 “导出给模型的接续说明”产生工作流与状态 JSON，须连同工作包交给实际具备看图和工具能力的模型。它不包含图片字节，不替代工作包，也不自动给当前应用聊天添加图片工具。
 
